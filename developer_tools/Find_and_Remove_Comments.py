@@ -42,7 +42,7 @@ def center_console():
         user32.GetWindowRect(hwnd, ctypes.byref(rect))
     except: pass
 
-EXCLUDE_FOLDERS = ['.git', 'bin', 'obj', '.vs', 'packages', 'compile', 'compiled', 'Old_Code']
+EXCLUDE_FOLDERS = ['.git', 'bin', 'obj', '.vs', 'packages', 'compile', 'compiled', 'old_code']
 EXCLUDE_FILES = ['AssemblyInfo.cs']
 EXCLUDE_EXTS = ['.txt', '.log', '.json', '.resx', '.ico', '.png', '.gif', '.traineddata', '.dll', '.exe', '.config', '.manifest', '.xml', '.xsd', '.sln', '.DotSettings', '.props', '.targets']
 

@@ -30,7 +30,7 @@ def run_aggregator():
     download_dir.mkdir(parents=True, exist_ok=True)
     initialized_outputs = set()
 
-    ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'Old_Code'}
+    ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'old_code'}
     
     source_whitelist = {
         '.cs', '.axaml', '.cmd', '.py', '.json', '.xml', 
@@ -39,7 +39,7 @@ def run_aggregator():
     }
     
     for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+        dirs[:] = [d for d in dirs if d.lower() not in ignored_dirs]
         current_path = Path(root)
         
         if current_path == project_root:
