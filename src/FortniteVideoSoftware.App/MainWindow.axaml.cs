@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private double _trimEndMs = 0;
     private string _musicPath = string.Empty;
     private DispatcherTimer? _playbackTimer;
+    private DispatcherTimer? _overlayTimer;
 
     public MainWindow()
     {
@@ -32,6 +33,20 @@ public partial class MainWindow : Window
         _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _playbackTimer.Tick += PlaybackTimer_Tick;
         _playbackTimer.Start();
+
+        _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _overlayTimer.Tick += (s, e) =>
+        {
+            var overlay = this.FindControl<Border>("FeedbackOverlay");
+            if (overlay != null) overlay.IsVisible = false;
+            _overlayTimer.Stop();
+        };
+
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        if (canvas != null)
+        {
+            canvas.SizeChanged += (s, e) => UpdateTimelineMarkers();
+        }
 
         var slider = this.FindControl<Slider>("TimelineSlider");
         if (slider != null)
@@ -115,7 +130,8 @@ public partial class MainWindow : Window
                 RuntimeLog.Info("UI", "User clicked MARK START.");
                 double time = GetCurrentMpvTime();
                 _trimStartMs = time * 1000;
-                markStartButton.Content = $"START: {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}";
+                markStartButton.Content = $"START: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss}";
+                ShowFeedbackOverlay($"START MARKED: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss\\.ff}");
             };
         }
 
@@ -127,7 +143,8 @@ public partial class MainWindow : Window
                 RuntimeLog.Info("UI", "User clicked MARK END.");
                 double time = GetCurrentMpvTime();
                 _trimEndMs = time * 1000;
-                markEndButton.Content = $"END: {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}";
+                markEndButton.Content = $"END: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss}";
+                ShowFeedbackOverlay($"END MARKED: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss\\.ff}");
             };
         }
         
@@ -186,6 +203,78 @@ public partial class MainWindow : Window
         this.Loaded += async (s, e) => await InitializeHardwareScanAsync();
     }
 
+    private void ShowFeedbackOverlay(string text)
+    {
+        var overlay = this.FindControl<Border>("FeedbackOverlay");
+        var tb = this.FindControl<TextBlock>("FeedbackText");
+        if (overlay != null && tb != null)
+        {
+            tb.Text = text;
+            overlay.IsVisible = true;
+            _overlayTimer?.Stop();
+            _overlayTimer?.Start();
+        }
+        UpdateTimelineMarkers();
+    }
+
+    private void UpdateTimelineMarkers()
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        if (canvas == null || _mpvHandle == nint.Zero) return;
+
+        double duration = 0;
+        nint durationPtr = MpvWrapper.mpv_get_property_string(_mpvHandle, "duration");
+        if (durationPtr != nint.Zero)
+        {
+            string? durationStr = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(durationPtr);
+            MpvWrapper.mpv_free(durationPtr);
+            double.TryParse(durationStr, System.Globalization.CultureInfo.InvariantCulture, out duration);
+        }
+
+        if (duration <= 0) return;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            canvas.Children.Clear();
+            double canvasWidth = canvas.Bounds.Width;
+            if (canvasWidth <= 0) return;
+
+            if (_trimStartMs > 0)
+            {
+                double startX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
+                var startRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.LimeGreen, Width = 3, Height = canvas.Bounds.Height };
+                Avalonia.Controls.Canvas.SetLeft(startRect, startX);
+                canvas.Children.Add(startRect);
+                
+                var startText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimStartMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.LimeGreen, FontSize = 10 };
+                Avalonia.Controls.Canvas.SetLeft(startText, startX + 4);
+                Avalonia.Controls.Canvas.SetBottom(startText, 2);
+                canvas.Children.Add(startText);
+            }
+
+            if (_trimEndMs > 0)
+            {
+                double endX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
+                var endRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.Red, Width = 3, Height = canvas.Bounds.Height };
+                Avalonia.Controls.Canvas.SetLeft(endRect, endX);
+                canvas.Children.Add(endRect);
+                
+                var endText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimEndMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.Red, FontSize = 10 };
+                Avalonia.Controls.Canvas.SetLeft(endText, endX - 50);
+                Avalonia.Controls.Canvas.SetBottom(endText, 2);
+                canvas.Children.Add(endText);
+                
+                if (_trimStartMs > 0 && _trimEndMs > _trimStartMs)
+                {
+                    double startX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
+                    var regionRect = new Avalonia.Controls.Shapes.Rectangle { Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(70, 0, 255, 0)), Width = endX - startX, Height = canvas.Bounds.Height };
+                    Avalonia.Controls.Canvas.SetLeft(regionRect, startX);
+                    canvas.Children.Add(regionRect);
+                }
+            }
+        });
+    }
+
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_mpvHandle == nint.Zero) return;
@@ -221,7 +310,25 @@ public partial class MainWindow : Window
             if (double.TryParse(timeStr, System.Globalization.CultureInfo.InvariantCulture, out double time))
             {
                 var timeElapsed = this.FindControl<TextBlock>("TimeElapsed");
-                if (timeElapsed != null) timeElapsed.Text = TimeSpan.FromSeconds(time).ToString("mm\\:ss\\.ff");
+                if (timeElapsed != null) timeElapsed.Text = TimeSpan.FromSeconds(time).ToString("hh\\:mm\\:ss");
+                
+                // Also update slider visually without triggering seek
+                var timelineSlider = this.FindControl<Slider>("TimelineSlider");
+                if (timelineSlider != null && !timelineSlider.IsPointerOver) // very rough approximation to avoid fighting user drag
+                {
+                    nint durPtr = MpvWrapper.mpv_get_property_string(_mpvHandle, "duration");
+                    if (durPtr != nint.Zero)
+                    {
+                        string? durStr = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(durPtr);
+                        MpvWrapper.mpv_free(durPtr);
+                        if (double.TryParse(durStr, System.Globalization.CultureInfo.InvariantCulture, out double dur) && dur > 0)
+                        {
+                            timelineSlider.Value = (time / dur) * 100.0;
+                            var timeRemaining = this.FindControl<TextBlock>("TimeRemaining");
+                            if (timeRemaining != null) timeRemaining.Text = "-" + TimeSpan.FromSeconds(dur - time).ToString("hh\\:mm\\:ss");
+                        }
+                    }
+                }
             }
         }
     }

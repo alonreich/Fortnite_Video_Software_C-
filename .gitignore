@@ -33,3 +33,5 @@ compiled/
 *.log
 .DS_Store
 Thumbs.db
+old_code/
+Old_Code/

@@ -105,14 +105,23 @@
             
             <!-- Video Player Area -->
             <Border Grid.Row="0" Background="Black" Margin="10,10,10,0" CornerRadius="6" ClipToBounds="True">
-                <local:MpvVideoView Name="VideoHost" />
+                <Grid>
+                    <local:MpvVideoView Name="VideoHost" />
+                    <!-- Feedback Overlay -->
+                    <Border Name="FeedbackOverlay" Background="Black" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30" Padding="15,8" CornerRadius="4" IsVisible="False">
+                        <TextBlock Name="FeedbackText" Text="Mark Start: 00:00:00" Foreground="Yellow" FontSize="16" FontWeight="Bold" />
+                    </Border>
+                </Grid>
             </Border>
 
             <!-- Timeline -->
             <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,0">
-                <TextBlock Name="TimeElapsed" Text="00:00.00" Foreground="White" VerticalAlignment="Center" Width="60" />
-                <Slider Grid.Column="1" Name="TimelineSlider" Minimum="0" Maximum="100" Margin="10,0" />
-                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00.00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
+                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
+                <Grid Grid.Column="1" Margin="10,0">
+                    <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" />
+                    <Slider Name="TimelineSlider" Minimum="0" Maximum="100" />
+                </Grid>
+                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
             </Grid>
 
             <!-- Trim Controls Grid -->
