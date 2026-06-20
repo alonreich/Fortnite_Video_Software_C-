@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_08_ultra_wide_scaling_mobile_filter_has_center_crop_pad
-
-def test_challenge_08_ultra_wide_scaling() -> None:
-    test_challenge_08_ultra_wide_scaling_mobile_filter_has_center_crop_pad()

@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_10_multi_instance_config_refresh_without_restart
-
-def test_challenge_10_multi_instance_config(tmp_path) -> None:
-    test_challenge_10_multi_instance_config_refresh_without_restart(tmp_path)

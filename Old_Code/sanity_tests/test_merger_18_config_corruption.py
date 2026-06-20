@@ -1,5 +1,0 @@
-﻿from __future__ import annotations
-from sanity_tests._scenario_contracts import assert_merger_config_corruption_recovery
-
-def test_config_corruption_recovery(tmp_path):
-    assert_merger_config_corruption_recovery(tmp_path)

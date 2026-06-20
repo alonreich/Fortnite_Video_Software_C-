@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_07_bitrate_exhaustion_clamps_to_safe_minimum
-
-def test_challenge_07_bitrate_exhaustion(tmp_path) -> None:
-    test_challenge_07_bitrate_exhaustion_clamps_to_safe_minimum(tmp_path)

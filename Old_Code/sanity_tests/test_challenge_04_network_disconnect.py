@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_04_network_disconnect_fallback_to_local_mp3
-
-def test_challenge_04_network_disconnect(tmp_path) -> None:
-    test_challenge_04_network_disconnect_fallback_to_local_mp3(tmp_path)

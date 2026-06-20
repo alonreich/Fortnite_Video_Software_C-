@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_02_impossible_fade_tiny_clip_safe_chain
-
-def test_challenge_02_impossible_fade() -> None:
-    test_challenge_02_impossible_fade_tiny_clip_safe_chain()

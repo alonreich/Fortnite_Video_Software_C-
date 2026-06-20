@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_core import test_core_10_folder_persistence_prioritizes_custom_path
-
-def test_core_10_folder_persistence(tmp_path) -> None:
-    test_core_10_folder_persistence_prioritizes_custom_path(tmp_path)

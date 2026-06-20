@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_06_worker_race_stop_kills_process_tree
-
-def test_challenge_06_worker_race(monkeypatch) -> None:
-    test_challenge_06_worker_race_stop_kills_process_tree(monkeypatch)

@@ -1,4 +1,0 @@
-from sanity_tests.test_real_sanity_challenges import test_challenge_09_constant_pitch_music_rate_stays_1x_even_at_3_1x
-
-def test_challenge_09_constant_pitch() -> None:
-    test_challenge_09_constant_pitch_music_rate_stays_1x_even_at_3_1x()
