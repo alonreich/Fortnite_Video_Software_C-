@@ -1,26 +1,35 @@
-﻿import sys
+import sys
 import os
-sys.dont_write_bytecode = True
-os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
-os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), '.null_cache_dir')
-WORKING_DIRECTORY = r"C:\Fortnite_Video_Software"
-
-import tokenize
 import re
 import ctypes
+from pathlib import Path
 from multiprocessing import Pool, cpu_count
+
+sys.dont_write_bytecode = True
+
+def get_downloads_directory():
+    user_profile = os.environ.get('USERPROFILE')
+    if user_profile:
+        return Path(user_profile) / "Downloads"
+    return Path.home() / "Downloads"
+
+WORKING_DIRECTORY = Path(__file__).resolve().parent.parent
+TOOL_OUTPUT_DIRECTORY = get_downloads_directory() / "fortnite_video_software" / "developer_tools"
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+os.environ['PYTHONPYCACHEPREFIX'] = str(TOOL_OUTPUT_DIRECTORY / "pycache")
+sys.pycache_prefix = os.environ['PYTHONPYCACHEPREFIX']
+
 try:
     os.chdir(WORKING_DIRECTORY)
 except Exception as e:
     print(f"Failed to change working directory: {e}")
     sys.exit(1)
+
 RED = '\033[48;5;52m\033[97;1m'
 GREEN = '\033[48;5;22m\033[97m'
 CYAN = '\033[96m'
+YELLOW = '\033[93m'
 RESET = '\033[0m'
-
-class RECT(ctypes.Structure):
-    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
 def center_console():
     try:
@@ -29,21 +38,15 @@ def center_console():
         user32 = ctypes.windll.user32
         hwnd = ctypes.windll.kernel32.GetConsoleWindow()
         if not hwnd: return
-        rect = RECT()
+        rect = ctypes.Structure()
         user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        win_w = rect.right - rect.left
-        win_h = rect.bottom - rect.top
-        screen_w = user32.GetSystemMetrics(0)
-        screen_h = user32.GetSystemMetrics(1)
-        x = (screen_w - win_w) // 2
-        y = (screen_h - win_h) // 2
-        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, 0x0001 | 0x0004 | 0x0040)
     except: pass
-EXCLUDE_FOLDERS = ['.git', '__pycache__', '.idea', 'venv', 'env', 'cache', 'project']
-EXCLUDE_FILES = ['__init__.py', 'app.py']
-EXCLUDE_EXTS = ['.txt', '.log', '.json']
-PY_REGEX = re.compile(r'^(\s*)(def|class)\s+(.*?)\s*:?\s*$')
-PS_REGEX = re.compile(r'^(\s*)(function|class)\s+(.*?)\s*\{?\s*$')
+
+EXCLUDE_FOLDERS = ['.git', 'bin', 'obj', '.vs', 'packages', 'compile', 'compiled', 'Old_Code']
+EXCLUDE_FILES = ['AssemblyInfo.cs']
+EXCLUDE_EXTS = ['.txt', '.log', '.json', '.resx', '.ico', '.png', '.gif', '.traineddata', '.dll', '.exe', '.config', '.manifest', '.xml', '.xsd', '.sln', '.DotSettings', '.props', '.targets']
+
+CS_REGEX = re.compile(r'^(\s*)(?:(?:public|private|protected|internal|static|virtual|override|async|sealed|partial|abstract)\s+)*(class|struct|interface|enum|delegate|void|int|string|bool|var|Task|auto)\s+([a-zA-Z0-9_<>]+)\s*[\(\{]?.*$')
 
 def get_target_files(root_dir):
     targets = []
@@ -53,83 +56,80 @@ def get_target_files(root_dir):
             if file in EXCLUDE_FILES: continue
             _, ext = os.path.splitext(file)
             if ext in EXCLUDE_EXTS: continue
-            if ext in ['.py', '.ps1']:
+            if ext == '.cs':
                 targets.append(os.path.join(root, file))
     return targets
 
+def display_path(filepath):
+    try:
+        return str(Path(filepath).resolve().relative_to(WORKING_DIRECTORY))
+    except Exception:
+        return str(filepath)
+
+def is_line_string_safe(line):
+    if 'http:' in line or 'https:' in line: return False
+    if ':\\' in line or ':/' in line: return False
+    return True
+
 def analyze_comments(filepath):
     items = []
-    _, ext = os.path.splitext(filepath)
-    if ext not in ['.py', '.ps1']:
-        return []
     try:
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
-        actions = {} 
-        if ext == '.py':
-            with open(filepath, 'rb') as f:
-                tokens = list(tokenize.tokenize(f.readline))
-            for t in tokens:
-                if t.type == tokenize.COMMENT:
-                    row = t.start[0] - 1
-                    col = t.start[1]
-                    if col == 0:
-                        actions[row] = {'action': 'DELETE', 'type': 'COMMENT', 'line': row + 1, 'content': t.string.strip()}
-                    else:
-                        if row not in actions:
-                            original = lines[row]
-                            clean_content = original[:col].rstrip() + '\n'
-                            actions[row] = {'action': 'EDIT', 'type': 'INLINE COMMENT', 'line': row + 1, 'content': f"Rem: {t.string.strip()}", 'new_content': clean_content}
-        elif ext == '.ps1':
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if stripped.startswith('#'):
+        
+        actions = {}
+        in_block_comment = False
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            if in_block_comment:
+                actions[i] = {'action': 'DELETE', 'type': 'BLOCK COMMENT', 'line': i + 1, 'content': stripped}
+                if '*/' in stripped:
+                    in_block_comment = False
+                continue
+            
+            if stripped.startswith('/*'):
+                in_block_comment = True
+                actions[i] = {'action': 'DELETE', 'type': 'BLOCK COMMENT', 'line': i + 1, 'content': stripped}
+                if '*/' in stripped:
+                    in_block_comment = False
+                continue
+
+            if '//' in line:
+                if stripped.startswith('///'):
+                    continue
+                
+                if not is_line_string_safe(line):
+                    continue
+                
+                if stripped.startswith('//'):
                     actions[i] = {'action': 'DELETE', 'type': 'COMMENT', 'line': i + 1, 'content': stripped}
-        cite_pattern = r'\s*\+\]'
-        for i, line in enumerate(lines):
-            if i in actions: continue
-            if 'cite:' in line:
-                new_line = re.sub(cite_pattern, '', line)
-                if new_line != line:
-                    actions[i] = {'action': 'EDIT', 'type': 'CITATION', 'line': i + 1, 'content': 'Removed', 'new_content': new_line}
-        for i, line in enumerate(lines):
-            if i in actions or i == 0: continue
-            stripped = line.lstrip()
-            if not stripped: continue
-            prev = i - 1
-            empties = []
-            while prev >= 0 and not lines[prev].strip():
-                if prev in actions: break
-                empties.append(prev)
-                prev -= 1
-            prev_content = lines[prev].strip() if prev >= 0 else ""
-            if stripped.startswith(('def ', 'class ', 'import ', 'from ')):
-                is_import = stripped.startswith(('import ', 'from '))
-                prev_is_import = prev_content.startswith(('import ', 'from '))
-                should_have_empty = True
-                if prev < 0: should_have_empty = False
-                if prev_content.endswith(':'): should_have_empty = False
-                if prev_content.startswith('@'): should_have_empty = False
-                if is_import and prev_is_import: should_have_empty = False
-                if should_have_empty:
-                    if not empties:
-                        actions[i] = {'action': 'EDIT', 'type': 'MISSING NEWLINE', 'line': i + 1, 'content': 'Add Blank Line Above', 'new_content': '\n' + line}
-                    elif len(empties) > 1:
-                        for idx in empties[1:]:
-                            actions[idx] = {'action': 'DELETE', 'type': 'EXCESSIVE SPACE', 'line': idx + 1, 'content': '<Excessive Empty>'}
                 else:
-                    for idx in empties:
-                        actions[idx] = {'action': 'DELETE', 'type': 'UNNECESSARY EMPTY', 'line': idx + 1, 'content': '<Unnecessary Empty>'}
+                    parts = line.split('//', 1)
+                    if parts[0].count('"') % 2 == 0:
+                        actions[i] = {'action': 'EDIT', 'type': 'INLINE COMMENT', 'line': i + 1, 'content': f"Rem: {parts[1].strip()}", 'new_content': parts[0].rstrip() + '\n'}
+
+        empty_count = 0
+        for i, line in enumerate(lines):
+            if i in actions: 
+                empty_count = 0
+                continue
+                
+            if not line.strip():
+                empty_count += 1
+                if empty_count >= 3:
+                    actions[i] = {'action': 'DELETE', 'type': 'EXCESSIVE EMPTY', 'line': i + 1, 'content': '<Excessive Empty>'}
             else:
-                for idx in empties:
-                    actions[idx] = {'action': 'DELETE', 'type': 'UNNECESSARY EMPTY', 'line': idx + 1, 'content': '<Unnecessary Empty>'}
+                empty_count = 0
+
         return [v for k, v in sorted(actions.items())]
-    except Exception as e:
+    except Exception:
         return []
 
 def nuke_comments(filepath, items):
     try:
-        print(f"\n{CYAN}Cleaning Comments/Empty Lines in: {filepath}{RESET}")
+        print(f"\n{CYAN}Executing Cleanup: {display_path(filepath)}{RESET}")
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
         action_map = {item['line'] - 1: item for item in items}
@@ -137,161 +137,51 @@ def nuke_comments(filepath, items):
             for i, line in enumerate(lines):
                 if i in action_map:
                     act = action_map[i]
-                    start_idx = max(0, i - 2)
-                    end_idx = min(len(lines), i + 3)
-                    print("-" * 40)
-                    for ctx in range(start_idx, i):
-                        print(f"  {lines[ctx].rstrip()}")
-                    print(f"{RED}- {lines[i].rstrip()}{RESET}")
-                    if act['action'] == 'DELETE':
-                        print(f"{GREEN}+ ### LINE REMOVED ###{RESET}")
-                    elif act['action'] == 'EDIT':
+                    print("-" * 60)
+                    print(f"Line {act['line']}: {act['type']}")
+                    print(f"{RED}- {line.rstrip()}{RESET}")
+                    if act['action'] == 'EDIT':
                         print(f"{GREEN}+ {act['new_content'].rstrip()}{RESET}")
                         f.write(act['new_content'])
-                    for ctx in range(i + 1, end_idx):
-                        print(f"  {lines[ctx].rstrip()}")
                 else:
                     f.write(line)
-        print("-" * 40)
         return True
     except Exception as e:
-        print(f"Error writing {filepath}: {e}")
+        print(f"Error: {e}")
         return False
 
 def check_syntax(filepath):
-    _, ext = os.path.splitext(filepath)
     try:
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             source = f.read()
-        if '\t' in source:
-             return "Indentation: File contains Tabs"
-        if ext == '.py':
-            compile(source, filepath, 'exec')
+        if '\t' in source: return "Contains Tabs"
+        if source.count('{') != source.count('}'): return "Mismatched Braces"
         return None
-    except (IndentationError, TabError) as e:
-        return f"Indentation Error: {e}"
-    except SyntaxError as e:
-        return f"Syntax Error: {e}"
-    except Exception:
-        return None
-
-def fix_syntax(filepath):
-    """
-    Pass 1: Fixes Tabs->Spaces and snaps irregular indentation.
-    Pass 2: Adjusts def/class/if indentation based on body content.
-    Visualizes changes with context.
-    """
-    try:
-        with open(filepath, 'r', encoding='utf-8-sig') as f:
-            lines = f.readlines()
-        cleaned_lines = []
-        for line in lines:
-            line_expanded = line.replace('\t', '    ')
-            stripped = line_expanded.lstrip()
-            if not stripped:
-                cleaned_lines.append(line_expanded)
-                continue
-            leading_spaces = len(line_expanded) - len(stripped)
-            remainder = leading_spaces % 4
-            if remainder == 0:
-                cleaned_lines.append(line_expanded)
-            else:
-                if remainder <= 2:
-                    new_spaces = leading_spaces - remainder
-                else:
-                    new_spaces = leading_spaces + (4 - remainder)
-                cleaned_lines.append(' ' * new_spaces + stripped)
-        final_lines = list(cleaned_lines)
-        
-        def get_indent(s):
-            return len(s) - len(s.lstrip())
-        for i in range(len(final_lines)):
-            line = final_lines[i]
-            stripped = line.lstrip()
-            if stripped.startswith(('def ', 'class ', 'if ')):
-                current_indent = get_indent(line)
-                next_indents = []
-                for j in range(i + 1, len(final_lines)):
-                    if final_lines[j].strip():
-                        next_indents.append(get_indent(final_lines[j]))
-                    if len(next_indents) == 2:
-                        break
-                if len(next_indents) == 2:
-                    b1, b2 = next_indents
-                    if b1 == b2:
-                        diff = b1 - current_indent
-                        if diff < 4:
-                            new_indent = max(0, current_indent - 4)
-                            final_lines[i] = (' ' * new_indent) + stripped
-                        elif diff == 8:
-                            new_indent = current_indent + 4
-                            final_lines[i] = (' ' * new_indent) + stripped
-        changes_found = False
-        print(f"\n{CYAN}Applying Syntax Fixes for: {filepath}{RESET}")
-        for i, (orig, new) in enumerate(zip(lines, final_lines)):
-            if orig != new:
-                changes_found = True
-                start_idx = max(0, i - 2)
-                end_idx = min(len(lines), i + 3)
-                print("-" * 40)
-                for ctx in range(start_idx, i):
-                    print(f"  {lines[ctx].rstrip()}")
-                print(f"{RED}- {orig.rstrip()}{RESET}")
-                print(f"{GREEN}+ {new.rstrip()}{RESET}")
-                for ctx in range(i + 1, end_idx):
-                    print(f"  {lines[ctx].rstrip()}")
-        if not changes_found:
-            print("  No changes needed.")
-        else:
-            print("-" * 40)
-        with open(filepath, 'w', encoding='utf-8-sig') as f:
-            f.writelines(final_lines)
-        return True
-    except Exception as e:
-        print(f"Fix failed: {e}")
-        return False
+    except: return None
 
 def analyze_duplicates(filepath):
-    """Worker function: Scans a file while tracking class scope."""
-    _, ext = os.path.splitext(filepath)
-    regex = PY_REGEX if ext == '.py' else PS_REGEX
     found = {}
     duplicates = []
-    current_class = "GLOBAL"
-    class_indent = -1
+    current_ns, current_cls = "GLOBAL", "GLOBAL"
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             for i, line in enumerate(f, 1):
                 stripped = line.strip()
-                if not stripped or stripped.startswith(('#', '//')): continue
-                match = regex.match(line)
+                if not stripped or stripped.startswith(('/')): continue
+                if stripped.startswith('namespace '):
+                    current_ns = stripped.split()[1]
+                    continue
+                match = CS_REGEX.match(line)
                 if match:
-                    indent, keyword, signature = match.groups()
-                    current_indent = len(indent)
-                    clean_sig = " ".join(signature.split())
-                    if keyword == 'class':
-                        current_class = clean_sig
-                        class_indent = current_indent
-                    else:
-                        if current_indent <= class_indent:
-                            current_class = "GLOBAL"
-                            class_indent = -1
-                    key = (current_class, keyword, clean_sig)
-                    if key not in found:
-                        found[key] = []
+                    indent, kw, sig = match.groups()
+                    if kw in ['class', 'struct', 'interface']: current_cls = sig
+                    key = (current_ns, current_cls, kw, sig)
+                    if key not in found: found[key] = []
                     found[key].append(i)
-        for (scope, kw, sig), lines in found.items():
+        for (ns, cls, kw, sig), lines in found.items():
             if len(lines) > 1:
-                duplicates.append({
-                    'file': os.path.basename(filepath),
-                    'scope': scope,
-                    'type': kw.upper(),
-                    'signature': sig,
-                    'lines': ", ".join(map(str, lines)),
-                    'path': os.path.dirname(filepath)
-                })
-    except Exception:
-        pass
+                duplicates.append([os.path.basename(filepath), f"{ns}.{cls}", kw, sig, ", ".join(map(str, lines))])
+    except: pass
     return duplicates
 
 def print_table(title, data, headers):
@@ -303,90 +193,68 @@ def print_table(title, data, headers):
     for row in data:
         for i, val in enumerate(row):
             widths[i] = max(widths[i], len(str(val)))
-    widths = [w + 6 for w in widths]
-    if len(widths) > 2:
-        widths[2] -= 4
-    if len(widths) > 4:
-        widths[4] += 10
+    widths = [w + 2 for w in widths]
     h_str = " | ".join(f"{h:^{w}}" for h, w in zip(headers, widths))
-    sep = "-" * len(h_str)
-    print(sep)
+    print("-" * len(h_str))
     print(h_str)
-    print(sep)
+    print("-" * len(h_str))
     for row in data:
         print(" | ".join(f"{str(val):<{w}}" for val, w in zip(row, widths)))
-    print(sep + "\n")
+    print("-" * len(h_str))
 
 def main():
-    os.system('title Code Cleaner Tool')
-    os.system('mode con: cols=225 lines=55')
-    ctypes.windll.kernel32.Sleep(200)
-    center_console()
-    target_dir = os.getcwd()
-    print(f"Target: {target_dir}")
-    print("Exclusions loaded.")
-    files = get_target_files(target_dir)
-    for pass_num in range(1, 3):
-        table1_data = [] 
-        files_with_junk = {}
-        print(f"Scanning for comments and empty lines...")
-        for f in files:
-            items = analyze_comments(f)
-            if items:
-                files_with_junk[f] = items
-                for item in items:
-                    cont = (item['content'][:30] + '..') if len(item['content']) > 30 else item['content']
-                    display_type = f"{item['action']}: {item['type']}"
-                    table1_data.append([os.path.basename(f), os.path.dirname(f), item['line'], display_type, cont])
-        if pass_num == 1:
-            if table1_data:
-                print_table("TABLE 1: Comments & Empty Lines", table1_data, ["File", "Path", "Line", "Type", "Content"])
-                q = input(">>> Nuking junk from Table 1. Correct these? (Y/N): ").strip().upper()
-                if q == 'Y':
-                    for f, items in files_with_junk.items():
-                        nuke_comments(f, items)
-                    print("Cleanup complete.")
-                else:
-                    print("Skipping cleanup.")
-                    break
-            else:
-                break
+    os.system('title Fortnite Video Software C# Advanced Code Cleaner')
+    print(f"{CYAN}--- FORTNITE VIDEO SOFTWARE C# ADVANCED CODE CLEANER ---{RESET}")
+    print("Target Directory: .")
+    
+    files = get_target_files(WORKING_DIRECTORY)
+    print(f"Analyzing {len(files)} files...")
+    
+    junk_data = []
+    files_with_junk = {}
+    
+    for idx, f in enumerate(files):
+        if idx % 20 == 0: print(f"  Scanning for junk... {idx}/{len(files)}", end='\r')
+        items = analyze_comments(f)
+        if items:
+            files_with_junk[f] = items
+            for item in items:
+                junk_data.append([os.path.basename(f), item['line'], item['type'], (item['content'][:50] + '..') if len(item['content']) > 50 else item['content']])
+
+    print("\n" + "="*80)
+    print(f"{YELLOW}STEP 1: REVIEW COMMENTS & UNNECESSARY EMPTY LINES{RESET}")
+    print("="*80)
+    
+    if junk_data:
+        print_table("TABLE 1: IDENTIFIED JUNK (COMMENTS & OUTRAGEOUS EMPTY LINES)", junk_data, ["File", "Line", "Type", "Content Preview"])
+        print(f"\n{YELLOW}WARNING: This action will permanently remove all items listed above.{RESET}")
+        q = input(">>> Do you approve the removal of these comments/empty lines? (Y/N): ").strip().upper()
+        if q == 'Y':
+            for f, items in files_with_junk.items():
+                nuke_comments(f, items)
+            print(f"\n{GREEN}Cleanup complete.{RESET}")
         else:
-            if table1_data:
-                print_table("TABLE 1: Comments & Empty Lines", table1_data, ["File", "Path", "Line", "Type", "Content"])
-                for f, items in files_with_junk.items():
-                    nuke_comments(f, items)
-                print("Cleanup complete.")
-            else:
-                print_table("TABLE 1: Comments & Empty Lines", table1_data, ["File", "Path", "Line", "Type", "Content"])
-    table2_data = []
-    files_broken = {}
-    print("\nScanning for Syntax/Indentation errors...")
+            print(f"\n{CYAN}Cleanup cancelled by user.{RESET}")
+    else:
+        print("No comments or unnecessary empty lines found.")
+
+    print("\n" + "="*80)
+    print(f"{YELLOW}STEP 2: SYSTEM ANALYSIS (SYNTAX & DUPLICATES){RESET}")
+    print("="*80)
+    
+    syntax_data = []
     for f in files:
         err = check_syntax(f)
-        if err:
-            files_broken[f] = err
-            table2_data.append([os.path.basename(f), f[-25:], err])
-    print_table("TABLE 2: Syntax & Indentation", table2_data, ["File", "Path", "Error"])
-    if table2_data:
-        q = input(">>> Found Syntax/Indentation errors. Attempt to fix (Tabs->Spaces)? (Y/N): ").strip().upper()
-        if q == 'Y':
-            for f in files_broken:
-                fix_syntax(f)
-            print("Syntax fixes applied.")
-        else:
-            print("Skipping syntax fixes.")
-    print(f"\n{CYAN}Scanning {len(files)} files for Scope-Specific Duplicates...{RESET}")
-    current_files = [f for f in files if os.path.exists(f)]
+        if err: syntax_data.append([os.path.basename(f), err])
+    print_table("TABLE 2: SYNTAX & INDENTATION WARNINGS", syntax_data, ["File", "Issue"])
+
+    all_dupes = []
     with Pool(processes=cpu_count()) as pool:
-        results = pool.map(analyze_duplicates, current_files)
-    flat_data = [item for sublist in results for item in sublist]
-    if flat_data:
-        table3_data = [[d['file'], d['scope'], d['type'], d['signature'], d['lines'], d['path'][-40:]] for d in flat_data]
-        print_table("TABLE 3: Scope-Aware Duplicates (Report Only)", table3_data, ["File", "Parent Scope", "Type", "Signature", "Lines", "Directory"])
-    else:
-        print(f"\nTABLE 3: Scope-Aware Duplicates: No duplicates found within the same scope.")
-    input("\nPress Enter to exit...")
-    print("\nDone.")
+        results = pool.map(analyze_duplicates, files)
+    for res in results: all_dupes.extend(res)
+    print_table("TABLE 3: SCOPE-AWARE DUPLICATES (REPORT ONLY)", all_dupes, ["File", "Scope", "Type", "Signature", "Lines"])
+
+    print(f"\n{CYAN}Done.{RESET}")
+
 if __name__ == "__main__":
     main()

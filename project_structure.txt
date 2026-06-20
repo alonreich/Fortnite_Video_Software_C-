@@ -1,269 +1,137 @@
-# ==============================================================================
-# PROJECT GOAL: Fortnite Video Software
-# TARGET: PYTHON / DESKTOP (GPU-ENABLED)
-# ==============================================================================
-A high-performance, GPU-accelerated Fortnite video editor with mathematically perfect audio-visual synchronization.
-The suite includes: Video Compressor (Main App), Video Merger, Crop Tool, and Advanced Editor.
+==============================================================================
+FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
+# PROJECT STRUCTURE & ARCHITECTURAL CONSTRAINTS
+==============================================================================
 
-# ==============================================================================
-# NATIVE RUNTIME & LANGUAGE BOUNDARY
-# ==============================================================================
-# Shipped runtime: Python 3 + PyQt5. Heavy work is delegated to subprocesses (bundled ffmpeg.exe / ffprobe.exe
-# in processing/worker.py and related modules) and to in-process preview via python-mpv plus libmpv-2.dll.
-# There is no maintained C++ application source tree inside this repository; "native" means bundled executables
-# and DLLs loaded by Python, not hand-authored C++ product code checked in beside the Python sources.
+CRITICAL MANDATES FOR ALL AI AGENTS:
+1. NO CACHING ALLOWED: The application MUST NOT use caching of any kind whatsoever. All operations must be real-time or completely stateless between executions. Do not implement any memory caches, disk caches, or memoization.
+2. SINGLE EXE INSTALLER: The compile/ output MUST always be exactly one single condensed `.exe` file (the installer). It MUST NOT contain adjacent folders or multiple files. The installer must internally embed its entire payload (using an EmbeddedResource like payload.zip) and unpack all required files/folders (such as native DLLs, ffmpeg) to the persistent installation folder during the deployment lifecycle.
 
-# General Project Guidelines:
-# 1. Modular Architecture: Files should remain focused (target 150-250 lines). 
-# 2. Sync Logic: Video tempo scales with speed multiplier. Background music ALWAYS remains at a constant 1.0x tempo.
-# 3. Audio Protection: Main video audio uses Volume/EQ Ducking (150Hz split) against background music.
-# 4. Strict UI Rules: "No Junk" policy. All temp files (.wav, .png, .txt) must be deleted on cancel/close.
-# 5. UI Spacing: Exactly 10px vertical gap above/below STEP titles. Navigation buttons are strictly 42px height.
-# 6. Stability: MPV scrubbing is throttled to 20fps (50ms) to prevent native thread deadlocks.
-# 7. Independence: Main App and Merger share widget logic but remain technically decoupled (local method copies).
-# 8. Encoding: MUST use yuv420p for all HW encoders (NVENC, AMF, QSV) and H.264 level 4.2 for mobile compatibility.
+1. PROJECT DESCRIPTION & GOALS
+------------------------------------------------------------------------------
+The Fortnite Video Software project is a robust, hardware-accelerated media 
+processing suite. Originally written in Python and PyQt5, it suffered from 
+Global Interpreter Lock (GIL) deadlocks, native C++ binding instability, and 
+distribution complexities.
 
-# ==============================================================================
-# COORDINATE SYSTEM & SCALING LOGIC (PORTRAIT CANVAS TRICK)
-# ==============================================================================
-# QUICK SUMMARY:
-# We do NOT compose directly at 1080x1920.
-# We first compose in a larger internal canvas (1280x1920), then "zoom out / fit"
-# that result into the final portrait frame. This preserves detail and keeps the top
-# black strip (150px) reserved for clip text.
-#
-# 1) SPACES USED
-#    - Final Portrait Output: 1080x1920.
-#    - Visible Content Lane: 1080x1620 (Content starts at y=150).
-#    - Width Preserved: Center 1280px of original landscape (in internal space).
-#    - Reserved Text/Header Zone: top 150px (final compose places content at y=150).
-#    - Internal Backend Compose Space: 1280x1920 (higher-fidelity working canvas).
-#
-# 2) PIPELINE (IN ORDER)
-#    a. Source video is scaled + center-cropped into 1280x1920.
-#    b. HUD crops/overlays are computed and composited in this same 1280x1920 space.
-#    c. The full composed result is scaled down to 1080x1620.
-#    d. That 1080x1620 content is placed onto a 1080x1920 black canvas at y=150.
-#    e. Result: portrait output keeps the upper strip free for title/text rendering.
-#
-# 3) COORDINATE CONTRACTS (CRITICAL)
-#    - Crop rectangles are stored in 1080x1620 CONTENT coordinates (no top-padding baked in).
-#    - Overlay positions are handled in full portrait semantics and transformed with BACKEND_SCALE.
-#    - BACKEND_SCALE = 1280 / 1080.
-#
-# 4) DRIFT PROTECTION / ROUNDING BIAS (DO NOT REMOVE)
-#    - Map/Stats/Health-style regions: +1px on LEFT edge.
-#    - Loot region: +1px on RIGHT edge.
-#    This protects thin HUD borders from clipping due to rounding transforms.
-#
-# 5) SAFETY RULE
-#    Do not change this math casually. It is a round-trip contract:
-#    Original -> 1280x1920 internal compose -> 1080x1620 content -> 1080x1920 final frame.
+The overarching goal of this project is to port the suite into a single, 
+statically compiled .NET 9 NativeAOT executable. By leveraging C#, Avalonia UI, 
+and NativeAOT, the software achieves true multi-threading, complete elimination 
+of GIL limitations, improved IPC safety, and an extremely lightweight, dependency-
+free footprint.
 
-# ==============================================================================
-# APP INTEGRATION & HANDOFF (MAIN APP <-> CROP TOOL)
-# ==============================================================================
-# 1. SHARED SOURCE OF TRUTH:
-#    - Both apps read '.\processing\crops_coordinations.conf'.
-#    - Crop Tool is the WRITER; Main App (and Rendering Engine) is the READER.
-# 2. STATE TRANSFER:
-#    - 'system.state_transfer.StateTransfer' passes session data (video path, resolution).
-#    - This ensures the user doesn't have to re-select the video when switching apps.
-# 3. LIFECYCLE HANDOFF (SUBPROCESS):
-#    - Main App -> Crop Tool: Launched via subprocess when 'START CROPPING' is clicked.
-#    - Crop Tool -> Main App: Re-launches 'app.py' and exits itself upon 'SAVE' or 'RETURN'.
-# 4. SHARED BACKEND LOGIC:
-#    - Both apps use 'processing\config_data.py' for coordinate validation and default values.
-#    - Scaling math (1280p internal vs 1080p UI) is identical in both codebases.
-# 5. MAIN APP <-> VIDEO MERGER HANDOFF:
-#    - Main App -> Video Merger: launched as a subprocess from app.py; once the merger window starts
-#      successfully, the main app closes itself without terminating the merger child process.
-#    - Video Merger -> Main App: relaunches app.py when returning to the compressor; once the main app
-#      starts successfully, Video Merger closes itself.
-#    - Video Merger clean launch state MUST NOT persist selected music/session-only playlist data from
-#      config/video_merger.conf. Session music is only restored when an explicit recovery flow is used.
-# 6. MAIN APP RECOVERY CONTRACT:
-#    - Recovery state must round-trip all user-visible processing state: trim start/end, selected music,
-#      music button state, music timeline, volume sliders, quality/file-size slider, thumbnail/freeze image,
-#      mobile/overlay toggles, and granular speed/freeze segments.
-# 7. GRANULAR SPEED & FREEZE CONTRACT:
-#    - Freeze Image: Inserts a still frame at the playhead. The underlying gameplay is NOT discarded;
-#      it is shifted forward in the timeline, increasing total output duration. This ensures the 
-#      end-user never misses any recorded gameplay pieces.
-# ==============================================================================
+2. PRODUCT SPECIFICATIONS & FEATURES
+------------------------------------------------------------------------------
+* High-Integrity IPC & State Management: 
+  Configurations and session state are managed through Named System Mutexes 
+  (`Global\FvsStateTransferMutex`) and write-then-replace atomic JSON handlers. 
+  Writes strictly target `%PROGRAMDATA%` to adhere to Windows permission models.
 
-# ==============================================================================
-# HUD ELEMENT ARCHITECTURE FLOW (AI AGENT CONTEXT)
-# ==============================================================================
-# 1. DETECTION & TAGGING:
-#    - Crop Tool captures snapshot; elements defined via manual draw or MAGIC WAND.
-#    - Roles (6): Loot, Stats, HP, Boss HP, Team, Spectating Eye.
-# 2. COORDINATE MAPPING (SCALE-OUT TRICK):
-#    - UI Space: 1080x1920 canvas; HUDs restricted to 1080x1620 "Content Area" (y=150..1770).
-#    - Backend Space: Coordinates scaled to 1280x1920 fidelity canvas for processing.
-# 3. VALIDATION & SAVING:
-#    - Deep Check: Verifies crops, scales, overlays, and z_orders sections before saving.
-#    - Surgical Save: Only modified elements updated; atomic replace + 5-file rotation backup.
-# 4. APPLICATION STARTUP (SANITY CHECK):
-#    - App.py verifies valid JSON and presence of "crops_1080p" + "loot" element.
-#    - Self-Heal: Corrupted/missing files are instantly replaced with hardcoded defaults.
-# 5. FFmpeg RENDERING PIPELINE:
-#    - Backend applies +1px drift protection (Left for Map, Right for Loot).
-#    - Complex filtergraph crops source elements and overlays them onto 9:16 vertical frame.
-# ==============================================================================
+* Crash Recovery Protocol (CRP): 
+  The Bootstrapper uses PID-based file locking (`app_session.lock`) and a 120s 
+  `safe_mode.sentinel` watchdog to detect unexpected terminations. If a crash 
+  is detected, it prompts session restoration and prevents crash looping.
 
-# ==============================================================================
-# PROJECT ARCHITECTURE & FILE ROLE STRUCTURE
-# ==============================================================================
-.
-├── app.py: Main entry point. Initializes logging, hardware scan, and launches window.
-├── project_structure.txt: This file (Architecture Map).
-├── README.md: Product documentation.
-│
-├── binaries/: FFmpeg, FFprobe, and MPV native libraries.
-├── config/: JSON/Conf settings (main_app.conf, crops_coordinations.conf).
-├── logs/: Rotating logs (main_app.log). Captured native stderr/faulthandler output.
-│
-├── processing/: The core rendering engine.
-│   ├── filter_builder.py: Builds complex audio/video chains (atempo, smart afade, ducking).
-│   ├── worker.py: ProcessThread orchestrating FFmpeg; large filter graphs are passed via -filter_complex_script (graph text file).
-│   ├── encoders.py: GPU vs CPU codec management.
-│   └── (media_utils.py, filter_mobile.py, system_utils.py, text_ops.py)
-│
-├── system/: Operating system and lifecycle management.
-│   ├── utils.py: ProcessManager, DependencyDoctor, and Native Console initialization.
-│   └── (config.py, constants.py, logger.py, state_transfer.py)
-│
-├── ui/: Frontend components.
-│   ├── main_window.py: The central hub of the Compressor app.
-│   ├── parts/: Mixins providing modular functionality to the main window.
-│   │   ├── music_mixin.py: Controls wizard launch, persistent folder selection, and auto-pause.
-│   │   ├── player_mixin.py: Handles MPV playback, wall-clock sync math, and scrubbing protection.
-│   │   ├── ui_builder_mixin.py: Constructs 3D-styled UI. 'ADD MUSIC' button uses nested layout.
-│   │   └── (events, ffmpeg, keyboard, phase_overlay, trim, volume)
-│   │
-│   └── widgets/: Reusable specialized custom components.
-│       ├── music_wizard.py: 3-step music engine. Sets global dark theme to break app inheritance.
-│       ├── music_wizard_step_pages.py: Steps 1 & 2 layout. Folder button uses large 16px gear icons.
-│       ├── music_wizard_page3.py: Step 3 Timeline preview. Dual lanes with 2px borders and 10px gap.
-│       ├── music_wizard_waveform.py: Async soundwave generation and click-to-seek logic.
-│       ├── music_wizard_playback.py: Synchronized wizard preview playback.
-│       ├── music_wizard_misc.py: mathematically precise frameGeometry centering and persistence.
-│       ├── music_wizard_constants.py: Mathematical sync values (1350ms lead, 5ms correction).
-│       ├── music_wizard_widgets.py: SearchableListWidget with 1.5s multi-char type-ahead buffer.
-│       ├── music_wizard_workers.py: FFmpeg background tasks (Low-res 192p thumbnail extraction).
-│       ├── trimmed_slider.py: Unified axis with 15s/30s/45s markers and 2px hover-glow handle.
-│       └── (clickable_button, drop_area, tooltip_manager, custom_dialogs)
-│
-└── utilities/: Port source for shared logic (Video Merger suite).
+* Standalone Installer & Deployment Lifecycle:
+  - Payload Extraction: The installer dynamically unpacks `FortniteVideoSoftware.App.payload.zip`
+    (which includes native binaries like `libSkiaSharp.dll` and `ffmpeg.exe`) into `%TMP%\Fortnite Video Software`.
+  - Elegant Deployment UI: Both installation and uninstallation leverage a beautiful, dark-themed 
+    Avalonia window (`DeploymentProgressWindow`) to show real-time progress, matching the premium aesthetic.
+  - Silent Background Cleanup: When the setup or uninstaller exits, it detaches a background `cmd.exe` process 
+    to exhaustively wipe all `Fortnite Video Software`, `fvs_*`, and `FVS_*` temp folders from `%TMP%`.
+  - Verbose Error Logging: The entire installation lifecycle and any fatal startup exceptions are persistently 
+    logged directly to `%TMP%\Fortnite_Video_Software.log`. No other traces are left behind.
 
-# ==============================================================================
-# MANDATORY AI AGENT PROCESSING & GRANULAR SPEED CONTRACT
-# ==============================================================================
-# This section is a MUST-FOLLOW for any AI Agent modifying the rendering pipeline.
-#
-# SCOPE: Any change to files in .\processing\ OR any logic related to "GRANULAR SPEED".
-# 
-# THE MANDATED VALIDATION LOOP:
-# 1. DELETE current logs: Remove all files in .\logs\*.
-# 2. RUN the 3 Quality Sanity Tests: 
-#    - pytest sanity_tests/test_real_sanity_bad_quality.py
-#    - pytest sanity_tests/test_real_sanity_std_quality.py
-#    - pytest sanity_tests/test_real_sanity_max_quality.py
-# 3. VERIFY Results:
-#    - Each test MUST return [PASS].
-#    - VERIFY file sizes strictly match the range requirements in the test files.
-#    - VERIFY motion: All tests perform MD5-hash checks to ensure video is NOT frozen.
-# 4. AUDIT Logs:
-#    - Read .\logs\*. 
-#    - Search for "ERROR", "FFmpeg reported error", or "falling back to CPU".
-#    - ANY failure to lock into the TITAN (NVIDIA) path is a critical failure.
-# 5. CLEANUP:
-#    - Delete .\logs\* again.
-# 6. REPEAT:
-#    - Loop steps 1-5 until ALL tests pass perfectly with ZERO warnings or errors in logs.
-#
-# This contract ensures 'Engineering Perfection' regarding file size precision (+/- 7MB),
-# 100% audio-visual synchronization, and stable hardware acceleration.
+* MPV Timeline & UI Shell (Avalonia): 
+  The UI is built with Avalonia (Fluent Themes). It employs a custom `libmpv-2.dll` 
+  P/Invoke wrapper to handle hardware-accelerated video rendering. To prevent 
+  deadlocks, timeline scrubbing is debounced at a max of 20fps. A background 
+  watchdog (`MPVSafetyManager`) monitors the native C++ MPV queue and will 
+  forcefully reset the internal state machine if a seek request hangs beyond 2.5s.
+  The UI enforces strict aesthetics (e.g., 42px bottom navigation buttons, silent 
+  file deletion without prompts). Auto-exit hooks cleanly shut down the app after 
+  executing OS actions (e.g., sharing to WhatsApp or opening folders).
 
-# ==============================================================================
-# PRODUCTION SANITY TEST SUITE
-# ==============================================================================
-# 3. MANUAL SANITY CHECK TASKS
-# 1. FOLDER PICKER: Click 'SELECT MUSIC FOLDER', pick a path. Verify list reloads and config saves.
-# 2. MULTI-CHAR SEARCH: In Step 1, type 3 letters quickly. Verify focus jumps to the exact song.
-# 3. TRIMMING SYNC: Add music, then move orange trim handle. Verify pink handle 'jumps' to follow.
-# 4. STEP 3 CENTERING: Delete config, open wizard. Verify Step 3 pops up in the exact screen center.
-# 5. CONSTANT TEMPO: Set 2.0x video speed. Verify background music in final MP4 still sounds normal (1.0x).
-# 6. HOVER GLOW: Hover over the metallic caret in Step 2. Verify the 2px blue border appears.
-# 7. STEP 3 BORDERS: Check if 2px blue rectangles surround the thumbnail and waveform lanes.
-# 8. VOL INDICATORS: Move sliders in Step 3. Verify white percentage labels update at the bottom.
-# 9. BUTTON HEIGHTS: Verify CANCEL/BACK/DONE are all identically tall (42px).
-# 10. FIRST FRAME: Arrive at Step 3. Confirm the video frame 0 is visible immediately.
+* FFmpeg Media Processing Pipeline:
+  - Hardware Acceleration Scanner: Tests capabilities using a strict prioritization 
+    chain (NVIDIA nvenc -> AMD amf -> INTEL qsv -> CPU libx264) with a 15-second 
+    GPU driver-hang watchdog.
+  - Encoder Contract: Forces `yuv420p` pixel format and H.264 `Level 4.2` to 
+    guarantee mobile device playback compatibility.
+  - Audio Ducking: 150Hz frequency split (Highpass/Lowpass). High frequencies of 
+    game audio are sidechain compressed (ducked) against background music.
+  - TimeSync Engine: Mathematically shifts gameplay durations to accommodate 
+    variable-speed scaling without losing alignment with background music.
+  - WhatsApp Intro Fix: Prepends exactly 0.1s of the first frame as a static 
+    lead-in to bypass a known WhatsApp black-screen thumbnail bug.
+  - Canvas Math: Applies precision +1px drift correction boundaries (left-edge 
+    and right-edge specific) to ensure dynamic bounding boxes do not truncate 
+    under 1080x1920 inverse transformations.
 
-# ==============================================================================
-# GRANULAR SPEED EDITOR: ARCHITECTURAL RULES (AI MANDATE)
-# ==============================================================================
-# 1. SEGMENT LIFECYCLE: 
-#    - 'MARK START' initializes a pending segment (Visual: Marching Ants).
-#    - 'MARK END' commits the segment and immediately makes it the ACTIVE selection.
-#    - If 'MARK END' is pressed without a 'MARK START', auto-create a segment starting 1s after the previous segment's end.
-# 2. SELECTION BEHAVIOR: 
-#    - Only one segment can be "Active/Highlighted" at a time.
-#    - While a segment is being created (after MARK START but before MARK END), NO existing segments should be highlighted.
-#    - Changing the Speed Spinbox value always affects the currently Active/Pending segment.
-# 3. COLLISION & SOLID OBJECTS:
-#    - Segments are "Solid Objects." Overlapping is strictly prohibited (Collision Protected).
-#    - Manual dragging or 'MARK' buttons must be clamped/blocked by the boundaries of neighboring segments.
-#    - Minimum segment duration is 10ms.
-# 4. INTERACTION:
-#    - 'MARK START' jumps the marker to the current playhead, even if already set.
-#    - 'DELETE' key must immediately remove the currently highlighted/active segment.
-#    - Default state: Start = Frame 0, End = Last Frame.
-# ==============================================================================
+* Single-File Deployment & Build Pipeline: 
+  Targets `win-x64` using `<PublishAot>true</PublishAot>` and `<TrimMode>full</TrimMode>`. 
+  Packages all managed code, MSIL, and embedded native libraries into one .exe.
+  The build script (`build.cmd`) operates without PowerShell UI mutation to ensure 
+  the console font consistently stays at 16 Consolas.
 
-# ==============================================================================
-# MUSIC WIZARD: 3-STEP SYNC ENGINE RULES
-# ==============================================================================
-# 1. STEP 1 (LIBRARY): Multi-character type-ahead (1.5s buffer) for rapid song searching.
-# 2. STEP 2 (PREVIEW): Metallic player with real-time tempo/pitch adjustment.
-# 3. STEP 3 (TIMELINE SYNC): 
-#    - Dual-lane view (Video thumbnails + Audio waveforms).
-#    - MASTER/SLAVE SYNC: Pink handle (Music) must jump to follow the Orange handle (Video Trim) if moved.
-#    - Waveforms are generated asynchronously to keep the UI responsive.
-#
-# ==============================================================================
-# SESSION RECOVERY & HARDWARE STRATEGY
-# ==============================================================================
-# 1. FAULT TOLERANCE: RecoveryManager performs async state saving every 5 seconds.
-# 2. RESTORE LOGIC: On startup, if a crash is detected, the app offers to restore the previous session state.
-# 3. HARDWARE SCAN: 
-#    - Background thread executes strategic scan: NVIDIA (NVENC) -> AMD (AMF) -> INTEL (QSV) -> CPU Fallback.
-#    - Successful scan result is cached in 'main_app.conf' for near-instant subsequent boots.
-#
-# ==============================================================================
-# SUITE COMPONENTS & RENDERING FEATURES
-# ==============================================================================
-# 1. VIDEO MERGER & ADVANCED EDITOR: Technically decoupled but share UI logic via local copies.
-# 2. INTRO LEAD-IN (WHATSAPP / THUMBNAIL CONTRACT, MAIN COMPRESSOR):
-#    - The export pipeline prepends a very short still (intro_still_sec = 0.1 seconds, not longer) taken from the
-#      user-selected intro moment ("SET THUMBNAIL" / custom frame) or from the default timeline-derived timestamp.
-#    - Purpose: avoid an all-black first frame in chat apps (e.g. WhatsApp) that pick the opening frame as the
-#      inline preview thumbnail. This is NOT a multi-second branded intro clip; keep the lead-in at or below 0.1s.
-# 3. TEXT OVERLAY & PORTRAIT MASKING:
-#    - PORTRAIT MODE (9:16): UI uses a real-time mask widget to visualize the social media crop.
-#    - OVERLAY TEXT: User text is wrapped and rendered as an HD PNG before being composited by FFmpeg.
-# ==============================================================================
-
-# ==============================================================================
-# INTENDED BEHAVIOR & BY-DESIGN CHOICES (DO NOT MODIFY)
-# ==============================================================================
-# 1. SUCCESS DIALOG AUTO-EXIT:
-#    - After a successful export, clicking 'SHARE VIA WHATSAPP' or 'OPEN FOLDER'
-#      WILL close the application. This is intended to keep the workflow fast
-#      and snappy for the user.
-# 2. SILENT FILE DELETION (FILE PICKER):
-#    - In the custom file dialog, the 'Delete' key and context-menu 'Delete'
-#      action are SILENT and do NOT require confirmation. This is by design
-#      for power-user efficiency.
-# ==============================================================================
+3. FILE & FOLDER STRUCTURE MINIMAP
+------------------------------------------------------------------------------
+\ (Root Directory)
+|-- build.cmd
+|   Role: Build automation script. Triggers NativeAOT compilation, manages temporary 
+|         artifacts, zips payload, and drops the final bundled installer executable into .\compile.
+|
+|-- project_structure.txt
+|   Role: This architectural reference document. Source of truth for project state.
+|
++-- src\
+    |
+    +-- FortniteVideoSoftware.App\ (Presentation & Bootstrapper Layer)
+    |   |-- FortniteVideoSoftware.App.csproj
+    |   |   Role: Configures Avalonia UI references, NativeAOT compilation, and embeds `payload.zip`.
+    |   |-- Program.cs
+    |   |   Role: Application entry point. Parses CLI arguments, routes installer requests, and handles Phase Gates.
+    |   |-- AvaloniaApp.axaml & AvaloniaApp.axaml.cs
+    |   |   Role: Avalonia app initialization, global styles. Routes `--install-worker` and `--cleanup-worker` to UI.
+    |   |-- MainWindow.axaml & MainWindow.axaml.cs
+    |   |   Role: The primary visual shell. Integrates MPV playback, handles UI navigation.
+    |   |-- DeploymentLifecycle.cs, DeploymentFootprint.cs, DeploymentReporter.cs
+    |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation.
+    |   |-- DeploymentProgressWindow.axaml & .cs
+    |   |   Role: Dark-themed, elegant installer and uninstaller Avalonia Window.
+    |   |-- RuntimeLog.cs
+    |   |   Role: Writes verbose startup & operational logs to `%TMP%\Fortnite_Video_Software.log`.
+    |   |-- Phase1Gate.cs, Phase2Gate.cs, Phase3Gate.cs, Phase4Gate.cs
+    |   |   Role: End-to-end integration tests that strictly validate behavior rules.
+    |
+    +-- FortniteVideoSoftware.Core\ (Business, IPC, & Media Logic Layer)
+        |-- FortniteVideoSoftware.Core.csproj
+        |   Role: Class library targeting net9.0, enables Unsafe code for P/Invoke.
+        |
+        +-- Infrastructure\
+        |   |-- ApplicationPaths.cs
+        |   |   Role: Single source of truth for `%PROGRAMDATA%` and temporary paths.
+        |   |-- RecoveryManager.cs
+        |   |   Role: Manages the Crash Recovery Protocol (CRP), PID tracking, and sentinels.
+        |
+        +-- Ipc\
+        |   |-- AtomicJsonFile.cs
+        |   |   Role: Implements temporary-file write-and-replace for thread-safe I/O.
+        |   |-- CropConfigStore.cs
+        |   |   Role: Manages crop layout parameters with historical backup rotation.
+        |   |-- StateTransferStore.cs
+        |   |   Role: High-level inter-process communication state payload wrapper.
+        |
+        +-- Media\
+            |-- HardwareScanner.cs
+            |   Role: Asynchronously probes the host machine for active GPU accelerators.
+            |-- MpvWrapper.cs
+            |   Role: C# `[LibraryImport]` bindings for the unmanaged `libmpv-2.dll`.
+            |-- MPVSafetyManager.cs
+            |   Role: Multi-threaded Watchdog & Debouncer preventing native MPV queue stalls.
+            |-- CanvasMath.cs
+            |   Role: Math utility for UI canvas boundaries, resolving 1-pixel drift errors.
+            |-- FilterBuilder.cs
+            |   Role: FFmpeg parameter builder (Audio ducking, WhatsApp intro fixes).
+            |-- TimeSyncEngine.cs
+            |   Role: Audio/Video scaling and duration compensation logic.

@@ -1,0 +1,213 @@
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace FortniteVideoSoftware.Core.Infrastructure;
+
+public sealed class RecoveryManager
+{
+    private readonly ApplicationPaths _paths;
+    private readonly TimeSpan _safeModeThreshold = TimeSpan.FromSeconds(120);
+    private readonly object _saveLock = new();
+    private int _saveSequence;
+    private int _latestCommittedSave;
+    private bool _skipCleanup;
+
+    public RecoveryManager(ApplicationPaths? paths = null)
+    {
+        _paths = paths ?? ApplicationPaths.CreateDefault();
+    }
+
+    public bool CheckFault()
+    {
+        if (!File.Exists(_paths.RecoveryStateFile))
+        {
+            return false;
+        }
+
+        if (IsSafeModeActive())
+        {
+            return false;
+        }
+
+        if (File.Exists(_paths.AppSessionLockFile))
+        {
+            try
+            {
+                string content = File.ReadAllText(_paths.AppSessionLockFile).Trim();
+                if (int.TryParse(content, out int oldPid))
+                {
+                    if (oldPid != Environment.ProcessId)
+                    {
+                        try
+                        {
+                            Process proc = Process.GetProcessById(oldPid);
+                            if (!proc.HasExited)
+                            {
+                                return false; // Process still running, no fault
+                            }
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Process is not running
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Process is not running
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Error reading lock file, ignore and assume crashed
+            }
+        }
+
+        return true;
+    }
+
+    public bool IsSafeModeActive()
+    {
+        if (File.Exists(_paths.SafeModeSentinelFile))
+        {
+            try
+            {
+                TimeSpan age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_paths.SafeModeSentinelFile);
+                if (age < _safeModeThreshold)
+                {
+                    return true;
+                }
+
+                File.Delete(_paths.SafeModeSentinelFile);
+            }
+            catch
+            {
+                // Ignored
+            }
+        }
+        return false;
+    }
+
+    public void ActivateSafeMode()
+    {
+        try
+        {
+            _paths.EnsureWritableDirectories();
+            File.WriteAllText(_paths.SafeModeSentinelFile, string.Empty);
+        }
+        catch
+        {
+            // Ignored
+        }
+    }
+
+    public void AcquireLock()
+    {
+        try
+        {
+            _paths.EnsureWritableDirectories();
+            File.WriteAllText(_paths.AppSessionLockFile, Environment.ProcessId.ToString());
+        }
+        catch
+        {
+            // Ignored
+        }
+    }
+
+    public void CleanupLock()
+    {
+        if (_skipCleanup)
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(_paths.AppSessionLockFile))
+            {
+                File.Delete(_paths.AppSessionLockFile);
+            }
+
+            if (File.Exists(_paths.SafeModeSentinelFile))
+            {
+                File.Delete(_paths.SafeModeSentinelFile);
+            }
+
+            ClearState();
+        }
+        catch
+        {
+            // Ignored
+        }
+    }
+
+    public void SetSkipCleanup(bool skip)
+    {
+        _skipCleanup = skip;
+    }
+
+    public void SaveStateAsync(JsonObject state)
+    {
+        int sequence = Interlocked.Increment(ref _saveSequence);
+        Task.Run(() => SaveState(state, sequence));
+    }
+
+    public void SaveState(JsonObject state, int? sequence = null)
+    {
+        lock (_saveLock)
+        {
+            if (sequence.HasValue && sequence.Value < _latestCommittedSave)
+            {
+                return;
+            }
+
+            try
+            {
+                _paths.EnsureWritableDirectories();
+                AtomicJsonFile.WriteObject(_paths.RecoveryStateFile, state);
+
+                if (sequence.HasValue)
+                {
+                    _latestCommittedSave = sequence.Value;
+                }
+            }
+            catch
+            {
+                // Ignored
+            }
+        }
+    }
+
+    public JsonObject? LoadState()
+    {
+        if (!File.Exists(_paths.RecoveryStateFile))
+        {
+            return null;
+        }
+
+        try
+        {
+            return AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void ClearState()
+    {
+        try
+        {
+            if (File.Exists(_paths.RecoveryStateFile))
+            {
+                File.Delete(_paths.RecoveryStateFile);
+            }
+        }
+        catch
+        {
+            // Ignored
+        }
+    }
+}

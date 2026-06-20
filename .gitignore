@@ -1,14 +1,35 @@
-logs/
-config/
-__pycache__/
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
-advanced/
-mpv_advanced/
-*.mp4
-*.mp3
+# ==============================================================================
+# AI / Agentic Assistant Ignore Rules
+# Ignored to prevent wasting tokens / context window on unnecessary metadata.
+# ==============================================================================
+.gemini/
+.agents/
+openclaw/
+codex/
+antigravity/
+
+# ==============================================================================
+# Application Builds / Artifacts
+# ==============================================================================
+compile/
+compiled/
+*.exe
+
+# ==============================================================================
+# .NET / C# Project Ignores
+# ==============================================================================
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userprefs
+.vs/
+.idea/
+*.sln.docstates
+
+# ==============================================================================
+# Logs & OS generated
+# ==============================================================================
 *.log
-!mp3/Cool Dance Background Music (No CopyRights).mp3
-Report_Sanity_Test_Summary.txt
+.DS_Store
+Thumbs.db

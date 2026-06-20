@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FortniteVideoSoftware.App.DeploymentProgressWindow"
+        Title="Fortnite Video Software Setup"
+        Width="720" Height="480"
+        WindowStartupLocation="CenterScreen"
+        SystemDecorations="None"
+        Background="#1E1E1E"
+        Topmost="True"
+        ShowInTaskbar="True"
+        CanResize="False">
+    <Border Background="#2D2D30" CornerRadius="8" BorderBrush="#007ACC" BorderThickness="2" Margin="8">
+        <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto">
+            <TextBlock Name="TitleText"
+                       Grid.Row="0"
+                       Text="Installing Fortnite Video Software"
+                       Foreground="#007ACC"
+                       FontSize="20"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,8"/>
+            <TextBlock Name="LogPathText"
+                       Grid.Row="1"
+                       Text=""
+                       Foreground="#888888"
+                       FontSize="11"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,8"/>
+            <ListBox Name="LogList"
+                     Grid.Row="2"
+                     Background="#1E1E1E"
+                     BorderThickness="0"
+                     Foreground="#C0CAF5"
+                     Padding="8">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" FontFamily="Consolas,Courier New,monospace" FontSize="12" LineHeight="18" Margin="0" Padding="0"/>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,12,0,4">
+                <TextBlock Name="PhaseText"
+                           Text="Initializing..."
+                           Foreground="#BBBBBB"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock Name="PercentageText"
+                           Grid.Column="1"
+                           Text="0%"
+                           Foreground="White"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"/>
+            </Grid>
+            <ProgressBar Name="ProgressBar"
+                         Grid.Row="4"
+                         Height="16"
+                         Minimum="0"
+                         Maximum="100"
+                         Value="0"
+                         Foreground="#007ACC"
+                         Background="#3E3E42"
+                         Margin="0,0,0,12"/>
+            <Button Name="FinishButton"
+                    Grid.Row="4"
+                    Content="Finish"
+                    HorizontalAlignment="Center"
+                    Width="120"
+                    Height="32"
+                    IsVisible="False"
+                    Background="#007ACC"
+                    Foreground="White"
+                    FontSize="14"
+                    FontWeight="Bold"
+                    Click="OnFinishClick"/>
+        </Grid>
+    </Border>
+</Window>
