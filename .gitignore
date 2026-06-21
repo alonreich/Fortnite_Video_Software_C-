@@ -1,31 +1,38 @@
 # ==============================================================================
-# AI / Agentic Assistant Ignore Rules
-# Ignored to prevent wasting tokens / context window on unnecessary metadata.
-# ==============================================================================
-.gemini/
-.agents/
-openclaw/
-codex/
-antigravity/
-
-# ==============================================================================
 # Application Builds / Artifacts
 # ==============================================================================
-compile/
 compiled/
+temp_staging/
 *.exe
+!binaries/*.exe
+!binaries/*.dll
+!binaries/*.com
+AI AGENT PROMPT.txt
 
 # ==============================================================================
 # .NET / C# Project Ignores
 # ==============================================================================
 [Bb]in/
 [Oo]bj/
+TestResults/
+packages/
+*.nupkg
+
+# IDEs & Editor
 *.user
+*.userosscache
+*.sln.docstates
 *.suo
 *.userprefs
 .vs/
 .idea/
-*.sln.docstates
+.vscode/
+
+# Local settings
+appsettings.Local.json
+appsettings.Development.json
+.env
+
 
 # ==============================================================================
 # Logs & OS generated
@@ -33,5 +40,6 @@ compiled/
 *.log
 .DS_Store
 Thumbs.db
-old_code/
-Old_Code/
+# Ignore old code
+old_code/*
+Old_Code/*

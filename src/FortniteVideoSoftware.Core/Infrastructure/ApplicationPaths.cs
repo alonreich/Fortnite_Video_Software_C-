@@ -19,6 +19,8 @@ public sealed class ApplicationPaths
 
     public string SessionStateFile => Path.Combine(ProgramDataRoot, "session_state.json");
 
+    public string WindowStateFile => Path.Combine(ProgramDataRoot, "window_state.json");
+
     public string CropCoordinatesFile => Path.Combine(ProgramDataRoot, "crops_coordinations.conf");
 
     public string LogsDirectory => Path.Combine(ProgramDataRoot, "logs");
@@ -52,8 +54,24 @@ public sealed class ApplicationPaths
 
     public void EnsureWritableDirectories()
     {
+        bool createdRoot = !Directory.Exists(ProgramDataRoot);
         Directory.CreateDirectory(ProgramDataRoot);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);
+        
+        if (createdRoot)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "icacls.exe",
+                    Arguments = $"\"{ProgramDataRoot}\" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                })?.WaitForExit();
+            }
+            catch { }
+        }
     }
 }

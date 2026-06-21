@@ -5,7 +5,7 @@ FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
 
 CRITICAL MANDATES FOR ALL AI AGENTS:
 1. NO CACHING ALLOWED: The application MUST NOT use caching of any kind whatsoever. All operations must be real-time or completely stateless between executions. Do not implement any memory caches, disk caches, or memoization.
-2. SINGLE EXE INSTALLER: The compile/ output MUST always be exactly one single condensed `.exe` file (the installer). It MUST NOT contain adjacent folders or multiple files. The installer must internally embed its entire payload (using an EmbeddedResource like payload.zip) and unpack all required files/folders (such as native DLLs, ffmpeg) to the persistent installation folder during the deployment lifecycle.
+2. *** SINGLE EXE INSTALLER ***: THE COMPILED OUTPUT IN THE .\COMPILED\ FOLDER MUST BE EXACTLY ONE SINGLE CONDENSED `.exe` FILE! IT MUST NEVER BE MULTIPLE FILES! The installer `.exe` internally embeds its entire payload (payload.zip) and ONLY extracts it to the correct persistent paths ONCE IT IS RAN AND INSTALLED!
 
 1. PROJECT DESCRIPTION & GOALS
 ------------------------------------------------------------------------------
@@ -74,15 +74,33 @@ free footprint.
   The build script (`build.cmd`) operates without PowerShell UI mutation to ensure 
   the console font consistently stays at 16 Consolas.
 
+* UI Polish & Interactions:
+  - Draggable, interactive START and END timeline markers via precise Canvas hit-testing.
+  - Distinct "gentle yellowish" visual feedback overlays for immediate confirmation of button clicks (e.g., SET THUMBNAIL, MARK START).
+  - Modern, brightened metallic blue gradients for all primary action buttons.
+  - Synchronous Window Bounds tracking via `WindowBoundsHelper.SaveBoundsSync` guarantees that layout, window position, monitor affinity, and sizing are safely committed to disk before the Avalonia application loop terminates.
+
+* Repository & Dependency Architecture:
+  - Clean separation from legacy code: All critical FFmpeg and MPV binaries are now hosted independently in a `binaries/` directory and injected at build time.
+  - Git LFS Integration (`.gitattributes`): Transparently handles large native binaries (`*.exe`, `*.dll`, `*.com`, `*.zip`) to prevent repository bloat.
+  - Intelligent Agent & IDE Exclusions: Employs `.clineignore`, `.agignore`, `.geminiignore`, and `.codexignore` to perfectly optimize AI context windows (excluding `node_modules`, `dist`, lockfiles, `*.g.cs`) while preserving access to local editor setups.
+  - Hardened `.gitignore` safeguards secrets (`.env`, `appsettings.json`), package caches, and test results, while explicitly whitelisting the `binaries/` folder.
+
 3. FILE & FOLDER STRUCTURE MINIMAP
 ------------------------------------------------------------------------------
 \ (Root Directory)
 |-- build.cmd
 |   Role: Build automation script. Triggers NativeAOT compilation, manages temporary 
-|         artifacts, zips payload, and drops the final bundled installer executable into .\compile.
+|         artifacts, zips payload, and drops the final bundled installer executable into .\compiled.
 |
 |-- project_structure.txt
 |   Role: This architectural reference document. Source of truth for project state.
+|
+|-- binaries\
+|   Role: Contains all native backend binaries (ffmpeg.exe, mpv.exe, libmpv-2.dll, av*.dll) required for building the standalone application payload.
+|
+|-- .gitattributes, .gitignore, .*ignore (cline, ag, gemini, codex)
+|   Role: Safely manages LFS tracking for binaries, safeguards secrets, and optimizes context windows for AI coding agents.
 |
 +-- src\
     |
@@ -94,15 +112,25 @@ free footprint.
     |   |-- AvaloniaApp.axaml & AvaloniaApp.axaml.cs
     |   |   Role: Avalonia app initialization, global styles. Routes `--install-worker` and `--cleanup-worker` to UI.
     |   |-- MainWindow.axaml & MainWindow.axaml.cs
-    |   |   Role: The primary visual shell. Integrates MPV playback, handles UI navigation.
+    |   |   Role: The primary visual shell. Integrates MPV playback, handles UI navigation and global shortcuts.
     |   |-- DeploymentLifecycle.cs, DeploymentFootprint.cs, DeploymentReporter.cs
-    |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation.
+    |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation footprint tracking.
     |   |-- DeploymentProgressWindow.axaml & .cs
-    |   |   Role: Dark-themed, elegant installer and uninstaller Avalonia Window.
+    |   |   Role: Dark-themed, elegant installer and uninstaller Avalonia Window providing live status and console logs via TextBox.
     |   |-- RuntimeLog.cs
     |   |   Role: Writes verbose startup & operational logs to `%TMP%\Fortnite_Video_Software.log`.
     |   |-- Phase1Gate.cs, Phase2Gate.cs, Phase3Gate.cs, Phase4Gate.cs
     |   |   Role: End-to-end integration tests that strictly validate behavior rules.
+    |   |-- VideoMergerWindow.axaml & .cs
+    |   |   Role: Drag-and-drop Avalonia window for appending multiple MP4 files. Initiates background merging and auto-shutters the app on success.
+    |   |-- MusicWizardWindow.axaml & .cs
+    |   |   Role: 3-Step Wizard for Background Music selection. Features an interactive timeline with a visual waveform where users can drag the playhead to set precisely tuned offset ducking configurations.
+    |   |-- GranularSpeedEditorWindow.axaml & .cs
+    |   |   Role: UI for splitting video into distinct time segments with independent playback speeds.
+    |   |-- CropToolWindow.axaml & .cs
+    |   |   Role: Intuitive Canvas-based interface for cropping and portrait conversion handling inverse 1080x1920 calculations.
+    |   |-- AdvancedVideoEditorWindow.axaml & .cs
+    |   |   Role: Currently indefinitely postponed migration. Intended for keyframe-level video processing and complex text/image overlays.
     |
     +-- FortniteVideoSoftware.Core\ (Business, IPC, & Media Logic Layer)
         |-- FortniteVideoSoftware.Core.csproj
@@ -135,3 +163,11 @@ free footprint.
             |   Role: FFmpeg parameter builder (Audio ducking, WhatsApp intro fixes).
             |-- TimeSyncEngine.cs
             |   Role: Audio/Video scaling and duration compensation logic.
+            |-- MergerWorker.cs
+            |   Role: Executes FFmpeg for concatenating and padding mismatched clips with dynamic filter complex injection.
+            |-- WaveformGenerator.cs
+            |   Role: Runs FFmpeg with `showwavespic` filter to build visual PNG timelines for Avalonia Image rendering.
+            |-- AudioFilterChain.cs
+            |   Role: Manages advanced `highpass/lowpass` split logic and RMS sidechain compression for audio ducking game tracks against music.
+            |-- MediaProber.cs
+            |   Role: Interacts with ffprobe to accurately measure duration and format metrics for the sync engine.

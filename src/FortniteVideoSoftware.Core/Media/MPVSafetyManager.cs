@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using System.Globalization;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -50,37 +51,38 @@ public class MPVSafetyManager : IDisposable
         };
         seekThread.Start();
 
-        // This is the Watchdog
-        while (!_cts.Token.IsCancellationRequested)
+        try
         {
-            bool isStuck = false;
-            lock (_stateLock)
+            while (!_cts.IsCancellationRequested)
             {
-                if (_isSeeking)
-                {
-                    TimeSpan elapsed = DateTime.UtcNow - _seekStartTime;
-                    if (elapsed.TotalSeconds > 2.5)
-                    {
-                        isStuck = true;
-                    }
-                }
-            }
-
-            if (isStuck)
-            {
-                // Force reset internal seek state machine to unblock UI
+                bool isStuck = false;
                 lock (_stateLock)
                 {
-                    _isSeeking = false;
+                    if (_isSeeking)
+                    {
+                        TimeSpan elapsed = DateTime.UtcNow - _seekStartTime;
+                        if (elapsed.TotalSeconds > 2.5)
+                        {
+                            isStuck = true;
+                        }
+                    }
                 }
-                
-                // You could re-initialize MPV here or send a stop command.
-                // For now, we clear the queue and log it.
-                Console.Error.WriteLine("MPV WATCHDOG TRIPPED: Seek took longer than 2.5s. Resetting state.");
-            }
 
-            Thread.Sleep(500); // Check every 500ms
+                if (isStuck)
+                {
+                    // Force reset internal seek state machine to unblock UI
+                    lock (_stateLock)
+                    {
+                        _isSeeking = false;
+                    }
+                    
+                    Console.Error.WriteLine("MPV WATCHDOG TRIPPED: Seek took longer than 2.5s. Resetting state.");
+                }
+
+                Thread.Sleep(500); // Check every 500ms
+            }
         }
+        catch (ObjectDisposedException) { }
     }
 
     private async void SeekProcessorLoop()
@@ -109,8 +111,15 @@ public class MPVSafetyManager : IDisposable
                 // Execute native seek
                 try
                 {
-                    // "seek" command
-                    MpvWrapper.mpv_command(_mpvHandle, new[] { "seek", time.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute-percent", null! });
+                    string pct = time.ToString("F1", CultureInfo.InvariantCulture);
+                    MpvWrapper.mpv_command_string(_mpvHandle, $"seek {pct} absolute-percent");
+                }
+                catch
+                {
+                    lock (_stateLock)
+                    {
+                        _isSeeking = false;
+                    }
                 }
                 finally
                 {

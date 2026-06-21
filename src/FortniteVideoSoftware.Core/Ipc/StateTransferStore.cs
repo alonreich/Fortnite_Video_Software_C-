@@ -46,7 +46,7 @@ public sealed class StateTransferStore
         }, cancellationToken);
     }
 
-    public async Task UpdateAsync(JsonObject updates, CancellationToken cancellationToken = default)
+    public async Task UpdatePropertiesAsync(JsonObject updates, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
         {
@@ -96,6 +96,10 @@ public sealed class StateTransferStore
         catch (IOException)
         {
             QuarantineCorruptedSessionFile();
+            return new JsonObject();
+        }
+        catch (UnauthorizedAccessException)
+        {
             return new JsonObject();
         }
     }

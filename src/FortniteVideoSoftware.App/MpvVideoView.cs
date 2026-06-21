@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using FortniteVideoSoftware.Core.Media;
@@ -7,32 +8,39 @@ namespace FortniteVideoSoftware.App;
 
 public class MpvVideoView : NativeControlHost
 {
-    private nint _mpvHandle;
     private nint _hwnd;
+    public MpvIpcClient? IpcClient { get; private set; }
 
-    public void AttachMpv(nint mpvHandle)
+    public async Task StartMpvProcessAsync(string mpvPath)
     {
-        _mpvHandle = mpvHandle;
-        UpdateMpvWid();
+        if (_hwnd == nint.Zero)
+        {
+            RuntimeLog.Fail("MPV", "StartMpvProcessAsync called before window was loaded! _hwnd is zero.");
+            return;
+        }
+        
+        RuntimeLog.Info("MPV", $"Starting MPV with path: {mpvPath}");
+        IpcClient = new MpvIpcClient();
+        try
+        {
+            await IpcClient.StartAsync(_hwnd, mpvPath);
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Fail("MPV", $"Failed to start MPV process: {ex.Message}");
+        }
     }
 
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
-        // On Windows, NativeControlHost creates a generic HWND by default if we don't override.
-        // Actually, we just need to return base and then get the handle.
         IPlatformHandle handle = base.CreateNativeControlCore(parent);
         _hwnd = handle.Handle;
-        UpdateMpvWid();
         return handle;
     }
-
-    private void UpdateMpvWid()
+    
+    protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
-        if (_mpvHandle != nint.Zero && _hwnd != nint.Zero)
-        {
-            // libmpv expects "wid" as int64 string
-            string widStr = _hwnd.ToInt64().ToString();
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", widStr);
-        }
+        IpcClient?.Dispose();
+        base.DestroyNativeControlCore(control);
     }
 }

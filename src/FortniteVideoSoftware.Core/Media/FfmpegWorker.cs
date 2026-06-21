@@ -15,8 +15,8 @@ public class FfmpegWorker
     public FfmpegWorker(ApplicationPaths paths)
     {
         // Default to system PATH if not found in binaries folder
-        string binariesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "libmpv-2.dll"); 
-        string localFfmpeg = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "backend", "ffmpeg.exe");
+        string binariesPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "libmpv-2.dll");
+        string localFfmpeg = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
         _ffmpegPath = File.Exists(localFfmpeg) ? localFfmpeg : "ffmpeg.exe";
     }
 
@@ -77,3 +77,4 @@ public class FfmpegWorker
         return process.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
     }
 }
+

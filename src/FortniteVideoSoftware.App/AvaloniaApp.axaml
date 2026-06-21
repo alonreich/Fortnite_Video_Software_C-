@@ -3,8 +3,119 @@
              x:Class="FortniteVideoSoftware.App.AvaloniaApp">
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
         <Style Selector="Button.BottomNav">
             <Setter Property="Height" Value="42" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="1,1,1,2"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.1"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.05"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="Button /template/ ContentPresenter#PART_ContentPresenter">
+            
+        </Style>
+
+        <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="RenderTransform" Value="translateY(2px)"/>
+            
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- Primary Buttons (Bright Blue) -->
+        <Style Selector="Button.Primary">
+            <Setter Property="BorderBrush" Value="#174f6b"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#4ea1ca"/>
+                    <GradientStop Offset="0.15" Color="#3484ac"/>
+                    <GradientStop Offset="1.0" Color="#287397"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#63b5dd"/>
+                    <GradientStop Offset="0.15" Color="#4ea1ca"/>
+                    <GradientStop Offset="1.0" Color="#3a8bb2"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+
+        <!-- Success Buttons (Metallic Green) -->
+        <Style Selector="Button.Success">
+            <Setter Property="BorderBrush" Value="#14532d"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#22c55e"/>
+                    <GradientStop Offset="0.15" Color="#15803d"/>
+                    <GradientStop Offset="1.0" Color="#14532d"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#4ade80"/>
+                    <GradientStop Offset="0.15" Color="#16a34a"/>
+                    <GradientStop Offset="1.0" Color="#166534"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+
+        <!-- Danger Buttons (Metallic Red) -->
+        <Style Selector="Button.Danger">
+            <Setter Property="BorderBrush" Value="#711616"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#dc2626"/>
+                    <GradientStop Offset="0.15" Color="#991b1b"/>
+                    <GradientStop Offset="1.0" Color="#711616"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#ef4444"/>
+                    <GradientStop Offset="0.15" Color="#b91c1c"/>
+                    <GradientStop Offset="1.0" Color="#7f1d1d"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Slider /template/ Thumb">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Slider:pressed /template/ Thumb">
+            <Setter Property="RenderTransform" Value="scale(2)" />
+        </Style>
+        <Style Selector="Slider">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Cursor" Value="Hand" />
         </Style>
     </Application.Styles>
 </Application>

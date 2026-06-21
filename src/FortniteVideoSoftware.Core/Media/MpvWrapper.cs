@@ -17,7 +17,7 @@ public static partial class MpvWrapper
     public static partial void mpv_terminate_destroy(nint ctx);
 
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial int mpv_command(nint ctx, string[] args);
+    public static partial int mpv_command_string(nint ctx, string args);
 
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int mpv_set_property_string(nint ctx, string name, string data);
@@ -28,8 +28,8 @@ public static partial class MpvWrapper
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int mpv_set_option_string(nint ctx, string name, string data);
 
-    [LibraryImport(LibraryName)]
-    public static partial nint mpv_get_property_string(nint ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial nint mpv_get_property_string(nint ctx, string name);
 
     [LibraryImport(LibraryName)]
     public static partial void mpv_free(nint data);

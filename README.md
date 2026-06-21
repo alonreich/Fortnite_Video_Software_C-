@@ -27,7 +27,7 @@ This software was explicitly rewritten from a legacy Python application into a c
 *   **🎵 Audio Integration:** Seamlessly mix custom background music (`.mp3`, `.wav`, etc.) directly into your montages.
 *   **🤖 Hardware Acceleration:** Built-in hardware scanner automatically detects and utilizes the optimal GPU encoder (NVIDIA NVENC, AMD AMF, or Intel QSV) for blistering render speeds.
 *   **🖌️ Premium UI/UX:** A dark-themed, meticulously styled interface featuring dynamic metallic buttons, realistic 3D tactile feedback, and high-contrast styling.
-*   **📦 Single-File Native Execution:** Packaged via .NET Native AOT into a single, highly optimized `.exe` (under `.\compile\`) that requires zero external runtime dependencies.
+*   **📦 Single-File Native Execution:** Packaged via .NET Native AOT into a single, highly optimized `.exe` (under `.\compiled\`) that requires zero external runtime dependencies.
 
 ## 🛠️ Technology Stack
 
@@ -48,7 +48,7 @@ To ensure maximum performance and self-containment, the application uses an auto
    ```
 3. Your compiled, high-performance executable will be deployed directly to:
    ```
-   .\compile\FortniteVideoSoftware.exe
+   .\compiled\FortniteVideoSoftware.exe
    ```
 
 ## 🎮 Usage Instructions

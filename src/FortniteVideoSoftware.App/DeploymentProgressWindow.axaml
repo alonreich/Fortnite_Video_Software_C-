@@ -26,18 +26,17 @@
                        FontSize="11"
                        TextWrapping="Wrap"
                        Margin="0,0,0,8"/>
-            <ListBox Name="LogList"
+            <TextBox Name="LogTextBox"
                      Grid.Row="2"
                      Background="#1E1E1E"
                      BorderThickness="0"
                      Foreground="#C0CAF5"
-                     Padding="8">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" FontFamily="Consolas,Courier New,monospace" FontSize="12" LineHeight="18" Margin="0" Padding="0"/>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                     FontFamily="Consolas,Courier New,monospace"
+                     FontSize="12"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     AcceptsReturn="True"
+                     Padding="8" />
             <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,12,0,4">
                 <TextBlock Name="PhaseText"
                            Text="Initializing..."

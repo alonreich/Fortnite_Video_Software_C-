@@ -17,7 +17,7 @@ cd /d "."
 set "PROJECT_FILE=src\FortniteVideoSoftware.App\FortniteVideoSoftware.App.csproj"
 set "PROJECT_EXE=FortniteVideoSoftware.App.exe"
 set "OUTPUT_EXE=FortniteVideoSoftware.exe"
-set "OUTPUT_DIR=.\compile"
+set "OUTPUT_DIR=.\compiled"
 set "FINAL_DIR=.\obj\StandaloneTemp\NativeAot_final"
 set "PUBLISH_BASE_ARGS=-p:TreatWarningsAsErrors=true"
 set "PUBLISH_AOT_ARGS=-p:PublishAot=true -p:SelfContained=true"
@@ -46,7 +46,7 @@ call :BUILD_NATIVE
 if errorlevel 1 exit /b 1
 
 if exist ".\LICENSE.txt" copy /y ".\LICENSE.txt" "%OUTPUT_DIR%\LICENSE.txt" >nul
-call :VALIDATE_COMPILE_OUTPUT
+call :VALIDATE_COMPILED_OUTPUT
 if errorlevel 1 exit /b 1
 
 echo.
@@ -76,16 +76,16 @@ echo [NativeAOT] 2.5 Copying binaries to staging...
 mkdir "%STAGING_DIR%\backend"
 mkdir "%STAGING_DIR%\frontend"
 
-copy /y ".\Old_Code\binaries\ffmpeg.exe" "%STAGING_DIR%\backend\" >nul
-copy /y ".\Old_Code\binaries\ffplay.exe" "%STAGING_DIR%\backend\" >nul
-copy /y ".\Old_Code\binaries\ffprobe.exe" "%STAGING_DIR%\backend\" >nul
-copy /y ".\Old_Code\binaries\av*.dll" "%STAGING_DIR%\backend\" >nul
-copy /y ".\Old_Code\binaries\sw*.dll" "%STAGING_DIR%\backend\" >nul
-copy /y ".\Old_Code\binaries\postproc*.dll" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\ffmpeg.exe" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\ffplay.exe" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\ffprobe.exe" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\av*.dll" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\sw*.dll" "%STAGING_DIR%\backend\" >nul
+copy /y ".\binaries\postproc*.dll" "%STAGING_DIR%\backend\" >nul
 
-copy /y ".\Old_Code\binaries\libmpv-2.dll" "%STAGING_DIR%\frontend\" >nul
-copy /y ".\Old_Code\binaries\mpv.exe" "%STAGING_DIR%\frontend\" >nul
-copy /y ".\Old_Code\binaries\mpv.com" "%STAGING_DIR%\frontend\" >nul
+copy /y ".\binaries\libmpv-2.dll" "%STAGING_DIR%\frontend\" >nul
+copy /y ".\binaries\mpv.exe" "%STAGING_DIR%\frontend\" >nul
+copy /y ".\binaries\mpv.com" "%STAGING_DIR%\frontend\" >nul
 
 echo [NativeAOT] 3. Zipping payload...
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGING_DIR%\*' -DestinationPath 'src\FortniteVideoSoftware.App\payload.zip' -Force"
@@ -94,7 +94,7 @@ echo [NativeAOT] 4. Publishing standalone installer...
 dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true -o "%FINAL_DIR%" %DOTNET_LOG_ARGS%
 if errorlevel 1 exit /b 1
 
-echo [NativeAOT] 5. Moving final EXE to compile folder...
+echo [NativeAOT] 5. Moving final EXE to compiled folder...
 if not exist "%FINAL_DIR%\%PROJECT_EXE%" (
   echo ERROR: Expected NativeAOT EXE was not produced in %FINAL_DIR%
   exit /b 1
@@ -103,7 +103,7 @@ if not exist "%FINAL_DIR%\%PROJECT_EXE%" (
 move /y "%FINAL_DIR%\%PROJECT_EXE%" "%OUTPUT_DIR%\%OUTPUT_EXE%"
 if errorlevel 1 exit /b 1
 
-call :PURGE_COMPILE_EXTRAS
+call :PURGE_COMPILED_EXTRAS
 if errorlevel 1 exit /b 1
 
 echo [NativeAOT] 6. Cleaning up temporary artifacts...
@@ -113,10 +113,10 @@ if exist "src\FortniteVideoSoftware.App\payload.zip" del /f /q "src\FortniteVide
 
 exit /b 0
 
-:PURGE_COMPILE_EXTRAS
+:PURGE_COMPILED_EXTRAS
 for %%F in ("%OUTPUT_DIR%\*") do (
   if /I not "%%~nxF"=="%OUTPUT_EXE%" if /I not "%%~nxF"=="LICENSE.txt" (
-    echo ERROR: Removing disallowed artifact from compile: %%~nxF
+    echo ERROR: Removing disallowed artifact from compiled: %%~nxF
     rd /s /q "%%~fF" 2>nul
     del /f /q "%%~fF" 2>nul
     exit /b 1
@@ -124,7 +124,7 @@ for %%F in ("%OUTPUT_DIR%\*") do (
 )
 exit /b 0
 
-:VALIDATE_COMPILE_OUTPUT
+:VALIDATE_COMPILED_OUTPUT
 set "INVALID=0"
 if not exist "%OUTPUT_DIR%\%OUTPUT_EXE%" set "INVALID=1"
 for %%F in ("%OUTPUT_DIR%\*") do (

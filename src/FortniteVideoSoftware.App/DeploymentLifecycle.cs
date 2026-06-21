@@ -280,8 +280,11 @@ internal static class DeploymentLifecycle
         string stagedExe = Path.Combine(DeploymentFootprint.InstallFolder, "FortniteVideoSoftware.App.exe");
         if (File.Exists(stagedExe))
         {
-            await CopyFileAggressiveAsync(stagedExe, DeploymentFootprint.InstallPath).ConfigureAwait(false);
-            File.Delete(stagedExe);
+            if (!string.Equals(stagedExe, DeploymentFootprint.InstallPath, StringComparison.OrdinalIgnoreCase))
+            {
+                await CopyFileAggressiveAsync(stagedExe, DeploymentFootprint.InstallPath).ConfigureAwait(false);
+                File.Delete(stagedExe);
+            }
         }
         else
         {
@@ -292,6 +295,21 @@ internal static class DeploymentLifecycle
 
         await DeploymentReporter.StepAsync("DEPLOY PROGRAMDATA", $"Creating writable ProgramData root: {DeploymentFootprint.ProgramDataFolder}", 72).ConfigureAwait(false);
         Directory.CreateDirectory(DeploymentFootprint.ProgramDataFolder);
+        
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "icacls.exe",
+                Arguments = $"\"{DeploymentFootprint.ProgramDataFolder}\" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            })?.WaitForExit();
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("ACL", ex);
+        }
 
         await DeploymentReporter.StepAsync("DEPLOY REGISTRY", "Writing Windows Apps & Features uninstall entry.", 78).ConfigureAwait(false);
         await WriteUninstallRegistryAsync().ConfigureAwait(false);
@@ -573,6 +591,7 @@ internal static class DeploymentLifecycle
                 return;
             }
 
+            Directory.CreateDirectory(DeploymentFootprint.DeploymentTempRoot);
             string tempZip = Path.Combine(DeploymentFootprint.DeploymentTempRoot, "payload.zip");
             using (FileStream fs = new FileStream(tempZip, FileMode.Create, FileAccess.Write, FileShare.None))
             {
@@ -585,6 +604,33 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             DeploymentReporter.AppendFatalAsync("EXTRACT PAYLOAD", ex).GetAwaiter().GetResult();
+        }
+    }
+
+    public static void ExtractAvaloniaDependencies(string destinationFolder)
+    {
+        try
+        {
+            using Stream? stream = typeof(DeploymentLifecycle).Assembly.GetManifestResourceStream("FortniteVideoSoftware.App.payload.zip");
+            if (stream is null) return;
+            
+            using var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+            foreach (var entry in archive.Entries)
+            {
+                if (entry.Name.Equals("libSkiaSharp.dll", StringComparison.OrdinalIgnoreCase) ||
+                    entry.Name.Equals("libHarfBuzzSharp.dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    string destPath = Path.Combine(destinationFolder, entry.Name);
+                    if (!File.Exists(destPath))
+                    {
+                        System.IO.Compression.ZipFileExtensions.ExtractToFile(entry, destPath, overwrite: true);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DeploymentReporter.AppendFatalAsync("EXTRACT DEPENDENCIES", ex).GetAwaiter().GetResult();
         }
     }
 
@@ -795,12 +841,12 @@ internal static class DeploymentLifecycle
     {
         Directory.CreateDirectory(SessionTempFolder);
         string source = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot resolve current executable path.");
-        string tempSetup = Path.Combine(SessionTempFolder, "Setup.exe");
-        File.Copy(source, tempSetup, overwrite: true);
-        ExtractEmbeddedPayload(SessionTempFolder);
+        string tempInstaller = Path.Combine(SessionTempFolder, "FortniteVideoSoftware_Setup.exe");
+        File.Copy(source, tempInstaller, overwrite: true);
 
         string args = BuildInstallWorkerArgs(noLaunch, quiet);
-        if (!TryStartElevated(tempSetup, args))
+        
+        if (!TryStartElevated(tempInstaller, args))
         {
             await DeploymentReporter.FailAsync("ELEVATION", "User cancelled Administrator permission or Windows refused to start the elevated installer worker.", 10).ConfigureAwait(false);
             NativeDialog.ShowError(

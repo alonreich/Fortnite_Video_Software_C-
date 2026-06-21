@@ -1,0 +1,42 @@
+# Build Outputs & Node
+bin/
+obj/
+TestResults/
+out/
+publish/
+dist/
+build/
+coverage/
+.npm/
+
+# IDE & Editor Settings
+.vs/
+.idea/
+*.user
+*.suo
+
+# Dependencies & Packages
+packages/
+*.nupkg
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Binaries & Logs
+*.dll
+*.exe
+*.pdb
+*.zip
+*.dmp
+*.log
+
+# Generated Code
+**/Migrations/*
+*.g.cs
+*.designer.cs
+
+# Secrets & Local Configurations
+.env
+appsettings.Development.json
+appsettings.Local.json

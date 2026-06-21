@@ -106,7 +106,7 @@ public static class Phase1Gate
                 [$"worker_{workerId}_utc"] = DateTimeOffset.UtcNow.ToString("O")
             };
 
-            await stateStore.UpdateAsync(update);
+            await stateStore.UpdatePropertiesAsync(update);
 
             JsonObject config = await cropStore.LoadAsync();
             config["phase1_gate"] = new JsonObject

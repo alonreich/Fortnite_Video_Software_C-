@@ -13,7 +13,7 @@ namespace FortniteVideoSoftware.App
         private TextBlock _percentageText;
         private TextBlock _titleText;
         private TextBlock _logPathText;
-        private ListBox _logList;
+        private TextBox _logTextBox;
         private Button _finishButton;
 
         public DeploymentProgressWindow()
@@ -46,7 +46,7 @@ namespace FortniteVideoSoftware.App
             _percentageText = this.FindControl<TextBlock>("PercentageText");
             _titleText = this.FindControl<TextBlock>("TitleText");
             _logPathText = this.FindControl<TextBlock>("LogPathText");
-            _logList = this.FindControl<ListBox>("LogList");
+            _logTextBox = this.FindControl<TextBox>("LogTextBox");
             _finishButton = this.FindControl<Button>("FinishButton");
         }
 
@@ -105,18 +105,14 @@ namespace FortniteVideoSoftware.App
 
         public void AppendLogLine(string message)
         {
-            if (_logList == null || string.IsNullOrWhiteSpace(message))
+            if (_logTextBox == null || string.IsNullOrWhiteSpace(message))
             {
                 return;
             }
 
-            string line = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message;
-            _logList.Items.Add(line);
-            if (_logList.ItemCount > 0)
-            {
-                _logList.SelectedIndex = _logList.ItemCount - 1;
-                _logList.ScrollIntoView(_logList.ItemCount - 1);
-            }
+            string line = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message + Environment.NewLine;
+            _logTextBox.Text += line;
+            _logTextBox.CaretIndex = _logTextBox.Text.Length;
         }
         public async Task ShowSuccessAndCloseAsync()
         {

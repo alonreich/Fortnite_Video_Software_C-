@@ -1,0 +1,156 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:Class="FortniteVideoSoftware.App.GranularSpeedEditorWindow"
+        Title="Granular Speed Editor"
+        Width="1050" Height="720"
+        Background="#0f172a"
+        MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+
+    <Grid>
+        <Border Background="#0f172a" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
+                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                </Border>
+                <Grid Grid.Row="1" RowDefinitions="Auto, *, Auto">
+
+        <!-- HEADER -->
+        <Border Grid.Row="0" Background="#1e293b" Padding="16,12" BorderBrush="#334155" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*, Auto">
+                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2">
+                    <TextBlock Text="&#x26A1; GRANULAR SPEED EDITOR" Foreground="#60a5fa" FontSize="16" FontWeight="Bold"/>
+                    <TextBlock Name="VideoFileLabel" Text="No video loaded" Foreground="#64748b" FontSize="11"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Name="StatusLabel" Text="" Foreground="#22c55e" FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- MAIN BODY -->
+        <Grid Grid.Row="1" ColumnDefinitions="*, 320">
+
+            <!-- LEFT: Video preview + timeline -->
+            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
+
+                <!-- Video preview -->
+                <Border Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
+                    <Grid>
+                        <local:MpvVideoView Name="GranularVideoHost"/>
+                        <Border Name="GranularFeedback" Background="#22eab308" BorderBrush="#eab308" BorderThickness="1" HorizontalAlignment="Center"
+                                VerticalAlignment="Center" Padding="20,10" CornerRadius="8" IsVisible="False">
+                            <TextBlock Name="GranularFeedbackText" Text="" Foreground="#fde047" FontSize="18" FontWeight="Bold"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Time display -->
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,4">
+                    <TextBlock Name="GranularTimeElapsed" Text="00:00:00.000" Foreground="White"
+                               VerticalAlignment="Center" Width="90" FontSize="12" FontFamily="Consolas"/>
+                    <TextBlock Grid.Column="1" Text="TIMELINE" Foreground="#475569" FontSize="10"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Name="GranularDuration" Text="00:00:00.000" Foreground="#64748b"
+                               VerticalAlignment="Center" Width="90" TextAlignment="Right" FontSize="12" FontFamily="Consolas"/>
+                </Grid>
+
+                <!-- Timeline Slider with segment overlay -->
+                <Grid Grid.Row="2" Margin="0,0,0,8" Height="36">
+                    <Canvas Name="GranularTimelineCanvas" IsHitTestVisible="False" ZIndex="1" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                    <Slider Name="GranularTimeline" Minimum="0" Maximum="1000" Cursor="Hand" MinHeight="40" />
+                </Grid>
+
+                <!-- Playback controls -->
+                <Grid Grid.Row="3" ColumnDefinitions="Auto, *, Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
+                        <ToggleButton Name="FreezeFrameCheck" Classes="Primary" Content="❄ FREEZE" Width="130" Height="32" FontSize="11" ToolTip.Tip="Set speed to 0 for a freeze frame" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                        <Button Name="MarkStartBtn" Classes="Primary" Content="MARK START" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the start of the segment ([)" HotKey="OemOpenBrackets"/>
+                        <Button Name="GranularPlayPause" Classes="Success" Content="PLAY" Width="125" Height="40" FontSize="12" ToolTip.Tip="Play or pause the video (Space)" HotKey="Space"/>
+                        <Button Name="MarkEndBtn" Classes="Primary" Content="MARK END" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the end of the segment (])" HotKey="OemCloseBrackets"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- RIGHT PANEL: Segment editor -->
+            <Border Grid.Column="1" Background="#1e293b" BorderBrush="#334155" BorderThickness="1,0,0,0" Padding="12">
+                <Grid RowDefinitions="Auto, Auto, Auto, Auto, *, Auto">
+
+                    <TextBlock Grid.Row="0" Text="SPEED SEGMENTS" Foreground="#94a3b8" FontSize="11"
+                               FontWeight="Bold" Margin="0,0,0,10"/>
+
+                    <!-- ADD SEGMENT block -->
+                    <Border Grid.Row="1" Background="#0f172a" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="NEW SEGMENT" Foreground="#60a5fa" FontSize="10" FontWeight="Bold"/>
+
+                            <!-- Mark Start row -->
+                            <Grid ColumnDefinitions="45,*">
+                                <TextBlock Grid.Column="0" Text="Start:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Name="PendingStartLabel" Text="--:--:--.---" Foreground="#22c55e"
+                                           FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" Width="80"/>
+                            </Grid>
+
+                            <!-- Mark End row -->
+                            <Grid ColumnDefinitions="45,*">
+                                <TextBlock Grid.Column="0" Text="End:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Name="PendingEndLabel" Text="--:--:--.---" Foreground="#22c55e"
+                                           FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" Width="80"/>
+                            </Grid>
+
+                            <!-- Speed row -->
+                            <Grid ColumnDefinitions="45,*">
+                                <TextBlock Grid.Column="0" Text="Speed:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                <Grid Grid.Column="1" ColumnDefinitions="*,45">
+                                    <Slider Name="PendingSpeedSlider" Minimum="0.1" Maximum="4.0" Value="1.1"
+                                            TickFrequency="0.05" IsSnapToTickEnabled="True" IsEnabled="True"/>
+                                    <TextBlock Grid.Column="1" Name="PendingSpeedLabel" Text="1.10x"
+                                               Foreground="#f59e0b" FontSize="11" FontFamily="Consolas"
+                                               VerticalAlignment="Center" TextAlignment="Right"/>
+                                </Grid>
+                            </Grid>
+
+                            <!-- Freeze frame toggle moved to left panel -->
+                            <Button Name="AddSegmentBtn" Classes="Success" Content="+ ADD SEGMENT"
+                                    HorizontalAlignment="Stretch" Height="30" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Removed Base speed section per user request -->
+
+                    <TextBlock Grid.Row="3" Name="SegmentCountLabel" Text="0 segments"
+                               Foreground="#64748b" FontSize="10" Margin="0,0,0,6"/>
+
+                    <!-- Segments scrollable list -->
+                    <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Name="SegmentsPanel" Spacing="0"/>
+                    </ScrollViewer>
+
+                    <Button Grid.Row="5" Name="ClearAllSegmentsBtn" Classes="Danger"
+                            Content="CLEAR ALL SEGMENTS" HorizontalAlignment="Stretch"
+                            Height="30" FontSize="11" Margin="0,8,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- BOTTOM NAVIGATION -->
+        <Border Grid.Row="2" Background="#1e293b" Padding="16,10" BorderBrush="#334155" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*, Auto">
+                <TextBlock Grid.Column="0" Name="BottomStatusLabel"
+                           Text="Mark a start and end time, set a speed, then click ADD SEGMENT."
+                           Foreground="#64748b" FontSize="11" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" Width="100" Height="42" FontSize="13"/>
+                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" Width="120" Height="42" FontSize="13"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

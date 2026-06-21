@@ -9,10 +9,17 @@
     <PackageReference Include="Avalonia.Diagnostics" Version="11.0.10" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.0.10" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.0.10" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.0.10" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.0.10" />
+    <PackageReference Include="System.Windows.Extensions" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="payload.zip" Condition="Exists('payload.zip')" />
+    <TrimmerRootAssembly Include="Avalonia.Controls.ColorPicker" />
+    <TrimmerRootAssembly Include="Avalonia.Controls.DataGrid" />
+    <TrimmerRootAssembly Include="Avalonia.Themes.Fluent" />
+    <TrimmerRootAssembly Include="SkiaSharp" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -27,7 +34,7 @@
     <TrimMode>full</TrimMode>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <SuppressAotAnalysisWarnings>true</SuppressAotAnalysisWarnings>
-    <ApplicationIcon>..\..\Old_Code\icons\Video_Icon_File.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\icons\Video_Icon_File.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 

@@ -1,0 +1,119 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:Class="FortniteVideoSoftware.App.CropToolWindow"
+        Title="Portrait 1080x1920 (Crop Tool)"
+        Width="1800" Height="930"
+        Background="#1e293b"
+        MinWidth="1200" MinHeight="800"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+    <Window.Styles>
+        <Style Selector="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="1,1,1,2"/>
+        </Style>
+        <Style Selector="Button.Primary">
+            <Setter Property="BorderBrush" Value="#1e3a8a"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#3b82f6"/>
+                    <GradientStop Offset="0.15" Color="#1d4ed8"/>
+                    <GradientStop Offset="1.0" Color="#1e3a8a"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Success">
+            <Setter Property="BorderBrush" Value="#14532d"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#22c55e"/>
+                    <GradientStop Offset="0.15" Color="#15803d"/>
+                    <GradientStop Offset="1.0" Color="#14532d"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Danger">
+            <Setter Property="BorderBrush" Value="#5c0f0f"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#ef4444"/>
+                    <GradientStop Offset="0.15" Color="#8f1717"/>
+                    <GradientStop Offset="1.0" Color="#5c0f0f"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+    </Window.Styles>
+
+    <Grid>
+        <Border Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
+                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                </Border>
+                <Grid Grid.Row="1" ColumnDefinitions="*, 350">
+                    <!-- LEFT: Portrait Canvas Area -->
+                    <Border Grid.Column="0" Background="Black" Margin="10" CornerRadius="6" ClipToBounds="True">
+                        <Grid>
+                            <!-- Central composition view -->
+                            <Viewbox Stretch="Uniform">
+                                <Canvas Name="PortraitCanvas" Width="1080" Height="1920" Background="#1e1e1e">
+                                    <local:MpvVideoView Name="BackgroundVideo" Width="1080" Height="1920" Canvas.Top="0" Canvas.Left="0" ZIndex="0" />
+                                    <!-- Top Black Strip -->
+                                    <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="0" Canvas.Left="0" ZIndex="100"/>
+                                    <!-- Bottom Black Strip -->
+                                    <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="1770" Canvas.Left="0" ZIndex="100"/>
+                                </Canvas>
+                            </Viewbox>
+                        </Grid>
+                    </Border>
+
+                    <!-- RIGHT: Tools & Layers -->
+                    <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
+                        <Grid RowDefinitions="Auto, *, Auto, Auto">
+                            <StackPanel Grid.Row="0" Spacing="10">
+                                <TextBlock Text="CROP TOOLS" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
+                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
+                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
+                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" FontSize="12" IsChecked="True"/>
+                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" FontSize="12" IsChecked="True"/>
+                            </StackPanel>
+
+                            <!-- Layers List -->
+                            <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" Margin="0,15">
+                                <ListBox Name="LayerList" Background="Transparent" Foreground="White" FontSize="12">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Border>
+
+                            <!-- Action Buttons -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" Margin="0,0,0,15">
+                                <Button Name="DeleteSelectedButton" Classes="Danger" Content="DELETE" Width="90" Height="42" FontSize="12"/>
+                                <Button Name="UndoButton" Classes="Primary" Content="UNDO" Width="90" Height="42" FontSize="12"/>
+                                <Button Name="RedoButton" Classes="Primary" Content="REDO" Width="90" Height="42" FontSize="12"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                                <Button Name="ReturnButton" Classes="Danger" Content="RETURN" Width="140" Height="42" FontSize="14"/>
+                                <Button Name="SaveButton" Classes="Success" Content="SAVE" Width="140" Height="42" FontSize="14"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

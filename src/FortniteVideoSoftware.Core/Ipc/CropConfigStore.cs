@@ -61,6 +61,9 @@ public sealed class CropConfigStore
         catch (IOException)
         {
         }
+        catch (UnauthorizedAccessException)
+        {
+        }
 
         JsonObject healed = CropConfigDefaults.Create();
         RotateBackupsUnlocked();

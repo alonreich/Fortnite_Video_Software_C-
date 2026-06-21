@@ -1,11 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software - Pro Edition"
         Width="1200" Height="800"
         Background="#1e293b"
-        MinWidth="1200" MinHeight="800">
+        MinWidth="800" MinHeight="600">
     <Window.Styles>
         <Style Selector="Button">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -24,33 +25,32 @@
         </Style>
 
         <Style Selector="Button /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BoxShadow" Value="0 4 6 0 #aa000000"/>
+            <Setter Property="RenderTransform" Value="scale(1.02)"/>
         </Style>
 
         <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="RenderTransform" Value="translateY(2px)"/>
-            <Setter Property="BoxShadow" Value="inset 0 3 5 0 #cc000000"/>
+            <Setter Property="RenderTransform" Value="scale(0.98) translateY(2px)"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
 
-        <!-- Primary Buttons (Metallic Blue) -->
+        <!-- Primary Buttons (Bright Blue) -->
         <Style Selector="Button.Primary">
-            <Setter Property="BorderBrush" Value="#1e3a8a"/>
+            <Setter Property="BorderBrush" Value="#2563eb"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background">
                 <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#3b82f6"/>
-                    <GradientStop Offset="0.15" Color="#1d4ed8"/>
-                    <GradientStop Offset="1.0" Color="#1e3a8a"/>
+                    <GradientStop Offset="0.0" Color="#93c5fd"/>
+                    <GradientStop Offset="0.15" Color="#60a5fa"/>
+                    <GradientStop Offset="1.0" Color="#2563eb"/>
                 </LinearGradientBrush>
             </Setter>
         </Style>
         <Style Selector="Button.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background">
                 <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#60a5fa"/>
-                    <GradientStop Offset="0.15" Color="#2563eb"/>
-                    <GradientStop Offset="1.0" Color="#1e40af"/>
+                    <GradientStop Offset="0.0" Color="#bfdbfe"/>
+                    <GradientStop Offset="0.15" Color="#93c5fd"/>
+                    <GradientStop Offset="1.0" Color="#3b82f6"/>
                 </LinearGradientBrush>
             </Setter>
         </Style>
@@ -106,10 +106,15 @@
             <!-- Video Player Area -->
             <Border Grid.Row="0" Background="Black" Margin="10,10,10,0" CornerRadius="6" ClipToBounds="True">
                 <Grid>
-                    <local:MpvVideoView Name="VideoHost" />
-                    <!-- Feedback Overlay -->
-                    <Border Name="FeedbackOverlay" Background="Black" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30" Padding="15,8" CornerRadius="4" IsVisible="False">
-                        <TextBlock Name="FeedbackText" Text="Mark Start: 00:00:00" Foreground="Yellow" FontSize="16" FontWeight="Bold" />
+                    <local:MpvVideoView Name="VideoHost" IsVisible="False" />
+                    <!-- Upload Video Overlay -->
+                    <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6">
+                        <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                                <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" />
+                                <Button Name="CenterUploadButton" Classes="Primary" Content="📂 BROWSE VIDEO" Width="200" Height="45" FontSize="14" Cursor="Hand" />
+                            </StackPanel>
+                        </Border>
                     </Border>
                 </Grid>
             </Border>
@@ -118,13 +123,13 @@
             <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,0">
                 <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
                 <Grid Grid.Column="1" Margin="10,0">
-                    <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" />
                     <Slider Name="TimelineSlider" Minimum="0" Maximum="100" />
+                    <Canvas Name="TimelineMarkersCanvas" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" />
                 </Grid>
                 <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
             </Grid>
 
-            <!-- Trim Controls Grid -->
+            <!-- Combined Trim and Process Controls Grid -->
             <Grid Grid.Row="2" ColumnDefinitions="Auto, *, Auto" Margin="10,15,10,10">
                 <!-- Left: Thumbnail and Boss HP -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
@@ -132,29 +137,38 @@
                     <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" FontSize="11" />
                 </StackPanel>
 
-                <!-- Center: Trim logic and Playback -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                    <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="11" ToolTip.Tip="Mark the beginning of your clip"/>
-                    <Button Name="PlayPauseButton" Classes="Success" Content="PLAY" Width="85" Height="40" FontSize="12" ToolTip.Tip="Play or pause the video"/>
-                    <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="90" Height="32" FontSize="11" ToolTip.Tip="Mark the end of your clip"/>
+                <!-- Center: Trim logic, Playback, and Sliders + Process -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="11" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
+                    <Button Name="PlayPauseButton" Content="▶" Foreground="Black" Background="#e2e8f0" Width="60" Height="32" FontSize="16" FontWeight="Black" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0"/>
+                    <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="90" Height="32" FontSize="11" Margin="0,0,30,0" ToolTip.Tip="Mark the end of your clip"/>
+
+                    <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
+                        <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="True" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Target maximum file size in MB" />
+                    </StackPanel>
+                    
+                    <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="55" CornerRadius="6" FontSize="14" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
+                    <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="55" CornerRadius="6" FontSize="14" ToolTip.Tip="Render and export the final video"/>
+                    
+                    <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Adjust base playback speed multiplier" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Right: Granular Speed -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="11" ToolTip.Tip="Adjust granular speed settings"/>
                 </StackPanel>
             </Grid>
 
-            <!-- Bottom: Process Controls -->
+            <!-- Bottom: Settings -->
             <Grid Grid.Row="3" ColumnDefinitions="Auto, *, Auto" Margin="10,0,10,10">
-                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="5" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
                     <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" FontSize="11" />
-                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates Healthbar" Foreground="White" FontSize="11" Margin="20,0,0,0"/>
-                    <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" Height="25" FontSize="11" Margin="20,5,0,0" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" HorizontalAlignment="Left" />
-                </StackPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                    <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="65" CornerRadius="6" FontSize="14" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
-                    <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="65" CornerRadius="6" FontSize="14" ToolTip.Tip="Render and export the final video"/>
-                </StackPanel>
-                
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="11" ToolTip.Tip="Adjust granular speed settings"/>
+                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" FontSize="11" />
+                    <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" Height="25" FontSize="11" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" />
                 </StackPanel>
             </Grid>
         </Grid>
@@ -173,5 +187,14 @@
                 <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Height="25" FontSize="10" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
             </Grid>
         </Border>
+
+        <!-- Phase Overlay for export progress -->
+        <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.ColumnSpan="2" IsVisible="False" />
+        
+        <!-- Overlay Canvas for Pop-up Badges and Custom Floating Animations -->
+        <Canvas Name="OverlayCanvas" Grid.ColumnSpan="2" IsHitTestVisible="False" />
+        
+        <!-- Toast Notification Host -->
+        <StackPanel Name="ToastHost" Grid.ColumnSpan="2" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="20" Spacing="10" IsHitTestVisible="False" />
     </Grid>
 </Window>

@@ -18,6 +18,8 @@ public partial class AvaloniaApp : Application
             var argsList = desktop.Args ?? System.Array.Empty<string>();
             bool isInstallWorker = System.Linq.Enumerable.Any(argsList, a => a.Equals("--install-worker", System.StringComparison.OrdinalIgnoreCase));
             bool isCleanupWorker = System.Linq.Enumerable.Any(argsList, a => a.Equals("--cleanup-worker", System.StringComparison.OrdinalIgnoreCase));
+            bool isCropTool = System.Linq.Enumerable.Any(argsList, a => a.Equals("--crop-tool", System.StringComparison.OrdinalIgnoreCase));
+            bool isMerger = System.Linq.Enumerable.Any(argsList, a => a.Equals("--merger", System.StringComparison.OrdinalIgnoreCase));
 
             if (isInstallWorker || isCleanupWorker)
             {
@@ -62,6 +64,18 @@ public partial class AvaloniaApp : Application
                         window.ShowFailureAndWait("Installation encountered an error. Please review the log.");
                     }
                 });
+            }
+            else if (isCropTool)
+            {
+                desktop.MainWindow = new CropToolWindow();
+            }
+            else if (isMerger)
+            {
+                desktop.MainWindow = new VideoMergerWindow();
+            }
+            else if (System.Linq.Enumerable.Any(argsList, a => a.Equals("--advanced-editor", System.StringComparison.OrdinalIgnoreCase)))
+            {
+                desktop.MainWindow = new AdvancedVideoEditorWindow();
             }
             else
             {

@@ -1,0 +1,121 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
+        Title="Fortnite Video Software - Merger"
+        Width="1200" Height="800"
+        Background="#1e293b"
+        MinWidth="1200" MinHeight="800"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+    <Window.Styles>
+        <Style Selector="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="1,1,1,2"/>
+        </Style>
+        <Style Selector="Button.Primary">
+            <Setter Property="BorderBrush" Value="#1e3a8a"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#3b82f6"/>
+                    <GradientStop Offset="0.15" Color="#1d4ed8"/>
+                    <GradientStop Offset="1.0" Color="#1e3a8a"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Success">
+            <Setter Property="BorderBrush" Value="#14532d"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#22c55e"/>
+                    <GradientStop Offset="0.15" Color="#15803d"/>
+                    <GradientStop Offset="1.0" Color="#14532d"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Danger">
+            <Setter Property="BorderBrush" Value="#5c0f0f"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#ef4444"/>
+                    <GradientStop Offset="0.15" Color="#8f1717"/>
+                    <GradientStop Offset="1.0" Color="#5c0f0f"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+    </Window.Styles>
+
+    <Grid>
+        <Border Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
+                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                </Border>
+                <Grid Grid.Row="1" ColumnDefinitions="*, 350">
+                    <!-- LEFT COLUMN: Video Player Area -->
+        <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto">
+            <Border Grid.Row="0" Background="Black" Margin="10,10,10,0" CornerRadius="6" ClipToBounds="True">
+                <local:MpvVideoView Name="VideoHost" />
+            </Border>
+
+            <!-- Timeline -->
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,0">
+                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
+                <Slider Grid.Column="1" Name="TimelineSlider" Margin="10,0" Minimum="0" Maximum="100" />
+                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
+            </Grid>
+
+            <!-- Bottom Controls -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" Margin="10,15,10,10">
+                <Button Name="PlayPauseButton" Classes="Success" Content="▶ PLAY" Width="85" Height="40" FontSize="12" />
+                <Button Name="ReturnButton" Classes="Danger" Content="RETURN TO APP" Width="140" Height="42" FontSize="12"/>
+                <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="12"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- RIGHT PANEL: Video List & Utility -->
+        <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
+            <Grid RowDefinitions="Auto, *, Auto, Auto">
+                <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                
+                <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" Margin="0,0,0,15">
+                    <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="12" DragDrop.AllowDrop="True">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <StackPanel Grid.Row="2" Spacing="10" Margin="0,0,0,15">
+                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="11"/>
+                    <Button Name="AddMusicButton" Classes="Primary" Content="🎵 ADD MUSIC" HorizontalAlignment="Stretch" Height="32" FontSize="11" Background="#0f766e"/>
+                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="11"/>
+                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="11"/>
+                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="11"/>
+                </StackPanel>
+                
+                <StackPanel Grid.Row="3" Spacing="10">
+                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" FontSize="11"/>
+                    <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" Height="25" FontSize="11" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Grid>
+        </Border>
+        
+        <!-- Processing Overlay -->
+        <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.ColumnSpan="2" IsVisible="False" />
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

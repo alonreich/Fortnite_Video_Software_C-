@@ -6,6 +6,8 @@ public static class RuntimeLog
 {
     private static readonly object Sync = new();
     private static bool _initialized;
+    
+    public static event Action<string>? LogAppended;
 
     public static string LogPath
     {
@@ -35,7 +37,7 @@ public static class RuntimeLog
                 $"Log file: {LogPath}" + Environment.NewLine +
                 "==============================================================================" + Environment.NewLine;
 
-            File.WriteAllText(LogPath, header, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            SafeWrite(header, append: false);
             _initialized = true;
         }
     }
@@ -55,6 +57,12 @@ public static class RuntimeLog
         Write("FAIL", step, detail);
     }
 
+    public static void AppendRaw(string line)
+    {
+        SafeWrite(line + Environment.NewLine, append: true);
+        LogAppended?.Invoke(line);
+    }
+
     public static void Fail(string step, Exception exception)
     {
         Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");
@@ -70,7 +78,33 @@ public static class RuntimeLog
             }
 
             string line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{level}] {step} - {detail}{Environment.NewLine}";
-            File.AppendAllText(LogPath, line, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            SafeWrite(line, append: true);
+            LogAppended?.Invoke($"[{level}] {step} - {detail}");
+        }
+    }
+
+    private static void SafeWrite(string text, bool append)
+    {
+        int retries = 5;
+        while (retries > 0)
+        {
+            try
+            {
+                using var fs = new FileStream(
+                    LogPath,
+                    append ? FileMode.Append : FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.ReadWrite);
+                using var sw = new StreamWriter(fs, new UTF8Encoding(false));
+                sw.Write(text);
+                break;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                retries--;
+                if (retries == 0) break;
+                Thread.Sleep(50);
+            }
         }
     }
 }

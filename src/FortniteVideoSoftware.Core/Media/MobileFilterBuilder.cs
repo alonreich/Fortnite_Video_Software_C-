@@ -1,0 +1,266 @@
+// ==============================================================================
+// MobileFilterBuilder.cs — Exact port of Python filter_mobile.py MobileFilterMixin
+// The portrait canvas trick: scale→crop→overlay→compose→pad pipeline
+// ==============================================================================
+
+using System.Text;
+using System.Text.Json.Nodes;
+
+namespace FortniteVideoSoftware.Core.Media;
+
+/// <summary>
+/// Builds the FFmpeg filter_complex graph for portrait (9:16) mobile conversion.
+/// 
+/// Pipeline:
+/// 1. Source video → scale to 1280x1920 internal space (center crop)
+/// 2. Split into N+1 streams (1 base + N HUD layers)
+/// 3. For each HUD layer: crop from source, scale, overlay at computed position
+/// 4. Scale composed result from 1280x1920 → 1080x1620 (content area)
+/// 5. Pad onto 1080x1920 black canvas with 150px top offset
+/// 6. Overlay optional text PNG at y=0 (the 150px text strip)
+/// 7. Force yuv420p format
+/// </summary>
+public class MobileFilterBuilder
+{
+    /// <summary>
+    /// Builds the full mobile filter chain. Returns (filterString, outputPadLabel).
+    /// Exact port of build_mobile_filter_chain().
+    /// </summary>
+    public static (string filterChain, string outputLabel) Build(
+        string inputPad,
+        JsonObject mobileCoords,
+        bool isBossHp,
+        bool showTeammates,
+        bool showSpectating = false,
+        string? txtInputLabel = null,
+        bool useCuda = false,
+        string originalResolution = "1920x1080")
+    {
+        var parts = new List<string>();
+        var scales = mobileCoords["scales"]?.AsObject() ?? new JsonObject();
+        var overlays = mobileCoords["overlays"]?.AsObject() ?? new JsonObject();
+        var zOrders = mobileCoords["z_orders"]?.AsObject() ?? new JsonObject();
+
+        string hpKey = isBossHp ? "boss_hp" : "normal_hp";
+        var activeLayers = new List<LayerSpec>();
+
+        // Register layers in z-order
+        activeLayers.RegisterLayer(mobileCoords, "hp", hpKey, hpKey, hpKey);
+        activeLayers.RegisterLayer(mobileCoords, "loot", "loot", "loot", "loot");
+        activeLayers.RegisterLayer(mobileCoords, "stats", "stats", "stats", "stats");
+        if (showSpectating)
+            activeLayers.RegisterLayer(mobileCoords, "spec", "spectating", "spectating", "spectating");
+        if (showTeammates)
+            activeLayers.RegisterLayer(mobileCoords, "team", "team", "team", "team");
+
+        activeLayers.Sort((a, b) => a.Z.CompareTo(b.Z));
+
+        string currV;
+
+        if (activeLayers.Count > 0)
+        {
+            int splitCount = 1 + activeLayers.Count;
+
+            // Build split outputs: [v_base_in][v_layer_in_0][v_layer_in_1]...
+            var splitLabels = new StringBuilder();
+            for (int i = 0; i < activeLayers.Count; i++)
+                splitLabels.Append($"[v_layer_in_{i}]");
+
+            parts.Add($"{inputPad}split={splitCount}[v_base_in]{splitLabels}");
+
+            // Scale base to internal compose space (1280x1920) with center crop
+            parts.Add($"[v_base_in]scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
+                      $"force_original_aspect_ratio=increase:flags=lanczos," +
+                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
+            currV = "[main_base]";
+
+            // Process each HUD layer
+            for (int i = 0; i < activeLayers.Count; i++)
+            {
+                var layer = activeLayers[i];
+
+                // Inverse transform: content-area rect → source coordinates
+                var sourceRect = CoordinateMath.InverseTransformFromContentAreaInt(
+                    (layer.UiRect[2], layer.UiRect[3], layer.UiRect[0], layer.UiRect[1]),
+                    originalResolution,
+                    HudConfig.CropDriftType(layer.ConfKey));
+
+                int sx = sourceRect.x, sy = sourceRect.y, sw = sourceRect.w, sh = sourceRect.h;
+
+                // Scale output dimensions (in internal space)
+                Frac scaleFrac = Frac.FromDouble(layer.Scale);
+                Frac backendScale = CoordinateConstants.BackendScale;
+                int rw = Math.Max(2, CanvasMath.EvenCeil(
+                    new Frac(layer.UiRect[0], 1) * scaleFrac * backendScale));
+                int rh = Math.Max(2, CanvasMath.EvenCeil(
+                    new Frac(layer.UiRect[1], 1) * scaleFrac * backendScale));
+
+                // Overlay position: transform from UI space to internal space
+                var pos = layer.Pos;
+                Frac lxRaw = Frac.FromDouble(pos.x) * backendScale;
+                Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
+
+                // Clamp positions
+                Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
+                Frac maxLyBase = new(CoordinateConstants.TargetH - rh, 1);
+                Frac uiPadBottomScaled = new Frac(CoordinateConstants.UIPaddingBottom, 1) * backendScale;
+                Frac maxLy = maxLyBase - uiPadBottomScaled;
+
+                int lx = CoordinateMath.ScaleRound(
+                    Frac.FromDouble(0) > lxRaw ? Frac.FromDouble(0) :
+                    (lxRaw > maxLx ? maxLx : lxRaw));
+                int ly = CoordinateMath.ScaleRound(
+                    Frac.FromDouble(0) > lyRaw ? Frac.FromDouble(0) :
+                    (lyRaw > maxLy ? maxLy : lyRaw));
+
+                // Crop from source, scale to target size
+                parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
+                          $"scale=w={rw}:h={rh}:flags=lanczos[v_layer_out_{i}]");
+
+                // Overlay onto current composition
+                string nextV = $"[v_comp_{i}]";
+                parts.Add($"{currV}[v_layer_out_{i}]overlay=x={lx}:y={ly}:eof_action=pass{nextV}");
+                currV = nextV;
+            }
+        }
+        else
+        {
+            // No layers: simple scale+crop to internal space
+            parts.Add($"{inputPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
+                      $"force_original_aspect_ratio=increase:flags=lanczos," +
+                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
+            currV = "[main_base]";
+        }
+
+        // Scale from 1280x1920 → 1080x1620, then pad onto 1080x1920 with top 150px
+        parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                  $"flags=lanczos," +
+                  $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
+                  $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
+        currV = "[v_padded]";
+
+        // Overlay text PNG (the top 150px strip)
+        if (!string.IsNullOrEmpty(txtInputLabel))
+        {
+            parts.Add($"{currV}{txtInputLabel}overlay=0:0:shortest=1:eof_action=repeat:format=auto[v_final_raw]");
+            currV = "[v_final_raw]";
+        }
+
+        // Force pixel format
+        parts.Add($"{currV}format=yuv420p[v_final]");
+
+        return (string.Join(";", parts), "[v_final]");
+    }
+
+    private static int[] GetRect(JsonObject coords, string section, string key)
+    {
+        var sectionObj = coords[section]?.AsObject();
+        if (sectionObj == null) return [0, 0, 0, 0];
+        var node = sectionObj[key];
+        if (node is JsonArray arr && arr.Count >= 4)
+            return [arr[0]!.GetValue<int>(), arr[1]!.GetValue<int>(), arr[2]!.GetValue<int>(), arr[3]!.GetValue<int>()];
+        return [0, 0, 0, 0];
+    }
+
+    public record LayerSpec(
+        string Name, string ConfKey,
+        int[] UiRect,  // [w, h, x, y] in 1080x1620 content coords
+        double Scale,
+        (double x, double y) Pos,
+        int Z);
+
+    private static void RegisterLayer(
+        List<LayerSpec> activeLayers,
+        JsonObject coords,
+        string name, string confKey, string cropKey1080, string ovKey)
+    {
+        int[] rect = GetRect(coords, "crops_1080p", cropKey1080);
+        var scalesObj = coords["scales"]?.AsObject();
+        double scale = 1.0;
+        if (scalesObj != null && scalesObj.ContainsKey(confKey))
+        {
+            try { scale = scalesObj[confKey]!.GetValue<double>(); } catch { }
+        }
+
+        var overlaysObj = coords["overlays"]?.AsObject();
+        double posX = 0, posY = CoordinateConstants.UIPaddingTop;
+        if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
+        {
+            try { posX = ov["x"]?.GetValue<double>() ?? 0; } catch { }
+            try { posY = ov["y"]?.GetValue<double>() ?? CoordinateConstants.UIPaddingTop; } catch { }
+        }
+
+        var zOrdersObj = coords["z_orders"]?.AsObject();
+        int z = 50;
+        if (zOrdersObj != null && zOrdersObj.ContainsKey(ovKey))
+        {
+            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch { }
+        }
+
+        if (rect.Length >= 4 && rect[0] >= 1 && rect[1] >= 1)
+        {
+            activeLayers.Add(new LayerSpec(name, confKey, rect, scale, (posX, posY), z));
+        }
+    }
+
+    // Wrapper for the static method to match Python's build_mobile_filter alias
+    public static (string filterChain, string outputLabel) BuildMobileFilter(
+        JsonObject mobileCoords,
+        string originalResolution,
+        bool isBossHp = false,
+        bool showTeammates = false,
+        bool showSpectating = false)
+    {
+        return Build("[0:v]", mobileCoords, isBossHp, showTeammates, showSpectating,
+            null, false, originalResolution);
+    }
+}
+
+// Extension to make List registration cleaner
+internal static class MobileFilterBuilderExtensions
+{
+    internal static void RegisterLayer(
+        this List<MobileFilterBuilder.LayerSpec> list,
+        JsonObject coords,
+        string name, string confKey, string cropKey1080, string ovKey)
+    {
+        // Delegate to the static helper via reflection-free approach
+        int[] rect = GetRectHelper(coords, "crops_1080p", cropKey1080);
+        var scalesObj = coords["scales"]?.AsObject();
+        double scale = 1.0;
+        if (scalesObj != null && scalesObj.ContainsKey(confKey))
+        {
+            try { scale = scalesObj[confKey]!.GetValue<double>(); } catch { }
+        }
+
+        var overlaysObj = coords["overlays"]?.AsObject();
+        double posX = 0, posY = CoordinateConstants.UIPaddingTop;
+        if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
+        {
+            try { posX = ov["x"]?.GetValue<double>() ?? 0; } catch { }
+            try { posY = ov["y"]?.GetValue<double>() ?? CoordinateConstants.UIPaddingTop; } catch { }
+        }
+
+        var zOrdersObj = coords["z_orders"]?.AsObject();
+        int z = 50;
+        if (zOrdersObj != null && zOrdersObj.ContainsKey(ovKey))
+        {
+            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch { }
+        }
+
+        if (rect.Length >= 4 && rect[0] >= 1 && rect[1] >= 1)
+        {
+            list.Add(new MobileFilterBuilder.LayerSpec(name, confKey, rect, scale, (posX, posY), z));
+        }
+    }
+
+    private static int[] GetRectHelper(JsonObject coords, string section, string key)
+    {
+        var sectionObj = coords[section]?.AsObject();
+        if (sectionObj == null) return [0, 0, 0, 0];
+        var node = sectionObj[key];
+        if (node is JsonArray arr && arr.Count >= 4)
+            return [arr[0]!.GetValue<int>(), arr[1]!.GetValue<int>(), arr[2]!.GetValue<int>(), arr[3]!.GetValue<int>()];
+        return [0, 0, 0, 0];
+    }
+}

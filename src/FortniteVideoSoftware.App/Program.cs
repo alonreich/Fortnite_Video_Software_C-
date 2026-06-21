@@ -9,11 +9,34 @@ if (DeploymentLifecycle.ShouldHandle(args))
     return await DeploymentLifecycle.RunAsync(args);
 }
 
+FortniteVideoSoftware.Core.Infrastructure.CoreLogger.InfoAction = RuntimeLog.Info;
+FortniteVideoSoftware.Core.Infrastructure.CoreLogger.FailAction = RuntimeLog.Fail;
+        FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
 RuntimeLog.ResetForProcess();
+
+AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+{
+    if (e.ExceptionObject is Exception ex)
+    {
+        RuntimeLog.Fail("FATAL UNHANDLED", ex);
+    }
+    else
+    {
+        RuntimeLog.Fail("FATAL UNHANDLED", $"Non-Exception object: {e.ExceptionObject}");
+    }
+};
+
+TaskScheduler.UnobservedTaskException += (s, e) =>
+{
+    RuntimeLog.Fail("FATAL UNOBSERVED TASK", e.Exception);
+    e.SetObserved();
+};
 RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={Environment.ProcessPath}; args={string.Join(" ", args)}");
 
-string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory;
 NativeHelpers.SetDllDirectory(Path.Combine(baseDir, "frontend"));
+
+
 
 int exitCode = await RunAsync(args);
 RuntimeLog.Info("PROCESS EXIT", $"exitCode={exitCode}");
@@ -46,6 +69,9 @@ static async Task<int> RunAsync(string[] args)
             "--install-worker" => await RunUiAsync(args),
             "--uninstall" => await RunUiAsync(args),
             "--cleanup-worker" => await RunUiAsync(args),
+            "--crop-tool" => await RunUiAsync(args),
+            "--merger" => await RunUiAsync(args),
+            "--advanced-editor" => await RunUiAsync(args),
             _ => PrintUsage(command)
         };
     }
@@ -175,6 +201,16 @@ static int PrintUsage(string command)
 
 static async Task<int> RunUiAsync(string[] args)
 {
+    bool isWorker = args.Any(a => a.Equals("--install-worker", StringComparison.OrdinalIgnoreCase) || 
+                                  a.Equals("--cleanup-worker", StringComparison.OrdinalIgnoreCase));
+    if (isWorker)
+    {
+        string uiTempFolder = Path.Combine(Path.GetTempPath(), "FortniteVideoSoftware_SetupUI_" + Environment.ProcessId);
+        Directory.CreateDirectory(uiTempFolder);
+        DeploymentLifecycle.ExtractAvaloniaDependencies(uiTempFolder);
+        NativeHelpers.SetDllDirectory(uiTempFolder);
+    }
+
     RuntimeLog.Info("RUN UI", "Running bootstrapper before UI.");
     await BootstrapAsync(showDialog: false);
     
@@ -194,3 +230,4 @@ internal static class NativeHelpers
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr AddDllDirectory(string newDirectory);
 }
+
