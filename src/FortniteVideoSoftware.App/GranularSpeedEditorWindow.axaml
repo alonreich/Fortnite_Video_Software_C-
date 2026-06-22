@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.GranularSpeedEditorWindow"
         Title="Granular Speed Editor"
@@ -12,10 +12,10 @@
 
 
     <Grid>
-        <Border Background="#0f172a" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#0f172a" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
-                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="Gray" IsHitTestVisible="False">
+                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
                 </Border>
                 <Grid Grid.Row="1" RowDefinitions="Auto, *, Auto">
 
@@ -60,7 +60,7 @@
                 <!-- Timeline Slider with segment overlay -->
                 <Grid Grid.Row="2" Margin="0,0,0,8" Height="36">
                     <Canvas Name="GranularTimelineCanvas" IsHitTestVisible="False" ZIndex="1" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
-                    <Slider Name="GranularTimeline" Minimum="0" Maximum="1000" Cursor="Hand" MinHeight="40" />
+                    <Slider Name="GranularTimeline" Minimum="0" Maximum="1000" Cursor="Hand" MinHeight="40" ToolTip.Tip="Drag to scrub through the video" />
                 </Grid>
 
                 <!-- Playback controls -->
@@ -69,9 +69,9 @@
                         <ToggleButton Name="FreezeFrameCheck" Classes="Primary" Content="❄ FREEZE" Width="130" Height="32" FontSize="11" ToolTip.Tip="Set speed to 0 for a freeze frame" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                        <Button Name="MarkStartBtn" Classes="Primary" Content="MARK START" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the start of the segment ([)" HotKey="OemOpenBrackets"/>
-                        <Button Name="GranularPlayPause" Classes="Success" Content="PLAY" Width="125" Height="40" FontSize="12" ToolTip.Tip="Play or pause the video (Space)" HotKey="Space"/>
-                        <Button Name="MarkEndBtn" Classes="Primary" Content="MARK END" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the end of the segment (])" HotKey="OemCloseBrackets"/>
+                        <Button Name="MarkStartBtn" Classes="Primary" Content="MARK START" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the start of the segment"/>
+                        <Button Name="GranularPlayPause" Classes="Success" Content="PLAY" Width="125" Height="40" FontSize="12" ToolTip.Tip="Play or pause the video"/>
+                        <Button Name="MarkEndBtn" Classes="Primary" Content="MARK END" Width="110" Height="32" FontSize="11" ToolTip.Tip="Mark the end of the segment"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -116,7 +116,7 @@
 
                             <!-- Freeze frame toggle moved to left panel -->
                             <Button Name="AddSegmentBtn" Classes="Success" Content="+ ADD SEGMENT"
-                                    HorizontalAlignment="Stretch" Height="30" FontSize="11"/>
+                                    HorizontalAlignment="Stretch" Height="30" FontSize="11" ToolTip.Tip="Save the selected speed segment"/>
                         </StackPanel>
                     </Border>
 
@@ -132,7 +132,7 @@
 
                     <Button Grid.Row="5" Name="ClearAllSegmentsBtn" Classes="Danger"
                             Content="CLEAR ALL SEGMENTS" HorizontalAlignment="Stretch"
-                            Height="30" FontSize="11" Margin="0,8,0,0"/>
+                            Height="30" FontSize="11" Margin="0,8,0,0" ToolTip.Tip="Remove all speed segments"/>
                 </Grid>
             </Border>
         </Grid>
@@ -144,8 +144,8 @@
                            Text="Mark a start and end time, set a speed, then click ADD SEGMENT."
                            Foreground="#64748b" FontSize="11" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" Width="100" Height="42" FontSize="13"/>
-                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" Width="120" Height="42" FontSize="13"/>
+                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" Width="100" Height="42" FontSize="13" ToolTip.Tip="Discard changes and close"/>
+                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" Width="120" Height="42" FontSize="13" ToolTip.Tip="Apply all speed segments and return"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -154,3 +154,4 @@
         </Border>
     </Grid>
 </Window>
+

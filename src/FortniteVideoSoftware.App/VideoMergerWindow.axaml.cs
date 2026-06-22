@@ -22,10 +22,27 @@ public partial class VideoMergerWindow : Window
 
     private MusicWizardResult? _musicResult;
 
+    private Avalonia.Threading.DispatcherTimer? _playbackTimer;
+
     public VideoMergerWindow()
     {
         InitializeComponent();
+
+        // Smart OS Theme Detection
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        {
+            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
+            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
+            
+            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
+            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
+        }
+
         this.Loaded += (s, e) => InitializeMpv();
+        
+        _playbackTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _playbackTimer.Tick += PlaybackTimer_Tick;
+        _playbackTimer.Start();
 
         this.Loaded += async (s, e) => {
             await WindowBoundsHelper.LoadBoundsAsync(this, "VideoMergerBounds");
@@ -57,6 +74,18 @@ public partial class VideoMergerWindow : Window
         var returnBtn = this.FindControl<Button>("ReturnButton");
         if (returnBtn != null)
             returnBtn.Click += (s, e) => ReturnToMainApp();
+
+        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
+        if (playPauseBtn != null)
+        {
+            playPauseBtn.Click += (s, e) =>
+            {
+                if (_videoHost?.IpcClient != null)
+                {
+                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
+                }
+            };
+        }
 
         var addBtn = this.FindControl<Button>("AddVideoButton");
         if (addBtn != null)
@@ -223,6 +252,45 @@ public partial class VideoMergerWindow : Window
                 }
             };
         }
+
+        UpdateTooltips();
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, MergerKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+    }
+
+    private void UpdateTooltips()
+    {
+        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var playBtn = this.FindControl<Button>("PlayPauseButton");
+        if (playBtn != null) ToolTip.SetTip(playBtn, $"Play or pause the video ({kb.PlayPause})");
+    }
+
+    private void MergerKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (Avalonia.Input.FocusManager.Instance?.Current?.GetLogicalParent() is TextBox or NumericUpDown)
+            return;
+
+        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+
+        if (e.Key == kb.PlayPause)
+        {
+            var btn = this.FindControl<Button>("PlayPauseButton");
+            if (_videoHost?.IpcClient != null)
+            {
+                bool isPaused = _videoHost.IpcClient.IsPaused;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", isPaused ? "no" : "yes");
+            }
+            e.Handled = true;
+        }
+        else if (e.Key == kb.SeekForward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.SeekBackward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5);
+            e.Handled = true;
+        }
     }
 
     private void InitializeComponent()
@@ -230,7 +298,43 @@ public partial class VideoMergerWindow : Window
         AvaloniaXamlLoader.Load(this);
     }
     
-        private async void InitializeMpv()
+    private void PlaybackTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_videoHost?.IpcClient == null) return;
+        
+        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
+        if (playPauseBtn != null)
+        {
+            if (_videoHost.IpcClient.IsPaused)
+            {
+                if (playPauseBtn.Content?.ToString() != "▶")
+                    playPauseBtn.Content = "▶";
+            }
+            else
+            {
+                if (playPauseBtn.Content?.ToString() != "⏸")
+                    playPauseBtn.Content = "⏸";
+            }
+        }
+        
+        double time = _videoHost.IpcClient.CurrentTime;
+        double dur = _videoHost.IpcClient.Duration;
+        
+        var timeElapsed = this.FindControl<TextBlock>("TimeElapsed");
+        if (timeElapsed != null) timeElapsed.Text = TimeSpan.FromSeconds(time).ToString("hh\\:mm\\:ss");
+        
+        var timeRemaining = this.FindControl<TextBlock>("TimeRemaining");
+        if (timeRemaining != null) timeRemaining.Text = "-" + TimeSpan.FromSeconds(Math.Max(0, dur - time)).ToString("hh\\:mm\\:ss");
+        
+        var slider = this.FindControl<Slider>("TimelineSlider");
+        if (slider != null && dur > 0)
+        {
+            // Simple slider update
+            slider.Value = (time / dur) * 100.0;
+        }
+    }
+
+    private async void InitializeMpv()
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
         if (_videoHost != null)
@@ -292,11 +396,7 @@ public partial class VideoMergerWindow : Window
 
     protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        if (_videoHost?.IpcClient != null)
-        {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("stop");
-        }
-        base.OnClosing(e);
+        try { WindowBoundsHelper.SaveBoundsSync(this, "VideoMergerBounds"); } catch {}
     }
 
     protected override void OnClosed(EventArgs e)

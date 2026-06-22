@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.AdvancedVideoEditorWindow"
         Title="Fortnite Advanced Video Editor"
         Width="1280" Height="720"
@@ -22,7 +23,7 @@
                 <TextBlock Grid.Row="0" Text="MEDIA POOL" Foreground="Gray" FontWeight="Bold" Margin="10"/>
                 <ListBox Grid.Row="1" Name="MediaPoolList" Background="Transparent" Foreground="White" BorderThickness="0">
                     <ListBox.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="local:MediaItem">
                             <Border Background="#1e293b" CornerRadius="4" Padding="5" Margin="0,0,0,5">
                                 <StackPanel Orientation="Horizontal">
                                     <Border Width="40" Height="25" Background="Black" CornerRadius="2" Margin="0,0,10,0"/>
@@ -63,3 +64,4 @@
         </Border>
     </Grid>
 </Window>
+

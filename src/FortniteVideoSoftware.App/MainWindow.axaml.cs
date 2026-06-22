@@ -42,7 +42,35 @@ public partial class MainWindow : Window
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
         InitializeComponent();
+        
+        // Smart OS Theme Detection
+        if (Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        {
+            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
+            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
+            var titleBarText = this.FindControl<Avalonia.Controls.TextBlock>("TitleBarText");
+            
+            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
+            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
+            if (titleBarText != null) titleBarText.Foreground = Avalonia.Media.Brushes.White;
+        }
+
         this.Loaded += (s, e) => InitializeMpv();
+        
+        SettingsManager.Load();
+        
+        var settingsBtn = this.FindControl<Button>("SettingsOverlayBtn");
+        if (settingsBtn != null)
+        {
+            settingsBtn.Click += async (s, e) => 
+            {
+                var settingsWin = new FortniteVideoSoftware.App.Controls.SettingsWindow();
+                bool changed = await settingsWin.ShowDialog<bool>(this);
+                if (changed) UpdateTooltips();
+            };
+        }
+        
+        UpdateTooltips();
         
         LoadWindowState();
 
@@ -352,8 +380,23 @@ public partial class MainWindow : Window
         }
         
         // Add global input filter
+        UpdateTooltips();
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
+    }
+
+    private void UpdateTooltips()
+    {
+        var kb = SettingsManager.Instance.KeyBinds;
         
+        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
+        if (playPauseBtn != null) ToolTip.SetTip(playPauseBtn, $"Play or pause the video ({kb.PlayPause})");
+        
+        var markStartBtn = this.FindControl<Button>("MarkStartButton");
+        if (markStartBtn != null) ToolTip.SetTip(markStartBtn, $"Mark the beginning of your clip ({kb.MarkStart})");
+        
+        var markEndBtn = this.FindControl<Button>("MarkEndButton");
+        if (markEndBtn != null) ToolTip.SetTip(markEndBtn, $"Mark the end of your clip ({kb.MarkEnd})");
+    }    
         this.Loaded += async (s, e) => {
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
@@ -371,7 +414,7 @@ public partial class MainWindow : Window
         };
 
         this.Closing += (s, e) => {
-            WindowBoundsHelper.SaveBoundsSync(this, "MainWindowBounds");
+            try { WindowBoundsHelper.SaveBoundsSync(this, "MainWindowBounds"); } catch {}
         };
     }
 
@@ -858,18 +901,59 @@ public partial class MainWindow : Window
     {
         if (FocusManager?.GetFocusedElement() is TextBox or NumericUpDown)
         {
-            if (e.Key is Key.Space or Key.OemOpenBrackets or Key.OemCloseBrackets or Key.Left or Key.Right or Key.Up or Key.Down or Key.Z or Key.Y)
-            {
-                e.Handled = true;
-            }
+            return; // Let textboxes handle their own typing
         }
-        else if (e.Key == Key.Delete)
+
+        var kb = SettingsManager.Instance.KeyBinds;
+
+        if (e.Key == Key.Delete)
         {
-            // Silent Deletion: In custom file explorers or list widgets, pressing 'Delete' must SILENTLY delete the file/record. No confirmation dialogs.
+            // Silent Deletion
             if (FocusManager?.GetFocusedElement() is ListBox listBox && listBox.SelectedItem is string filePath)
             {
                 try { System.IO.File.Delete(filePath); } catch { }
             }
+        }
+        else if (e.Key == kb.PlayPause)
+        {
+            if (_videoHost?.IpcClient != null)
+            {
+                bool isPaused = _videoHost.IpcClient.IsPaused;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", isPaused ? "no" : "yes");
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == kb.SeekForward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.SeekBackward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.VolumeUp)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", 2);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.VolumeDown)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", -2);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.MarkStart)
+        {
+            var btn = this.FindControl<Button>("MarkStartButton");
+            btn?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            e.Handled = true;
+        }
+        else if (e.Key == kb.MarkEnd)
+        {
+            var btn = this.FindControl<Button>("MarkEndButton");
+            btn?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            e.Handled = true;
         }
     }
 

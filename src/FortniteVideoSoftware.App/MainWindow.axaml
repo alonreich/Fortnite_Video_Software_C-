@@ -1,105 +1,22 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software - Pro Edition"
         Width="1200" Height="800"
         Background="#1e293b"
-        MinWidth="800" MinHeight="600">
-    <Window.Styles>
-        <Style Selector="Button">
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="BorderThickness" Value="1,1,1,2"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.1"/>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.05"/>
-                </Transitions>
-            </Setter>
-        </Style>
+        MinWidth="800" MinHeight="600"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
 
-        <Style Selector="Button /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="RenderTransform" Value="scale(1.02)"/>
-        </Style>
-
-        <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="RenderTransform" Value="scale(0.98) translateY(2px)"/>
-            <Setter Property="BorderThickness" Value="1"/>
-        </Style>
-
-        <!-- Primary Buttons (Bright Blue) -->
-        <Style Selector="Button.Primary">
-            <Setter Property="BorderBrush" Value="#2563eb"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#93c5fd"/>
-                    <GradientStop Offset="0.15" Color="#60a5fa"/>
-                    <GradientStop Offset="1.0" Color="#2563eb"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-        <Style Selector="Button.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#bfdbfe"/>
-                    <GradientStop Offset="0.15" Color="#93c5fd"/>
-                    <GradientStop Offset="1.0" Color="#3b82f6"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-
-        <!-- Success Buttons (Metallic Green) -->
-        <Style Selector="Button.Success">
-            <Setter Property="BorderBrush" Value="#14532d"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#22c55e"/>
-                    <GradientStop Offset="0.15" Color="#15803d"/>
-                    <GradientStop Offset="1.0" Color="#14532d"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-        <Style Selector="Button.Success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#4ade80"/>
-                    <GradientStop Offset="0.15" Color="#16a34a"/>
-                    <GradientStop Offset="1.0" Color="#166534"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-
-        <!-- Danger Buttons (Metallic Red) -->
-        <Style Selector="Button.Danger">
-            <Setter Property="BorderBrush" Value="#7f1d1d"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#ef4444"/>
-                    <GradientStop Offset="0.15" Color="#b91c1c"/>
-                    <GradientStop Offset="1.0" Color="#7f1d1d"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-        <Style Selector="Button.Danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#f87171"/>
-                    <GradientStop Offset="0.15" Color="#dc2626"/>
-                    <GradientStop Offset="1.0" Color="#991b1b"/>
-                </LinearGradientBrush>
-            </Setter>
-        </Style>
-    </Window.Styles>
-    <Grid ColumnDefinitions="*, 200">
+    <Grid>
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="LightGray" IsHitTestVisible="False">
+                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="Black" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                </Border>
+                <Grid Grid.Row="1" ColumnDefinitions="*, 200">
         <!-- LEFT COLUMN: Player & Editing Controls -->
         <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto">
             
@@ -109,12 +26,16 @@
                     <local:MpvVideoView Name="VideoHost" IsVisible="False" />
                     <!-- Upload Video Overlay -->
                     <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6">
-                        <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-                                <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" />
-                                <Button Name="CenterUploadButton" Classes="Primary" Content="📂 BROWSE VIDEO" Width="200" Height="45" FontSize="14" Cursor="Hand" />
-                            </StackPanel>
-                        </Border>
+                        <Grid>
+                            <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                                    <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" />
+                                    <Button Name="CenterUploadButton" Classes="Primary" Content="📂 BROWSE VIDEO" Width="200" Height="45" FontSize="14" Cursor="Hand" />
+                                </StackPanel>
+                            </Border>
+                            <!-- Settings Button -->
+                            <Button Name="SettingsOverlayBtn" Content="⚙" FontSize="20" Classes="Primary" Width="40" Height="40" CornerRadius="20" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="30" Cursor="Hand" ToolTip.Tip="Open Settings &amp; Key Binds"/>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>
@@ -130,45 +51,48 @@
             </Grid>
 
             <!-- Combined Trim and Process Controls Grid -->
-            <Grid Grid.Row="2" ColumnDefinitions="Auto, *, Auto" Margin="10,15,10,10">
-                <!-- Left: Thumbnail and Boss HP -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
-                    <Button Name="SetThumbnailButton" Classes="Primary" Content="📸 THUMBNAIL" Width="130" Height="32" FontSize="11" ToolTip.Tip="Set current frame as the thumbnail" />
-                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" FontSize="11" />
-                </StackPanel>
+            <Grid Grid.Row="2" RowDefinitions="Auto, Auto" Margin="10,15,10,10">
+                <!-- Upper Row -->
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Button Name="SetThumbnailButton" Classes="Primary" Content="📸 THUMBNAIL" Width="130" Height="32" FontSize="11" ToolTip.Tip="Set current frame as the thumbnail" />
+                    </StackPanel>
 
-                <!-- Center: Trim logic, Playback, and Sliders + Process -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="11" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
-                    <Button Name="PlayPauseButton" Content="▶" Foreground="Black" Background="#e2e8f0" Width="60" Height="32" FontSize="16" FontWeight="Black" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0"/>
-                    <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="90" Height="32" FontSize="11" Margin="0,0,30,0" ToolTip.Tip="Mark the end of your clip"/>
-
-                    <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
-                        <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                        <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="True" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Target maximum file size in MB" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="11" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
+                        <Button Name="PlayPauseButton" Classes="Success" Content="▶" Width="60" Height="32" FontSize="16" FontWeight="Black" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0"/>
+                        <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="90" Height="32" FontSize="11" ToolTip.Tip="Mark the end of your clip"/>
                     </StackPanel>
                     
-                    <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="55" CornerRadius="6" FontSize="14" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
-                    <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="55" CornerRadius="6" FontSize="14" ToolTip.Tip="Render and export the final video"/>
-                    
-                    <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Adjust base playback speed multiplier" />
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="11" ToolTip.Tip="Adjust granular speed settings"/>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
 
-                <!-- Right: Granular Speed -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="11" ToolTip.Tip="Adjust granular speed settings"/>
-                </StackPanel>
+                <!-- Bottom Row -->
+                <Grid Grid.Row="1" Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
+                            <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="True" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Target maximum file size in MB" />
+                        </StackPanel>
+                        
+                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="55" CornerRadius="6" FontSize="14" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
+                        <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="55" CornerRadius="6" FontSize="14" ToolTip.Tip="Render and export the final video"/>
+                        
+                        <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="110" Height="25" Cursor="Hand" ToolTip.Tip="Adjust base playback speed multiplier" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <!-- Bottom: Settings -->
             <Grid Grid.Row="3" ColumnDefinitions="Auto, *, Auto" Margin="10,0,10,10">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
-                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" FontSize="11" />
-                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" FontSize="11" />
-                    <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" Height="25" FontSize="11" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" />
+                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" FontSize="13" />
+                    <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" Height="32" FontSize="13" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" />
                 </StackPanel>
             </Grid>
         </Grid>
@@ -176,15 +100,19 @@
         <!-- RIGHT PANEL: Utility & Plugins -->
         <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
             <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto">
-                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="📂  UPLOAD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="11" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
-                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" HorizontalAlignment="Stretch" Height="32" FontSize="11" Margin="0,0,0,15" ToolTip.Tip="Add background music to the video"/>
+                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="📂  UPLOAD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="13" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
+                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" HorizontalAlignment="Stretch" Height="32" FontSize="13" Margin="0,0,0,15" ToolTip.Tip="Add background music to the video"/>
                 
-                <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#7f8c8d" FontSize="10" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
+                <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#cbd5e1" FontSize="12" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
                 
-                <CheckBox Grid.Row="4" Name="NoFadeCheckbox" Content="Disable Fade-In/Out" Foreground="White" FontSize="11" Margin="0,0,0,15"/>
+                <StackPanel Grid.Row="4" Margin="0,0,0,15" Spacing="5">
+                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" FontSize="13" />
+                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" FontSize="13" />
+                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" Foreground="White" FontSize="13" />
+                </StackPanel>
                 
-                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Height="25" FontSize="10" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>
-                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Height="25" FontSize="10" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
+                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Height="32" FontSize="13" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>
+                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Height="32" FontSize="13" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
             </Grid>
         </Border>
 
@@ -196,5 +124,9 @@
         
         <!-- Toast Notification Host -->
         <StackPanel Name="ToastHost" Grid.ColumnSpan="2" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="20" Spacing="10" IsHitTestVisible="False" />
+                </Grid>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
+

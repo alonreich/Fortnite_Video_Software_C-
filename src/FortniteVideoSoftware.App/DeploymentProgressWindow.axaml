@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.DeploymentProgressWindow"
         Title="Fortnite Video Software Setup"
         Width="720" Height="480"
@@ -63,16 +63,16 @@
                          Margin="0,0,0,12"/>
             <Button Name="FinishButton"
                     Grid.Row="4"
+                    Classes="Success"
                     Content="Finish"
                     HorizontalAlignment="Center"
                     Width="120"
                     Height="32"
                     IsVisible="False"
-                    Background="#007ACC"
-                    Foreground="White"
                     FontSize="14"
                     FontWeight="Bold"
                     Click="OnFinishClick"/>
         </Grid>
     </Border>
 </Window>
+

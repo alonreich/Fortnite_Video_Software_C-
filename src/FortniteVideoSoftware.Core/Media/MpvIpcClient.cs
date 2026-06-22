@@ -36,7 +36,7 @@ public class MpvIpcClient : IDisposable
             StartInfo = new ProcessStartInfo
             {
                 FileName = mpvPath,
-                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec=auto",
+                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec=auto --input-default-bindings=no",
                 UseShellExecute = false,
                 CreateNoWindow = true
             }

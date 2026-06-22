@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
         Title="Background Music Selection Wizard"
@@ -10,10 +10,10 @@
         ExtendClientAreaTitleBarHeightHint="30">
 
     <Grid>
-        <Border Background="#0f172a" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#0f172a" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
-                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="Gray" IsHitTestVisible="False">
+                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
                 </Border>
                 <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="20">
         <!-- Step Container -->
@@ -29,7 +29,7 @@
                     <ListBox Grid.Row="1" Name="MusicListBox" Background="#0f172a" CornerRadius="4" Padding="5">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="local:MusicTrackItem">
-                                <Border Padding="10" CornerRadius="4">
+                                <Border Padding="10" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Select this music track">
                                     <TextBlock Text="{CompiledBinding Name}" Foreground="White" FontSize="14"/>
                                 </Border>
                             </DataTemplate>
@@ -64,7 +64,7 @@
                             <!-- Image for rendering the waveform -->
                             <Image Name="WaveformImage" Stretch="Fill"/>
                             <!-- Canvas for drawing the playhead/caret natively -->
-                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent"/>
+                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="SizeWE" ToolTip.Tip="Click or drag to adjust the music offset" />
                             
                             <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
                         </Panel>
@@ -96,10 +96,10 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="100" HorizontalContentAlignment="Center"/>
-            <Button Grid.Column="2" Name="PlayBtn" Content="PLAY" Classes="Success" Width="100" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
-            <Button Grid.Column="3" Name="BackBtn" Content="BACK" Classes="Primary" Width="100" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False"/>
-            <Button Grid.Column="4" Name="NextBtn" Content="NEXT" Classes="Primary" Width="100" HorizontalContentAlignment="Center"/>
+            <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="100" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard"/>
+            <Button Grid.Column="2" Name="PlayBtn" Content="PLAY" Classes="Success" Width="100" HorizontalContentAlignment="Center" Margin="0,0,10,0" ToolTip.Tip="Preview music over the video"/>
+            <Button Grid.Column="3" Name="BackBtn" Content="BACK" Classes="Primary" Width="100" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" ToolTip.Tip="Go back to the previous step"/>
+            <Button Grid.Column="4" Name="NextBtn" Content="NEXT" Classes="Primary" Width="100" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
         </Grid>
 
                 </Grid>
@@ -107,3 +107,4 @@
         </Border>
     </Grid>
 </Window>
+

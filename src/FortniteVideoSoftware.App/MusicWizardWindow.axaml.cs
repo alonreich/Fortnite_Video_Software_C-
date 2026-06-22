@@ -37,6 +37,16 @@ public partial class MusicWizardWindow : Window
     {
         InitializeComponent();
 
+        // Smart OS Theme Detection
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        {
+            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
+            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
+            
+            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
+            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
+        }
+
         this.Loaded += async (s, e) => {
             await WindowBoundsHelper.LoadBoundsAsync(this, "MusicWizardBounds");
         };

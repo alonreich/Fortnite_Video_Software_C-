@@ -88,6 +88,7 @@ namespace FortniteVideoSoftware.App.Controls
             var pt = e.GetCurrentPoint(this);
             _lastMouseX = pt.Position.X;
             Cursor = new Cursor(StandardCursorType.Hand);
+            e.Handled = true;
             base.OnPointerPressed(e);
         }
         

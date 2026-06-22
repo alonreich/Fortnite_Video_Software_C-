@@ -78,6 +78,7 @@ free footprint.
   - Draggable, interactive START and END timeline markers via precise Canvas hit-testing.
   - Distinct "gentle yellowish" visual feedback overlays for immediate confirmation of button clicks (e.g., SET THUMBNAIL, MARK START).
   - Modern, brightened metallic blue gradients for all primary action buttons.
+  - Smart Windows OS Theme Detection: By default, the application uses a LightGray title bar and a 5px LightGray border. This is an intentional design choice to ensure high contrast against the Windows OS Dark Theme, making it immediately obvious to the user where the application window begins and ends. If the user's OS is running a Light Theme, the app dynamically overrides this and uses a sleek dark (#0f172a) title bar and border.
   - Synchronous Window Bounds tracking via `WindowBoundsHelper.SaveBoundsSync` guarantees that layout, window position, monitor affinity, and sizing are safely committed to disk before the Avalonia application loop terminates.
 
 * Repository & Dependency Architecture:

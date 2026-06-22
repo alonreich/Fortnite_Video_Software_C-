@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
              x:Class="FortniteVideoSoftware.App.Controls.PhaseOverlayControl"
              Background="#e60b141d"
@@ -40,3 +40,4 @@
                  TextWrapping="Wrap" />
     </Grid>
 </UserControl>
+

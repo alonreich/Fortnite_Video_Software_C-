@@ -1,5 +1,5 @@
 <Application xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              x:Class="FortniteVideoSoftware.App.AvaloniaApp">
     <Application.Styles>
         <FluentTheme />
@@ -32,8 +32,6 @@
 
         <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
-            
-            <Setter Property="BorderThickness" Value="1"/>
         </Style>
 
         <!-- Primary Buttons (Bright Blue) -->
@@ -109,7 +107,7 @@
             </Setter>
         </Style>
         <Style Selector="Slider:pressed /template/ Thumb">
-            <Setter Property="RenderTransform" Value="scale(2)" />
+            <Setter Property="RenderTransform" Value="scale(1.1)" />
         </Style>
         <Style Selector="Slider">
             <Setter Property="Cursor" Value="Hand" />
@@ -119,3 +117,4 @@
         </Style>
     </Application.Styles>
 </Application>
+

@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.Controls.FinishedDialogWindow"
         Title="Done! Video Processed Successfully!"
         Width="760" Height="420"
@@ -57,3 +57,4 @@
         </Grid>
     </Border>
 </Window>
+

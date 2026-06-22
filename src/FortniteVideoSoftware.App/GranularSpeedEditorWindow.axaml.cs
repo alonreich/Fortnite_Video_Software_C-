@@ -52,6 +52,16 @@ public partial class GranularSpeedEditorWindow : Window
         _baseSpeed = baseSpeed;
 
         InitializeComponent();
+        
+        // Smart OS Theme Detection
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        {
+            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
+            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
+            
+            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
+            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
+        }
 
         if (existingSegments != null)
             _segments.AddRange(existingSegments);
@@ -87,6 +97,9 @@ public partial class GranularSpeedEditorWindow : Window
             string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "mpv.exe");
             if (!System.IO.File.Exists(mpvPath)) mpvPath = "mpv.exe";
             await _videoHost.StartMpvProcessAsync(mpvPath);
+        if (_videoHost != null)
+        {
+            await _videoHost.StartMpvProcessAsync(mpvPath);
             if (_videoHost.IpcClient != null)
             {
                 _videoHost.IpcClient.SeekCompleted += () => {
@@ -102,6 +115,56 @@ public partial class GranularSpeedEditorWindow : Window
 
                 LoadVideo();
             }
+        }
+    }
+
+    private void UpdateTooltips()
+    {
+        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var playBtn = this.FindControl<Button>("GranularPlayPause");
+        if (playBtn != null) ToolTip.SetTip(playBtn, $"Play or pause the video ({kb.PlayPause})");
+        
+        var startBtn = this.FindControl<Button>("MarkStartBtn");
+        if (startBtn != null) ToolTip.SetTip(startBtn, $"Mark the start of the segment ({kb.MarkStart})");
+        
+        var endBtn = this.FindControl<Button>("MarkEndBtn");
+        if (endBtn != null) ToolTip.SetTip(endBtn, $"Mark the end of the segment ({kb.MarkEnd})");
+    }
+
+    private void GranularKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (Avalonia.Input.FocusManager.Instance?.Current?.GetLogicalParent() is TextBox or NumericUpDown)
+            return;
+
+        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+
+        if (e.Key == kb.PlayPause)
+        {
+            var btn = this.FindControl<Button>("GranularPlayPause");
+            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            e.Handled = true;
+        }
+        else if (e.Key == kb.MarkStart)
+        {
+            var btn = this.FindControl<Button>("MarkStartBtn");
+            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            e.Handled = true;
+        }
+        else if (e.Key == kb.MarkEnd)
+        {
+            var btn = this.FindControl<Button>("MarkEndBtn");
+            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            e.Handled = true;
+        }
+        else if (e.Key == kb.SeekForward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5);
+            e.Handled = true;
+        }
+        else if (e.Key == kb.SeekBackward)
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5);
+            e.Handled = true;
         }
     }
 
@@ -243,9 +306,8 @@ public partial class GranularSpeedEditorWindow : Window
         });
 
         // ---- Accept / Cancel ----
-        var accept = this.FindControl<Button>("AcceptGranularBtn");
-        accept?.AddHandler(Button.ClickEvent, (_, _) =>
-        {
+        var acceptBtn = this.FindControl<Button>("AcceptGranularBtn");
+        if (acceptBtn != null) acceptBtn.Click += (s, e) => {
             RuntimeLog.Info("UI", "User clicked Accept in Granular Speed Editor.");
             if (_pendingStartMs >= 0 && _pendingEndMs >= 0)
             {
@@ -253,7 +315,7 @@ public partial class GranularSpeedEditorWindow : Window
             }
             Accepted = true;
             Close();
-        });
+        };
 
         var cancel = this.FindControl<Button>("CancelGranularBtn");
         cancel?.AddHandler(Button.ClickEvent, (_, _) =>
@@ -261,6 +323,9 @@ public partial class GranularSpeedEditorWindow : Window
             RuntimeLog.Info("UI", "User clicked Cancel in Granular Speed Editor.");
             Close();
         });
+
+        UpdateTooltips();
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, GranularKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
     // ------------------------------------------------------------------ segment management
