@@ -64,7 +64,7 @@
                             <!-- Image for rendering the waveform -->
                             <Image Name="WaveformImage" Stretch="Fill"/>
                             <!-- Canvas for drawing the playhead/caret natively -->
-                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="SizeWE" ToolTip.Tip="Click or drag to adjust the music offset" />
+                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="SizeWestEast" ToolTip.Tip="Click or drag to adjust the music offset" />
                             
                             <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
                         </Panel>

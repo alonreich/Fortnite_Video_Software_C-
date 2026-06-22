@@ -34,6 +34,7 @@
     <TrimMode>full</TrimMode>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <SuppressAotAnalysisWarnings>true</SuppressAotAnalysisWarnings>
+    <IlcTrimMetadata>false</IlcTrimMetadata>
     <ApplicationIcon>..\..\assets\icons\Video_Icon_File.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

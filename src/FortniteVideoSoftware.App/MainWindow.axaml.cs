@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using FortniteVideoSoftware.App.Controls;
 using FortniteVideoSoftware.Core.Infrastructure;
+using FortniteVideoSoftware.App.Infrastructure;
 using FortniteVideoSoftware.Core.Media;
 using System.Diagnostics;
 using System.IO;
@@ -44,7 +45,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         
         // Smart OS Theme Detection
-        if (Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        if (Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
         {
             var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
             var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
@@ -159,6 +160,8 @@ public partial class MainWindow : Window
                     ShowToast(count > 0
                         ? $"✔ {count} speed segment{(count == 1 ? "" : "s")} saved"
                         : "Granular segments cleared");
+                    
+                    UpdateEstimatedQuality();
                 }
             };
         }
@@ -238,8 +241,8 @@ public partial class MainWindow : Window
                 markStartButton.Content = $"START: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss}";
                 
                 PlayUiSound();
-                ShowPopupBadge(markStartButton, $"✔ {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}", Avalonia.Media.Brushes.LimeGreen);
-                ShowTimelineGlow(_trimStartMs, Avalonia.Media.Brushes.LimeGreen);
+                ShowPopupBadge(markStartButton, $"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}", Avalonia.Media.Brushes.SeaGreen);
+                ShowTimelineGlow(_trimStartMs, Avalonia.Media.Brushes.SeaGreen);
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
             };
@@ -270,8 +273,8 @@ public partial class MainWindow : Window
                 }
 
                 PlayUiSound();
-                ShowPopupBadge(markEndButton, $"✔ {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}", Avalonia.Media.Brushes.Tomato);
-                ShowTimelineGlow(_trimEndMs, Avalonia.Media.Brushes.Tomato);
+                ShowPopupBadge(markEndButton, $"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}", Avalonia.Media.Brushes.SeaGreen);
+                ShowTimelineGlow(_trimEndMs, Avalonia.Media.Brushes.SeaGreen);
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
             };
@@ -308,7 +311,9 @@ public partial class MainWindow : Window
                 if (_videoHost?.IpcClient != null)
                     _ = _videoHost?.IpcClient?.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                 UpdateEstimatedQuality();
+                UpdateSpeedLabel();
             };
+            UpdateSpeedLabel();
         }
 
         var volumeSlider = this.FindControl<Slider>("VolumeSlider");
@@ -382,21 +387,7 @@ public partial class MainWindow : Window
         // Add global input filter
         UpdateTooltips();
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
-    }
 
-    private void UpdateTooltips()
-    {
-        var kb = SettingsManager.Instance.KeyBinds;
-        
-        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
-        if (playPauseBtn != null) ToolTip.SetTip(playPauseBtn, $"Play or pause the video ({kb.PlayPause})");
-        
-        var markStartBtn = this.FindControl<Button>("MarkStartButton");
-        if (markStartBtn != null) ToolTip.SetTip(markStartBtn, $"Mark the beginning of your clip ({kb.MarkStart})");
-        
-        var markEndBtn = this.FindControl<Button>("MarkEndButton");
-        if (markEndBtn != null) ToolTip.SetTip(markEndBtn, $"Mark the end of your clip ({kb.MarkEnd})");
-    }    
         this.Loaded += async (s, e) => {
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
@@ -417,6 +408,22 @@ public partial class MainWindow : Window
             try { WindowBoundsHelper.SaveBoundsSync(this, "MainWindowBounds"); } catch {}
         };
     }
+
+    private void UpdateTooltips()
+    {
+        var kb = SettingsManager.Instance.KeyBinds;
+        
+        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
+        if (playPauseBtn != null) ToolTip.SetTip(playPauseBtn, $"Play or pause the video ({kb.PlayPause})");
+        
+        var markStartBtn = this.FindControl<Button>("MarkStartButton");
+        if (markStartBtn != null) ToolTip.SetTip(markStartBtn, $"Mark the beginning of your clip ({kb.MarkStart})");
+        
+        var markEndBtn = this.FindControl<Button>("MarkEndButton");
+        if (markEndBtn != null) ToolTip.SetTip(markEndBtn, $"Mark the end of your clip ({kb.MarkEnd})");
+    }
+
+
 
     private async void OnUploadVideoClicked(object? sender, RoutedEventArgs e)
     {
@@ -485,26 +492,15 @@ public partial class MainWindow : Window
         var portraitTextInput = this.FindControl<TextBox>("PortraitTextInput");
         var dimmingGrid = this.FindControl<Grid>("PortraitDimmingGrid");
 
+        UpdateEstimatedQuality();
+
         if (mobileCheckbox != null)
         {
             if (portraitTextInput != null) 
             {
-                portraitTextInput.Opacity = mobileCheckbox.IsChecked == true ? 1 : 0;
-                portraitTextInput.IsHitTestVisible = mobileCheckbox.IsChecked == true;
+                portraitTextInput.IsVisible = mobileCheckbox.IsChecked == true;
             }
             if (dimmingGrid != null) dimmingGrid.IsVisible = mobileCheckbox.IsChecked == true;
-
-            if (_videoHost?.IpcClient != null)
-            {
-                if (mobileCheckbox.IsChecked == true)
-                {
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("vf", "drawbox=x=0:y=0:w=iw/6:h=ih:color=black@0.6:t=fill,drawbox=x=iw*5/6:y=0:w=iw/6:h=ih:color=black@0.6:t=fill");
-                }
-                else
-                {
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("vf", "");
-                }
-            }
         }
     }
 
@@ -652,43 +648,143 @@ public partial class MainWindow : Window
         });
     }
 
+    private double CalculateEffectiveDurationMs(double trimStartMs, double trimEndMs, double baseSpeed)
+    {
+        if (_speedSegments == null || _speedSegments.Count == 0)
+        {
+            return (trimEndMs - trimStartMs) / baseSpeed;
+        }
+
+        double totalMs = 0.0;
+        double cursor = trimStartMs;
+
+        var sortedSegments = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_speedSegments);
+        sortedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+
+        foreach (var seg in sortedSegments)
+        {
+            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
+            double segEnd = Math.Min(trimEndMs, seg.EndMs);
+            if (segEnd <= segStart) continue;
+
+            if (segStart > cursor)
+            {
+                totalMs += (segStart - cursor) / baseSpeed;
+            }
+            if (Math.Abs(seg.Speed) < 0.001)
+            {
+                totalMs += (segEnd - segStart);
+            }
+            else
+            {
+                totalMs += (segEnd - segStart) / Math.Max(0.001, seg.Speed);
+            }
+            cursor = Math.Max(cursor, segEnd);
+        }
+        if (cursor < trimEndMs)
+        {
+            totalMs += (trimEndMs - cursor) / baseSpeed;
+        }
+        return Math.Max(1.0, totalMs);
+    }
+
     private void UpdateEstimatedQuality()
     {
         Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-            var label = this.FindControl<TextBlock>("EstimatedQualityText");
+            var label = this.FindControl<TextBlock>("QualityLabel");
             var slider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
             if (label == null || slider == null || _videoHost?.IpcClient == null) return;
-            var labels = new System.Collections.Generic.List<string> { "5MB", "10MB", "15MB", "20MB", "25MB", "30MB", "35MB", "40MB", "45MB", "50MB", "60MB", "70MB", "80MB", "100MB", "150MB", "200MB", "300MB", "400MB", "500MB", "1GB", "CQ High" };
             
-            double targetMb = 40;
-            if (slider.Value >= 0 && slider.Value < labels.Count)
-            {
-                string lbl = labels[slider.Value];
-                if (lbl.Contains("MB")) double.TryParse(lbl.Replace("MB", ""), out targetMb);
-                else if (lbl.Contains("GB")) { double.TryParse(lbl.Replace("GB", ""), out targetMb); targetMb *= 1024; }
-                else targetMb = 1000; // CQ High
+            double duration = _videoHost.IpcClient.Duration * 1000.0;
+            if (duration <= 0) { label.Text = ""; return; }
+            
+            int idx = slider.Value;
+            double targetMb = 5 + idx * 5;
+            if (idx >= 20) {
+                label.Text = "Max CQ";
+                label.Foreground = Avalonia.Media.Brush.Parse("#2ecc71");
+                return;
             }
-            double duration = GetCurrentMpvTime(); // Fallback
-            duration = _videoHost?.IpcClient?.Duration ?? 0.0;
-            if (duration <= 0) return;
             
-            double end = _trimEndMs > 0 ? _trimEndMs / 1000.0 : duration;
-            double start = _trimStartMs > 0 ? _trimStartMs / 1000.0 : 0;
-            double actualDuration = (end - start) / _baseSpeed;
-            if (actualDuration <= 0) actualDuration = 0.1;
+            double end = _trimEndMs > 0 ? _trimEndMs : duration;
+            double start = _trimStartMs > 0 ? _trimStartMs : 0;
             
-            double kbps = (targetMb * 8192) / actualDuration;
+            double actualDurationMs = CalculateEffectiveDurationMs(start, end, _baseSpeed);
+            double durSec = Math.Max(0.1, actualDurationMs / 1000.0) + 0.1;
             
-            string qText = "Quality: Low";
-            var color = Avalonia.Media.Brushes.Tomato;
+            double audioKbps = 192;
+            if (targetMb * 1024 < durSec * 48) audioKbps = 64;
             
-            if (kbps > 20000) { qText = "Quality: Amazing"; color = Avalonia.Media.Brushes.DeepSkyBlue; }
-            else if (kbps > 10000) { qText = "Quality: Great"; color = Avalonia.Media.Brushes.LimeGreen; }
-            else if (kbps > 5000) { qText = "Quality: Good"; color = Avalonia.Media.Brushes.Yellow; }
-            else if (kbps > 2000) { qText = "Quality: Okay"; color = Avalonia.Media.Brushes.Orange; }
+            int w = 1920;
+            int h = 1080;
+            var cb = this.FindControl<CheckBox>("PortraitModeCheckbox");
+            if (cb != null && cb.IsChecked == true)
+            {
+                w = 1080;
+                h = 1920;
+            }
             
-            label.Text = qText;
-            label.Foreground = color;
+            double videoKbps = ((targetMb * 8192.0) - (audioKbps * durSec)) / durSec;
+            if (videoKbps < 100) videoKbps = 100;
+            
+            double bpp = (videoKbps * 1000.0) / (w * h * 60.0);
+            if (cb == null || cb.IsChecked != true)
+            {
+                bpp /= 1.5;
+            }
+            
+            string desc = "Standard";
+            string color = "White";
+            
+            var spectrum = new (double th, string d, string c)[] {
+                (0.02, "Unwatchable", "#e74c3c"),
+                (0.04, "Pixelated", "#e74c3c"),
+                (0.06, "Blurry", "#e74c3c"),
+                (0.1, "Clear", "White"),
+                (0.15, "Sharp", "#2ecc71"),
+                (0.25, "Crisp-Clear", "#2ecc71"),
+                (99.0, "Lifelike", "#2ecc71")
+            };
+            
+            for (int i=0; i<spectrum.Length; i++) {
+                if (bpp < spectrum[i].th) {
+                    desc = spectrum[i].d;
+                    color = spectrum[i].c;
+                    double prev = i > 0 ? spectrum[i-1].th : 0.0;
+                    double mid = (spectrum[i].th + prev) / 2.0;
+                    if (spectrum[i].th < 90.0) {
+                        desc += bpp < mid ? "-" : "+";
+                    }
+                    break;
+                }
+            }
+            
+            label.Text = desc;
+            label.Foreground = Avalonia.Media.Brush.Parse(color);
+        });
+    }
+
+    private void UpdateSpeedLabel()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+            var label = this.FindControl<TextBlock>("MainSpeedLabel");
+            if (label == null) return;
+            
+            double speed = _baseSpeed;
+            string desc;
+            string color;
+            
+            if (speed <= 0.5) { desc = "Slow Motion"; color = "#3498db"; }
+            else if (speed <= 0.8) { desc = "Cinematic"; color = "#3498db"; }
+            else if (speed < 1.05) { desc = "Normal"; color = "White"; }
+            else if (speed <= 1.2) { desc = "Slight Boost"; color = "#f1c40f"; }
+            else if (speed <= 1.5) { desc = "Fast"; color = "#f39c12"; }
+            else if (speed <= 2.0) { desc = "Very Fast"; color = "#e67e22"; }
+            else if (speed <= 3.0) { desc = "Turbo"; color = "#e74c3c"; }
+            else { desc = "Extreme"; color = "#e74c3c"; }
+            
+            label.Text = $"{speed:F1}x — {desc}";
+            label.Foreground = Avalonia.Media.Brush.Parse(color);
         });
     }
 
@@ -735,11 +831,11 @@ public partial class MainWindow : Window
             if (_trimStartMs > 0)
             {
                 double startX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
-                var startRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.LimeGreen, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
+                var startRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
                 Avalonia.Controls.Canvas.SetLeft(startRect, startX - 3);
                 
-                startRect.PointerEntered += (s,e) => startRect.Fill = Avalonia.Media.Brushes.LightGreen;
-                startRect.PointerExited += (s,e) => startRect.Fill = Avalonia.Media.Brushes.LimeGreen;
+                startRect.PointerEntered += (s,e) => startRect.Fill = Avalonia.Media.Brushes.MediumSeaGreen;
+                startRect.PointerExited += (s,e) => startRect.Fill = Avalonia.Media.Brushes.SeaGreen;
                 startRect.PointerPressed += (s,e) => { _draggingStartMarker = true; e.Pointer.Capture(startRect); };
                 startRect.PointerReleased += (s,e) => { _draggingStartMarker = false; e.Pointer.Capture(null); UpdateEstimatedQuality(); };
                 startRect.PointerMoved += (s,e) => {
@@ -753,7 +849,7 @@ public partial class MainWindow : Window
                 };
                 canvas.Children.Add(startRect);
                 
-                var startText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimStartMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.LimeGreen, FontSize = 10, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2) };
+                var startText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimStartMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 10, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2) };
                 Avalonia.Controls.Canvas.SetLeft(startText, startX + 5);
                 Avalonia.Controls.Canvas.SetTop(startText, canvas.Bounds.Height - 15);
                 canvas.Children.Add(startText);
@@ -770,11 +866,11 @@ public partial class MainWindow : Window
             if (_trimEndMs > 0)
             {
                 double endX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
-                var endRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.Tomato, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
+                var endRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
                 Avalonia.Controls.Canvas.SetLeft(endRect, endX - 3);
                 
-                endRect.PointerEntered += (s,e) => endRect.Fill = Avalonia.Media.Brushes.OrangeRed;
-                endRect.PointerExited += (s,e) => endRect.Fill = Avalonia.Media.Brushes.Tomato;
+                endRect.PointerEntered += (s,e) => endRect.Fill = Avalonia.Media.Brushes.MediumSeaGreen;
+                endRect.PointerExited += (s,e) => endRect.Fill = Avalonia.Media.Brushes.SeaGreen;
                 endRect.PointerPressed += (s,e) => { _draggingEndMarker = true; e.Pointer.Capture(endRect); };
                 endRect.PointerReleased += (s,e) => { _draggingEndMarker = false; e.Pointer.Capture(null); UpdateEstimatedQuality(); };
                 endRect.PointerMoved += (s,e) => {
@@ -788,7 +884,7 @@ public partial class MainWindow : Window
                 };
                 canvas.Children.Add(endRect);
                 
-                var endText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimEndMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.Tomato, FontSize = 10, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2) };
+                var endText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimEndMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 10, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2) };
                 Avalonia.Controls.Canvas.SetLeft(endText, endX - 45);
                 Avalonia.Controls.Canvas.SetTop(endText, canvas.Bounds.Height - 15);
                 canvas.Children.Add(endText);
@@ -831,8 +927,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                if (playPauseButton.Content?.ToString() != "⏸")
-                    playPauseButton.Content = "⏸";
+                if (playPauseButton.Content?.ToString() != "||")
+                    playPauseButton.Content = "||";
             }
         }
 
@@ -1150,22 +1246,19 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        if (_videoHost?.IpcClient != null)
-        {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("stop");
-        }
+        RuntimeLog.Info("UI", "Closing MainWindow. Calling Environment.Exit to forcefully end process tree.");
+        SaveWindowState();
+        
+        System.Threading.Tasks.Task.Run(() => {
+            try { _videoHost?.IpcClient?.Dispose(); } catch { }
+            Environment.Exit(0);
+        });
+        
         base.OnClosing(e);
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        RuntimeLog.Info("UI", "Closing MainWindow and terminating MPV handle.");
-        SaveWindowState();
-        
-        if (_videoHost?.IpcClient != null)
-        {
-            _videoHost.IpcClient.Dispose();
-        }
         base.OnClosed(e);
         Environment.Exit(0);
     }
@@ -1242,12 +1335,18 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    private void AttachTitleBarDrag()
     {
-        base.OnPointerPressed(e);
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        var titleBar = this.FindControl<Border>("TitleBarBorder");
+        if (titleBar != null)
         {
-            try { BeginMoveDrag(e); } catch { }
+            titleBar.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                {
+                    try { BeginMoveDrag(e); } catch { }
+                }
+            };
         }
     }
 }

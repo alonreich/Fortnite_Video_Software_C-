@@ -88,7 +88,7 @@ copy /y ".\binaries\mpv.exe" "%STAGING_DIR%\frontend\" >nul
 copy /y ".\binaries\mpv.com" "%STAGING_DIR%\frontend\" >nul
 
 echo [NativeAOT] 3. Zipping payload...
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING_DIR%\*' -DestinationPath 'src\FortniteVideoSoftware.App\payload.zip' -Force"
+tar.exe -a -c -f "src\FortniteVideoSoftware.App\payload.zip" -C "%STAGING_DIR%" .
 
 echo [NativeAOT] 4. Publishing standalone installer...
 dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true -o "%FINAL_DIR%" %DOTNET_LOG_ARGS%
@@ -156,6 +156,7 @@ if not defined VSWHERE (
 
 for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2^>nul`) do (
   if exist "%%I\Common7\Tools\VsDevCmd.bat" (
+    set "VSCMD_SKIP_SENDTELEMETRY=1"
     call "%%I\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul
     where link.exe >nul 2>&1
     if not errorlevel 1 goto DETECT_NATIVE_AOT_OK

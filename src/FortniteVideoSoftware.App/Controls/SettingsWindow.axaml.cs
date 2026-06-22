@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using FortniteVideoSoftware.Core.Infrastructure;
+using FortniteVideoSoftware.App.Infrastructure;
 using System.Collections.Generic;
 
 namespace FortniteVideoSoftware.App.Controls;
@@ -16,7 +17,7 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
-        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
         {
             var mainBorder = this.FindControl<Border>("MainBorder");
             var titleBarBorder = this.FindControl<Border>("TitleBarBorder");

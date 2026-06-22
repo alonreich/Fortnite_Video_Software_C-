@@ -29,7 +29,7 @@ public partial class VideoMergerWindow : Window
         InitializeComponent();
 
         // Smart OS Theme Detection
-        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
         {
             var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
             var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
@@ -259,17 +259,17 @@ public partial class VideoMergerWindow : Window
 
     private void UpdateTooltips()
     {
-        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
         var playBtn = this.FindControl<Button>("PlayPauseButton");
         if (playBtn != null) ToolTip.SetTip(playBtn, $"Play or pause the video ({kb.PlayPause})");
     }
 
     private void MergerKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        if (Avalonia.Input.FocusManager.Instance?.Current?.GetLogicalParent() is TextBox or NumericUpDown)
+        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
             return;
 
-        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
 
         if (e.Key == kb.PlayPause)
         {

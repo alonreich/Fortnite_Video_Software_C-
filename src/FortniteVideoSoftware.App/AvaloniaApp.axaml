@@ -15,7 +15,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="CornerRadius" Value="8"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="BorderThickness" Value="1,1,1,2"/>
             <Setter Property="Transitions">

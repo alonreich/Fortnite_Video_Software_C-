@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using Avalonia.Input;
 
-namespace FortniteVideoSoftware.Core.Infrastructure;
+namespace FortniteVideoSoftware.App.Infrastructure;
 
 public class AppSettings
 {

@@ -54,7 +54,7 @@ public partial class GranularSpeedEditorWindow : Window
         InitializeComponent();
         
         // Smart OS Theme Detection
-        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Styling.ThemeVariant.Light)
+        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
         {
             var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
             var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
@@ -68,6 +68,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         this.Loaded += (s, e) => InitializeMpv();
         WireUpControls();
+        AttachTitleBarDrag();
         RefreshSegmentList();
 
         this.Loaded += async (s, e) => {
@@ -89,7 +90,7 @@ public partial class GranularSpeedEditorWindow : Window
     // ------------------------------------------------------------------ init
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-        private async void InitializeMpv()
+    private async void InitializeMpv()
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
         if (_videoHost != null)
@@ -97,9 +98,7 @@ public partial class GranularSpeedEditorWindow : Window
             string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "mpv.exe");
             if (!System.IO.File.Exists(mpvPath)) mpvPath = "mpv.exe";
             await _videoHost.StartMpvProcessAsync(mpvPath);
-        if (_videoHost != null)
-        {
-            await _videoHost.StartMpvProcessAsync(mpvPath);
+            
             if (_videoHost.IpcClient != null)
             {
                 _videoHost.IpcClient.SeekCompleted += () => {
@@ -120,7 +119,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void UpdateTooltips()
     {
-        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
         var playBtn = this.FindControl<Button>("GranularPlayPause");
         if (playBtn != null) ToolTip.SetTip(playBtn, $"Play or pause the video ({kb.PlayPause})");
         
@@ -133,10 +132,10 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void GranularKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        if (Avalonia.Input.FocusManager.Instance?.Current?.GetLogicalParent() is TextBox or NumericUpDown)
+        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
             return;
 
-        var kb = FortniteVideoSoftware.Core.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
 
         if (e.Key == kb.PlayPause)
         {
@@ -231,19 +230,28 @@ public partial class GranularSpeedEditorWindow : Window
             RedrawTimeline();
         });
 
-        var markEnd = this.FindControl<Button>("MarkEndBtn");
-        markEnd?.AddHandler(Button.ClickEvent, (_, _) =>
+        var markEndBtn = this.FindControl<Button>("MarkEndBtn");
+        markEndBtn?.AddHandler(Button.ClickEvent, (_, _) =>
         {
             RuntimeLog.Info("UI", "User clicked Mark End in Granular Speed Editor.");
             _pendingEndMs = (int)(GetCurrentTime() * 1000);
-            var lbl = this.FindControl<TextBlock>("PendingEndLabel");
-            if (lbl != null) lbl.Text = FormatMs(_pendingEndMs);
             
+            // Logic for auto-calculating start:
             if (_pendingStartMs < 0)
             {
-                _pendingStartMs = 0;
-                var startLbl = this.FindControl<TextBlock>("PendingStartLabel");
-                if (startLbl != null) startLbl.Text = FormatMs(_pendingStartMs);
+                if (_segments.Count == 0)
+                {
+                    _pendingStartMs = 0;
+                }
+                else
+                {
+                    _pendingStartMs = (int)_segments.Last().EndMs + 1000;
+                    if (_pendingStartMs > _pendingEndMs) 
+                    {
+                        // If 1s gap makes it larger than end, fallback to end (though user should avoid this)
+                        _pendingStartMs = (int)_segments.Last().EndMs;
+                    }
+                }
             }
 
             if (_videoHost?.IpcClient != null)
@@ -251,7 +259,10 @@ public partial class GranularSpeedEditorWindow : Window
                 _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
             }
 
-            ShowFeedback($"END: {FormatMs(_pendingEndMs)}");
+            ShowFeedback($"SEGMENT ADDED: {FormatMs(_pendingEndMs)}");
+            
+            // Automatically add segment
+            AddPendingSegment();
             RedrawTimeline();
         });
 
@@ -284,13 +295,7 @@ public partial class GranularSpeedEditorWindow : Window
             };
         }
 
-        // ---- Add segment ----
-        var addBtn = this.FindControl<Button>("AddSegmentBtn");
-        addBtn?.AddHandler(Button.ClickEvent, (_, _) =>
-        {
-            RuntimeLog.Info("UI", "User clicked Add Segment in Granular Speed Editor.");
-            AddPendingSegment();
-        });
+        // Add segment button logic removed from UI, keeping AddPendingSegment internally
 
         // ---- Clear all ----
         var clearBtn = this.FindControl<Button>("ClearAllSegmentsBtn");
@@ -300,7 +305,6 @@ public partial class GranularSpeedEditorWindow : Window
             _segments.Clear();
             _pendingStartMs = -1;
             _pendingEndMs = -1;
-            RefreshSegmentList();
             RedrawTimeline();
             SetStatus("All segments and pending selections cleared.");
         });
@@ -363,12 +367,6 @@ public partial class GranularSpeedEditorWindow : Window
         // Reset pending markers
         _pendingStartMs = -1;
         _pendingEndMs   = -1;
-        var startLbl = this.FindControl<TextBlock>("PendingStartLabel");
-        var endLbl   = this.FindControl<TextBlock>("PendingEndLabel");
-        if (startLbl != null) startLbl.Text = "--:--:--.---";
-        if (endLbl   != null) endLbl.Text   = "--:--:--.---";
-
-        RefreshSegmentList();
         RedrawTimeline();
         SetStatus($"Segment added: {FormatMs(start)} – {FormatMs(end)} @ {speed:F2}x");
     }
@@ -539,7 +537,7 @@ public partial class GranularSpeedEditorWindow : Window
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
-                    Fill = Avalonia.Media.Brushes.LimeGreen
+                    Fill = Avalonia.Media.Brushes.SeaGreen
                 };
                 Avalonia.Controls.Canvas.SetLeft(line, px);
                 canvas.Children.Add(line);
@@ -552,7 +550,7 @@ public partial class GranularSpeedEditorWindow : Window
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
-                    Fill = Avalonia.Media.Brushes.LimeGreen
+                    Fill = Avalonia.Media.Brushes.SeaGreen
                 };
                 Avalonia.Controls.Canvas.SetLeft(line, px);
                 canvas.Children.Add(line);
@@ -731,5 +729,20 @@ public partial class GranularSpeedEditorWindow : Window
             await store.UpdatePropertiesAsync(updates);
         }
         catch { }
+    }
+
+    private void AttachTitleBarDrag()
+    {
+        var titleBar = this.FindControl<Border>("TitleBarBorder");
+        if (titleBar != null)
+        {
+            titleBar.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                {
+                    try { BeginMoveDrag(e); } catch { }
+                }
+            };
+        }
     }
 }
