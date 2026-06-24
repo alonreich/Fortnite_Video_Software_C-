@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
              x:Class="FortniteVideoSoftware.App.Controls.PhaseOverlayControl"
-             Background="#e60b141d"
+             Background="#990b141d"
              IsVisible="False"
              ZIndex="999">
     <Grid Margin="40">
@@ -16,8 +16,8 @@
         <Border Grid.Row="0" Margin="0,0,0,20" Background="#780b141d" BorderBrush="#33ffffff" BorderThickness="1" CornerRadius="8" Padding="20">
             <StackPanel>
                 <TextBlock x:Name="PhaseTitleText" Text="Phase 1: Preparing..." Foreground="White" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="20" Foreground="#00ff66" Background="#33000000" CornerRadius="4"/>
-                <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="#00ff66" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" HorizontalAlignment="Center"/>
+                <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="20" Foreground="#4ade80" Background="#33000000" CornerRadius="4"/>
+                <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="#4ade80" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" HorizontalAlignment="Center"/>
             </StackPanel>
         </Border>
 
@@ -31,13 +31,12 @@
                  IsReadOnly="True"
                  FontFamily="Consolas, monospace"
                  FontSize="11"
-                 Foreground="#00ff66"
+                 Foreground="#4ade80"
                  Background="#e6020a0e"
-                 BorderBrush="#5a00ff66"
+                 BorderBrush="#5a4ade80"
                  BorderThickness="1"
                  CornerRadius="4"
                  Padding="8"
                  TextWrapping="Wrap" />
     </Grid>
 </UserControl>
-

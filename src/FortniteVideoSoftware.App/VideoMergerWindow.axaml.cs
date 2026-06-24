@@ -301,22 +301,16 @@ public partial class VideoMergerWindow : Window
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
-        
-        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
-        if (playPauseBtn != null)
+
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        if (playIcon != null && pauseIcon != null)
         {
-            if (_videoHost.IpcClient.IsPaused)
-            {
-                if (playPauseBtn.Content?.ToString() != "▶")
-                    playPauseBtn.Content = "▶";
-            }
-            else
-            {
-                if (playPauseBtn.Content?.ToString() != "⏸")
-                    playPauseBtn.Content = "⏸";
-            }
+            bool isPaused = _videoHost.IpcClient.IsPaused;
+            playIcon.IsVisible = isPaused;
+            pauseIcon.IsVisible = !isPaused;
         }
-        
+
         double time = _videoHost.IpcClient.CurrentTime;
         double dur = _videoHost.IpcClient.Duration;
         

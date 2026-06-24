@@ -71,13 +71,7 @@ public partial class GranularSpeedEditorWindow : Window
         AttachTitleBarDrag();
         RefreshSegmentList();
 
-        this.Loaded += async (s, e) => {
-            await WindowBoundsHelper.LoadBoundsAsync(this, "GranularBounds");
-        };
-
-        this.Closing += (s, e) => {
-            WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
-        };
+        // Bounds are loaded in OnOpened override and saved in OnClosing override — single save point each.
 
         _playbackTimer.Tick += PlaybackTimer_Tick;
         _playbackTimer.Start();
@@ -92,15 +86,28 @@ public partial class GranularSpeedEditorWindow : Window
 
     private async void InitializeMpv()
     {
-        _videoHost = this.FindControl<MpvVideoView>("VideoHost");
+        // Issue #18: Fix control name mismatch — was "VideoHost", should be "GranularVideoHost"
+        _videoHost = this.FindControl<MpvVideoView>("GranularVideoHost");
         if (_videoHost != null)
         {
-            string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "mpv.exe");
-            if (!System.IO.File.Exists(mpvPath)) mpvPath = "mpv.exe";
+            RuntimeLog.Info("Granular", "Initializing MPV video host for Granular Speed Editor.");
+            string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "frontend", "mpv.exe");
+            if (!System.IO.File.Exists(mpvPath)) mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "mpv.exe");
+            if (!System.IO.File.Exists(mpvPath)) mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "mpv.exe");
+            if (!System.IO.File.Exists(mpvPath))
+            {
+                RuntimeLog.Fail("Granular", "Could not locate mpv.exe for Granular Speed Editor. Using PATH fallback.");
+                mpvPath = "mpv.exe";
+            }
+            else
+            {
+                RuntimeLog.Info("Granular", $"Using MPV at: {mpvPath}");
+            }
             await _videoHost.StartMpvProcessAsync(mpvPath);
-            
+
             if (_videoHost.IpcClient != null)
             {
+                RuntimeLog.Info("Granular", "MPV IPC client connected. Attaching seek handler.");
                 _videoHost.IpcClient.SeekCompleted += () => {
                     Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
                         _isSeeking = false;
@@ -114,6 +121,14 @@ public partial class GranularSpeedEditorWindow : Window
 
                 LoadVideo();
             }
+            else
+            {
+                RuntimeLog.Fail("Granular", "MPV IPC client is null after starting MPV process.");
+            }
+        }
+        else
+        {
+            RuntimeLog.Fail("Granular", "Could not find GranularVideoHost control in XAML.");
         }
     }
 
@@ -564,11 +579,14 @@ public partial class GranularSpeedEditorWindow : Window
         if (_videoHost?.IpcClient == null) return;
 
         // Update play/pause button label
-        var ppBtn = this.FindControl<Button>("GranularPlayPause");
-        if (ppBtn != null)
+        // Issue #9: Standardized play/pause glyph (▶ / ⏸)
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        if (playIcon != null && pauseIcon != null)
         {
-            string desired = (_videoHost.IpcClient.IsPaused) ? "\u25BA PLAY" : "\u23F8 PAUSE";
-            if (ppBtn.Content?.ToString() != desired) ppBtn.Content = desired;
+            bool isPaused = _videoHost.IpcClient.IsPaused;
+            playIcon.IsVisible = isPaused;
+            pauseIcon.IsVisible = !isPaused;
         }
 
         // Update time label & slider
@@ -655,31 +673,31 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     // ------------------------------------------------------------------ cleanup
+    // Issue #18: Proper cleanup to prevent freeze on close — stop timers first, then dispose mpv
     protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        if (_videoHost?.IpcClient != null)
-        {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("stop");
-        }
+        RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
+        _playbackTimer?.Stop();
+        _feedbackTimer?.Stop();
+        // Save window bounds synchronously (non-blocking — uses UpdatePropertiesSync)
+        try { WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds"); } catch { }
         base.OnClosing(e);
     }
 
-    protected override void OnOpened(EventArgs e)
+    protected override async void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        _ = LoadBoundsAsync();
+        await WindowBoundsHelper.LoadBoundsAsync(this, "GranularBounds");
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        _ = SaveBoundsAsync();
+        RuntimeLog.Info("Granular", "Granular Speed Editor closed. Disposing resources.");
         _playbackTimer?.Stop();
         _feedbackTimer?.Stop();
 
-        if (_videoHost?.IpcClient != null)
-        {
-            
-        }
+        // MPV disposal happens in MpvVideoView.DestroyNativeControlCore (background thread).
+        // No need to double-dispose here.
         base.OnClosed(e);
     }
 

@@ -13,10 +13,11 @@
     <Grid>
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="LightGray">
-                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="Black" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" IsHitTestVisible="False" />
+                <!-- Issue #5: Title bar bound to shared resource tokens -->
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" IsHitTestVisible="False" />
                 </Border>
-                <Grid Grid.Row="1" ColumnDefinitions="*, 200">
+                <Grid Grid.Row="1" ColumnDefinitions="*, 170">
         <!-- LEFT COLUMN: Player & Editing Controls -->
         <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto">
             
@@ -41,33 +42,36 @@
                             <Grid>
                                 <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-                                        <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" />
-                                        <Button Name="CenterUploadButton" Classes="Primary" Content="📂 BROWSE VIDEO" Width="200" Height="45" FontSize="13" Cursor="Hand" />
+                                        <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                        <Button Name="CenterUploadButton" Classes="Primary" Content="📂 BROWSE VIDEO" Width="200" Height="45" FontSize="12" Cursor="Hand" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Border>
                                 <!-- Settings Button -->
-                                <Button Name="SettingsOverlayBtn" Classes="Primary" Height="32" CornerRadius="8" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="30" Cursor="Hand" ToolTip.Tip="Open Settings &amp; Key Binds">
+                                <Button Name="SettingsOverlayBtn" Classes="Primary" Height="32" CornerRadius="8" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="30" Cursor="Hand" ToolTip.Tip="Open Settings and Key Binds">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="⚙" FontSize="13" VerticalAlignment="Center" />
-                                        <TextBlock Text="SETTINGS" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" />
+                                        <TextBlock Text="⚙" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Text="SETTINGS" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
                             </Grid>
                         </Border>
                     </Grid>
                 </Border>
-                <!-- Volume Slider -->
-                <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="6" Background="#15202b" BorderBrush="#2c3e50" BorderThickness="1" Padding="0,15" Width="40">
-                    <Slider Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" />
+                <!-- Compact Volume Control with badge -->
+                <Border Grid.Column="1" Margin="5,0,5,0" CornerRadius="6" Background="#15202b" BorderBrush="#334155" BorderThickness="1" Padding="6,8" Width="48">
+                    <StackPanel Orientation="Vertical" Spacing="4" HorizontalAlignment="Center">
+                        <TextBlock Name="VolumeBadgeText" Text="100%" Foreground="#c5dcf2" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <Slider Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" Height="120" Width="24" />
+                    </StackPanel>
                 </Border>
             </Grid>
 
-            <!-- Timeline -->
-            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,5">
+            <!-- Timeline — shrunk proportionally to fit compartment -->
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,8,10,15" MinHeight="30">
                 <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
-                <Grid Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
-                    <Slider Name="TimelineSlider" Minimum="0" Maximum="100" Height="24" MinHeight="24" VerticalAlignment="Center" />
-                    <Canvas Name="TimelineMarkersCanvas" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="24" />
+                <Grid Grid.Column="1" Margin="10,0" VerticalAlignment="Center" MinHeight="26">
+                    <Slider Name="TimelineSlider" Minimum="0" Maximum="100" Height="26" MinHeight="26" VerticalAlignment="Center" />
+                    <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="26" />
                 </Grid>
                 <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
             </Grid>
@@ -77,17 +81,31 @@
                 <!-- Upper Row -->
                 <Grid Grid.Row="0" Margin="0,0,0,10">
                     <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="SetThumbnailButton" Classes="Primary" Content="📸 THUMBNAIL" Width="130" Height="32" FontSize="10" ToolTip.Tip="Set current frame as the thumbnail" />
+                        <Button Name="SetThumbnailButton" Classes="Primary" Width="140" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
+                            <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="📸" FontSize="16" VerticalAlignment="Center" />
+                                <TextBlock Text="THUMBNAIL" FontSize="9" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="10" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
-                        <Button Name="PlayPauseButton" Classes="Success" Content="||" Width="70" Height="32" FontSize="15" FontWeight="Black" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0"/>
-                        <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="90" Height="32" FontSize="10" ToolTip.Tip="Mark the end of your clip"/>
+                        <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="115" Height="32" FontSize="9" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Mark the beginning of your clip"/>
+                        <!-- Drawn shapes for crisp white play/pause icons (no emoji blue tint) -->
+                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                            <Panel Width="16" Height="16">
+                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                                <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                </StackPanel>
+                            </Panel>
+                        </Button>
+                        <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="115" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Mark the end of your clip"/>
                     </StackPanel>
                     
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="10" ToolTip.Tip="Adjust granular speed settings"/>
+                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Adjust granular speed settings"/>
                     </StackPanel>
                 </Grid>
 
@@ -96,17 +114,19 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
                             <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                            <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="True" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Target maximum file size in MB" />
-                            <TextBlock Name="QualityLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                            <!-- Issue #15: Dynamic tooltip set from code-behind depending on enabled state -->
+                            <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Upload a video to set target size" />
+                            <TextBlock Name="QualityLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
                         
-                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="55" CornerRadius="8" FontSize="13" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
-                        <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="55" CornerRadius="8" FontSize="13" ToolTip.Tip="Render and export the final video"/>
+                        <!-- Issue #13: Normalize to 42px standard -->
+                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="42" CornerRadius="8" FontSize="12" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
+                        <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="42" CornerRadius="8" FontSize="12" IsEnabled="False" ToolTip.Tip="Render and export the final video"/>
                         
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                            <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Adjust base playback speed multiplier" />
-                            <TextBlock Name="MainSpeedLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                            <controls:SpinningWheelSlider Name="MainSpeedSlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Upload a video to set speed" />
+                            <TextBlock Name="MainSpeedLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -118,21 +138,21 @@
         <!-- RIGHT PANEL: Utility & Plugins -->
         <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
             <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto">
-                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="📂  UPLOAD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="10" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
-                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" HorizontalAlignment="Stretch" Height="32" FontSize="10" Margin="0,0,0,15" ToolTip.Tip="Add background music to the video"/>
+                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="📂  UPLOAD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
+                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" HorizontalAlignment="Stretch" Height="32" FontSize="9" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video"/>
                 
                 <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#cbd5e1" FontSize="12" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
                 
                 <StackPanel Grid.Row="4" Margin="0,0,0,15" Spacing="5">
                     <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="150" MinHeight="32" FontSize="12" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" HorizontalAlignment="Left" TextWrapping="Wrap" AcceptsReturn="True" />
-                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" FontSize="12" />
-                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" FontSize="12" />
-                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" FontSize="12" />
-                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" Foreground="White" FontSize="12" />
+                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" IsEnabled="False" />
+                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" IsEnabled="False" />
+                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" IsEnabled="False" />
+                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" Foreground="White" IsEnabled="False" />
                 </StackPanel>
                 
-                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Height="32" FontSize="10" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>
-                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Height="32" FontSize="10" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
+                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Height="32" FontSize="9" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>
+                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Height="32" FontSize="9" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
             </Grid>
         </Border>
 
@@ -149,4 +169,3 @@
         </Border>
     </Grid>
 </Window>
-

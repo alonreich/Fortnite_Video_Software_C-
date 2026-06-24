@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,7 +13,7 @@ public static class WindowBoundsHelper
         try
         {
             var store = new Core.Ipc.StateTransferStore();
-            var state = await store.LoadAsync();
+            var state = await store.LoadAsync().ConfigureAwait(false);
             if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
             {
                 if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
@@ -58,18 +59,25 @@ public static class WindowBoundsHelper
         {
             var store = new Core.Ipc.StateTransferStore();
             var updates = new JsonObject { [key] = GetBoundsObj(window) };
-            await store.UpdatePropertiesAsync(updates);
+            await store.UpdatePropertiesAsync(updates).ConfigureAwait(false);
         }
         catch { }
     }
 
+    /// <summary>
+    /// Synchronous save for use in Closing/Closed handlers.
+    /// CRITICAL: Must NOT use Task.Run + GetAwaiter().GetResult() because the
+    /// async continuation captures the UI SynchronizationContext, causing a
+    /// classic async-over-sync deadlock when the UI thread is blocked.
+    /// Instead, we perform the file I/O directly on the calling thread.
+    /// </summary>
     public static void SaveBoundsSync(Window window, string key)
     {
         try
         {
             var store = new Core.Ipc.StateTransferStore();
             var updates = new JsonObject { [key] = GetBoundsObj(window) };
-            store.UpdatePropertiesAsync(updates).GetAwaiter().GetResult();
+            store.UpdatePropertiesSync(updates);
         }
         catch { }
     }

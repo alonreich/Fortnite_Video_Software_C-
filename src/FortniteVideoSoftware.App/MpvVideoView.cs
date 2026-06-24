@@ -40,7 +40,19 @@ public class MpvVideoView : NativeControlHost
     
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
-        IpcClient?.Dispose();
+        // CRITICAL: Dispose must be fire-and-forget on a background thread.
+        // Calling Dispose() synchronously here blocks the UI thread (WaitForExit)
+        // which freezes the entire application on window close.
+        var client = IpcClient;
+        IpcClient = null;
+        if (client != null)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try { client.Dispose(); }
+                catch (System.Exception ex) { RuntimeLog.Fail("MPV", $"Error disposing IPC client: {ex.Message}"); }
+            });
+        }
         base.DestroyNativeControlCore(control);
     }
 }

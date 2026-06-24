@@ -13,6 +13,11 @@ public partial class AvaloniaApp : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // GPU Capability Probe (The Gatekeeper): runs once at startup.
+        // Determines whether hardware-accelerated video rendering is viable.
+        // Result is stored in VideoRenderMode.Current and read by DualModeVideoView.
+        FortniteVideoSoftware.Core.Media.VideoRenderMode.Initialize();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var argsList = desktop.Args ?? System.Array.Empty<string>();

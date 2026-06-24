@@ -28,7 +28,7 @@ public sealed class StateTransferStore
                 cancellationToken);
 
             return LoadUnlocked();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task SaveAsync(JsonObject state, CancellationToken cancellationToken = default)
@@ -43,7 +43,7 @@ public sealed class StateTransferStore
                 cancellationToken);
 
             AtomicJsonFile.WriteObject(Paths.SessionStateFile, Clone(state));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdatePropertiesAsync(JsonObject updates, CancellationToken cancellationToken = default)
@@ -64,7 +64,30 @@ public sealed class StateTransferStore
             }
 
             AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Synchronous update for use in Closing/Closed event handlers where
+    /// async-over-sync would deadlock the UI thread. Performs I/O directly
+    /// on the calling thread without Task.Run + GetAwaiter().GetResult().
+    /// </summary>
+    public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default)
+    {
+        Paths.EnsureWritableDirectories();
+
+        using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+            MutexName,
+            DefaultMutexTimeout,
+            cancellationToken);
+
+        JsonObject current = LoadUnlocked();
+        foreach (KeyValuePair<string, JsonNode?> property in updates)
+        {
+            current[property.Key] = property.Value?.DeepClone();
+        }
+
+        AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
@@ -79,7 +102,7 @@ public sealed class StateTransferStore
                 cancellationToken);
 
             AtomicJsonFile.TryDelete(Paths.SessionStateFile);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private JsonObject LoadUnlocked()

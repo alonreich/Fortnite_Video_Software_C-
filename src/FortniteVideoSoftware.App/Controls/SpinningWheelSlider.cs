@@ -261,9 +261,9 @@ namespace FortniteVideoSoftware.App.Controls
                     double tw = formattedText.Width;
                     double th = formattedText.Height;
                     
-                    // Draw shadow text offset by 2px
-                    context.DrawText(shadowText, new Point(xPos - tw / 2 + 2, cy - th / 3 + yBulge + 2));
-                    context.DrawText(formattedText, new Point(xPos - tw / 2, cy - th / 3 + yBulge));
+                    // Item #2: Lifted text upward — was cy - th/3, now cy - th/2 for proper centering
+                    context.DrawText(shadowText, new Point(xPos - tw / 2 + 2, cy - th / 2 + yBulge + 2));
+                    context.DrawText(formattedText, new Point(xPos - tw / 2, cy - th / 2 + yBulge));
                 }
             }
             

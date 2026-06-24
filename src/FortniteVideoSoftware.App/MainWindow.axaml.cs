@@ -75,13 +75,13 @@ public partial class MainWindow : Window
         
         LoadWindowState();
 
+        // Issue #19: Removed duplicate timer creation that caused double UI updates and visual flicker
         _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _playbackTimer.Tick += PlaybackTimer_Tick;
         _playbackTimer.Start();
 
-        _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        _playbackTimer.Tick += PlaybackTimer_Tick;
-        _playbackTimer.Start();
+        // Fix: Enable title bar drag-to-move for borderless window
+        AttachTitleBarDrag();
 
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
         if (canvas != null)
@@ -181,24 +181,46 @@ public partial class MainWindow : Window
         var videoMergerButton = this.FindControl<Button>("VideoMergerButton");
         if (videoMergerButton != null)
         {
-            videoMergerButton.Click += (s, e) =>
+            // Issue #3: Open as modal dialog instead of killing the process — preserves all session state
+            videoMergerButton.Click += async (s, e) =>
             {
-                RuntimeLog.Info("UI", "User clicked VIDEO MERGER button.");
-                string exePath = Environment.ProcessPath ?? "FortniteVideoSoftware.App.exe";
-                Process.Start(new ProcessStartInfo(exePath, "--merger") { UseShellExecute = true });
-                Environment.Exit(0);
+                RuntimeLog.Info("UI", "User clicked VIDEO MERGER button. Opening as modal dialog (preserving session state).");
+                try
+                {
+                    var mergerWindow = new VideoMergerWindow();
+                    // Pause video while merger is open so session state stays intact
+                    if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                    await mergerWindow.ShowDialog(this);
+                    RuntimeLog.Info("UI", "Video Merger dialog closed. Returning to main window.");
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("UI", $"Failed to open Video Merger dialog: {ex.Message}");
+                    ShowToast("Could not open Video Merger.", true);
+                }
             };
         }
 
         var cropSettingsButton = this.FindControl<Button>("CropSettingsButton");
         if (cropSettingsButton != null)
         {
-            cropSettingsButton.Click += (s, e) =>
+            // Issue #3: Open as modal dialog instead of killing the process — preserves all session state
+            cropSettingsButton.Click += async (s, e) =>
             {
-                RuntimeLog.Info("UI", "User clicked CROP SETTINGS button.");
-                string exePath = Environment.ProcessPath ?? "FortniteVideoSoftware.App.exe";
-                Process.Start(new ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = true });
-                Environment.Exit(0);
+                RuntimeLog.Info("UI", "User clicked CROP SETTINGS button. Opening as modal dialog (preserving session state).");
+                try
+                {
+                    var cropWindow = new CropToolWindow();
+                    // Pause video while crop tool is open so session state stays intact
+                    if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                    await cropWindow.ShowDialog(this);
+                    RuntimeLog.Info("UI", "Crop Tool dialog closed. Returning to main window.");
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("UI", $"Failed to open Crop Tool dialog: {ex.Message}");
+                    ShowToast("Could not open Crop Tool.", true);
+                }
             };
         }
 
@@ -392,7 +414,7 @@ public partial class MainWindow : Window
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
             var newObj = new System.Text.Json.Nodes.JsonObject();
-            var preserveKeys = new[] { "MainWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds" };
+            var preserveKeys = new[] { "MainWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds" };
             foreach (var key in preserveKeys) {
                 if (state.TryGetPropertyValue(key, out var gb)) {
                     newObj[key] = gb?.DeepClone();
@@ -471,18 +493,113 @@ public partial class MainWindow : Window
 
             _ = _videoHost?.IpcClient?.LoadFileAsync(path);
             _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
-            
+
+            // Reset to user-configured defaults on every new file upload
+            _speedSegments.Clear();
+            var granularBtnReset = this.FindControl<Button>("GranularButton");
+            if (granularBtnReset != null) granularBtnReset.Content = "GRANULAR SPEED";
+            ApplyDefaults();
+            UpdateSpeedLabel();
+            UpdateEstimatedQuality();
+
             if (_videoHost != null) _videoHost.IsVisible = true;
             UpdatePortraitOverlay();
 
             var uploadOverlay = this.FindControl<Border>("UploadOverlay");
             if (uploadOverlay != null) uploadOverlay.IsVisible = false;
 
-            var gb = this.FindControl<Button>("GranularButton");
-            if (gb != null) gb.IsEnabled = true;
-            
-            var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
-            if (qs != null) qs.IsEnabled = true;
+            // Enable all controls that were greyed out until a video was loaded
+            EnableEditingControls();
+        }
+    }
+
+    /// <summary>
+    /// Applies user-configured default values from Settings to the UI controls.
+    /// </summary>
+    private void ApplyDefaults()
+    {
+        var d = SettingsManager.Instance.Defaults;
+        _baseSpeed = d.DefaultSpeed;
+        var speedSliderReset = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        if (speedSliderReset != null) speedSliderReset.Value = (int)(_baseSpeed * 10);
+        if (_videoHost?.IpcClient != null)
+            _ = _videoHost.IpcClient.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+
+        var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
+        if (qs != null) qs.Value = d.QualityIndex;
+
+        var vol = this.FindControl<Slider>("VolumeSlider");
+        if (vol != null) vol.Value = d.Volume;
+
+        var portrait = this.FindControl<CheckBox>("PortraitModeCheckbox");
+        if (portrait != null) portrait.IsChecked = d.PortraitMode;
+
+        var bossHp = this.FindControl<CheckBox>("BossHpCheckbox");
+        if (bossHp != null) bossHp.IsChecked = d.BossHp;
+
+        var teammates = this.FindControl<CheckBox>("TeammatesCheckbox");
+        if (teammates != null) teammates.IsChecked = d.ShowTeammates;
+
+        var noFade = this.FindControl<CheckBox>("NoFadeCheckbox");
+        if (noFade != null) noFade.IsChecked = d.NoFade;
+    }
+
+    /// <summary>
+    /// Enables all editing controls and right-pane checkboxes after a video is uploaded.
+    /// This reverts the initial disabled state set in XAML (IsEnabled="False").
+    /// </summary>
+    private void EnableEditingControls()
+    {
+        var gb = this.FindControl<Button>("GranularButton");
+        if (gb != null) gb.IsEnabled = true;
+
+        var thumbnail = this.FindControl<Button>("SetThumbnailButton");
+        if (thumbnail != null) thumbnail.IsEnabled = true;
+
+        var markStart = this.FindControl<Button>("MarkStartButton");
+        if (markStart != null) markStart.IsEnabled = true;
+
+        var playPause = this.FindControl<Button>("PlayPauseButton");
+        if (playPause != null) playPause.IsEnabled = true;
+
+        var markEnd = this.FindControl<Button>("MarkEndButton");
+        if (markEnd != null) markEnd.IsEnabled = true;
+
+        var process = this.FindControl<Button>("ProcessButton");
+        if (process != null) process.IsEnabled = true;
+
+        // Item #1: ADD MUSIC button
+        var addMusic = this.FindControl<Button>("AddMusicButton");
+        if (addMusic != null) addMusic.IsEnabled = true;
+
+        // Right-pane checkboxes
+        var portrait = this.FindControl<CheckBox>("PortraitModeCheckbox");
+        if (portrait != null) portrait.IsEnabled = true;
+
+        var bossHp = this.FindControl<CheckBox>("BossHpCheckbox");
+        if (bossHp != null) bossHp.IsEnabled = true;
+
+        var teammates = this.FindControl<CheckBox>("TeammatesCheckbox");
+        if (teammates != null) teammates.IsEnabled = true;
+
+        var noFade = this.FindControl<CheckBox>("NoFadeCheckbox");
+        if (noFade != null) noFade.IsEnabled = true;
+
+        // Issue #15: Enable sliders and update tooltips now that video is loaded
+        var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
+        if (qs != null)
+        {
+            qs.IsEnabled = true;
+            qs.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            Avalonia.Controls.ToolTip.SetTip(qs, "Target maximum file size in MB");
+        }
+
+        var ss = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        if (ss != null)
+        {
+            ss.IsEnabled = true;
+            ss.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            Avalonia.Controls.ToolTip.SetTip(ss, "Playback speed multiplier");
         }
     }
 
@@ -917,19 +1034,14 @@ public partial class MainWindow : Window
             UpdateTimelineMarkers();
         }
 
-        var playPauseButton = this.FindControl<Button>("PlayPauseButton");
-        if (playPauseButton != null)
+        // Toggle visibility of drawn play/pause icons instead of text content
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        if (playIcon != null && pauseIcon != null)
         {
-            if (_videoHost.IpcClient.IsPaused)
-            {
-                if (playPauseButton.Content?.ToString() != "▶")
-                    playPauseButton.Content = "▶";
-            }
-            else
-            {
-                if (playPauseButton.Content?.ToString() != "||")
-                    playPauseButton.Content = "||";
-            }
+            bool isPaused = _videoHost.IpcClient.IsPaused;
+            playIcon.IsVisible = isPaused;   // show play triangle when paused
+            pauseIcon.IsVisible = !isPaused;  // show pause bars when playing
         }
 
         double time = _videoHost.IpcClient.CurrentTime;

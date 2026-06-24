@@ -1,0 +1,173 @@
+using System;
+using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
+using FortniteVideoSoftware.Core.Infrastructure;
+
+namespace FortniteVideoSoftware.Core.Media;
+
+/// <summary>
+/// Manages a cross-process MemoryMappedFile that the MPV worker process writes
+/// raw BGRA frames to and the UI process reads from. Used only in software mode
+/// (when <see cref="VideoRenderMode.UseHardwareAcceleration"/> is false).
+///
+/// Frame layout in shared memory (header + pixel data):
+///   Offset 0:   FrameCounter  (int)  — incremented by worker after each frame write
+///   Offset 4:   Width         (int)  — frame width in pixels
+///   Offset 8:   Height        (int)  — frame height in pixels
+///   Offset 12:  Padding       (int)  — reserved for alignment
+///   Offset 16:  PixelData     (byte[]) — BGRA pixel data, Width*Height*4 bytes
+/// </summary>
+public sealed class MmapFrameBridge : IDisposable
+{
+    private const int HEADER_SIZE = 16; // 4 ints: counter, width, height, padding
+    private const string MAP_NAME_PREFIX = "FVS_FrameBuffer";
+
+    private readonly MemoryMappedFile _mmap;
+    private readonly MemoryMappedViewAccessor _view;
+    private readonly int _frameBufferSize;
+    private int _lastFrameCounter = -1;
+
+    /// <summary>The unique map name passed to the MPV worker process.</summary>
+    public string MapName { get; }
+
+    /// <summary>The maximum frame width this buffer was allocated for.</summary>
+    public int Width { get; }
+
+    /// <summary>The maximum frame height this buffer was allocated for.</summary>
+    public int Height { get; }
+
+    /// <summary>Total size of the memory-mapped region (header + pixel data).</summary>
+    public int TotalSize => HEADER_SIZE + _frameBufferSize;
+
+    private MmapFrameBridge(string mapName, int width, int height, MemoryMappedFile mmap)
+    {
+        MapName = mapName;
+        Width = width;
+        Height = height;
+        _frameBufferSize = width * height * 4; // BGRA = 4 bytes/pixel
+        _mmap = mmap;
+        _view = mmap.CreateViewAccessor(0, HEADER_SIZE + _frameBufferSize, MemoryMappedFileAccess.ReadWrite);
+    }
+
+    /// <summary>
+    /// Creates a new shared memory region for a 1920×1080 BGRA frame buffer.
+    /// The UI process calls this before launching the MPV worker.
+    /// </summary>
+    public static MmapFrameBridge Create(int width = 1920, int height = 1080)
+    {
+        string mapName = $"{MAP_NAME_PREFIX}_{Guid.NewGuid():N}";
+        int totalSize = HEADER_SIZE + width * height * 4;
+
+        CoreLogger.Info("MMAP", $"Creating frame buffer '{mapName}' — {totalSize:N0} bytes ({width}×{height} BGRA)");
+
+        var mmap = MemoryMappedFile.CreateOrOpen(mapName, totalSize, MemoryMappedFileAccess.ReadWrite);
+
+        // Initialize header
+        using var headerView = mmap.CreateViewAccessor(0, HEADER_SIZE, MemoryMappedFileAccess.ReadWrite);
+        headerView.Write(0, 0);  // FrameCounter = 0
+        headerView.Write(4, width);
+        headerView.Write(8, height);
+        headerView.Write(12, 0); // padding
+        headerView.Flush();
+
+        return new MmapFrameBridge(mapName, width, height, mmap);
+    }
+
+    /// <summary>
+    /// Opens an existing shared memory region by name.
+    /// Used when the MPV worker connects to a buffer created by the UI process.
+    /// </summary>
+    public static MmapFrameBridge Open(string mapName)
+    {
+        var mmap = MemoryMappedFile.OpenExisting(mapName, MemoryMappedFileRights.ReadWrite);
+        using var headerView = mmap.CreateViewAccessor(0, HEADER_SIZE, MemoryMappedFileAccess.Read);
+        int width = headerView.ReadInt32(4);
+        int height = headerView.ReadInt32(8);
+
+        CoreLogger.Info("MMAP", $"Opened existing frame buffer '{mapName}' — {width}×{height}");
+        return new MmapFrameBridge(mapName, width, height, mmap);
+    }
+
+    /// <summary>
+    /// Checks whether the worker process has written a new frame since the last read.
+    /// </summary>
+    public bool IsNewFrameAvailable
+    {
+        get
+        {
+            int counter = _view.ReadInt32(0);
+            return counter != _lastFrameCounter;
+        }
+    }
+
+    /// <summary>
+    /// Copies the latest frame from shared memory into the destination buffer.
+    /// Returns false if no new frame is available.
+    /// </summary>
+    /// <param name="destination">Pointer to destination buffer (must be at least Width*Height*4 bytes).</param>
+    /// <param name="destinationWidth">Width of the destination buffer (for resolution matching).</param>
+    /// <param name="destinationHeight">Height of the destination buffer.</param>
+    public bool TryCopyFrame(IntPtr destination, int destinationWidth, int destinationHeight)
+    {
+        int counter = _view.ReadInt32(0);
+        if (counter == _lastFrameCounter)
+            return false; // No new frame
+
+        _lastFrameCounter = counter;
+
+        // Use the configured dimensions (resolution changes require recreating the bridge)
+        int sourceWidth = _view.ReadInt32(4);
+        int sourceHeight = _view.ReadInt32(8);
+        int sourceSize = sourceWidth * sourceHeight * 4;
+
+        // Read pixel data from shared memory into the destination
+        using var pixelView = _mmap.CreateViewAccessor(HEADER_SIZE, sourceSize, MemoryMappedFileAccess.Read);
+        // Safe copy — uses unmanaged memory copy via pointers
+        unsafe
+        {
+            byte* src = (byte*)pixelView.SafeMemoryMappedViewHandle.DangerousGetHandle();
+            Buffer.MemoryCopy(src, (void*)destination, destinationWidth * destinationHeight * 4, sourceSize);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Writes a frame to shared memory (used by the MPV worker side — not the UI process).
+    /// </summary>
+    public void WriteFrame(IntPtr source, int width, int height)
+    {
+        int size = width * height * 4;
+        if (size > _frameBufferSize)
+            throw new InvalidOperationException($"Frame too large: {size} > buffer capacity {_frameBufferSize}");
+
+        using var pixelView = _mmap.CreateViewAccessor(HEADER_SIZE, size, MemoryMappedFileAccess.Write);
+        unsafe
+        {
+            byte* dst = (byte*)pixelView.SafeMemoryMappedViewHandle.DangerousGetHandle();
+            Buffer.MemoryCopy((void*)source, dst, size, size);
+        }
+
+        // Increment frame counter AFTER writing (signals UI that a new frame is ready)
+        int counter = _view.ReadInt32(0) + 1;
+        _view.Write(0, counter);
+        _view.Flush();
+    }
+
+    /// <summary>
+    /// Generates the MPV IPC command line arguments for writing raw frames to this buffer.
+    /// The MPV worker uses --vo=rawvideo with --lavf-compliance to output BGRA.
+    /// </summary>
+    public string GetMpvVoArgs()
+    {
+        // MPV writes raw video to a named pipe/file; our custom VO adapter reads it.
+        // For now, we use the standard rawvideo output which the UI polls.
+        return $"--vo=rawvideo --video-format=bgra --video-unscaled=yes";
+    }
+
+    public void Dispose()
+    {
+        try { _view?.Dispose(); } catch { }
+        try { _mmap?.Dispose(); } catch { }
+    }
+}

@@ -11,22 +11,19 @@
 
 
     <Grid>
-        <Border Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Grid.Row="0" Background="Gray" IsHitTestVisible="False">
-                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
+                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
                 </Border>
                 <Grid Grid.Row="1" ColumnDefinitions="*, 350">
                     <!-- LEFT: Portrait Canvas Area -->
                     <Border Grid.Column="0" Background="Black" Margin="10" CornerRadius="6" ClipToBounds="True">
                         <Grid>
-                            <!-- Central composition view -->
                             <Viewbox Stretch="Uniform">
                                 <Canvas Name="PortraitCanvas" Width="1080" Height="1920" Background="#1e1e1e">
                                     <local:MpvVideoView Name="BackgroundVideo" Width="1080" Height="1920" Canvas.Top="0" Canvas.Left="0" ZIndex="0" />
-                                    <!-- Top Black Strip -->
                                     <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="0" Canvas.Left="0" ZIndex="100"/>
-                                    <!-- Bottom Black Strip -->
                                     <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="1770" Canvas.Left="0" ZIndex="100"/>
                                 </Canvas>
                             </Viewbox>
@@ -38,11 +35,11 @@
                         <Grid RowDefinitions="Auto, *, Auto, Auto">
                             <StackPanel Grid.Row="0" Spacing="10">
                                 <TextBlock Text="CROP TOOLS" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
-                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
-                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="42" FontSize="12"/>
-                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" FontSize="12" IsChecked="True"/>
-                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" FontSize="12" IsChecked="True"/>
+                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
+                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
+                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
+                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" FontSize="10" IsChecked="True"/>
+                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" FontSize="10" IsChecked="True"/>
                             </StackPanel>
 
                             <!-- Layers List -->
@@ -64,8 +61,8 @@
                             </StackPanel>
 
                             <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                                <Button Name="ReturnButton" Classes="Danger" Content="RETURN" Width="140" Height="42" FontSize="14"/>
-                                <Button Name="SaveButton" Classes="Success" Content="SAVE" Width="140" Height="42" FontSize="14"/>
+                                <Button Name="ReturnButton" Classes="Primary" Content="RETURN" Width="140" Height="42" FontSize="12"/>
+                                <Button Name="SaveButton" Classes="Success" Content="SAVE" Width="140" Height="42" FontSize="12"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -74,4 +71,3 @@
         </Border>
     </Grid>
 </Window>
-

@@ -5,16 +5,16 @@
         Width="720" Height="480"
         WindowStartupLocation="CenterScreen"
         SystemDecorations="None"
-        Background="#1E1E1E"
+        Background="#0f172a"
         Topmost="True"
         ShowInTaskbar="True"
         CanResize="False">
-    <Border Background="#2D2D30" CornerRadius="8" BorderBrush="#007ACC" BorderThickness="2" Margin="8">
+    <Border Background="#1e293b" CornerRadius="8" BorderBrush="#38bdf8" BorderThickness="2" Margin="8">
         <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto">
             <TextBlock Name="TitleText"
                        Grid.Row="0"
                        Text="Installing Fortnite Video Software"
-                       Foreground="#007ACC"
+                       Foreground="#38bdf8"
                        FontSize="20"
                        FontWeight="Bold"
                        HorizontalAlignment="Center"
@@ -22,15 +22,15 @@
             <TextBlock Name="LogPathText"
                        Grid.Row="1"
                        Text=""
-                       Foreground="#888888"
+                       Foreground="#94a3b8"
                        FontSize="11"
                        TextWrapping="Wrap"
                        Margin="0,0,0,8"/>
             <TextBox Name="LogTextBox"
                      Grid.Row="2"
-                     Background="#1E1E1E"
+                     Background="#0f172a"
                      BorderThickness="0"
-                     Foreground="#C0CAF5"
+                     Foreground="#cbd5e1"
                      FontFamily="Consolas,Courier New,monospace"
                      FontSize="12"
                      IsReadOnly="True"
@@ -40,7 +40,7 @@
             <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,12,0,4">
                 <TextBlock Name="PhaseText"
                            Text="Initializing..."
-                           Foreground="#BBBBBB"
+                           Foreground="#94a3b8"
                            FontSize="12"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
@@ -58,8 +58,8 @@
                          Minimum="0"
                          Maximum="100"
                          Value="0"
-                         Foreground="#007ACC"
-                         Background="#3E3E42"
+                         Foreground="#38bdf8"
+                         Background="#334155"
                          Margin="0,0,0,12"/>
             <Button Name="FinishButton"
                     Grid.Row="4"
@@ -75,4 +75,3 @@
         </Grid>
     </Border>
 </Window>
-

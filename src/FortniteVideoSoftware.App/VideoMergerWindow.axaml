@@ -12,10 +12,10 @@
 
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="Gray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="Gray" IsHitTestVisible="False">
-                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
+                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
                 </Border>
                 <Grid Grid.Row="1" ColumnDefinitions="*, 350">
                     <!-- LEFT COLUMN: Video Player Area -->
@@ -35,20 +35,27 @@
             <Grid Grid.Row="2" RowDefinitions="Auto, Auto" Margin="10,15,10,10">
                 <!-- Top Row: Play/Pause -->
                 <Grid Grid.Row="0" Margin="0,0,0,10">
-                    <Button Name="PlayPauseButton" Classes="Success" Content="▶" Width="60" Height="32" FontSize="16" FontWeight="Black" HorizontalAlignment="Center" ToolTip.Tip="Play or pause the video" />
+                    <Button Name="PlayPauseButton" Classes="Success" Width="60" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Center" ToolTip.Tip="Play or pause the video">
+                        <Panel Width="16" Height="16">
+                            <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                            <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Rectangle Width="4" Height="14" Fill="White"/>
+                                <Rectangle Width="4" Height="14" Fill="White"/>
+                            </StackPanel>
+                        </Panel>
+                    </Button>
                 </Grid>
 
                 <!-- Bottom Row: Return To App, Merge Videos, Add Music -->
                 <Grid Grid.Row="1" Margin="0,10,0,0">
-                    <!-- Bottom Left Corner -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="ReturnButton" Classes="Danger" Content="RETURN TO APP" Width="140" Height="42" FontSize="13" ToolTip.Tip="Close merger and return to main app"/>
+                        <Button Name="ReturnButton" Classes="Primary" Content="RETURN TO APP" Width="140" Height="42" FontSize="12" ToolTip.Tip="Close merger and return to main app"/>
                     </StackPanel>
                     
                     <!-- Centered buttons -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="13" Margin="0,0,15,0" ToolTip.Tip="Merge all listed videos together"/>
-                        <Button Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" Width="130" Height="42" FontSize="13" ToolTip.Tip="Add background music to the video"/>
+                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="12" Margin="0,0,15,0" ToolTip.Tip="Merge all listed videos together"/>
+                        <Button Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" Width="130" Height="42" FontSize="12" ToolTip.Tip="Add background music to the video"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -70,10 +77,10 @@
                 </Border>
 
                 <StackPanel Grid.Row="2" Spacing="10" Margin="0,0,0,15">
-                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="13" ToolTip.Tip="Add another video to the queue"/>
-                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="13" ToolTip.Tip="Remove the selected video from the queue"/>
-                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="13" ToolTip.Tip="Move the selected video up in the queue"/>
-                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="13" ToolTip.Tip="Move the selected video down in the queue"/>
+                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Add another video to the queue"/>
+                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Remove the selected video from the queue"/>
+                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Move the selected video up in the queue"/>
+                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Move the selected video down in the queue"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -85,4 +92,3 @@
         </Border>
     </Grid>
 </Window>
-

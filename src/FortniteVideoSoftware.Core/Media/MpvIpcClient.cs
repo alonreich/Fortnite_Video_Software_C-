@@ -17,7 +17,8 @@ public class MpvIpcClient : IDisposable
     private StreamWriter? _writer;
     private StreamReader? _reader;
     private CancellationTokenSource _cts = new();
-    
+    private readonly bool _useHardware = VideoRenderMode.Current.UseHardwareAcceleration;
+
     public double CurrentTime { get; private set; }
     public double Duration { get; private set; }
     public bool IsPaused { get; private set; }
@@ -36,18 +37,45 @@ public class MpvIpcClient : IDisposable
             StartInfo = new ProcessStartInfo
             {
                 FileName = mpvPath,
-                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec=auto --input-default-bindings=no",
+                // GPU mode: hardware decode if available; software fallback handled by VideoRenderMode
+                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec={(_useHardware ? "auto-safe" : "no")} --input-default-bindings=no",
                 UseShellExecute = false,
                 CreateNoWindow = true
             }
         };
 
         _mpvProcess.Start();
+        await ConnectPipeAndObserve(pipeName);
+    }
 
-        // Connect to pipe
+    /// <summary>
+    /// Software-only launch path: MPV decodes via CPU (--hwdec=no) without HWND binding.
+    /// Frames are transferred via MemoryMappedFile (see MmapFrameBridge).
+    /// </summary>
+    public async Task StartAsyncSoftware(nint hwnd, string mpvPath)
+    {
+        string pipeName = $"mpv-avalonia-pipe-{Guid.NewGuid():N}";
+        string pipePath = $@"\\.\pipe\{pipeName}";
+
+        _mpvProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = mpvPath,
+                Arguments = $"--idle --input-ipc-server={pipePath} --keep-open=yes --hwdec=no --input-default-bindings=no",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        _mpvProcess.Start();
+        await ConnectPipeAndObserve(pipeName);
+    }
+
+    private async Task ConnectPipeAndObserve(string pipeName)
+    {
         _pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        
-        // Retry connection
+
         for (int i = 0; i < 20; i++)
         {
             try
@@ -66,7 +94,6 @@ public class MpvIpcClient : IDisposable
 
         _ = Task.Run(ListenLoop, _cts.Token);
 
-        // Observe properties
         await SendCommandAsync("observe_property", 1, "time-pos");
         await SendCommandAsync("observe_property", 2, "duration");
         await SendCommandAsync("observe_property", 3, "pause");
@@ -188,18 +215,24 @@ public class MpvIpcClient : IDisposable
 
     public void Dispose()
     {
-        _cts.Cancel();
-        _reader?.Dispose();
-        _writer?.Dispose();
-        _pipeClient?.Dispose();
+        // Kill the process FIRST so the pipe disconnects naturally,
+        // allowing the ListenLoop to exit without blocking.
+        // NOTE: This runs on a background thread (via MpvVideoView.DestroyNativeControlCore)
+        // so the wait does NOT block the UI.
         try
         {
             if (_mpvProcess != null && !_mpvProcess.HasExited)
             {
                 _mpvProcess.Kill(true);
+                _mpvProcess.WaitForExit(500);
             }
         }
         catch { }
-        _mpvProcess?.Dispose();
+
+        try { _cts.Cancel(); } catch { }
+        try { _reader?.Dispose(); } catch { }
+        try { _writer?.Dispose(); } catch { }
+        try { _pipeClient?.Dispose(); } catch { }
+        try { _mpvProcess?.Dispose(); } catch { }
     }
 }

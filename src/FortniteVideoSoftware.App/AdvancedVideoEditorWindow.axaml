@@ -5,63 +5,76 @@
         Title="Fortnite Advanced Video Editor"
         Width="1280" Height="720"
         WindowStartupLocation="CenterScreen"
-        Background="#0f172a">
+        Background="#1e293b"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
 
-    <Grid RowDefinitions="Auto,*,250" ColumnDefinitions="300,*,300">
-        <!-- Top Menu Bar -->
-        <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#1e293b" Height="40" BorderBrush="#334155" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal" Spacing="15" Margin="10,0">
-                <Button Name="ReturnButton" Content="RETURN TO COMPRESSOR" Classes="Primary" Height="30" FontSize="11"/>
-                <Button Name="ExportButton" Content="EXPORT VIDEO" Classes="Primary" Height="30" FontSize="11" Background="DarkRed"/>
-                <TextBlock Text="ADVANCED TIMELINE EDITOR" VerticalAlignment="Center" Foreground="Gray" FontWeight="Bold" Margin="20,0,0,0"/>
-            </StackPanel>
-        </Border>
+    <Grid>
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
+            <Grid RowDefinitions="30, *, Auto">
 
-        <!-- Media Pool (Left) -->
-        <Border Grid.Row="1" Grid.Column="0" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,0,1,0" DragDrop.AllowDrop="True" Name="MediaPoolBorder">
-            <Grid RowDefinitions="Auto,*">
-                <TextBlock Grid.Row="0" Text="MEDIA POOL" Foreground="Gray" FontWeight="Bold" Margin="10"/>
-                <ListBox Grid.Row="1" Name="MediaPoolList" Background="Transparent" Foreground="White" BorderThickness="0">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="local:MediaItem">
-                            <Border Background="#1e293b" CornerRadius="4" Padding="5" Margin="0,0,0,5">
-                                <StackPanel Orientation="Horizontal">
-                                    <Border Width="40" Height="25" Background="Black" CornerRadius="2" Margin="0,0,10,0"/>
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" Width="200"/>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Grid>
-        </Border>
+                <!-- Title Bar -->
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
+                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                </Border>
 
-        <!-- Video Preview (Center) -->
-        <Border Grid.Row="1" Grid.Column="1" Background="Black" Margin="10">
-            <Grid>
-                <TextBlock Text="MPV PREVIEW HOST" Foreground="Gray" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
+                <Grid Grid.Row="1" RowDefinitions="Auto,*" ColumnDefinitions="300,*,300">
+                    <!-- Top Menu Bar -->
+                    <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#1e293b" Height="42" BorderBrush="#334155" BorderThickness="0,0,0,1">
+                        <StackPanel Orientation="Horizontal" Spacing="15" Margin="10,0" VerticalAlignment="Center">
+                            <Button Name="ReturnButton" Content="RETURN TO COMPRESSOR" Classes="Primary" Height="32" FontSize="9"/>
+                            <Button Name="ExportButton" Content="EXPORT VIDEO" Classes="Primary" Height="32" FontSize="9" Background="DarkRed"/>
+                            <TextBlock Text="ADVANCED TIMELINE EDITOR" VerticalAlignment="Center" Foreground="#94a3b8" FontWeight="Bold" FontSize="12" Margin="20,0,0,0"/>
+                        </StackPanel>
+                    </Border>
 
-        <!-- Inspector (Right) -->
-        <Border Grid.Row="1" Grid.Column="2" Background="#0f172a" BorderBrush="#334155" BorderThickness="1,0,0,0">
-            <StackPanel Margin="10">
-                <TextBlock Text="INSPECTOR" Foreground="Gray" FontWeight="Bold" Margin="0,0,0,10"/>
-                <TextBlock Text="Select a clip to view properties." Foreground="#64748b"/>
-            </StackPanel>
-        </Border>
+                    <!-- Media Pool (Left) -->
+                    <Border Grid.Row="1" Grid.Column="0" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,0,1,0" DragDrop.AllowDrop="True" Name="MediaPoolBorder">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBlock Grid.Row="0" Text="MEDIA POOL" Foreground="#94a3b8" FontWeight="Bold" Margin="10" FontSize="13"/>
+                            <ListBox Grid.Row="1" Name="MediaPoolList" Background="Transparent" Foreground="White" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="local:MediaItem">
+                                        <Border Background="#334155" CornerRadius="4" Padding="5" Margin="0,0,0,5">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="40" Height="25" Background="Black" CornerRadius="2" Margin="0,0,10,0"/>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="12" Foreground="White" TextTrimming="CharacterEllipsis" Width="200"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
 
-        <!-- Timeline (Bottom) -->
-        <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,1,0,0">
-            <Grid RowDefinitions="Auto,*">
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Background="#0f172a" Height="30">
-                    <TextBlock Text="TIMELINE CONTROLS" Foreground="Gray" VerticalAlignment="Center" Margin="10,0"/>
-                </StackPanel>
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <Canvas Name="TimelineCanvas" Background="#0f172a" MinHeight="200" MinWidth="2000" DragDrop.AllowDrop="True"/>
-                </ScrollViewer>
+                    <!-- Video Preview (Center) -->
+                    <Border Grid.Row="1" Grid.Column="1" Background="Black" Margin="10" CornerRadius="6">
+                        <Grid>
+                            <TextBlock Text="MPV PREVIEW HOST" Foreground="#94a3b8" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Inspector (Right) -->
+                    <Border Grid.Row="1" Grid.Column="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="1,0,0,0">
+                        <StackPanel Margin="10">
+                            <TextBlock Text="INSPECTOR" Foreground="#94a3b8" FontWeight="Bold" Margin="0,0,0,10" FontSize="13"/>
+                            <TextBlock Text="Select a clip to view properties." Foreground="#94a3b8" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Timeline (Bottom) -->
+                <Border Grid.Row="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,1,0,0" Height="250">
+                    <Grid RowDefinitions="Auto,*">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Background="#1e293b" Height="30">
+                            <TextBlock Text="TIMELINE CONTROLS" Foreground="#94a3b8" VerticalAlignment="Center" Margin="10,0" FontSize="12"/>
+                        </StackPanel>
+                        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <Canvas Name="TimelineCanvas" Background="#1e293b" MinHeight="200" MinWidth="2000" DragDrop.AllowDrop="True"/>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
             </Grid>
         </Border>
     </Grid>
 </Window>
-
