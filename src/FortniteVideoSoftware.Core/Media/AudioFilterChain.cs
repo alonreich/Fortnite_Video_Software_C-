@@ -149,16 +149,19 @@ public class AudioFilterChain
             string outLabel = $"[a_mus_{i}]";
             string preLabel = $"[a_mus_{i}_pre]";
 
+            double fileStart = Math.Max(0, track.Offset);
+            double extraDelay = track.Offset < 0 ? -track.Offset : 0;
+
             var musicFilters = new List<string>
             {
-                $"atrim=start={track.Offset:F3}:duration={track.Duration:F3}",
+                $"atrim=start={fileStart:F3}:duration={track.Duration:F3}",
                 "asetpts=PTS-STARTPTS"
             };
 
             // Fades
             if (!disableFades && track.Duration > 0.5)
             {
-                double fadeDur = Math.Min(0.5, track.Duration / 4.0);
+                double fadeDur = Math.Min(1.5, track.Duration / 2.0);
                 musicFilters.Add($"afade=t=in:st=0:d={fadeDur:F3}");
                 musicFilters.Add($"afade=t=out:st={Math.Max(0, track.Duration - fadeDur):F3}:d={fadeDur:F3}");
             }
@@ -168,7 +171,7 @@ public class AudioFilterChain
 
             chain.Add($"{inputLabel}{string.Join(",", musicFilters)}{preLabel}");
 
-            int delayMs = (int)(accumProjectSec * 1000);
+            int delayMs = (int)((accumProjectSec + extraDelay) * 1000);
             if (delayMs > 0)
                 chain.Add($"{preLabel}adelay={delayMs}|{delayMs}{outLabel}");
             else

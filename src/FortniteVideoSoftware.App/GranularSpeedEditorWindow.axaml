@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.GranularSpeedEditorWindow"
         Title="Granular Speed Editor"
         Width="1050" Height="720"
@@ -45,7 +46,7 @@
                     <TextBlock Name="GranularTimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
                     <Grid Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
                         <Slider Name="GranularTimeline" Minimum="0" Maximum="1000" Height="30" MinHeight="30" VerticalAlignment="Center" ToolTip.Tip="Drag to scrub through the video" />
-                        <Canvas Name="GranularTimelineCanvas" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="38"/>
+                        <Canvas Name="GranularTimelineCanvas" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32"/>
                     </Grid>
                     <TextBlock Grid.Column="2" Name="GranularDuration" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
                 </Grid>
@@ -85,29 +86,26 @@
                     </StackPanel>
 
                     <!-- Center: Speed presets + slider -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                        <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" IsEnabled="True" Width="160" Height="35" Cursor="Hand" ToolTip.Tip="Precise speed for the active segment" />
+                        </StackPanel>
                         <!-- Speed preset buttons — two rows with vertical gap -->
-                        <StackPanel Name="SpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
-                            <!-- Row 1: 0.1x – 1.5x -->
+                        <StackPanel Name="SpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,0,0">
+                            <!-- Row 1: 0.1x – 1.0x -->
                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                 <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>
-                                <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x"/>
                                 <Button Name="SpeedPreset10" Classes="SpeedPreset" Content="1.0x"/>
                                 <Button Name="SpeedPresetBase" Classes="SpeedPreset BaseSpeedPreset" Content="1.1x"/>
-                                <Button Name="SpeedPreset15" Classes="SpeedPreset" Content="1.5x"/>
                             </StackPanel>
                             <!-- Row 2: 2.0x – 4.0x -->
                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                 <Button Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x"/>
-                                <Button Name="SpeedPreset25" Classes="SpeedPreset" Content="2.5x"/>
                                 <Button Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x"/>
-                                <Button Name="SpeedPreset35" Classes="SpeedPreset" Content="3.5x"/>
                                 <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x"/>
                             </StackPanel>
                         </StackPanel>
-                        <TextBlock Text="Speed:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center" Margin="6,0,6,0"/>
-                        <Slider Name="PendingSpeedSlider" Minimum="0.1" Maximum="4.0" Value="1.1" TickFrequency="0.05" IsSnapToTickEnabled="True" IsEnabled="True" Width="160" VerticalAlignment="Center"/>
-                        <TextBlock Name="PendingSpeedLabel" Text="1.10x" Foreground="#f59e0b" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" Width="45" TextAlignment="Right" Margin="6,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </Grid>

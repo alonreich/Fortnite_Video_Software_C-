@@ -319,7 +319,7 @@ public class ProcessWorker : IDisposable
                 bool success = false;
                 string lastError = "Render failed.";
 
-                async Task<bool> RunFfmpegOnce(bool useCuda, int? requestedBitrate)
+                async Task<bool> RunFfmpegOnce(bool useCuda, int? requestedBitrate, int attemptNum)
                 {
                     string currentEncoder = encoderMgr.GetInitialEncoder(useCuda);
 
@@ -400,8 +400,11 @@ public class ProcessWorker : IDisposable
                                         if (renderDurationSec > 0)
                                         {
                                             int percent = (int)Math.Clamp(currentSec / renderDurationSec * 100, 0, 100);
-                                            ProgressUpdate?.Invoke(percent);
-                                            PhaseUpdate?.Invoke(2, "Encoding Video Pipeline", percent);
+                                            int scaledPercent = percent;
+                                            if (targetMb.HasValue && attemptNum == 1) scaledPercent = percent / 2;
+                                            else if (targetMb.HasValue && attemptNum == 2) scaledPercent = 50 + (percent / 2);
+                                            ProgressUpdate?.Invoke(scaledPercent);
+                                            PhaseUpdate?.Invoke(2, "Encoding Video", scaledPercent);
                                         }
                                     }
                                 }
@@ -449,7 +452,7 @@ public class ProcessWorker : IDisposable
                 for (int attempt = 1; attempt <= 2; attempt++)
                 {
                     if (File.Exists(corePath)) File.Delete(corePath);
-                    success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate);
+                    success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
                     if (!success || !targetMb.HasValue) break;
 
                     long actualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;

@@ -174,6 +174,19 @@ public class MpvIpcClient : IDisposable
         }
     }
 
+    public async Task AddExternalAudioAsync(string path)
+    {
+        await SendCommandAsync("audio-add", path, "select");
+    }
+
+    public async Task RemoveExternalAudioAsync()
+    {
+        // Remove the last added audio track (usually id 2, since 1 is video's audio)
+        // If we don't know the ID, we can just audio-remove 2. But we should be careful.
+        // Actually, reloading the file removes external audio. But we can just try removing ID 2.
+        await SendCommandAsync("audio-remove", 2);
+    }
+
     public async Task SendCommandAsync(params object[] args)
     {
         if (_writer == null) return;

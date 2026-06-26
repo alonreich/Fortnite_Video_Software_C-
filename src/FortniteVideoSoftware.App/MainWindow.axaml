@@ -160,16 +160,12 @@
                                 <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center" IsEnabled="False">
                                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                         <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>
-                                        <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x"/>
                                         <Button Name="SpeedPreset10" Classes="SpeedPreset" Content="1.0x"/>
                                         <Button Name="SpeedPresetBase" Classes="SpeedPreset BaseSpeedPreset" Content="1.1x"/>
-                                        <Button Name="SpeedPreset15" Classes="SpeedPreset" Content="1.5x"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                         <Button Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x"/>
-                                        <Button Name="SpeedPreset25" Classes="SpeedPreset" Content="2.5x"/>
                                         <Button Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x"/>
-                                        <Button Name="SpeedPreset35" Classes="SpeedPreset" Content="3.5x"/>
                                         <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x"/>
                                     </StackPanel>
                                 </StackPanel>

@@ -68,7 +68,7 @@ public partial class PhaseOverlayControl : UserControl
             var phaseBar = this.FindControl<ProgressBar>("PhaseProgressBar");
             var phaseText = this.FindControl<TextBlock>("PhaseProgressText");
             
-            if (phaseTitle != null) phaseTitle.Text = $"Phase {phaseIndex}: {title}";
+            if (phaseTitle != null) phaseTitle.Text = title;
             if (phaseBar != null) phaseBar.Value = progress;
             if (phaseText != null) phaseText.Text = $"{progress}%";
         });

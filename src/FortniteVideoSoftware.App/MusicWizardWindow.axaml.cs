@@ -19,16 +19,20 @@ public class MusicTrackItem
     public string FilePath { get; set; } = string.Empty;
     public string DurationText { get; set; } = "";
     public string SizeText { get; set; } = "";
+    public double DurationSec { get; set; } = 0.0;
 }
 
 public class MusicWizardResult
 {
     public string MusicFilePath { get; set; } = string.Empty;
     public double OffsetSeconds { get; set; } = 0.0;
+    public double TimelineStartSeconds { get; set; } = 0.0;
+    public double TimelineEndSeconds { get; set; } = 0.0;
     public bool EnableDucking { get; set; } = true;
     public bool EnableCarving { get; set; } = true;
     public double VideoVolume { get; set; } = 1.0;
     public double MusicVolume { get; set; } = 1.0;
+    public double MusicDurationSeconds { get; set; } = 0.0;
 }
 
 public partial class MusicWizardWindow : Window
@@ -365,7 +369,8 @@ public partial class MusicWizardWindow : Window
                 EnableDucking = duckingCheck?.IsChecked ?? true,
                 EnableCarving = carvingCheck?.IsChecked ?? true,
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
-                MusicVolume = (musicVolSlider?.Value ?? 100.0) / 100.0
+                MusicVolume = (musicVolSlider?.Value ?? 100.0) / 100.0,
+                MusicDurationSeconds = _selectedTrack?.DurationSec ?? 0.0
             };
 
             RuntimeLog.Success("MUSIC_WIZARD", $"Wizard completed. Track: {Result.MusicFilePath}, Offset: {Result.OffsetSeconds:F2}s, Ducking: {Result.EnableDucking}, Carving: {Result.EnableCarving}, VideoVol: {Result.VideoVolume}, MusicVol: {Result.MusicVolume}");
@@ -747,6 +752,7 @@ public partial class MusicWizardWindow : Window
                 double duration = prober.GetDurationAsync().GetAwaiter().GetResult();
                 if (duration > 0)
                 {
+                    item.DurationSec = duration;
                     var ts = TimeSpan.FromSeconds(duration);
                     item.DurationText = ts.TotalHours >= 1
                         ? ts.ToString(@"h\:mm\:ss")

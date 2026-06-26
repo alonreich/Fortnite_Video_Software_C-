@@ -27,26 +27,29 @@
                        FontSize="16" FontWeight="Bold" Foreground="#60a5fa"
                        TextAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap"/>
             
-            <WrapPanel Grid.Row="2" HorizontalAlignment="Center" Orientation="Horizontal"
-                       ItemWidth="180" ItemHeight="45"
-                       Margin="0,18,0,0">
+            <UniformGrid Grid.Row="2" HorizontalAlignment="Center" Columns="2" Rows="2"
+                         Margin="0,18,0,0">
                 <Button Content="WHATSAPP SHARE"
-                        Click="OnWhatsAppClicked"
-                        Classes="Success" FontWeight="Bold" FontSize="12"
-                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                <Button Content="OPEN FOLDER"
-                        Click="OnOpenFolderClicked"
-                        Classes="Primary" FontWeight="Bold" FontSize="12"
-                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                <Button Content="RETURN TO EDITOR"
-                        Click="OnUploadNewClicked"
-                        Classes="Primary" FontWeight="Bold" FontSize="12"
+                        Click="OnWhatsAppClicked" Width="135" Height="36" Margin="8"
+                        Classes="Success" FontWeight="Bold" FontSize="10"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                 <Button Content="EXIT APP!"
-                        Click="OnExitClicked"
-                        Classes="Danger" FontWeight="Bold" FontSize="12"
+                        Click="OnExitClicked" Width="135" Height="36" Margin="8"
+                        Classes="Danger" FontWeight="Bold" FontSize="10"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-            </WrapPanel>
+                <Button Content="OPEN FOLDER"
+                        Click="OnOpenFolderClicked" Width="135" Height="36" Margin="8"
+                        Classes="Primary" FontWeight="Bold" FontSize="10"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                <Button Content="RETURN TO EDITOR"
+                        Click="OnUploadNewClicked" Width="135" Height="36" Margin="8"
+                        Classes="Primary" FontWeight="Bold" FontSize="10"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+            </UniformGrid>
         </Grid>
     </Border>
 </Window>

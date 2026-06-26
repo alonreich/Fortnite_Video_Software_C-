@@ -73,8 +73,8 @@ public partial class GranularSpeedEditorWindow : Window
         _lastAppliedSpeed = baseSpeed;
 
         InitializeComponent();
-        var initialSpeedSlider = this.FindControl<Slider>("PendingSpeedSlider");
-        SpeedPresetButtons.SetSliderValue(initialSpeedSlider, _pendingSpeed);
+        var initialSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"); if(initialSpeedSlider!=null)initialSpeedSlider.SetRange(1, 40);
+        SpeedPresetButtons.SetSpinningWheelValue(initialSpeedSlider, _pendingSpeed);
         var initialSpeedLabel = this.FindControl<TextBlock>("PendingSpeedLabel");
         if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:F2}x";
         
@@ -311,9 +311,9 @@ public partial class GranularSpeedEditorWindow : Window
                     _pendingSpeed = seg.Speed;
 
                     // Sync slider to selected segment's speed
-                    var speedSlider = this.FindControl<Slider>("PendingSpeedSlider");
+                    var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                     var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                    if (speedSlider != null && seg.Speed >= 0.01) speedSlider.Value = seg.Speed;
+                    if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
                     if (speedLbl != null) speedLbl.Text = seg.Speed < 0.01 ? "0.00x (FREEZE)" : $"{seg.Speed:F2}x";
 
                     UpdateDeleteButtonVisibility();
@@ -448,25 +448,22 @@ public partial class GranularSpeedEditorWindow : Window
         });
 
         // ---- Pending speed slider ----
-        var speedSlider = this.FindControl<Slider>("PendingSpeedSlider");
+        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
         if (speedSlider != null)
         {
-            speedSlider.PropertyChanged += (_, e) =>
+            speedSlider.ValueChanged += (_, e) =>
             {
-                if (e.Property == Slider.ValueProperty)
-                {
-                    _pendingSpeed = Math.Round(speedSlider.Value, 2);
-                    var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                    if (lbl != null) lbl.Text = $"{_pendingSpeed:F2}x";
+                _pendingSpeed = Math.Round(e / 10.0, 2);
+                var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+                if (lbl != null) lbl.Text = $"{_pendingSpeed:F2}x";
 
-                    // Issue #4: If a segment is selected, update its speed live
-                    if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
-                    {
-                        var seg = _segments[_selectedSegmentIndex];
-                        _segments[_selectedSegmentIndex] = new SpeedSegment(seg.StartMs, seg.EndMs, _pendingSpeed);
-                        RefreshSegmentList();
-                        RedrawTimeline();
-                    }
+                // Issue #4: If a segment is selected, update its speed live
+                if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+                {
+                    var seg = _segments[_selectedSegmentIndex];
+                    _segments[_selectedSegmentIndex] = new SpeedSegment(seg.StartMs, seg.EndMs, _pendingSpeed);
+                    RefreshSegmentList();
+                    RedrawTimeline();
                 }
             };
         }
@@ -482,7 +479,7 @@ public partial class GranularSpeedEditorWindow : Window
             {
                 bool frozen = freezeCheck.IsChecked == true;
                 speedSlider.IsEnabled = !frozen;
-                if (frozen) { speedSlider.Value = 0.1; _pendingSpeed = 0.0; }
+                if (frozen) { SpeedPresetButtons.SetSpinningWheelValue(speedSlider, 0.1); _pendingSpeed = 0.0; }
                 var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
                 if (lbl != null) lbl.Text = frozen ? "0.00x (FREEZE)" : $"{_pendingSpeed:F2}x";
             };
@@ -537,7 +534,7 @@ public partial class GranularSpeedEditorWindow : Window
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, GranularKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
-    private void WireUpSpeedPresets(Slider? speedSlider)
+    private void WireUpSpeedPresets(FortniteVideoSoftware.App.Controls.SpinningWheelSlider? speedSlider)
     {
         SpeedPresetButtons.ConfigureBaseButton(
             this,
@@ -552,7 +549,7 @@ public partial class GranularSpeedEditorWindow : Window
                 freezeCheck.IsChecked = false;
             }
 
-            SpeedPresetButtons.SetSliderValue(speedSlider, s);
+            SpeedPresetButtons.SetSpinningWheelValue(speedSlider, s);
             _pendingSpeed = s;
             var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
             if (lbl != null) lbl.Text = $"{s:F2}x";
@@ -701,9 +698,9 @@ public partial class GranularSpeedEditorWindow : Window
                 _selectedSegmentIndex = idx;
                 _pendingSpeed = seg.Speed;
 
-                var speedSlider = this.FindControl<Slider>("PendingSpeedSlider");
+                var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                 var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                if (speedSlider != null && seg.Speed >= 0.01) speedSlider.Value = seg.Speed;
+                if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
                 if (speedLbl != null) speedLbl.Text = seg.Speed < 0.01 ? "0.00x (FREEZE)" : $"{seg.Speed:F2}x";
 
                 var freezeCheck = this.FindControl<Avalonia.Controls.Primitives.ToggleButton>("FreezeFrameCheck");
@@ -740,6 +737,18 @@ public partial class GranularSpeedEditorWindow : Window
 
             // ── DRAW ORDER: segments FIRST (bottom z-order), ticks LAST (top z-order) ──
             // This ensures the X-axis tick marks/labels are always visible on top.
+
+            // --- Phase 0: Base overlay (same look/feel as main app timeline overlay) ---
+            var baseOverlay = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Width = w,
+                Height = h,
+                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 204, 204, 204)),
+                IsHitTestVisible = false
+            };
+            Avalonia.Controls.Canvas.SetLeft(baseOverlay, 0);
+            Avalonia.Controls.Canvas.SetTop(baseOverlay, 0);
+            canvas.Children.Add(baseOverlay);
 
             // --- Phase 1: Draw each segment as a colored bar (bottom layer) ---
             for (int i = 0; i < _segments.Count; i++)

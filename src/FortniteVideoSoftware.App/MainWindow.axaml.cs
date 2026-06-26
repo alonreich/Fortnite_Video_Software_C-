@@ -1028,7 +1028,7 @@ public partial class MainWindow : Window
             double ClampLabelLeft(double desired, double approxWidth)
                 => Math.Max(0, Math.Min(Math.Max(0, canvasWidth - approxWidth), desired));
             const double trimMarkerWidth = 3.0;
-            const double trimMarkerTop = -10.0;
+            const double trimMarkerTop = -8.0;
             double trimMarkerHeight = Math.Max(1, canvas.Bounds.Height);
 
             // ── DRAW TRIM REGION (bottom layer — semi-transparent gray bar) ──
@@ -1038,7 +1038,7 @@ public partial class MainWindow : Window
                 double regEndX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
                 var regionRect = new Avalonia.Controls.Shapes.Rectangle
                 {
-                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(78, 148, 163, 184)),
+                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 128, 128, 128)),
                     Width = Math.Max(2, regEndX - regStartX),
                     Height = trimMarkerHeight,
                     IsHitTestVisible = false
@@ -1046,6 +1046,62 @@ public partial class MainWindow : Window
                 Avalonia.Controls.Canvas.SetLeft(regionRect, regStartX);
                 Avalonia.Controls.Canvas.SetTop(regionRect, trimMarkerTop);
                 canvas.Children.Add(regionRect);
+            }
+
+            // ── DRAW MUSIC OVERLAY ──
+            if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
+            {
+                double musicStartMs = _musicWizardResult.OffsetSeconds * 1000.0;
+                double musicDurMs = _musicWizardResult.MusicDurationSeconds > 0 ? _musicWizardResult.MusicDurationSeconds * 1000.0 : duration * 1000.0;
+                double musicEndMs = musicStartMs + musicDurMs;
+                
+                double mStartX = (musicStartMs / 1000.0 / duration) * canvasWidth;
+                double mEndX = (musicEndMs / 1000.0 / duration) * canvasWidth;
+                
+                var musicRect = new Avalonia.Controls.Shapes.Rectangle
+                {
+                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(120, 255, 105, 180)), // Pink
+                    Width = Math.Max(2, mEndX - mStartX),
+                    Height = trimMarkerHeight,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
+                };
+                Avalonia.Controls.Canvas.SetLeft(musicRect, mStartX);
+                Avalonia.Controls.Canvas.SetTop(musicRect, trimMarkerTop);
+                
+                bool draggingMusic = false;
+                double dragStartPointerX = 0;
+                double dragStartMusicOffset = 0;
+                
+                musicRect.PointerPressed += (s, e) => {
+                    draggingMusic = true;
+                    dragStartPointerX = e.GetPosition(canvas).X;
+                    dragStartMusicOffset = _musicWizardResult.OffsetSeconds;
+                    e.Pointer.Capture(musicRect);
+                    e.Handled = true;
+                };
+                
+                musicRect.PointerReleased += (s, e) => {
+                    draggingMusic = false;
+                    e.Pointer.Capture(null);
+                    SaveRecoveryState();
+                };
+                
+                musicRect.PointerMoved += (s, e) => {
+                    if (draggingMusic) {
+                        double currentX = e.GetPosition(canvas).X;
+                        double dx = currentX - dragStartPointerX;
+                        double dtSeconds = (dx / canvasWidth) * duration;
+                        double newOffset = dragStartMusicOffset + dtSeconds;
+                        
+                        if (newOffset < 0) newOffset = 0;
+                        _musicWizardResult.OffsetSeconds = newOffset;
+                        
+                        double updatedStartX = (newOffset / duration) * canvasWidth;
+                        Avalonia.Controls.Canvas.SetLeft(musicRect, updatedStartX);
+                    }
+                };
+                
+                canvas.Children.Add(musicRect);
             }
 
             // ── DRAW SPEED SEGMENTS (above region, below ticks/markers) ──
@@ -1069,12 +1125,12 @@ public partial class MainWindow : Window
                     var segRect = new Avalonia.Controls.Shapes.Rectangle
                     {
                         Width = segW,
-                        Height = canvas.Bounds.Height,
+                        Height = trimMarkerHeight,
                         Fill = new Avalonia.Media.SolidColorBrush(segColor),
                         IsHitTestVisible = false
                     };
                     Avalonia.Controls.Canvas.SetLeft(segRect, segStartX);
-                    Avalonia.Controls.Canvas.SetTop(segRect, 0);
+                    Avalonia.Controls.Canvas.SetTop(segRect, trimMarkerTop);
                     canvas.Children.Add(segRect);
                 }
             }

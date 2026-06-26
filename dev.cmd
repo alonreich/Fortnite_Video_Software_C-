@@ -7,6 +7,10 @@ set "CONFIG=Debug"
 set "RUNTIME=win-x64"
 set "DOTNET_WATCH_SUPPRESS_EMOJIS=1"
 
+echo Wiping Avalonia UI cache...
+if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin"
+if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
+
 if "%~1"=="" goto WATCH
 if /I "%~1"=="run" goto RUN
 if /I "%~1"=="build" goto BUILD
@@ -28,17 +32,17 @@ echo Starting HOT RELOAD watch mode...
 echo Edit any axaml or cs file and SAVE to see live UI updates.
 echo Press Ctrl+C to stop.
 echo.
-dotnet watch run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained --no-restore -- run-ui
+dotnet watch run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -- run-ui
 goto :EOF
 
 :RUN
 echo Running Debug single launch...
-dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained --no-restore -- run-ui
+dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -- run-ui
 goto :EOF
 
 :BUILD
 echo Building Debug no run...
-dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained --no-restore -consoleLoggerParameters:Summary
+dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary
 goto :EOF
 
 :RESTORE
