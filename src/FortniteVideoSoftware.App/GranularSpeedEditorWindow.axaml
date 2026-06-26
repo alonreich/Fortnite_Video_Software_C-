@@ -13,7 +13,7 @@
 
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
@@ -63,7 +63,7 @@
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartBtn" Classes="Primary" Content="MARK START" Width="90" Height="32" FontSize="9" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
-                        <Button Name="GranularPlayPause" Classes="Success" Width="70" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                        <Button Name="GranularPlayPause" Classes="Success" Width="70" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -87,7 +87,7 @@
                     <!-- Center: Speed presets + slider -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
                         <!-- Speed preset buttons — two rows with vertical gap -->
-                        <StackPanel Name="SpeedPresetsPanel" Orientation="Vertical" Spacing="8" VerticalAlignment="Center">
+                        <StackPanel Name="SpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
                             <!-- Row 1: 0.1x – 1.5x -->
                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                 <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>

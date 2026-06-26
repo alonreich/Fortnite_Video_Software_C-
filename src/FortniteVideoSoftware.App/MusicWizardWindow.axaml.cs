@@ -50,16 +50,6 @@ public partial class MusicWizardWindow : Window
     {
         InitializeComponent();
 
-        // Smart OS Theme Detection
-        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
-        {
-            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
-            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
-
-            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
-            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
-        }
-
         this.Loaded += async (s, e) => {
             await WindowBoundsHelper.LoadBoundsAsync(this, "MusicWizardBounds");
         };
@@ -818,8 +808,11 @@ public partial class MusicWizardWindow : Window
             var hostPanel = this.FindControl<Panel>("Step1Panel")?.Parent as Panel;
             if (hostPanel == null) return;
 
+            int topZIndex = hostPanel.Children.Count == 0
+                ? 999
+                : Math.Max(999, hostPanel.Children.Max(child => child.ZIndex) + 1);
+            toast.ZIndex = topZIndex;
             hostPanel.Children.Add(toast);
-            toast.ZIndex = 999;
 
             // Fade in
             for (double o = 0; o <= 1; o += 0.1)

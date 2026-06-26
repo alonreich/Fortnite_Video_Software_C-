@@ -3,7 +3,7 @@
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
-        Title="Fortnite Video Software - Pro Edition"
+        Title="Fortnite Video Software"
         Width="1200" Height="800"
         Background="#1e293b"
         MinWidth="800" MinHeight="600"
@@ -11,7 +11,7 @@
         ExtendClientAreaTitleBarHeightHint="30">
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
+        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <!-- Issue #5: Title bar bound to shared resource tokens -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
@@ -21,18 +21,19 @@
         <!-- LEFT COLUMN: Player & Editing Controls -->
         <Grid Grid.Column="0" RowDefinitions="*, Auto" ClipToBounds="False">
 
-            <!-- Video Player Area with overlaid timeline -->
-            <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,10,10">
+            <!-- Video Player Area with overlaid timeline.
+                 Right margin removed so the volume frame sits flush against the right pane (no gap). -->
+            <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,0,10" ClipToBounds="False">
                 <!-- Video Border contains the video, overlays, and the floating timeline -->
-                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="True" Padding="2">
-                    <Grid>
+                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2">
+                    <Grid ClipToBounds="False">
                         <!-- MpvVideoView: bottom margin leaves room for the overlaid timeline
                              so the native HWND does not cover the Avalonia timeline controls -->
-                        <local:MpvVideoView Name="VideoHost" IsVisible="False" Margin="0,0,0,36" />
+                        <local:MpvVideoView Name="VideoHost" IsVisible="False" Margin="0,0,0,52" />
 
                         <!-- Portrait Dimming Grid (kept for structure; actual dim rendered
                              via MPV vf drawbox so it is visible above the native video surface) -->
-                        <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,36">
+                        <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
                                 <ColumnDefinition Width="4*" />
@@ -44,8 +45,8 @@
                         </Grid>
 
                         <!-- Upload Video Overlay -->
-                        <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6">
-                            <Grid>
+                        <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6" ClipToBounds="False">
+                            <Grid ClipToBounds="False">
                                 <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
                                         <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
@@ -62,19 +63,19 @@
                         </Border>
 
                         <!-- Timeline overlay: floats at the bottom of the video border.
-                             The MpvVideoView has Margin="0,0,0,36" so the native HWND
+                             The MpvVideoView has Margin="0,0,0,52" so the native HWND
                              does not extend into this strip, keeping the Avalonia controls visible. -->
-                        <Border VerticalAlignment="Bottom" Background="#B3000000" Padding="6,3" Height="36">
-                            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="56" FontSize="10" Margin="0,0,4,0" />
-                                <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="30" RowDefinitions="12,22">
-                                    <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="True" HorizontalAlignment="Stretch" Height="12" />
-                                    <Grid Grid.Row="1" Height="22" ClipToBounds="True">
-                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="22" MinHeight="22" VerticalAlignment="Center" />
-                                        <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="True" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="22" />
+                        <Border Name="TimelineOverlay" VerticalAlignment="Bottom" Background="#B3000000" Padding="8,0,8,3" Height="52" ClipToBounds="False" ZIndex="9999" Cursor="Hand">
+                            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
+                                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" FontSize="10" Margin="0,0,8,0" />
+                                <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
+                                    <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
+                                    <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
+                                        <Slider Name="TimelineSlider" Classes="TimelineSlider CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" />
+                                        <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
                                     </Grid>
                                 </Grid>
-                                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="56" TextAlignment="Right" FontSize="10" Margin="4,0,0,0" />
+                                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" TextAlignment="Right" FontSize="10" Margin="8,0,0,0" />
                             </Grid>
                         </Border>
 
@@ -91,12 +92,14 @@
                         </Popup>
                     </Grid>
                 </Border>
-                <!-- Extra left margin prevents MPV native HWND from covering the volume slider -->
-                <Border Grid.Column="1" Margin="25,0,0,0" CornerRadius="6" Background="#15202b" BorderBrush="#334155" BorderThickness="1" Padding="6,8" Width="48">
-                    <StackPanel Orientation="Vertical" Spacing="4" HorizontalAlignment="Center">
-                        <TextBlock Name="VolumeBadgeText" Text="100%" Foreground="#c5dcf2" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" />
-                        <Slider Name="VolumeSlider" Classes="CompactSlider VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" Height="130" Width="28" />
-                    </StackPanel>
+                <!-- Rebuilt vertical volume slider: plain default track (matches Granular Speed slider style),
+                     enlarged + elongated, inside a slim clear frame (<=60px). Flush against the video border
+                     (left) and the right pane (right) with no horizontal gaps. Stretches to the video height. -->
+                <Border Grid.Column="1" CornerRadius="0" Background="#15202b" BorderBrush="#475569" BorderThickness="1" Padding="4,8" Width="56" VerticalAlignment="Stretch" ClipToBounds="False" ZIndex="9999">
+                    <Grid RowDefinitions="Auto, *" ClipToBounds="False">
+                        <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#c5dcf2" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,0,6" />
+                        <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" Width="44" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,18,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" />
+                    </Grid>
                 </Border>
             </Grid>
 
@@ -116,7 +119,7 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="115" Height="32" FontSize="9" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Mark the beginning of your clip"/>
                         <!-- Drawn shapes for crisp white play/pause icons (no emoji blue tint) -->
-                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -148,13 +151,13 @@
                         <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="42" CornerRadius="8" FontSize="12" IsEnabled="False" ToolTip.Tip="Render and export the final video"/>
 
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
                                     <controls:SpinningWheelSlider Name="MainSpeedSlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Upload a video to set speed" />
                                     <TextBlock Name="MainSpeedLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                                 </StackPanel>
-                                <StackPanel Name="MainSpeedPresetsPanel" Orientation="Vertical" Spacing="8" VerticalAlignment="Center" IsEnabled="False">
+                                <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center" IsEnabled="False">
                                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                         <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>
                                         <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x"/>

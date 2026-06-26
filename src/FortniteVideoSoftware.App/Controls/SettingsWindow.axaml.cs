@@ -26,15 +26,6 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
-        if (Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
-        {
-            var mainBorder = this.FindControl<Border>("MainBorder");
-            var titleBarBorder = this.FindControl<Border>("TitleBarBorder");
-            
-            if (mainBorder != null) mainBorder.BorderBrush = Brush.Parse("#334155");
-            if (titleBarBorder != null) titleBarBorder.Background = Brush.Parse("#0f172a");
-        }
-
         // Snapshot current defaults so CANCEL discards changes
         _pendingDefaults = new DefaultValues
         {

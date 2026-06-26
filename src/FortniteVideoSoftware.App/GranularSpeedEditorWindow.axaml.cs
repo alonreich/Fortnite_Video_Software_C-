@@ -78,16 +78,6 @@ public partial class GranularSpeedEditorWindow : Window
         var initialSpeedLabel = this.FindControl<TextBlock>("PendingSpeedLabel");
         if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:F2}x";
         
-        // Smart OS Theme Detection
-        if (Avalonia.Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
-        {
-            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
-            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
-            
-            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
-            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
-        }
-
         if (existingSegments != null)
         {
             // Convert incoming segments from absolute → relative to trim region

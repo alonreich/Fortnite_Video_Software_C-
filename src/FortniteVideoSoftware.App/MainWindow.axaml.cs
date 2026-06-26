@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private double _baseSpeed = SpeedPresetButtons.NativeDefaultSpeed;
     private bool _isTimelineDrawn = false;
     private string _loadedVideoPath = string.Empty;
+    private string _hardwareMode = "CPU";
 
     // Crash recovery manager — saves/restores editing session state across crashes
     private readonly RecoveryManager _recovery = new RecoveryManager();
@@ -53,18 +54,6 @@ public partial class MainWindow : Window
         RuntimeLog.Info("UI", "Initializing MainWindow");
         InitializeComponent();
         
-        // Smart OS Theme Detection
-        if (Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Light)
-        {
-            var mainBorder = this.FindControl<Avalonia.Controls.Border>("MainBorder");
-            var titleBarBorder = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
-            var titleBarText = this.FindControl<Avalonia.Controls.TextBlock>("TitleBarText");
-            
-            if (mainBorder != null) mainBorder.BorderBrush = Avalonia.Media.Brush.Parse("#334155");
-            if (titleBarBorder != null) titleBarBorder.Background = Avalonia.Media.Brush.Parse("#0f172a");
-            if (titleBarText != null) titleBarText.Foreground = Avalonia.Media.Brushes.White;
-        }
-
         this.Loaded += (s, e) => InitializeMpv();
         
         SettingsManager.Load();
@@ -353,6 +342,12 @@ public partial class MainWindow : Window
                     }
                 }
             };
+
+            var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
+            if (timelineOverlay != null && canvas != null)
+            {
+                timelineOverlay.PointerPressed += (s, e) => SeekTimelineFromPointer(e, canvas, timelineSlider);
+            }
         }
 
         var mainSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("MainSpeedSlider");
@@ -526,6 +521,32 @@ public partial class MainWindow : Window
         };
 
         // MainWindow bounds saving moved to async OnClosing override below
+    }
+
+    private void SeekTimelineFromPointer(PointerPressedEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
+    {
+        if (_draggingStartMarker || _draggingEndMarker) return;
+
+        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double width = timelineCanvas.Bounds.Width;
+        if (duration <= 0 || width <= 0) return;
+
+        double x = Math.Clamp(e.GetPosition(timelineCanvas).X, 0, width);
+        double sliderValue = (x / width) * 100.0;
+        double targetTime = (sliderValue / 100.0) * duration;
+
+        try
+        {
+            _isTimerUpdatingSlider = true;
+            timelineSlider.Value = sliderValue;
+        }
+        finally
+        {
+            _isTimerUpdatingSlider = false;
+        }
+
+        _ = SeekInternal(targetTime);
+        e.Handled = true;
     }
 
     private void UpdateTooltips()
@@ -1006,6 +1027,9 @@ public partial class MainWindow : Window
             if (canvasWidth <= 0) return;
             double ClampLabelLeft(double desired, double approxWidth)
                 => Math.Max(0, Math.Min(Math.Max(0, canvasWidth - approxWidth), desired));
+            const double trimMarkerWidth = 3.0;
+            const double trimMarkerTop = -10.0;
+            double trimMarkerHeight = Math.Max(1, canvas.Bounds.Height);
 
             // ── DRAW TRIM REGION (bottom layer — semi-transparent gray bar) ──
             if (_trimStartSet && _trimEndMs > _trimStartMs)
@@ -1014,12 +1038,13 @@ public partial class MainWindow : Window
                 double regEndX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
                 var regionRect = new Avalonia.Controls.Shapes.Rectangle
                 {
-                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(50, 128, 128, 128)),
+                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(78, 148, 163, 184)),
                     Width = Math.Max(2, regEndX - regStartX),
-                    Height = canvas.Bounds.Height,
+                    Height = trimMarkerHeight,
                     IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(regionRect, regStartX);
+                Avalonia.Controls.Canvas.SetTop(regionRect, trimMarkerTop);
                 canvas.Children.Add(regionRect);
             }
 
@@ -1069,7 +1094,8 @@ public partial class MainWindow : Window
                 Avalonia.Controls.Canvas.SetLeft(tickLine, tx);
                 canvas.Children.Add(tickLine);
 
-                if (scaleCanvas != null)
+                bool shouldShowTickLabel = t > 0.001 && duration - t > 0.001;
+                if (scaleCanvas != null && shouldShowTickLabel)
                 {
                     var tickText = new TextBlock { 
                         Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"), 
@@ -1107,12 +1133,13 @@ public partial class MainWindow : Window
             if (_trimStartSet)
             {
                 double startX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
-                var startRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
-                Avalonia.Controls.Canvas.SetLeft(startRect, startX - 3);
+                var startRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = trimMarkerWidth, Height = trimMarkerHeight, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
+                Avalonia.Controls.Canvas.SetLeft(startRect, startX - (trimMarkerWidth / 2.0));
+                Avalonia.Controls.Canvas.SetTop(startRect, trimMarkerTop);
                 
                 startRect.PointerEntered += (s,e) => startRect.Fill = Avalonia.Media.Brushes.MediumSeaGreen;
                 startRect.PointerExited += (s,e) => startRect.Fill = Avalonia.Media.Brushes.SeaGreen;
-                startRect.PointerPressed += (s,e) => { _draggingStartMarker = true; e.Pointer.Capture(startRect); };
+                startRect.PointerPressed += (s,e) => { _draggingStartMarker = true; e.Pointer.Capture(startRect); e.Handled = true; };
                 startRect.PointerReleased += (s,e) => { _draggingStartMarker = false; e.Pointer.Capture(null); UpdateEstimatedQuality(); SaveRecoveryState(); };
                 startRect.PointerMoved += (s,e) => {
                     if (_draggingStartMarker) {
@@ -1120,15 +1147,16 @@ public partial class MainWindow : Window
                         _trimStartMs = (pos / canvas.Bounds.Width) * duration * 1000;
                         if (_trimStartMs < 0) _trimStartMs = 0;
                         if (_trimStartMs > _trimEndMs && _trimEndMs > 0) _trimStartMs = _trimEndMs;
-                        Avalonia.Controls.Canvas.SetLeft(startRect, ((_trimStartMs / 1000.0 / duration) * canvasWidth) - 3);
+                        Avalonia.Controls.Canvas.SetLeft(startRect, ((_trimStartMs / 1000.0 / duration) * canvasWidth) - (trimMarkerWidth / 2.0));
+                        Avalonia.Controls.Canvas.SetTop(startRect, trimMarkerTop);
                     }
                 };
                 canvas.Children.Add(startRect);
                 
-                var startText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimStartMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
+                var startText = new TextBlock { Text = "START", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
                 if (scaleCanvas != null)
                 {
-                    Avalonia.Controls.Canvas.SetLeft(startText, ClampLabelLeft(startX + 5, 58));
+                    Avalonia.Controls.Canvas.SetLeft(startText, ClampLabelLeft(startX + 5, 36));
                     Avalonia.Controls.Canvas.SetTop(startText, 0);
                     scaleCanvas.Children.Add(startText);
                 }
@@ -1145,12 +1173,13 @@ public partial class MainWindow : Window
             if (_trimEndMs > 0)
             {
                 double endX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
-                var endRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = 6, Height = canvas.Bounds.Height, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
-                Avalonia.Controls.Canvas.SetLeft(endRect, endX - 3);
+                var endRect = new Avalonia.Controls.Shapes.Rectangle { Fill = Avalonia.Media.Brushes.SeaGreen, Width = trimMarkerWidth, Height = trimMarkerHeight, Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast) };
+                Avalonia.Controls.Canvas.SetLeft(endRect, endX - (trimMarkerWidth / 2.0));
+                Avalonia.Controls.Canvas.SetTop(endRect, trimMarkerTop);
                 
                 endRect.PointerEntered += (s,e) => endRect.Fill = Avalonia.Media.Brushes.MediumSeaGreen;
                 endRect.PointerExited += (s,e) => endRect.Fill = Avalonia.Media.Brushes.SeaGreen;
-                endRect.PointerPressed += (s,e) => { _draggingEndMarker = true; e.Pointer.Capture(endRect); };
+                endRect.PointerPressed += (s,e) => { _draggingEndMarker = true; e.Pointer.Capture(endRect); e.Handled = true; };
                 endRect.PointerReleased += (s,e) => { _draggingEndMarker = false; e.Pointer.Capture(null); UpdateEstimatedQuality(); SaveRecoveryState(); };
                 endRect.PointerMoved += (s,e) => {
                     if (_draggingEndMarker) {
@@ -1158,15 +1187,16 @@ public partial class MainWindow : Window
                         _trimEndMs = (pos / canvas.Bounds.Width) * duration * 1000;
                         if (_trimEndMs > duration * 1000) _trimEndMs = duration * 1000;
                         if (_trimEndMs < _trimStartMs) _trimEndMs = _trimStartMs;
-                        Avalonia.Controls.Canvas.SetLeft(endRect, ((_trimEndMs / 1000.0 / duration) * canvasWidth) - 3);
+                        Avalonia.Controls.Canvas.SetLeft(endRect, ((_trimEndMs / 1000.0 / duration) * canvasWidth) - (trimMarkerWidth / 2.0));
+                        Avalonia.Controls.Canvas.SetTop(endRect, trimMarkerTop);
                     }
                 };
                 canvas.Children.Add(endRect);
                 
-                var endText = new TextBlock { Text = TimeSpan.FromMilliseconds(_trimEndMs).ToString("hh\\:mm\\:ss"), Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
+                var endText = new TextBlock { Text = "END", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
                 if (scaleCanvas != null)
                 {
-                    Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(endX - 45, 58));
+                    Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(endX - 28, 28));
                     Avalonia.Controls.Canvas.SetTop(endText, 0);
                     scaleCanvas.Children.Add(endText);
                 }
@@ -1257,6 +1287,7 @@ public partial class MainWindow : Window
 
         double time = _videoHost.IpcClient.CurrentTime;
         double dur = _videoHost.IpcClient.Duration;
+        double displayTime = dur > 0 ? Math.Clamp(time, 0, dur) : Math.Max(0, time);
 
         // ── Apply granular speed segments in real-time ──
         // When speed segments exist, dynamically adjust MPV playback speed
@@ -1274,7 +1305,7 @@ public partial class MainWindow : Window
         }
         
         var timeElapsed = this.FindControl<TextBlock>("TimeElapsed");
-        if (timeElapsed != null) timeElapsed.Text = TimeSpan.FromSeconds(time).ToString("hh\\:mm\\:ss");
+        if (timeElapsed != null) timeElapsed.Text = TimeSpan.FromSeconds(displayTime).ToString("hh\\:mm\\:ss");
         
         var timelineSlider = this.FindControl<Slider>("TimelineSlider");
         if (timelineSlider != null && dur > 0)
@@ -1285,11 +1316,11 @@ public partial class MainWindow : Window
                 _isTimelineDrawn = true;
             }
             _isTimerUpdatingSlider = true;
-            timelineSlider.Value = (time / dur) * 100.0;
+            timelineSlider.Value = Math.Clamp((time / dur) * 100.0, 0.0, 100.0);
             _isTimerUpdatingSlider = false;
             
             var timeRemaining = this.FindControl<TextBlock>("TimeRemaining");
-            if (timeRemaining != null) timeRemaining.Text = "-" + TimeSpan.FromSeconds(dur - time).ToString("hh\\:mm\\:ss");
+            if (timeRemaining != null) timeRemaining.Text = "-" + TimeSpan.FromSeconds(Math.Max(0, dur - displayTime)).ToString("hh\\:mm\\:ss");
         }
         
         if (_videoHost.IpcClient.IsEof)
@@ -1309,16 +1340,27 @@ public partial class MainWindow : Window
                 if (!File.Exists(ffmpegExe)) ffmpegExe = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffmpeg.exe");
                 if (!File.Exists(ffmpegExe)) ffmpegExe = "ffmpeg.exe";
                 string mode = await HardwareScanner.ScanAsync(ffmpegExe);
+                _hardwareMode = mode;
                 
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => 
                 {
                     RuntimeLog.Info("Hardware", $"Hardware scan completed: {mode}");
-                    hwLabel.Text = $"HW: {mode} (Ready)";
-                    hwLabel.Foreground = Avalonia.Media.Brushes.LimeGreen;
+                    if (mode == "CPU")
+                    {
+                        RuntimeLog.Fail("Hardware", "No supported hardware encoder detected; CPU fallback active.");
+                        hwLabel.Text = "HW: CPU Only";
+                        hwLabel.Foreground = Avalonia.Media.Brushes.Gray;
+                    }
+                    else
+                    {
+                        hwLabel.Text = $"HW: {mode} (Ready)";
+                        hwLabel.Foreground = Avalonia.Media.Brushes.LimeGreen;
+                    }
                 });
             }
             catch
             {
+                _hardwareMode = "CPU";
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => 
                 {
                     RuntimeLog.Fail("Hardware", "Hardware scan failed, falling back to CPU Only.");
@@ -1478,15 +1520,8 @@ public partial class MainWindow : Window
                 });
             };
 
-            // Retrieve hardware strategy from status label
-            string hwMode = "CPU";
-            var hwLabel = this.FindControl<TextBlock>("HardwareStatusLabel");
-            if (hwLabel != null && hwLabel.Text != null)
-            {
-                if (hwLabel.Text.Contains("NVIDIA")) hwMode = "NVIDIA";
-                else if (hwLabel.Text.Contains("AMD")) hwMode = "AMD";
-                else if (hwLabel.Text.Contains("INTEL")) hwMode = "INTEL";
-            }
+            // Use the scanner result directly; the label is display-only.
+            string hwMode = _hardwareMode;
 
             // Configure ProcessWorker parameters
             worker.InputPath = _loadedVideoPath;
@@ -1506,7 +1541,16 @@ public partial class MainWindow : Window
             worker.ShowTeammates = this.FindControl<CheckBox>("TeammatesCheckbox")?.IsChecked ?? false;
             
             worker.PortraitText = this.FindControl<TextBox>("PortraitTextInput")?.Text;
-            worker.TargetMbOverride = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value;
+
+            // Convert the OUTPUT FILE SIZE slider index (0-20) to the actual target MB.
+            // Slider index 0-19 maps to 5MB..100MB via (5 + idx*5); index 20 = "ORIGINAL
+            // QUALITY" which uses CQ mode (no MB target). Previously the raw index was passed
+            // directly as TargetMbOverride AND QualityLevel was never set, causing FFmpeg to
+            // target tiny file sizes (e.g. idx 7 → 7 MB instead of the displayed 40 MB) and
+            // producing extremely low-quality output regardless of slider position.
+            int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value ?? 7;
+            worker.QualityLevel = qualityIdx;
+            worker.TargetMbOverride = qualityIdx >= 20 ? null : (double)(5 + qualityIdx * 5);
 
             // Pass Music Wizard config
             if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath) && File.Exists(_musicWizardResult.MusicFilePath))

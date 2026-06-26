@@ -58,6 +58,12 @@ public class EncoderManager
                 PrimaryEncoder = "libx264";
                 ForcedCpu = true;
             }
+            else if (upper == "GPU" || upper == "AUTO")
+            {
+                PrimaryEncoder = EncoderPreference.FirstOrDefault(encoder =>
+                    encoder != "libx264" && (AvailableEncoders.Count == 0 || AvailableEncoders.Contains(encoder))) ?? "libx264";
+                ForcedCpu = PrimaryEncoder == "libx264";
+            }
             else
             {
                 PrimaryEncoder = "libx264";

@@ -2,10 +2,27 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              x:Class="FortniteVideoSoftware.App.AvaloniaApp">
     <Application.Resources>
-        <!-- Title Bar Tokens (dark-theme defaults) -->
-        <SolidColorBrush x:Key="TitleBarBackground" Color="#d3d3d3" />
-        <SolidColorBrush x:Key="TitleBarForeground" Color="#000000" />
-        <SolidColorBrush x:Key="WindowTitleBorder" Color="#d3d3d3" />
+        <!-- Title Bar Tokens (brushed dark grey metal) -->
+        <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
+            <GradientStop Offset="0.00" Color="#969ca4" />
+            <GradientStop Offset="0.08" Color="#c2c7ce" />
+            <GradientStop Offset="0.16" Color="#7e858e" />
+            <GradientStop Offset="0.31" Color="#b5bbc3" />
+            <GradientStop Offset="0.47" Color="#8a919a" />
+            <GradientStop Offset="0.62" Color="#c8cdd3" />
+            <GradientStop Offset="0.78" Color="#737a83" />
+            <GradientStop Offset="1.00" Color="#a8aeb6" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="TitleBarForeground" Color="#111827" />
+        <LinearGradientBrush x:Key="WindowTitleBorder" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Offset="0.00" Color="#aeb4bc" />
+            <GradientStop Offset="0.14" Color="#767d86" />
+            <GradientStop Offset="0.29" Color="#d0d4da" />
+            <GradientStop Offset="0.46" Color="#868d96" />
+            <GradientStop Offset="0.63" Color="#bdc3ca" />
+            <GradientStop Offset="0.81" Color="#6f7780" />
+            <GradientStop Offset="1.00" Color="#b2b8c0" />
+        </LinearGradientBrush>
         <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1e293b" />
         <SolidColorBrush x:Key="AppPanelBrush" Color="#334155" />
         <SolidColorBrush x:Key="AppBorderBrush" Color="#475569" />
@@ -70,9 +87,13 @@
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
         </Style>
 
+        <Style Selector="StackPanel.SpeedPresetRows">
+            <Setter Property="Spacing" Value="3"/>
+        </Style>
+
         <Style Selector="Button.SpeedPreset">
-            <Setter Property="Width" Value="40"/>
-            <Setter Property="Height" Value="28"/>
+            <Setter Property="Width" Value="31"/>
+            <Setter Property="Height" Value="25"/>
             <Setter Property="FontSize" Value="9"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0"/>
@@ -84,7 +105,9 @@
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.SpeedPreset:pointerover">
-            <Setter Property="Background" Value="#475569"/>
+            <Setter Property="Background" Value="#4a3714"/>
+            <Setter Property="Foreground" Value="#fef3c7"/>
+            <Setter Property="BorderBrush" Value="#a16207"/>
         </Style>
         <Style Selector="Button.SpeedPreset:pressed">
             <Setter Property="Background" Value="#60a5fa"/>
@@ -125,6 +148,15 @@
             </Setter>
         </Style>
 
+        <!-- Issue #1: Disabled Primary buttons — flat muted gray, low-opacity text -->
+        <Style Selector="Button.Primary:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="Button.Primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
+        </Style>
+
         <!-- Success Buttons (Metallic Green) -->
         <Style Selector="Button.Success">
             <Setter Property="BorderBrush" Value="#14532d"/>
@@ -145,6 +177,15 @@
                     <GradientStop Offset="1.0" Color="#166534"/>
                 </LinearGradientBrush>
             </Setter>
+        </Style>
+
+        <!-- Issue #1: Disabled Success buttons — flat muted gray, low-opacity text -->
+        <Style Selector="Button.Success:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="Button.Success:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
         </Style>
 
         <!-- Danger Buttons (Metallic Red) -->
@@ -169,6 +210,15 @@
             </Setter>
         </Style>
 
+        <!-- Issue #1: Disabled Danger buttons — flat muted gray, low-opacity text -->
+        <Style Selector="Button.Danger:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="Button.Danger:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
+        </Style>
+
         <!-- Issue #1: Universal slider thumb — enlarged resting dot (~1.5x) that grows SLOWLY to 2x when grabbed.
              Applies to ALL sliders app-wide (root inheritance). The 0.3s transition gives the slow "grow" feel. -->
         <Style Selector="Slider /template/ Thumb">
@@ -176,6 +226,8 @@
             <Setter Property="Height" Value="18" />
             <Setter Property="MinWidth" Value="18" />
             <Setter Property="MinHeight" Value="18" />
+            <Setter Property="ClipToBounds" Value="False" />
+            <Setter Property="ZIndex" Value="9999" />
             <Setter Property="Transitions">
                 <Transitions>
                     <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" />
@@ -183,6 +235,16 @@
                 </Transitions>
             </Setter>
             <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Slider /template/ Track">
+            <Setter Property="ClipToBounds" Value="False" />
+            <Setter Property="ZIndex" Value="9998" />
+        </Style>
+        <Style Selector="Slider /template/ Grid">
+            <Setter Property="ClipToBounds" Value="False" />
+        </Style>
+        <Style Selector="Slider /template/ Border">
+            <Setter Property="ClipToBounds" Value="False" />
         </Style>
         <Style Selector="Slider:pointerover /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(1.4)" />
@@ -216,30 +278,6 @@
         </Style>
         <Style Selector="Slider.CompactSlider:pressed /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(2.0)" />
-        </Style>
-
-        <!-- Issue #5: Vertical volume slider track (groove + fill) beautification -->
-        <Style Selector="Slider.VolumeSlider /template/ Border#Background">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#0f172a" />
-                    <GradientStop Offset="0.5" Color="#1e293b" />
-                    <GradientStop Offset="1.0" Color="#0f172a" />
-                </LinearGradientBrush>
-            </Setter>
-            <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="BorderBrush" Value="#334155" />
-            <Setter Property="BorderThickness" Value="1" />
-        </Style>
-        <Style Selector="Slider.VolumeSlider /template/ Border#Foreground">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#7dd3fc" />
-                    <GradientStop Offset="0.5" Color="#38bdf8" />
-                    <GradientStop Offset="1.0" Color="#0284c7" />
-                </LinearGradientBrush>
-            </Setter>
-            <Setter Property="CornerRadius" Value="4" />
         </Style>
 
         <Style Selector="Slider">
@@ -330,6 +368,17 @@
                     <GradientStop Offset="0.0" Color="#4ade80"/>
                     <GradientStop Offset="0.15" Color="#16a34a"/>
                     <GradientStop Offset="1.0" Color="#166534"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+
+        <!-- Issue #3: Checked toggle hover — subtly brightened green gradient for tactile feedback -->
+        <Style Selector="ToggleButton.Primary:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#86efac"/>
+                    <GradientStop Offset="0.15" Color="#22c55e"/>
+                    <GradientStop Offset="1.0" Color="#1d7a42"/>
                 </LinearGradientBrush>
             </Setter>
         </Style>
