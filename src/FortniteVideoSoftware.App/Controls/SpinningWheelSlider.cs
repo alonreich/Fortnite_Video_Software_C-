@@ -4,6 +4,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace FortniteVideoSoftware.App.Controls
 {
@@ -17,8 +19,60 @@ namespace FortniteVideoSoftware.App.Controls
         private bool _isDragging = false;
         private double _lastMouseX = 0;
         private double _overscroll = 0.08;
+
+        // Issue #3: Tooltip suppression during active interaction.
+        // Stores the original tooltip so it can be restored after interaction ends.
+        private object? _savedToolTip = null;
+        private bool _isTooltipSuppressed = false;
+        private CancellationTokenSource? _tooltipRestoreCts;
         
         public event EventHandler<int>? ValueChanged;
+
+        public SpinningWheelSlider()
+        {
+            Focusable = true;
+            Cursor = new Cursor(StandardCursorType.Hand);
+        }
+
+        /// <summary>
+        /// Issue #3: Temporarily suppresses the tooltip to prevent it from popping up
+        /// destructively over the spinner while the user is dragging/scrolling.
+        /// The tooltip is restored after the user stops interacting (with a short delay).
+        /// </summary>
+        private void SuppressTooltipTemporarily()
+        {
+            // Cancel any pending restore
+            _tooltipRestoreCts?.Cancel();
+            _tooltipRestoreCts = new CancellationTokenSource();
+            var token = _tooltipRestoreCts.Token;
+
+            // Save and clear the tooltip only on the first interaction
+            if (!_isTooltipSuppressed)
+            {
+                _savedToolTip = ToolTip.GetTip(this);
+                ToolTip.SetTip(this, null);
+                _isTooltipSuppressed = true;
+            }
+
+            // Restore after 1.2s of no interaction
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(1200, token);
+                    if (token.IsCancellationRequested) return;
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (_isTooltipSuppressed)
+                        {
+                            ToolTip.SetTip(this, _savedToolTip);
+                            _isTooltipSuppressed = false;
+                        }
+                    });
+                }
+                catch (OperationCanceledException) { }
+            });
+        }
         
         public int Value 
         {
@@ -45,7 +99,7 @@ namespace FortniteVideoSoftware.App.Controls
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
         {
             base.OnPropertyChanged(change);
-            if (change.Property == IsEnabledProperty)
+            if (change.Property == IsEnabledProperty || change.Property.Name == "IsFocused")
             {
                 InvalidateVisual();
             }
@@ -88,6 +142,8 @@ namespace FortniteVideoSoftware.App.Controls
             var pt = e.GetCurrentPoint(this);
             _lastMouseX = pt.Position.X;
             Cursor = new Cursor(StandardCursorType.Hand);
+            Focus();
+            SuppressTooltipTemporarily(); // Issue #3
             e.Handled = true;
             base.OnPointerPressed(e);
         }
@@ -100,6 +156,7 @@ namespace FortniteVideoSoftware.App.Controls
             _lastMouseX = pt.Position.X;
             double sensitivity = 0.011;
             Rotation = _rotation - (dx * sensitivity);
+            SuppressTooltipTemporarily(); // Issue #3
             base.OnPointerMoved(e);
         }
         
@@ -122,8 +179,51 @@ namespace FortniteVideoSoftware.App.Controls
             int current = (int)Math.Round(_rotation);
             int target = current + (int)delta;
             SetValue(target);
+            SuppressTooltipTemporarily(); // Issue #3
             e.Handled = true;
             base.OnPointerWheelChanged(e);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (!IsEnabled)
+            {
+                base.OnKeyDown(e);
+                return;
+            }
+
+            int current = (int)Math.Round(_rotation);
+            switch (e.Key)
+            {
+                case Key.Left:
+                case Key.Down:
+                    SetValue(current - 1);
+                    e.Handled = true;
+                    return;
+                case Key.Right:
+                case Key.Up:
+                    SetValue(current + 1);
+                    e.Handled = true;
+                    return;
+                case Key.PageDown:
+                    SetValue(current - 5);
+                    e.Handled = true;
+                    return;
+                case Key.PageUp:
+                    SetValue(current + 5);
+                    e.Handled = true;
+                    return;
+                case Key.Home:
+                    SetValue(_range.min);
+                    e.Handled = true;
+                    return;
+                case Key.End:
+                    SetValue(_range.max);
+                    e.Handled = true;
+                    return;
+            }
+
+            base.OnKeyDown(e);
         }
 
         protected override void OnPointerExited(PointerEventArgs e)
@@ -242,7 +342,10 @@ namespace FortniteVideoSoftware.App.Controls
                     double scale = 0.50 + (0.60 * Math.Pow(opacity, 0.6));
                     double yBulge = (1.0 - Math.Pow(opacity, 0.3)) * 12;
                     
-                    string txt = (i >= 0 && i < _labels.Count) ? _labels[i] : i.ToString();
+                    // Fix: Offset label index by _range.min so labels align with actual values
+                    // (e.g. range 1-40 → label index 0-39, not 1-40)
+                    int labelIndex = i - _range.min;
+                    string txt = (labelIndex >= 0 && labelIndex < _labels.Count) ? _labels[labelIndex] : i.ToString();
                     
                     // Python: selected=#50ffef (cyan), non-selected=#c5dcf2 (light blue)
                     Color baseColor = i == _value 
@@ -290,6 +393,12 @@ namespace FortniteVideoSoftware.App.Controls
                     }
                 };
                 context.DrawRectangle(centerGlow, null, innerRect);
+            }
+
+            if (IsFocused)
+            {
+                var focusPen = new Pen(new SolidColorBrush(Color.Parse("#38bdf8")), 2);
+                context.DrawRectangle(null, focusPen, rect.Deflate(1), 6, 6);
             }
         }
     }

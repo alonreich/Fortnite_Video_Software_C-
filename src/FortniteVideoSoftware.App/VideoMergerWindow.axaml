@@ -7,6 +7,7 @@
         Width="1200" Height="800"
         Background="#1e293b"
         MinWidth="1200" MinHeight="800"
+        CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
@@ -15,7 +16,7 @@
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
                 <Grid Grid.Row="1" ColumnDefinitions="*, 350">
                     <!-- LEFT COLUMN: Video Player Area -->
@@ -54,8 +55,8 @@
                     
                     <!-- Centered buttons -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="12" Margin="0,0,15,0" ToolTip.Tip="Merge all listed videos together"/>
-                        <Button Name="AddMusicButton" Classes="Primary" Content="🎵  ADD MUSIC" Width="130" Height="42" FontSize="12" ToolTip.Tip="Add background music to the video"/>
+                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="12" Margin="0,0,15,0" IsEnabled="False" ToolTip.Tip="Add at least two videos to enable merging"/>
+                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" Height="42" FontSize="12" ToolTip.Tip="Add background music to the video"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -67,21 +68,25 @@
                 <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
                 
                 <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" Margin="0,0,0,15">
-                    <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="12" DragDrop.AllowDrop="True">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
-                                <TextBlock Text="{Binding}" Cursor="Hand" ToolTip.Tip="Click to select this video"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <Grid>
+                        <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="12" DragDrop.AllowDrop="True">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Text="{Binding}" Cursor="Hand" ToolTip.Tip="Click to select this video"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Name="EmptyQueueText" Text="Add at least two videos to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
+                    </Grid>
                 </Border>
 
                 <StackPanel Grid.Row="2" Spacing="10" Margin="0,0,0,15">
                     <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Add another video to the queue"/>
-                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Remove the selected video from the queue"/>
-                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Move the selected video up in the queue"/>
-                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Move the selected video down in the queue"/>
+                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
+                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video that is not already first"/>
+                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video that is not already last"/>
                 </StackPanel>
+                <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"/>
             </Grid>
         </Border>
         

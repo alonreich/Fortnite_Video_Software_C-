@@ -6,99 +6,167 @@
         Width="900" Height="700"
         WindowStartupLocation="CenterOwner"
         Background="#1e293b"
+        CanResize="True"
+        MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="30">
+        ExtendClientAreaTitleBarHeightHint="30"
+        DragDrop.AllowDrop="True">
 
     <Grid>
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
-                <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="20">
-        <!-- Step Container -->
-        <Border Grid.Row="0" Background="#1e293b" CornerRadius="8" BorderBrush="#334155" BorderThickness="1" Padding="20">
-            <Panel>
-                
-                <!-- STEP 1: Track Selection -->
-                <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
-                        <TextBlock Grid.Column="0" Text="STEP 1: SELECT BACKGROUND MUSIC" FontSize="16" FontWeight="Bold" Foreground="#60a5fa" VerticalAlignment="Center"/>
-                        <Button Grid.Column="2" Name="ChangeFolderBtn" Content="⚙ Change Folder" Classes="Primary" Height="32" FontSize="9" VerticalAlignment="Center" Cursor="Hand"/>
+                <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" Margin="20">
+
+                    <!-- Step Progress Bar (Improvement 1) -->
+                    <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*">
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="4">
+                            <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="#3b82f6" HorizontalAlignment="Center">
+                                <TextBlock Name="Step1Icon" Text="1" Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step1Label" Text="Select Music" Foreground="#60a5fa" FontSize="9" HorizontalAlignment="Center" FontWeight="Bold"/>
+                        </StackPanel>
+                        <Border Grid.Column="0" VerticalAlignment="Top" Margin="50,15,-50,0" Height="2" Background="#334155"/>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="4">
+                            <Border Name="Step2Dot" Width="32" Height="32" CornerRadius="16" Background="#334155" HorizontalAlignment="Center">
+                                <TextBlock Name="Step2Icon" Text="2" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step2Label" Text="Mix and Preview" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Grid.Column="1" VerticalAlignment="Top" Margin="50,15,-50,0" Height="2" Background="#334155"/>
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="4">
+                            <Border Name="Step3Dot" Width="32" Height="32" CornerRadius="16" Background="#334155" HorizontalAlignment="Center">
+                                <TextBlock Name="Step3Icon" Text="3" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step3Label" Text="Confirm" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
+                        </StackPanel>
                     </Grid>
-                    <ListBox Grid.Row="1" Name="MusicListBox" Background="#1e293b" CornerRadius="4" Padding="5">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="local:MusicTrackItem">
-                                <Border Padding="10" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Select this music track">
-                                    <TextBlock Text="{CompiledBinding Name}" Foreground="White" FontSize="12"/>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
 
-                <!-- STEP 2: Offset Configuration -->
-                <Grid Name="Step2Panel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,*">
-                    <TextBlock Grid.Row="0" Text="STEP 2: MUSIC OFFSET + DUCKING" FontSize="16" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,10"/>
-                    
-                    <TextBlock Grid.Row="1" Text="Configure when the music should start playing relative to the video." Foreground="#94a3b8" Margin="0,0,0,20"/>
-                    
-                    <StackPanel Grid.Row="2" Spacing="10">
-                        <TextBlock Text="Music Start Offset (Seconds):" Foreground="White"/>
-                        <Slider Name="OffsetSlider" Minimum="-10" Maximum="10" Value="0" TickFrequency="0.5" IsSnapToTickEnabled="True"/>
-                        <TextBlock Name="OffsetLabel" Text="0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        
-                        <CheckBox Name="DuckingCheckBox" Content="Enable Audio Ducking (150Hz Split)" IsChecked="True" Foreground="White" FontSize="10" Margin="0,15,0,0"/>
-                        <TextBlock Text="Reduces music volume when game audio is loud." Foreground="#94a3b8" FontSize="11" Margin="25,0,0,0"/>
-                        <CheckBox Name="CarvingCheckBox" Content="Enable Audio Carving (EQ Dip)" IsChecked="True" Foreground="White" FontSize="10" Margin="0,15,0,0"/>
-                        <TextBlock Text="Dips specific frequencies to make room for game audio." Foreground="#94a3b8" FontSize="11" Margin="25,0,0,0"/>
-                    </StackPanel>
-                </Grid>
-
-                <!-- STEP 3: Timeline + Waveform -->
-                <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto,*,Auto,Auto">
-                    <TextBlock Grid.Row="0" Text="STEP 3: TIMELINE, WAVEFORM + VOLUME" FontSize="16" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,10"/>
-                    
-                    <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" BorderBrush="#334155" BorderThickness="1" Margin="0,10">
+                    <!-- Step Container -->
+                    <Border Grid.Row="1" Background="#1e293b" CornerRadius="8" BorderBrush="#334155" BorderThickness="1" Padding="20">
                         <Panel>
-                            <Image Name="WaveformImage" Stretch="Fill"/>
-                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="SizeWestEast" ToolTip.Tip="Click or drag to adjust the music offset" />
-                            
-                            <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
+
+                            <!-- STEP 1: Track Selection -->
+                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
+                                    <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" Height="30" FontSize="9" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
+                                </Grid>
+                                <ListBox Grid.Row="1" Name="MusicListBox" Background="#1e293b" CornerRadius="4" Padding="5">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="local:MusicTrackItem">
+                                            <Border Padding="10" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Text="{CompiledBinding Name}" Foreground="White" FontSize="12" FontWeight="SemiBold"/>
+                                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <TextBlock Text="{CompiledBinding DurationText}" Foreground="#94a3b8" FontSize="10"/>
+                                                        <TextBlock Text="{CompiledBinding SizeText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+
+                            <!-- STEP 2: Waveform + Offset + Volume -->
+                            <Grid Name="Step2Panel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,Auto,*">
+                                <Border Grid.Row="0" Background="#0f172a" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Selected:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Grid.Row="1" Text="MIX AND PREVIEW" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,5"/>
+
+                                <Border Grid.Row="2" Background="#1e293b" CornerRadius="4" BorderBrush="#334155" BorderThickness="1" Margin="0,5" Height="120">
+                                    <Panel>
+                                        <Image Name="WaveformImage" Stretch="Fill"/>
+                                        <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="SizeWestEast" ToolTip.Tip="Click or drag to set where the music starts" />
+                                        <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
+                                    </Panel>
+                                </Border>
+
+                                <StackPanel Grid.Row="3" Spacing="10" Margin="0,5,0,0">
+                                    <TextBlock Text="Music start position (drag waveform or use slider):" Foreground="#94a3b8" FontSize="10"/>
+                                    <Slider Name="OffsetSlider" Minimum="-10" Maximum="10" Value="0" TickFrequency="0.5" IsSnapToTickEnabled="True"/>
+                                    <TextBlock Name="OffsetLabel" Text="0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11"/>
+
+                                    <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" Margin="0,10,0,0" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
+                                    <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="White" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30" Margin="0,15,0,0" VerticalAlignment="Bottom">
+                                    <StackPanel>
+                                        <TextBlock Text="Game Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="10"/>
+                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="150" IsSnapToTickEnabled="True" TickFrequency="5" ToolTip.Tip="Volume of the original game audio"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="10"/>
+                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="150" IsSnapToTickEnabled="True" TickFrequency="5" ToolTip.Tip="Volume of the background music"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- STEP 3: Final Review Summary -->
+                            <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto,*">
+                                <TextBlock Grid.Row="0" Text="REVIEW AND CONFIRM" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,15"/>
+
+                                <Border Grid.Row="1" Background="#0f172a" CornerRadius="8" BorderBrush="#334155" BorderThickness="2" Padding="25" VerticalAlignment="Top">
+                                    <StackPanel Spacing="15">
+                                        <TextBlock Text="Here is a summary of your music settings:" Foreground="#94a3b8" FontSize="12" Margin="0,0,0,5"/>
+
+                                        <StackPanel Spacing="8">
+                                            <Border Background="#1e293b" CornerRadius="4" Padding="15,8">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="Music:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Name="SummaryTrack" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Background="#1e293b" CornerRadius="4" Padding="15,8">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="Start offset:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Name="SummaryOffset" Text="0.0s" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Background="#1e293b" CornerRadius="4" Padding="15,8">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="Volume mix:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Name="SummaryVolume" Text="Music 100% / Game 100%" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Background="#1e293b" CornerRadius="4" Padding="15,8">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="Auto-mix:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Name="SummaryAutoMix" Text="ON" Foreground="#2ecc71" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <TextBlock Text="Click APPLY to add this music to your video. You can remove it later by clicking the REMOVE MUSIC button." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
                         </Panel>
                     </Border>
-                    
-                    <TextBlock Grid.Row="2" Text="Click or drag on the waveform to set the offset." Foreground="#94a3b8" HorizontalAlignment="Center"/>
-                    
-                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="30" Margin="0,20,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center"/>
-                            <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="150" IsSnapToTickEnabled="True" TickFrequency="5" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center"/>
-                            <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="150" IsSnapToTickEnabled="True" TickFrequency="5" />
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
 
-            </Panel>
-        </Border>
-
-        <!-- Navigation -->
-        <Grid Grid.Row="2" Margin="0,15,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="100" Height="42" FontSize="12" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard"/>
-            <Button Grid.Column="1" Name="PlayBtn" Content="▶ PLAY" Classes="Primary" Width="100" Height="42" FontSize="9" HorizontalContentAlignment="Center" HorizontalAlignment="Center" ToolTip.Tip="Preview music over the video"/>
-            <Button Grid.Column="3" Name="BackBtn" Content="◀ BACK" Classes="Primary" Width="100" Height="42" FontSize="9" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" ToolTip.Tip="Go back to the previous step"/>
-            <Button Grid.Column="4" Name="NextBtn" Content="NEXT ▶" Classes="Success" Width="100" Height="42" FontSize="9" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
-        </Grid>
+                    <!-- Navigation -->
+                    <Grid Grid.Row="2" Margin="0,15,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="110" Height="42" FontSize="11" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
+                        <Button Grid.Column="1" Name="PlayBtn" Content="PLAY PREVIEW" Classes="Primary" Width="140" Height="42" FontSize="9" HorizontalContentAlignment="Center" HorizontalAlignment="Center" ToolTip.Tip="Preview how the music sounds over your video"/>
+                        <Button Grid.Column="2" Name="BackBtn" Content="BACK" Classes="Primary" Width="100" Height="42" FontSize="9" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" IsVisible="True" ToolTip.Tip="Go back to the previous step"/>
+                        <Button Grid.Column="3" Name="NextBtn" Content="NEXT" Classes="Success" Width="110" Height="42" FontSize="9" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
+                    </Grid>
 
                 </Grid>
             </Grid>

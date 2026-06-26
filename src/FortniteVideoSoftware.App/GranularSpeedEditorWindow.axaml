@@ -6,6 +6,7 @@
         Width="1050" Height="720"
         Background="#1e293b"
         MinWidth="900" MinHeight="600"
+        CanResize="True"
         WindowStartupLocation="CenterOwner"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
@@ -15,44 +16,36 @@
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Name="TitleBarText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
-                <Grid Grid.Row="1" RowDefinitions="Auto, *, Auto">
-
-        <!-- HEADER -->
-        <Border Grid.Row="0" Background="#1e293b" Padding="16,12" BorderBrush="#334155" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*, Auto">
-                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2">
-                    <TextBlock Text="&#x26A1; GRANULAR SPEED EDITOR" Foreground="#60a5fa" FontSize="16" FontWeight="Bold"/>
-                    <TextBlock Name="VideoFileLabel" Text="No video loaded" Foreground="#94a3b8" FontSize="11"/>
-                </StackPanel>
-                <TextBlock Grid.Column="1" Name="StatusLabel" Text="" Foreground="#22c55e" FontSize="11" VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
+                <Grid Grid.Row="1" RowDefinitions="*, Auto">
 
         <!-- MAIN BODY -->
-        <Grid Grid.Row="1" ColumnDefinitions="*, 280">
+        <Grid Grid.Row="0" ColumnDefinitions="*, 280">
 
             <!-- LEFT: Video preview + timeline -->
             <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
 
                 <!-- Video preview -->
-                <Border Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
+                <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
                     <Grid>
                         <local:MpvVideoView Name="GranularVideoHost"/>
-                        <Border Name="GranularFeedback" Background="#22eab308" BorderBrush="#eab308" BorderThickness="1" HorizontalAlignment="Center"
-                                VerticalAlignment="Center" Padding="20,10" CornerRadius="8" IsVisible="False">
-                            <TextBlock Name="GranularFeedbackText" Text="" Foreground="#fde047" FontSize="18" FontWeight="Bold"/>
-                        </Border>
+                        <Popup Name="GranularFeedbackPopup" IsOpen="False" PlacementMode="Bottom" PlacementTarget="{Binding #GranularVideoAreaBorder}"
+                               HorizontalOffset="0" VerticalOffset="-80" IsLightDismissEnabled="False"
+                               IsHitTestVisible="False">
+                            <Border Name="GranularFeedbackPopupBorder" Background="#800f1b3a" BorderBrush="#FAfacc15" BorderThickness="1" CornerRadius="8" Padding="14,8" Opacity="0">
+                                <TextBlock Name="GranularFeedbackPopupText" Text="" Foreground="#facc15" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" />
+                            </Border>
+                        </Popup>
                     </Grid>
                 </Border>
 
-                <!-- Timeline — matches main window styling exactly -->
+                <!-- Timeline -->
                 <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,15">
                     <TextBlock Name="GranularTimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
                     <Grid Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
                         <Slider Name="GranularTimeline" Minimum="0" Maximum="1000" Height="30" MinHeight="30" VerticalAlignment="Center" ToolTip.Tip="Drag to scrub through the video" />
-                        <Canvas Name="GranularTimelineCanvas" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="30"/>
+                        <Canvas Name="GranularTimelineCanvas" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="38"/>
                     </Grid>
                     <TextBlock Grid.Column="2" Name="GranularDuration" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
                 </Grid>
@@ -83,16 +76,38 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Bottom Row -->
+                <!-- Bottom Row: Speed presets + slider + Clear All -->
                 <Grid Grid.Row="3" Margin="0,10,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" Width="140" Height="32" FontSize="9" ToolTip.Tip="Remove all speed segments"/>
+                    <!-- Right side: Delete buttons stacked vertically -->
+                    <StackPanel Orientation="Vertical" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Name="DeleteSegmentBtn" Classes="Danger" Content="DELETE SEGMENT" Width="140" Height="32" FontSize="9" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment"/>
+                        <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" Width="140" Height="32" FontSize="9" IsVisible="False" ToolTip.Tip="Remove all speed segments"/>
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="Speed:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider Name="PendingSpeedSlider" Minimum="0.1" Maximum="4.0" Value="1.1" TickFrequency="0.05" IsSnapToTickEnabled="True" IsEnabled="True" Width="200" VerticalAlignment="Center"/>
-                        <TextBlock Name="PendingSpeedLabel" Text="1.10x" Foreground="#f59e0b" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" Width="45" TextAlignment="Right" Margin="10,0,0,0"/>
+                    <!-- Center: Speed presets + slider -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                        <!-- Speed preset buttons — two rows with vertical gap -->
+                        <StackPanel Name="SpeedPresetsPanel" Orientation="Vertical" Spacing="8" VerticalAlignment="Center">
+                            <!-- Row 1: 0.1x – 1.5x -->
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>
+                                <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x"/>
+                                <Button Name="SpeedPreset10" Classes="SpeedPreset" Content="1.0x"/>
+                                <Button Name="SpeedPresetBase" Classes="SpeedPreset BaseSpeedPreset" Content="1.1x"/>
+                                <Button Name="SpeedPreset15" Classes="SpeedPreset" Content="1.5x"/>
+                            </StackPanel>
+                            <!-- Row 2: 2.0x – 4.0x -->
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <Button Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x"/>
+                                <Button Name="SpeedPreset25" Classes="SpeedPreset" Content="2.5x"/>
+                                <Button Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x"/>
+                                <Button Name="SpeedPreset35" Classes="SpeedPreset" Content="3.5x"/>
+                                <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Text="Speed:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center" Margin="6,0,6,0"/>
+                        <Slider Name="PendingSpeedSlider" Minimum="0.1" Maximum="4.0" Value="1.1" TickFrequency="0.05" IsSnapToTickEnabled="True" IsEnabled="True" Width="160" VerticalAlignment="Center"/>
+                        <TextBlock Name="PendingSpeedLabel" Text="1.10x" Foreground="#f59e0b" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center" Width="45" TextAlignment="Right" Margin="6,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -110,14 +125,14 @@
         </Grid>
 
         <!-- BOTTOM NAVIGATION -->
-        <Border Grid.Row="2" Background="#1e293b" Padding="16,10" BorderBrush="#334155" BorderThickness="0,1,0,0">
+        <Border Grid.Row="1" Background="#1e293b" Padding="16,10" BorderBrush="#334155" BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*, Auto">
                 <TextBlock Grid.Column="0" Name="BottomStatusLabel"
                            Text="Set speed, then press MARK END to create a segment. Start is auto-inferred."
                            Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" Width="100" Height="42" FontSize="12" ToolTip.Tip="Discard changes and close"/>
-                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" Width="100" Height="42" FontSize="12" ToolTip.Tip="Apply all speed segments and return"/>
+                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" Width="90" Height="32" FontSize="10" ToolTip.Tip="Discard changes and close"/>
+                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" Width="90" Height="32" FontSize="10" ToolTip.Tip="Apply all speed segments and return"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -125,4 +140,5 @@
             </Grid>
         </Border>
     </Grid>
+
 </Window>

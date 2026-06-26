@@ -23,6 +23,8 @@ public class MpvIpcClient : IDisposable
     public double Duration { get; private set; }
     public bool IsPaused { get; private set; }
     public bool IsEof { get; private set; }
+    public int VideoWidth { get; private set; }
+    public int VideoHeight { get; private set; }
 
     public event Action<double>? TimePosChanged;
     public event Action? SeekCompleted;
@@ -98,6 +100,8 @@ public class MpvIpcClient : IDisposable
         await SendCommandAsync("observe_property", 2, "duration");
         await SendCommandAsync("observe_property", 3, "pause");
         await SendCommandAsync("observe_property", 4, "eof-reached");
+        await SendCommandAsync("observe_property", 5, "width");
+        await SendCommandAsync("observe_property", 6, "height");
     }
 
     private async Task ListenLoop()
@@ -138,6 +142,14 @@ public class MpvIpcClient : IDisposable
                                 else if (name == "eof-reached" && (dataProp.ValueKind == JsonValueKind.True || dataProp.ValueKind == JsonValueKind.False))
                                 {
                                     IsEof = dataProp.GetBoolean();
+                                }
+                                else if (name == "width" && dataProp.ValueKind == JsonValueKind.Number)
+                                {
+                                    VideoWidth = dataProp.GetInt32();
+                                }
+                                else if (name == "height" && dataProp.ValueKind == JsonValueKind.Number)
+                                {
+                                    VideoHeight = dataProp.GetInt32();
                                 }
                             }
                         }

@@ -6,12 +6,30 @@
         <SolidColorBrush x:Key="TitleBarBackground" Color="#d3d3d3" />
         <SolidColorBrush x:Key="TitleBarForeground" Color="#000000" />
         <SolidColorBrush x:Key="WindowTitleBorder" Color="#d3d3d3" />
+        <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1e293b" />
+        <SolidColorBrush x:Key="AppPanelBrush" Color="#334155" />
+        <SolidColorBrush x:Key="AppBorderBrush" Color="#475569" />
+        <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#ffffff" />
+        <SolidColorBrush x:Key="AppTextMutedBrush" Color="#94a3b8" />
+        <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
+        <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
+        <SolidColorBrush x:Key="AppSuccessBrush" Color="#22c55e" />
+        <SolidColorBrush x:Key="AppDangerBrush" Color="#dc2626" />
     </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
         <Style Selector="Window">
             <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="TextBlock.WindowTitleText">
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
         </Style>
         <Style Selector="Button.BottomNav">
             <Setter Property="Height" Value="42" />
@@ -50,6 +68,39 @@
 
         <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
+        </Style>
+
+        <Style Selector="Button.SpeedPreset">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextMutedBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.SpeedPreset:pointerover">
+            <Setter Property="Background" Value="#475569"/>
+        </Style>
+        <Style Selector="Button.SpeedPreset:pressed">
+            <Setter Property="Background" Value="#60a5fa"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style Selector="Button.BaseSpeedPreset">
+            <Setter Property="Background" Value="#14532d"/>
+            <Setter Property="Foreground" Value="#86efac"/>
+        </Style>
+        <Style Selector="Button.BaseSpeedPreset:pointerover">
+            <Setter Property="Background" Value="#166534"/>
+        </Style>
+        <Style Selector="Button.BaseSpeedPreset:pressed">
+            <Setter Property="Background" Value="#22c55e"/>
+            <Setter Property="Foreground" Value="White"/>
         </Style>
 
         <!-- Primary Buttons (Bright Blue) -->
@@ -118,18 +169,23 @@
             </Setter>
         </Style>
 
-        <!-- Issue #7: Universal slider thumb — glow on hover, gradual grow to 2× while pressed -->
+        <!-- Issue #1: Universal slider thumb — enlarged resting dot (~1.5x) that grows SLOWLY to 2x when grabbed.
+             Applies to ALL sliders app-wide (root inheritance). The 0.3s transition gives the slow "grow" feel. -->
         <Style Selector="Slider /template/ Thumb">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="MinWidth" Value="18" />
+            <Setter Property="MinHeight" Value="18" />
             <Setter Property="Transitions">
                 <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1" />
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" />
                     <BrushTransition Property="Background" Duration="0:0:0.15" />
                 </Transitions>
             </Setter>
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Slider:pointerover /template/ Thumb">
-            <Setter Property="RenderTransform" Value="scale(1.15)" />
+            <Setter Property="RenderTransform" Value="scale(1.4)" />
             <Setter Property="Background">
                 <RadialGradientBrush>
                     <GradientStop Offset="0.0" Color="#7dd3fc" />
@@ -141,6 +197,51 @@
         <Style Selector="Slider:pressed /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(2.0)" />
         </Style>
+        <!-- CompactSlider (timeline scrubber + vertical volume): resting dot 21px = 1.5x of the prior 14px -->
+        <Style Selector="Slider.CompactSlider /template/ Thumb">
+            <Setter Property="Width" Value="21" />
+            <Setter Property="Height" Value="21" />
+            <Setter Property="MinWidth" Value="21" />
+            <Setter Property="MinHeight" Value="21" />
+        </Style>
+        <Style Selector="Slider.CompactSlider:pointerover /template/ Thumb">
+            <Setter Property="RenderTransform" Value="scale(1.3)" />
+            <Setter Property="Background">
+                <RadialGradientBrush>
+                    <GradientStop Offset="0.0" Color="#7dd3fc" />
+                    <GradientStop Offset="0.5" Color="#38bdf8" />
+                    <GradientStop Offset="1.0" Color="#0ea5e9" />
+                </RadialGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Slider.CompactSlider:pressed /template/ Thumb">
+            <Setter Property="RenderTransform" Value="scale(2.0)" />
+        </Style>
+
+        <!-- Issue #5: Vertical volume slider track (groove + fill) beautification -->
+        <Style Selector="Slider.VolumeSlider /template/ Border#Background">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#0f172a" />
+                    <GradientStop Offset="0.5" Color="#1e293b" />
+                    <GradientStop Offset="1.0" Color="#0f172a" />
+                </LinearGradientBrush>
+            </Setter>
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="BorderBrush" Value="#334155" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Slider.VolumeSlider /template/ Border#Foreground">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#7dd3fc" />
+                    <GradientStop Offset="0.5" Color="#38bdf8" />
+                    <GradientStop Offset="1.0" Color="#0284c7" />
+                </LinearGradientBrush>
+            </Setter>
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+
         <Style Selector="Slider">
             <Setter Property="Cursor" Value="Hand" />
         </Style>
@@ -148,7 +249,7 @@
         <!-- Issue #17: CheckBox hover/focus feedback -->
         <Style Selector="CheckBox">
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontSize" Value="9" />
+            <Setter Property="FontSize" Value="10" />
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="BorderBrush" Duration="0:0:0.1" />

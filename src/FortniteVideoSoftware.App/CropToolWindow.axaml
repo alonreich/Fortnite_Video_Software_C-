@@ -6,6 +6,7 @@
         Width="1800" Height="930"
         Background="#1e293b"
         MinWidth="1200" MinHeight="800"
+        CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
@@ -14,7 +15,7 @@
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="LightGray" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                    <TextBlock Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
                 <Grid Grid.Row="1" ColumnDefinitions="*, 350">
                     <!-- LEFT: Portrait Canvas Area -->
@@ -35,11 +36,11 @@
                         <Grid RowDefinitions="Auto, *, Auto, Auto">
                             <StackPanel Grid.Row="0" Spacing="10">
                                 <TextBlock Text="CROP TOOLS" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
-                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
-                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="32" FontSize="9"/>
-                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" FontSize="10" IsChecked="True"/>
-                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" FontSize="10" IsChecked="True"/>
+                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Open a reference video for crop placement"/>
+                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Snapshot capture is not available in this crop tool build"/>
+                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Automatic crop detection is not available in this crop tool build"/>
+                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" IsChecked="True"/>
+                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" IsChecked="True"/>
                             </StackPanel>
 
                             <!-- Layers List -->
@@ -55,9 +56,9 @@
 
                             <!-- Action Buttons -->
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" Margin="0,0,0,15">
-                                <Button Name="DeleteSelectedButton" Classes="Danger" Content="DELETE" Width="90" Height="42" FontSize="12"/>
-                                <Button Name="UndoButton" Classes="Primary" Content="UNDO" Width="90" Height="42" FontSize="12"/>
-                                <Button Name="RedoButton" Classes="Primary" Content="REDO" Width="90" Height="42" FontSize="12"/>
+                                <Button Name="DeleteSelectedButton" Classes="Danger" Content="DELETE" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Deleting crop regions is not available in this crop tool build"/>
+                                <Button Name="UndoButton" Classes="Primary" Content="UNDO" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Undo is not available in this crop tool build"/>
+                                <Button Name="RedoButton" Classes="Primary" Content="REDO" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Redo is not available in this crop tool build"/>
                             </StackPanel>
 
                             <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">

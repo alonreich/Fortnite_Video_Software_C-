@@ -6,6 +6,35 @@ FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
 CRITICAL MANDATES FOR ALL AI AGENTS:
 1. NO CACHING ALLOWED: The application MUST NOT use caching of any kind whatsoever. All operations must be real-time or completely stateless between executions. Do not implement any memory caches, disk caches, or memoization.
 2. *** SINGLE EXE INSTALLER ***: THE COMPILED OUTPUT IN THE .\COMPILED\ FOLDER MUST BE EXACTLY ONE SINGLE CONDENSED `.exe` FILE! IT MUST NEVER BE MULTIPLE FILES! The installer `.exe` internally embeds its entire payload (payload.zip) and ONLY extracts it to the correct persistent paths ONCE IT IS RAN AND INSTALLED!
+3. *** ⚠️ PORTRAIT CANVAS TRAP — READ THIS BEFORE ANY PORTRAIT/CROP MATH! *** ⚠️
+   The portrait (9:16) conversion does NOT use a simple aspect-ratio crop! It uses the
+   "Portrait Canvas Trick" — a multi-stage scale→crop→overlay→compose→pad pipeline that
+   can trip up AI agents who assume naive math. If you are writing ANY code that involves
+   portrait dimensions, crop regions, FOV guides, overlay positions, or coordinate
+   transforms (in the MAIN App, Crop Tools, or anywhere else), you MUST follow these rules:
+
+   ❌ WRONG (common trap): "Portrait 9:16 means clear width = height × 9/16 = 608px for 1080p"
+      This assumes a simple center crop at the 9:16 ratio. It is INCORRECT.
+
+   ✅ CORRECT (the actual pipeline): The export scales the source to fill 1280×1920 internal
+      space (`force_original_aspect_ratio=increase`), then center-crops to 1280px wide.
+      For 1920×1080 input: scale factor = 1920/1080 = 1.778 → 3413×1920 → crop 1280 wide.
+      Surviving original horizontal width = 1280 ÷ 1.778 = 720px (NOT 608px).
+
+   THE SINGLE SOURCE OF TRUTH for ALL portrait/crop math is:
+     • `src/FortniteVideoSoftware.Core/Media/CoordinateMath.cs` — all coordinate transforms
+     • `src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs` — the FFmpeg filter graph
+     • `src/FortniteVideoSoftware.Core/Media/CanvasMath.cs` — UI canvas boundary math
+   Constants (`CoordinateConstants`): InternalW=1280, InternalH=1920, PortraitW=1080,
+   PortraitH=1920, ContentW=1080, ContentH=1620, PaddingTop=150, PaddingBottom=150.
+   BackendScale = 1280/1080 = 16/15.
+
+   BEFORE writing or modifying ANY portrait-related math (dimming overlays, FOV guides,
+   crop previews, coordinate transforms, overlay placements), ALWAYS verify your formula
+   against `CoordinateMath.ScalePlan()` and the scale→crop pipeline in `MobileFilterBuilder`.
+   A formula that looks "obviously correct" for 9:16 may be wrong because the internal
+   pipeline uses 1280-wide space, not 1080. When in doubt, trace the actual export filter
+   graph for a 1920×1080 input and confirm the pixel dimensions match.
 
 1. PROJECT DESCRIPTION & GOALS
 ------------------------------------------------------------------------------
@@ -71,8 +100,19 @@ free footprint.
 * Single-File Deployment & Build Pipeline: 
   Targets `win-x64` using `<PublishAot>true</PublishAot>` and `<TrimMode>full</TrimMode>`. 
   Packages all managed code, MSIL, and embedded native libraries into one .exe.
-  The build script (`build.cmd`) operates without PowerShell UI mutation to ensure 
-  the console font consistently stays at 16 Consolas.
+  The production compile entry point is `compile.cmd`, which delegates to `Build.cmd`.
+  `Build.cmd` operates without PowerShell UI mutation to ensure the console font
+  consistently stays at 16 Consolas.
+  Development testing is handled separately by `dev.cmd`:
+  - `dev.cmd` starts `dotnet watch run` hot reload for functionality and look/feel checks.
+  - `dev.cmd run` launches one Debug app session.
+  - `dev.cmd build` performs a fast Debug compile-only check and does not open the app.
+  - `dev.cmd restore` refreshes NuGet assets after package/project changes.
+  - `dev.cmd clean` cleans Debug output.
+  Dev commands target `Debug` + `win-x64` + `--no-self-contained` and use `--no-restore`
+  for warm-loop speed. Run `dev.cmd restore` first after package/reference changes.
+  The app project explicitly includes `**\*.axaml` in `dotnet watch` so UI markup saves
+  participate in the hot-reload/watch workflow.
 
 * UI Polish & Interactions:
   - Draggable, interactive START and END timeline markers via precise Canvas hit-testing.
@@ -80,6 +120,17 @@ free footprint.
   - Modern, brightened metallic blue gradients for all primary action buttons.
   - Smart Windows OS Theme Detection: By default, the application uses a LightGray title bar and a 5px LightGray border. This is an intentional design choice to ensure high contrast against the Windows OS Dark Theme, making it immediately obvious to the user where the application window begins and ends. If the user's OS is running a Light Theme, the app dynamically overrides this and uses a sleek dark (#0f172a) title bar and border.
   - Synchronous Window Bounds tracking via `WindowBoundsHelper.SaveBoundsSync` guarantees that layout, window position, monitor affinity, and sizing are safely committed to disk before the Avalonia application loop terminates.
+  - Design System Standards (UX/UI audit baseline):
+    * Window Title Standard: All custom title bars use the global `TextBlock.WindowTitleText` style from `AvaloniaApp.axaml`. Window titles are horizontally centered in the 30px title bar across Main, Settings, Music Wizard, Granular Speed Editor, Video Merger, Crop Tools, and Advanced Editor. Do not locally set left margins on title text.
+    * Checkbox Standard: All CheckBox controls inherit from a single global style in `AvaloniaApp.axaml` (FontFamily system-default, FontSize 10, Foreground White, Cursor Hand). Hover (`:pointerover`) applies a subtle `#22ffffff` background tint; focus (`:focus`/`:focus-visible`) shows a 2px `#7dd3fc`/`#38bdf8` border ring. This applies app-wide to every checkbox. No CheckBox should set a local `FontSize` override — the global style is the single source of truth.
+    * Apply/Cancel Button Standard: All dialog/window Apply and Cancel action buttons (Settings APPLY/CANCEL, Granular Speed APPLY/CANCEL) MUST use identical dimensions: `Width="90" Height="32" FontSize="10"`. The canonical reference is `GranularSpeedEditorWindow.axaml` (`CancelGranularBtn` / `AcceptGranularBtn`). The APPLY button uses the `Success` (green) class; the CANCEL button uses the `Danger` (red) class. Both rely on the global `Button` style for `CornerRadius="8"`, `FontWeight="SemiBold"`, and `BorderThickness="1,1,1,2"`. Note: The MAIN App's PROCESS/CANCEL buttons (`Width="125" Height="42"`) and Music Wizard's CANCEL/PLAY buttons (`Width="110" Height="42"`) are intentionally larger — they are primary workflow actions, not dialog Apply/Cancel buttons.
+    * Speed Preset Button Standard: MainWindow and GranularSpeedEditorWindow share global `Button.SpeedPreset` and `Button.BaseSpeedPreset` styles from `AvaloniaApp.axaml` and shared wiring in `SpeedPresetButtons.cs`. Both screens use the same two-row quick speed layout: 0.1x, 0.5x, 1.0x, base/default, 1.5x on row 1 and 2.0x, 2.5x, 3.0x, 3.5x, 4.0x on row 2. In Main, the green `BaseSpeedPreset` is always the native default 1.1x. In Granular Speed Editor, the green `BaseSpeedPreset` dynamically reflects the Main screen SPEED value passed into the editor.
+    * Slider Thumb Standard: All `Slider` thumbs are globally enlarged to 18×18px resting (was 12px), growing slowly (0.3s `TransformOperationsTransition`) to `scale(1.4)` on hover and `scale(2.0)` when pressed/dragged. The thumb uses a radial gradient (`#7dd3fc` → `#38bdf8` → `#0ea5e9`) on hover. `CompactSlider` class thumbs (timeline scrubber + vertical volume) are 21×21px resting. This standard is defined in `AvaloniaApp.axaml` and applies to every slider app-wide.
+    * Volume Slider Track Standard: The vertical `VolumeSlider` (in MainWindow right gutter) uses the `VolumeSlider` CSS class to apply gradient styling to the track groove (`#0f172a` → `#1e293b` → `#0f172a` with `#334155` border) and fill (`#7dd3fc` → `#38bdf8` → `#0284c7`). The slider is `Width="28" Height="130"` inside a `Width="52"` container with `Spacing="6"`.
+    * Portrait Dimming (FOV Guide): When Portrait (9:16) mode is enabled, 40% opacity black bands are drawn over the left and right sides of the video to show the crop region. The dimming math EXACTLY matches the export pipeline's "Portrait Canvas Trick" (see `CoordinateMath.cs` + `MobileFilterBuilder.cs`): the export scales source to fill 1280×1920 internal space then center-crops 1280px wide, meaning the surviving horizontal width = `ih × (1280/1920)` = `ih × (2/3)`. The clear center strip is therefore `ih*2/3` and each dim band is `(iw - ih*2/3) / 2` = `iw/2 - ih/3`. Because `MpvVideoView` extends `NativeControlHost` and the native MPV HWND paints over all Avalonia overlays on Windows, this guide is rendered via MPV's own `vf` (video filter) `lavfi=[drawbox...]` chain. The filter is: `lavfi=[drawbox=x=0:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill,drawbox=x=iw/2+ih/3:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill]`. For 1920×1080: band_w = 600px, clear center = 720px (exactly matching the 1280/3413.33 scale→crop ratio). The Avalonia `PortraitDimmingGrid` is kept hidden (`IsVisible="False"`, `IsHitTestVisible="False"`) as a structural reference only.
+    * Overlay Feedback Bubbles: All Main/Granular tactical feedback uses the shared `FloatingFeedback.Show(...)` Popup animation. MainWindow uses `FeedbackPopup`; Granular Speed Editor uses `GranularFeedbackPopup`. Feedback appears at the bottom-center of the VIDEO area and floats upward while fading out. Because the native MPV HWND (embedded via `--wid`) paints over ALL Avalonia overlays AND suppresses MPV's own OSD layer on Windows, feedback MUST be rendered via an **Avalonia `Popup`**. A `Popup` creates a SEPARATE native popup window (WS_POPUP) with its own z-order that floats ABOVE the embedded MPV HWND. Styling: golden text (`#facc15`) on 50% semi-transparent dark blue (`#0f1b3a`) background. The old bottom-right `ToastHost` feedback path is removed and must not be reintroduced for tactical editor feedback.
+    * SpinningWheelSlider Tooltips: The `SpinningWheelSlider` custom control suppresses its tooltip during active interaction (drag, wheel scroll, key navigation) to prevent it from destructively popping up over the spinner. The tooltip is saved, cleared during interaction, and restored 1.2 seconds after the last interaction via a cancellable `Task.Delay`.
+    * Timeline Overlay: The timeline (scale ticks, trim markers, scrub slider) floats at the bottom of the video area on a semi-transparent `#B3000000` strip (height 36px). The `MpvVideoView` has a bottom `Margin="0,0,0,36"` so the native HWND does not extend into this strip, keeping the Avalonia controls visible and interactable above the video. When the user selects a thumbnail frame, `UpdateTimelineMarkers()` draws a persistent yellow camera marker centered on the exact X-axis timeline position for `_thumbnailPosMs`; `_thumbnailSet` controls whether this marker is shown.
 
 * Repository & Dependency Architecture:
   - Clean separation from legacy code: All critical FFmpeg and MPV binaries are now hosted independently in a `binaries/` directory and injected at build time.
@@ -87,12 +138,73 @@ free footprint.
   - Intelligent Agent & IDE Exclusions: Employs `.clineignore`, `.agignore`, `.geminiignore`, and `.codexignore` to perfectly optimize AI context windows (excluding `node_modules`, `dist`, lockfiles, `*.g.cs`) while preserving access to local editor setups.
   - Hardened `.gitignore` safeguards secrets (`.env`, `appsettings.json`), package caches, and test results, while explicitly whitelisting the `binaries/` folder.
 
+2.5. THE THREE (3) APPS / SUB-APPLICATIONS
+------------------------------------------------------------------------------
+This software suite is composed of THREE distinct apps, all accessible from
+the MAIN App's bottom navigation bar:
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ 1. MAIN App (the main opening app)                                   │
+  │    • This is the primary application that opens when you launch the  │
+  │      .exe. It is the central hub for all video editing.              │
+  │    • Provides: video upload, MPV timeline preview, MARK START/END    │
+  │      trimming, speed control (base + granular), thumbnail selection, │
+  │      music addition (3-step wizard), quality/file-size targeting,    │
+  │      Portrait mode toggle, and the final PROCESS/export pipeline.    │
+  │    • File: `MainWindow.axaml` / `MainWindow.axaml.cs`                │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ 2. Video Merger (joins separate videos into one)                     │
+  │    • A dedicated tool for joining/merging two or more separate video  │
+  │      files into one single long video.                               │
+  │    • The user drags-and-drops multiple MP4 files; the app runs an    │
+  │      FFmpeg concatenation pipeline that aligns and pads mismatched   │
+  │      resolutions, producing one seamless output file.                │
+  │    • Opened as a modal dialog from the MAIN App's "VIDEO MERGER"     │
+  │      button.                                                        │
+  │    • File: `VideoMergerWindow.axaml` / `VideoMergerWindow.axaml.cs`  │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ 3. Crop Tools (creates the Portrait-mode JSON config file)           │
+  │    • A precision tool used to define the crop and overlay placement  │
+  │      coordinates that power Portrait mode in the MAIN App.           │
+  │    • How it works: The user loads a clip of their original landscape │
+  │      (16:9) video into Crop Tools, then draws/selects the exact crop │
+  │      regions and overlay positions (Boss HP, teammates, spectating,  │
+  │      portrait text) on the Canvas.                                   │
+  │    • Crop Tools then EXPORTS a JSON config file containing these     │
+  │      exact pixel coordinates.                                        │
+  │    • When the user checks the "Portrait" checkbox in the MAIN App,   │
+  │      the export pipeline reads THIS JSON config file to know exactly │
+  │      where to crop and where to place overlays for the 9:16 portrait │
+  │      conversion. This is where those coordinates originate from.     │
+  │    • Opened as a modal dialog from the MAIN App's "CROP SETTINGS"    │
+  │      button.                                                        │
+  │    • File: `CropToolWindow.axaml` / `CropToolWindow.axaml.cs`        │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  NOTE: Video Merger and Crop Tools are opened as modal dialogs from the
+  MAIN App. They preserve the MAIN App's full session state (video, trim
+  points, speed, music) while open and return to it when closed.
+
 3. FILE & FOLDER STRUCTURE MINIMAP
 ------------------------------------------------------------------------------
 \ (Root Directory)
-|-- build.cmd
-|   Role: Build automation script. Triggers NativeAOT compilation, manages temporary 
+|-- Build.cmd
+|   Role: Underlying production NativeAOT script. Triggers NativeAOT compilation, manages temporary 
 |         artifacts, zips payload, and drops the final bundled installer executable into .\compiled.
+|
+|-- compile.cmd
+|   Role: Production compile entry point. Thin wrapper around `Build.cmd`; use this when
+|         requesting a full NativeAOT compile.
+|
+|-- dev.cmd
+|   Role: Development test loop script. `dev.cmd` opens hot reload mode for UI/functionality
+|         checks before production compile; `dev.cmd run` opens one Debug session; `dev.cmd build`
+|         performs compile-only validation; `dev.cmd restore` refreshes NuGet assets; `dev.cmd clean`
+|         cleans Debug output.
 |
 |-- project_structure.txt
 |   Role: This architectural reference document. Source of truth for project state.
@@ -107,29 +219,40 @@ free footprint.
     |
     +-- FortniteVideoSoftware.App\ (Presentation & Bootstrapper Layer)
     |   |-- FortniteVideoSoftware.App.csproj
-    |   |   Role: Configures Avalonia UI references, NativeAOT compilation, and embeds `payload.zip`.
+    |   |   Role: Configures Avalonia UI references, NativeAOT compilation, embeds `payload.zip`,
+    |   |         copies Debug-only native binaries for local runs, and includes `**\*.axaml` in
+    |   |         `dotnet watch` for UI hot reload.
     |   |-- Program.cs
     |   |   Role: Application entry point. Parses CLI arguments, routes installer requests, and handles Phase Gates.
     |   |-- AvaloniaApp.axaml & AvaloniaApp.axaml.cs
     |   |   Role: Avalonia app initialization, global styles. Routes `--install-worker` and `--cleanup-worker` to UI.
     |   |-- MainWindow.axaml & MainWindow.axaml.cs
-    |   |   Role: The primary visual shell. Integrates MPV playback, handles UI navigation and global shortcuts.
+    |   |   Role: [APP 1 - MAIN App] The primary visual shell and main opening app. Integrates MPV
+    |   |         playback, handles UI navigation, global shortcuts, and hosts the Video Merger and
+    |   |         Crop Tools dialogs. See §2.5 for full description.
     |   |-- DeploymentLifecycle.cs, DeploymentFootprint.cs, DeploymentReporter.cs
     |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation footprint tracking.
     |   |-- DeploymentProgressWindow.axaml & .cs
     |   |   Role: Dark-themed, elegant installer and uninstaller Avalonia Window providing live status and console logs via TextBox.
     |   |-- RuntimeLog.cs
     |   |   Role: Writes verbose startup & operational logs to `%TMP%\Fortnite_Video_Software.log`.
+    |   |-- FloatingFeedback.cs
+    |   |   Role: Shared Popup-based floating tactical feedback animation used by Main and Granular editor.
+    |   |-- SpeedPresetButtons.cs
+    |   |   Role: Shared quick-speed preset mapping, base/default button setup, and preset click wiring.
     |   |-- Phase1Gate.cs, Phase2Gate.cs, Phase3Gate.cs, Phase4Gate.cs
     |   |   Role: End-to-end integration tests that strictly validate behavior rules.
     |   |-- VideoMergerWindow.axaml & .cs
-    |   |   Role: Drag-and-drop Avalonia window for appending multiple MP4 files. Initiates background merging and auto-shutters the app on success.
+    |   |   Role: [APP 2 - Video Merger] Drag-and-drop Avalonia window for joining/merging two or
+    |   |         more separate video files into one long video via FFmpeg concatenation. See §2.5.
     |   |-- MusicWizardWindow.axaml & .cs
     |   |   Role: 3-Step Wizard for Background Music selection. Features an interactive timeline with a visual waveform where users can drag the playhead to set precisely tuned offset ducking configurations.
     |   |-- GranularSpeedEditorWindow.axaml & .cs
     |   |   Role: UI for splitting video into distinct time segments with independent playback speeds.
     |   |-- CropToolWindow.axaml & .cs
-    |   |   Role: Intuitive Canvas-based interface for cropping and portrait conversion handling inverse 1080x1920 calculations.
+    |   |   Role: [APP 3 - Crop Tools] Precision Canvas-based interface for defining crop regions
+    |   |         and overlay positions on a landscape video clip, which exports the JSON config file
+    |   |         used by the MAIN App's Portrait mode. See §2.5.
     |   |-- AdvancedVideoEditorWindow.axaml & .cs
     |   |   Role: Currently indefinitely postponed migration. Intended for keyframe-level video processing and complex text/image overlays.
     |

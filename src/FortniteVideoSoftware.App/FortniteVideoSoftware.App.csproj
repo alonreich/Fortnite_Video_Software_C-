@@ -22,6 +22,29 @@
     <TrimmerRootAssembly Include="SkiaSharp" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Watch Include="**\*.axaml" />
+  </ItemGroup>
+
+  <!-- DEV ONLY: Copy native binaries (mpv, ffmpeg) to the output folder after every
+       Debug build so the app can run locally via `dotnet run` or `dotnet watch run`.
+       Does NOT affect production NativeAOT publish (Release). -->
+  <Target Name="CopyDevBinaries" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' And Exists('$(MSBuildThisFileDirectory)..\..\binaries\mpv.exe')">
+    <ItemGroup>
+      <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\mpv.exe" />
+      <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\libmpv-2.dll" />
+      <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\mpv.com" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffmpeg.exe" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffprobe.exe" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffplay.exe" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\av*.dll" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\sw*.dll" />
+      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\postproc*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DevFrontendBinaries)" DestinationFolder="$(OutDir)frontend" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(DevBackendBinaries)" DestinationFolder="$(OutDir)backend" SkipUnchangedFiles="true" />
+  </Target>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>

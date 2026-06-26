@@ -15,7 +15,7 @@
 
                 <!-- Title Bar -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold" FontSize="14" />
+                    <TextBlock Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
 
                 <Grid Grid.Row="1" RowDefinitions="Auto,*" ColumnDefinitions="300,*,300">

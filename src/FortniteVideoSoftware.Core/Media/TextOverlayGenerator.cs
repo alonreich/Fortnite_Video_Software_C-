@@ -13,15 +13,17 @@ public static class TextOverlayGenerator
 
         // Calculate background rectangle
         // For simplicity, we just use the bounds based on the text length and font size
-        using var font = new SKFont(SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold), fontSize);
+        using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
         using var paint = new SKPaint
         {
             Color = SKColors.White,
-            IsAntialias = true
+            IsAntialias = true,
+            Typeface = typeface,
+            TextSize = fontSize
         };
 
         var textBounds = new SKRect();
-        font.MeasureText(text, out textBounds, paint);
+        paint.MeasureText(text, ref textBounds);
         
         float bgWidth = textBounds.Width + (padding * 2);
         float bgHeight = textBounds.Height + (padding * 2);
@@ -42,7 +44,7 @@ public static class TextOverlayGenerator
         // Draw text
         float textX = xOffset + padding;
         float textY = yOffset + padding - textBounds.Top; // adjust for font baseline
-        canvas.DrawText(text, textX, textY, SKTextAlign.Left, font, paint);
+        canvas.DrawText(text, textX, textY, paint);
 
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);

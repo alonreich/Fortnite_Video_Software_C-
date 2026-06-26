@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 def get_downloads_directory():
@@ -7,7 +9,7 @@ def get_downloads_directory():
         return Path(user_profile) / "Downloads"
     return Path.home() / "Downloads"
 
-def is_binary(file_path):
+def is_binary(file_path: Path) -> bool:
     try:
         with open(file_path, 'rb') as f:
             chunk = f.read(2048)
@@ -27,15 +29,30 @@ def run_aggregator():
     src_dir = project_root / "src"
     download_dir = get_downloads_directory() / "fortnite_video_software"
 
+    if download_dir.exists():
+        shutil.rmtree(download_dir)
     download_dir.mkdir(parents=True, exist_ok=True)
-    initialized_outputs = set()
+    
+    tree_file = download_dir / "file_structure.txt"
+    with open(tree_file, "w", encoding="utf-8") as tf:
+        try:
+            res_cd = subprocess.run(["cmd", "/c", "cd"], capture_output=True, text=True, cwd=project_root)
+            res_dir = subprocess.run(["cmd", "/c", "dir", "/S", "/A"], capture_output=True, text=True, cwd=project_root)
+            tf.write(f"C:\\> cd\n{res_cd.stdout}\nC:\\> dir /S /A\n{res_dir.stdout}")
+        except Exception as e:
+            tf.write(f"[ERROR GENERATING DIRECTORY TREE: {e}]")
+
+    initialized_outputs: set[Path] = set()
 
     ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'old_code'}
     
     source_whitelist = {
-        '.cs', '.axaml', '.cmd', '.py', '.json', '.xml', 
+        '.cs', '.axaml', '.cmd', '.py', '.json', '.json5', '.xml', 
         '.csproj', '.sln', '.txt', '.md', '.svg', '.manifest', '.config',
-        '.ico', '.png', '.jpg', '.jpeg', '.dll', '.exe', '.traineddata'
+        '.ico', '.png', '.jpg', '.jpeg', '.dll', '.exe', '.traineddata',
+        '.props', '.targets', '.editorconfig', '.gitignore', '.gitattributes',
+        '.yaml', '.yml', '.razor', '.resx', '.xaml', '.css', '.js', '.ts',
+        '.html', '.htm', '.ini', '.toml', '.editorconfig', '.ruleset'
     }
     
     for root, dirs, files in os.walk(project_root):
@@ -57,7 +74,7 @@ def run_aggregator():
             file_path = current_path / filename
             relative_path = file_path.relative_to(project_root)
             
-            if file_path.suffix.lower() not in source_whitelist:
+            if file_path.suffix.lower() not in source_whitelist and file_path.name.lower() not in source_whitelist:
                 continue
                 
             if is_binary(file_path):

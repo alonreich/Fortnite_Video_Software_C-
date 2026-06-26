@@ -7,6 +7,8 @@ using FortniteVideoSoftware.Core.Media;
 using System.Diagnostics;
 using System.IO;
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Avalonia;
@@ -21,8 +23,13 @@ public partial class CropToolWindow : Window
     private bool _isDragging = false;
     private Point _pointerStartPoint;
     private Rectangle? _activeCropRect;
+    private Rectangle? _selectedCropRect;
     private Point _rectStartPos;
     private MpvVideoView? _bgVideo;
+    private bool _isSafeToClose = false;
+    private const double SnapGridSize = 10;
+    private readonly ObservableCollection<string> _layerNames = new();
+    private readonly Dictionary<string, Rectangle> _cropRects = new();
 
     private async void InitializeMpv()
     {
@@ -35,26 +42,51 @@ public partial class CropToolWindow : Window
         }
     }
 
-    protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
+    protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        if (_bgVideo?.IpcClient != null)
+        // If the background work is done, allow the window to close normally
+        if (_isSafeToClose)
         {
-            _ = _bgVideo?.IpcClient?.SendCommandAsync("stop");
+            base.OnClosing(e);
+            return;
         }
-        base.OnClosing(e);
+
+        // STOP the synchronous UI-blocking close
+        e.Cancel = true;
+
+        // Hide the window instantly so the app feels incredibly fast and responsive
+        this.Hide();
+
+        try
+        {
+            // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
+            await WindowBoundsHelper.SaveBoundsAsync(this, "CropToolBounds");
+
+            if (_bgVideo?.IpcClient != null)
+            {
+                await _bgVideo.IpcClient.SendCommandAsync("stop");
+            }
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("CROP", $"Error saving state during close: {ex.Message}");
+        }
+        finally
+        {
+            // Mark as safe and programmatically re-trigger the close
+            _isSafeToClose = true;
+            this.Close();
+        }
     }
 
     public CropToolWindow()
     {
         InitializeComponent();
         this.Loaded += (s, e) => InitializeMpv();
+        AttachTitleBarDrag();
 
         this.Loaded += async (s, e) => {
             await WindowBoundsHelper.LoadBoundsAsync(this, "CropToolBounds");
-        };
-
-        this.Closing += (s, e) => {
-            WindowBoundsHelper.SaveBoundsSync(this, "CropToolBounds");
         };
 
         var returnBtn = this.FindControl<Button>("ReturnButton");
@@ -101,6 +133,25 @@ public partial class CropToolWindow : Window
             };
         }
 
+        var layerList = this.FindControl<ListBox>("LayerList");
+        if (layerList != null)
+        {
+            layerList.ItemsSource = _layerNames;
+            layerList.SelectionChanged += (s, e) =>
+            {
+                if (layerList.SelectedItem is string role && _cropRects.TryGetValue(role, out var rect))
+                {
+                    SelectCropRect(rect);
+                }
+            };
+        }
+
+        var showPlaceholders = this.FindControl<CheckBox>("ShowPlaceholders");
+        if (showPlaceholders != null)
+        {
+            showPlaceholders.IsCheckedChanged += (s, e) => ApplyPlaceholderVisibility();
+        }
+
         var canvas = this.FindControl<Canvas>("PortraitCanvas");
         if (canvas != null)
         {
@@ -114,6 +165,8 @@ public partial class CropToolWindow : Window
             AddCropRect("HP", 300, 1500, 480, 80, Brushes.Red);
             AddCropRect("Team", 20, 360, 250, 300, Brushes.Magenta);
             AddCropRect("Spectating", 350, 1200, 380, 60, Brushes.Yellow);
+            if (_layerNames.Count > 0 && layerList != null)
+                layerList.SelectedIndex = 0;
         }
     }
 
@@ -129,6 +182,7 @@ public partial class CropToolWindow : Window
             Fill = new SolidColorBrush(Colors.Green) { Opacity = 0.4 },
             Stroke = brush,
             StrokeThickness = 2,
+            Cursor = new Cursor(StandardCursorType.SizeAll),
             Tag = role,
             ZIndex = 50
         };
@@ -136,6 +190,9 @@ public partial class CropToolWindow : Window
         Canvas.SetLeft(rect, x);
         Canvas.SetTop(rect, y);
         canvas.Children.Add(rect);
+        _cropRects[role] = rect;
+        if (!_layerNames.Contains(role))
+            _layerNames.Add(role);
     }
 
     private void Canvas_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -146,11 +203,16 @@ public partial class CropToolWindow : Window
         var point = e.GetPosition(canvas);
         if (e.Source is Rectangle r && r.Tag != null)
         {
+            SelectCropRect(r);
             _activeCropRect = r;
             _isDragging = true;
             _pointerStartPoint = point;
             _rectStartPos = new Point(Canvas.GetLeft(r), Canvas.GetTop(r));
             e.Handled = true;
+        }
+        else
+        {
+            SelectCropRect(null);
         }
     }
 
@@ -169,6 +231,14 @@ public partial class CropToolWindow : Window
         newX = Math.Max(0, Math.Min(newX, CanvasMath.FinalWidth - _activeCropRect.Width));
         newY = Math.Max(CanvasMath.ContentOffsetY, Math.Min(newY, CanvasMath.FinalHeight - CanvasMath.ContentOffsetY - _activeCropRect.Height));
 
+        if (IsSnapEnabled())
+        {
+            newX = Math.Round(newX / SnapGridSize) * SnapGridSize;
+            newY = Math.Round(newY / SnapGridSize) * SnapGridSize;
+            newX = Math.Max(0, Math.Min(newX, CanvasMath.FinalWidth - _activeCropRect.Width));
+            newY = Math.Max(CanvasMath.ContentOffsetY, Math.Min(newY, CanvasMath.FinalHeight - CanvasMath.ContentOffsetY - _activeCropRect.Height));
+        }
+
         Canvas.SetLeft(_activeCropRect, newX);
         Canvas.SetTop(_activeCropRect, newY);
     }
@@ -177,6 +247,52 @@ public partial class CropToolWindow : Window
     {
         _isDragging = false;
         _activeCropRect = null;
+    }
+
+    private void SelectCropRect(Rectangle? rect)
+    {
+        if (_selectedCropRect != null)
+        {
+            _selectedCropRect.StrokeThickness = 2;
+            _selectedCropRect.Fill = new SolidColorBrush(Colors.Green) { Opacity = 0.4 };
+        }
+
+        _selectedCropRect = rect;
+
+        if (_selectedCropRect != null)
+        {
+            _selectedCropRect.StrokeThickness = 4;
+            _selectedCropRect.Fill = new SolidColorBrush(Colors.Gold) { Opacity = 0.32 };
+
+            if (_selectedCropRect.Tag is string role)
+            {
+                var layerList = this.FindControl<ListBox>("LayerList");
+                if (layerList != null && layerList.SelectedItem as string != role)
+                    layerList.SelectedItem = role;
+            }
+        }
+        else
+        {
+            var layerList = this.FindControl<ListBox>("LayerList");
+            if (layerList != null && layerList.SelectedItem != null)
+                layerList.SelectedItem = null;
+        }
+    }
+
+    private bool IsSnapEnabled()
+    {
+        return this.FindControl<CheckBox>("SnapToggle")?.IsChecked == true;
+    }
+
+    private void ApplyPlaceholderVisibility()
+    {
+        bool visible = this.FindControl<CheckBox>("ShowPlaceholders")?.IsChecked != false;
+        foreach (var rect in _cropRects.Values)
+        {
+            rect.IsVisible = visible;
+        }
+        if (!visible)
+            SelectCropRect(null);
     }
 
     private void InitializeComponent()
@@ -239,14 +355,29 @@ public partial class CropToolWindow : Window
             var state = await store.LoadAsync();
             state["returned_from_crop_tool"] = true;
             await store.SaveAsync(state);
-
-            string exePath = Environment.ProcessPath ?? "FortniteVideoSoftware.App.exe";
-            Process.Start(new ProcessStartInfo(exePath, "run-ui") { UseShellExecute = true });
+            RuntimeLog.Info("CROP", "Returning to parent main window.");
+            Close();
         }
         catch (Exception ex)
         {
-            RuntimeLog.Fail("CROP", "Error launching main app: " + ex.Message);
+            RuntimeLog.Fail("CROP", "Error returning to main window: " + ex.Message);
         }
         
+    }
+
+    private void AttachTitleBarDrag()
+    {
+        var titleBar = this.FindControl<Border>("TitleBarBorder");
+        if (titleBar != null)
+        {
+            titleBar.IsHitTestVisible = true;
+            titleBar.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                {
+                    try { BeginMoveDrag(e); } catch { }
+                }
+            };
+        }
     }
 }

@@ -17,6 +17,7 @@ public partial class SettingsWindow : Window
     private Dictionary<string, Key> _pendingKeys = new();
     private Dictionary<string, Button> _keyButtons = new();
     private string? _waitingForKeyAction;
+    private bool _isSafeToClose = false;
 
     // Pending default values (edited in the Defaults tab, applied on SAVE)
     private DefaultValues _pendingDefaults = new();
@@ -223,10 +224,36 @@ public partial class SettingsWindow : Window
         _ = WindowBoundsHelper.LoadBoundsAsync(this, "SettingsBounds");
     }
 
-    protected override void OnClosing(WindowClosingEventArgs e)
+    protected override async void OnClosing(WindowClosingEventArgs e)
     {
-        try { WindowBoundsHelper.SaveBoundsSync(this, "SettingsBounds"); } catch { }
-        base.OnClosing(e);
+        // If the background work is done, allow the window to close normally
+        if (_isSafeToClose)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        // STOP the synchronous UI-blocking close
+        e.Cancel = true;
+
+        // Hide the window instantly so the app feels incredibly fast and responsive
+        this.Hide();
+
+        try
+        {
+            // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
+            await WindowBoundsHelper.SaveBoundsAsync(this, "SettingsBounds");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("SETTINGS", $"Error saving state during close: {ex.Message}");
+        }
+        finally
+        {
+            // Mark as safe and programmatically re-trigger the close
+            _isSafeToClose = true;
+            this.Close();
+        }
     }
 
     private void AttachTitleBarDrag()
@@ -234,6 +261,7 @@ public partial class SettingsWindow : Window
         var titleBar = this.FindControl<Border>("TitleBarBorder");
         if (titleBar != null)
         {
+            titleBar.IsHitTestVisible = true;
             titleBar.PointerPressed += (s, e) =>
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
