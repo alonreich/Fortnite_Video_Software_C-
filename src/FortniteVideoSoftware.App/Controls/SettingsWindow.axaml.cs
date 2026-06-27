@@ -9,6 +9,7 @@ using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.App.Infrastructure;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace FortniteVideoSoftware.App.Controls;
 
@@ -61,6 +62,10 @@ public partial class SettingsWindow : Window
         _pendingKeys["SeekBackward"] = kb.SeekBackward;
         _pendingKeys["VolumeUp"] = kb.VolumeUp;
         _pendingKeys["VolumeDown"] = kb.VolumeDown;
+        _pendingKeys["FineSeekForward"] = kb.FineSeekForward;
+        _pendingKeys["FineSeekBackward"] = kb.FineSeekBackward;
+        _pendingKeys["AggressiveVolumeUp"] = kb.AggressiveVolumeUp;
+        _pendingKeys["AggressiveVolumeDown"] = kb.AggressiveVolumeDown;
     }
 
     private void BuildKeyBindsUi()
@@ -75,8 +80,12 @@ public partial class SettingsWindow : Window
             { "MarkEnd", "Mark End of Clip" },
             { "SeekForward", "Seek Forward" },
             { "SeekBackward", "Seek Backward" },
+            { "FineSeekForward", "Fine Seek Forward (Ctrl + ...)" },
+            { "FineSeekBackward", "Fine Seek Backward (Ctrl + ...)" },
             { "VolumeUp", "Volume Up" },
-            { "VolumeDown", "Volume Down" }
+            { "VolumeDown", "Volume Down" },
+            { "AggressiveVolumeUp", "Aggressive Volume Up (Ctrl + ...)" },
+            { "AggressiveVolumeDown", "Aggressive Volume Down (Ctrl + ...)" }
         };
 
         foreach (var kvp in labels)
@@ -84,7 +93,7 @@ public partial class SettingsWindow : Window
             var actionId = kvp.Key;
             var description = kvp.Value;
 
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 150") };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 120") };
             
             var text = new TextBlock 
             { 
@@ -96,7 +105,7 @@ public partial class SettingsWindow : Window
             var btn = new Button 
             { 
                 Content = _pendingKeys[actionId].ToString(),
-                Width = 150,
+                Width = 120,
                 Classes = { "Primary" }
             };
             
@@ -119,6 +128,31 @@ public partial class SettingsWindow : Window
 
             panel.Children.Add(grid);
         }
+
+        var resetBtn = new Button 
+        { 
+            Content = "Reset to Factory Defaults", 
+            Classes = { "Danger" }, 
+            HorizontalAlignment = HorizontalAlignment.Right, 
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        resetBtn.Click += (s, e) => 
+        {
+            var def = new KeyBinds();
+            foreach (var kvp in _pendingKeys.Keys.ToList())
+            {
+                var prop = typeof(KeyBinds).GetProperty(kvp);
+                if (prop != null)
+                {
+                    _pendingKeys[kvp] = (Key)prop.GetValue(def)!;
+                    if (_keyButtons.TryGetValue(kvp, out var btnRef))
+                    {
+                        btnRef.Content = _pendingKeys[kvp].ToString();
+                    }
+                }
+            }
+        };
+        panel.Children.Add(resetBtn);
     }
 
     private void BuildDefaultsUi()
@@ -127,14 +161,14 @@ public partial class SettingsWindow : Window
         if (panel == null) return;
 
         // ── Default Speed (0.1 – 4.0) ──
-        var speedGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 120") };
+        var speedGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 100") };
         var speedLabel = new TextBlock { Text = "Default Speed", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
         var speedNum = new NumericUpDown
         {
             Minimum = 0.1m, Maximum = 4.0m, Increment = 0.1m,
             Value = (decimal)_pendingDefaults.DefaultSpeed,
             FormatString = "0.0",
-            Width = 120, HorizontalAlignment = HorizontalAlignment.Right
+            Width = 100, HorizontalAlignment = HorizontalAlignment.Right
         };
         speedNum.ValueChanged += (_, _) => _pendingDefaults.DefaultSpeed = (double)speedNum.Value;
         Grid.SetColumn(speedLabel, 0); Grid.SetColumn(speedNum, 1);
@@ -142,9 +176,9 @@ public partial class SettingsWindow : Window
         panel.Children.Add(speedGrid);
 
         // ── Default Output File Size (index 0-20) ──
-        var qGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 200") };
+        var qGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 150") };
         var qLabel = new TextBlock { Text = "Default Output File Size", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
-        var qCombo = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Right };
+        var qCombo = new ComboBox { Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
         var qItems = new List<string>();
         for (int i = 0; i < 20; i++) qItems.Add($"{5 + i * 5}MB");
         qItems.Add("ORIGINAL QUALITY");
@@ -156,9 +190,9 @@ public partial class SettingsWindow : Window
         panel.Children.Add(qGrid);
 
         // ── Default Volume (0-100) ──
-        var volGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 200") };
+        var volGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 150") };
         var volLabel = new TextBlock { Text = "Default Volume", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
-        var volSlider = new Slider { Minimum = 0, Maximum = 100, Value = _pendingDefaults.Volume, Width = 200, HorizontalAlignment = HorizontalAlignment.Right };
+        var volSlider = new Slider { Minimum = 0, Maximum = 100, Value = _pendingDefaults.Volume, Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
         volSlider.PropertyChanged += (_, e) => { if (e.Property == Slider.ValueProperty) _pendingDefaults.Volume = (int)volSlider.Value; };
         Grid.SetColumn(volLabel, 0); Grid.SetColumn(volSlider, 1);
         volGrid.Children.Add(volLabel); volGrid.Children.Add(volSlider);
@@ -215,15 +249,17 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private Grid MakeCheckboxRow(string label, bool isChecked, Action<bool> onToggle)
+    private CheckBox MakeCheckboxRow(string label, bool isChecked, Action<bool> onToggle)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, Auto") };
-        var tb = new TextBlock { Text = label, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
-        var cb = new ToggleButton { IsChecked = isChecked, Width = 60, HorizontalAlignment = HorizontalAlignment.Right };
+        var cb = new CheckBox 
+        { 
+            Content = label, 
+            IsChecked = isChecked, 
+            Foreground = Brushes.White,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
         cb.IsCheckedChanged += (_, _) => onToggle(cb.IsChecked == true);
-        Grid.SetColumn(tb, 0); Grid.SetColumn(cb, 1);
-        grid.Children.Add(tb); grid.Children.Add(cb);
-        return grid;
+        return cb;
     }
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
@@ -247,6 +283,10 @@ public partial class SettingsWindow : Window
         kb.SeekBackward = _pendingKeys["SeekBackward"];
         kb.VolumeUp = _pendingKeys["VolumeUp"];
         kb.VolumeDown = _pendingKeys["VolumeDown"];
+        kb.FineSeekForward = _pendingKeys["FineSeekForward"];
+        kb.FineSeekBackward = _pendingKeys["FineSeekBackward"];
+        kb.AggressiveVolumeUp = _pendingKeys["AggressiveVolumeUp"];
+        kb.AggressiveVolumeDown = _pendingKeys["AggressiveVolumeDown"];
 
         // Apply default values
         SettingsManager.Instance.Defaults = _pendingDefaults;

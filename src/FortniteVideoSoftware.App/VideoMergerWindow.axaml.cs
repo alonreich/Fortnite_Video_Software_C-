@@ -61,6 +61,7 @@ public partial class VideoMergerWindow : Window
         }
         VideoQueue.CollectionChanged += (_, _) => UpdateQueueState();
 
+
         var returnBtn = this.FindControl<Button>("ReturnButton");
         if (returnBtn != null)
             returnBtn.Click += (s, e) => ReturnToMainApp();
@@ -83,12 +84,42 @@ public partial class VideoMergerWindow : Window
             addBtn.Click += async (s, e) =>
             {
                 RuntimeLog.Info("UI", "User clicked Add Video in Video Merger.");
-                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                
+                var options = new FilePickerOpenOptions
                 {
                     Title = "Add Videos to Merger",
                     AllowMultiple = true,
                     FileTypeFilter = new[] { new FilePickerFileType("Video Files") { Patterns = new[] { "*.mp4", "*.mkv", "*.avi", "*.mov" } } }
-                });
+                };
+
+                var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
+                try
+                {
+                    if (System.IO.File.Exists(paths.SessionStateFile))
+                    {
+                        var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
+                        if (state != null && state["MergerUploadDirectory"]?.ToString() is string startPath && System.IO.Directory.Exists(startPath))
+                        {
+                            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                        }
+                    }
+                }
+                catch { }
+
+                var files = await StorageProvider.OpenFilePickerAsync(options);
+
+                if (files.Count > 0)
+                {
+                    try
+                    {
+                        var state = System.IO.File.Exists(paths.SessionStateFile) 
+                            ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                            : new System.Text.Json.Nodes.JsonObject();
+                        state["MergerUploadDirectory"] = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
+                        System.IO.File.WriteAllText(paths.SessionStateFile, state.ToJsonString());
+                    }
+                    catch { }
+                }
 
                 foreach (var file in files)
                 {

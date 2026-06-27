@@ -38,71 +38,71 @@ CRITICAL MANDATES FOR ALL AI AGENTS:
 
 1. PROJECT DESCRIPTION & GOALS
 ------------------------------------------------------------------------------
-The Fortnite Video Software project is a robust, hardware-accelerated media 
-processing suite. Originally written in Python and PyQt5, it suffered from 
-Global Interpreter Lock (GIL) deadlocks, native C++ binding instability, and 
+The Fortnite Video Software project is a robust, hardware-accelerated media
+processing suite. Originally written in Python and PyQt5, it suffered from
+Global Interpreter Lock (GIL) deadlocks, native C++ binding instability, and
 distribution complexities.
 
-The overarching goal of this project is to port the suite into a single, 
-statically compiled .NET 9 NativeAOT executable. By leveraging C#, Avalonia UI, 
-and NativeAOT, the software achieves true multi-threading, complete elimination 
+The overarching goal of this project is to port the suite into a single,
+statically compiled .NET 9 NativeAOT executable. By leveraging C#, Avalonia UI,
+and NativeAOT, the software achieves true multi-threading, complete elimination
 of GIL limitations, improved IPC safety, and an extremely lightweight, dependency-
 free footprint.
 
 2. PRODUCT SPECIFICATIONS & FEATURES
 ------------------------------------------------------------------------------
-* High-Integrity IPC & State Management: 
-  Configurations and session state are managed through Named System Mutexes 
-  (`Global\FvsStateTransferMutex`) and write-then-replace atomic JSON handlers. 
+* High-Integrity IPC & State Management:
+  Configurations and session state are managed through Named System Mutexes
+  (`Global\FvsStateTransferMutex`) and write-then-replace atomic JSON handlers.
   Writes strictly target `%PROGRAMDATA%` to adhere to Windows permission models.
 
-* Crash Recovery Protocol (CRP): 
-  The Bootstrapper uses PID-based file locking (`app_session.lock`) and a 120s 
-  `safe_mode.sentinel` watchdog to detect unexpected terminations. If a crash 
+* Crash Recovery Protocol (CRP):
+  The Bootstrapper uses PID-based file locking (`app_session.lock`) and a 120s
+  `safe_mode.sentinel` watchdog to detect unexpected terminations. If a crash
   is detected, it prompts session restoration and prevents crash looping.
 
 * Standalone Installer & Deployment Lifecycle:
   - Payload Extraction: The installer dynamically unpacks `FortniteVideoSoftware.App.payload.zip`
     (which includes native binaries like `libSkiaSharp.dll` and `ffmpeg.exe`) into `%TMP%\Fortnite Video Software`.
-  - Elegant Deployment UI: Both installation and uninstallation leverage a beautiful, dark-themed 
+  - Elegant Deployment UI: Both installation and uninstallation leverage a beautiful, dark-themed
     Avalonia window (`DeploymentProgressWindow`) to show real-time progress, matching the premium aesthetic.
-  - Silent Background Cleanup: When the setup or uninstaller exits, it detaches a background `cmd.exe` process 
+  - Silent Background Cleanup: When the setup or uninstaller exits, it detaches a background `cmd.exe` process
     to exhaustively wipe all `Fortnite Video Software`, `fvs_*`, and `FVS_*` temp folders from `%TMP%`.
-  - Verbose Error Logging: The entire installation lifecycle and any fatal startup exceptions are persistently 
+  - Verbose Error Logging: The entire installation lifecycle and any fatal startup exceptions are persistently
     logged directly to `%TMP%\Fortnite_Video_Software.log`. No other traces are left behind.
 
-* MPV Timeline & UI Shell (Avalonia): 
-  The UI is built with Avalonia (Fluent Themes). It employs a custom `libmpv-2.dll` 
-  P/Invoke wrapper to handle hardware-accelerated video rendering. To prevent 
-  deadlocks, timeline scrubbing is debounced at a max of 20fps. A background 
-  watchdog (`MPVSafetyManager`) monitors the native C++ MPV queue and will 
+* MPV Timeline & UI Shell (Avalonia):
+  The UI is built with Avalonia (Fluent Themes). It employs a custom `libmpv-2.dll`
+  P/Invoke wrapper to handle hardware-accelerated video rendering. To prevent
+  deadlocks, timeline scrubbing is debounced at a max of 20fps. A background
+  watchdog (`MPVSafetyManager`) monitors the native C++ MPV queue and will
   forcefully reset the internal state machine if a seek request hangs beyond 2.5s.
-  The UI enforces strict aesthetics (e.g., 42px bottom navigation buttons, silent 
-  file deletion without prompts). Auto-exit hooks cleanly shut down the app after 
+  The UI enforces strict aesthetics (e.g., 42px bottom navigation buttons, silent
+  file deletion without prompts). Auto-exit hooks cleanly shut down the app after
   executing OS actions (e.g., sharing to WhatsApp or opening folders).
 
 * FFmpeg Media Processing Pipeline:
-  - Hardware Acceleration Scanner: Tests capabilities using a strict prioritization 
-    chain (NVIDIA nvenc -> AMD amf -> INTEL qsv -> CPU libx264) with a 15-second 
+  - Hardware Acceleration Scanner: Tests capabilities using a strict prioritization
+    chain (NVIDIA nvenc -> AMD amf -> INTEL qsv -> CPU libx264) with a 15-second
     GPU driver-hang watchdog. Encoder probes must use a real 256x256 yuv420p test
     frame; 128x128 is invalid on current NVENC drivers and causes false CPU fallback.
     Hardware export mode is stored as scanner state (`_hardwareMode`) and must not be
     inferred by parsing the visible `HardwareStatusLabel`; the label is display-only.
     `EncoderManager` treats `GPU`/`AUTO` as first available hardware encoder, not CPU.
-  - Encoder Contract: Forces `yuv420p` pixel format and H.264 `Level 4.2` to 
+  - Encoder Contract: Forces `yuv420p` pixel format and H.264 `Level 4.2` to
     guarantee mobile device playback compatibility.
-  - Audio Ducking: 150Hz frequency split (Highpass/Lowpass). High frequencies of 
+  - Audio Ducking: 150Hz frequency split (Highpass/Lowpass). High frequencies of
     game audio are sidechain compressed (ducked) against background music.
-  - TimeSync Engine: Mathematically shifts gameplay durations to accommodate 
+  - TimeSync Engine: Mathematically shifts gameplay durations to accommodate
     variable-speed scaling without losing alignment with background music.
-  - WhatsApp Intro Fix: Prepends exactly 0.1s of the first frame as a static 
+  - WhatsApp Intro Fix: Prepends exactly 0.1s of the first frame as a static
     lead-in to bypass a known WhatsApp black-screen thumbnail bug.
-  - Canvas Math: Applies precision +1px drift correction boundaries (left-edge 
-    and right-edge specific) to ensure dynamic bounding boxes do not truncate 
+  - Canvas Math: Applies precision +1px drift correction boundaries (left-edge
+    and right-edge specific) to ensure dynamic bounding boxes do not truncate
     under 1080x1920 inverse transformations.
 
-* Single-File Deployment & Build Pipeline: 
-  Targets `win-x64` using `<PublishAot>true</PublishAot>` and `<TrimMode>full</TrimMode>`. 
+* Single-File Deployment & Build Pipeline:
+  Targets `win-x64` using `<PublishAot>true</PublishAot>` and `<TrimMode>full</TrimMode>`.
   Packages all managed code, MSIL, and embedded native libraries into one .exe.
   The production compile entry point is `compile.cmd`, which delegates to `Build.cmd`.
   `Build.cmd` operates without PowerShell UI mutation to ensure the console font
@@ -113,7 +113,7 @@ free footprint.
   - `dev.cmd build` performs a fast Debug compile-only check and does not open the app.
   - `dev.cmd restore` refreshes NuGet assets after package/project changes.
   - `dev.cmd clean` securely wipes Debug output (`bin`/`obj`) to guarantee a fresh build.
-  Dev commands safely sandbox their execution via `FVS_PROGRAMDATA_ROOT=.dev_data`, ensuring 
+  Dev commands safely sandbox their execution via `FVS_PROGRAMDATA_ROOT=.dev_data`, ensuring
   local developer tests do not overwrite or corrupt your real production `%PROGRAMDATA%` configs.
   Dev commands target `Debug` + `win-x64` + `--no-self-contained`.
   The app project explicitly includes `**\*.axaml` in `dotnet watch` so UI markup saves
@@ -132,13 +132,14 @@ free footprint.
     * App-Wide Action Button Standard: ALL buttons app-wide (including Main App workflow buttons like PROCESS/CANCEL, dialog actions like APPLY/CANCEL, and wizard steps like PLAY PREVIEW/NEXT) inherit from a single ROOT source of truth in `AvaloniaApp.axaml`. The base `<Style Selector="Button">` enforces a strict universal dimension: `Height="32"` and `FontSize="10"`. Individual buttons may locally override `Width` (e.g., `Width="125"` for PROCESS, `Width="90"` for CANCEL) but MUST NOT hardcode `Height` or `FontSize` in their `.axaml` files. The gigantic buttons of the past (e.g. Height 42, FontSize 12) have been eliminated to ensure consistent scaling and aesthetics across every window. Both rely on the global `Button` style for `CornerRadius="8"`, `FontWeight="SemiBold"`, and `BorderThickness="1,1,1,2"`. The APPLY/PROCESS buttons use the `Success` (green) class; the CANCEL buttons use the `Danger` (red) class.
     * Speed Preset Button Standard: MainWindow and GranularSpeedEditorWindow share global `Button.SpeedPreset`, `Button.BaseSpeedPreset`, and `StackPanel.SpeedPresetRows` styles from `AvaloniaApp.axaml` plus shared wiring in `SpeedPresetButtons.cs`. Preset buttons are `31x25` px with `Padding="0"` so labels never get clipped, the vertical row gap is `3px`, and hover uses a subtle dark amber glow (`#4a3714` background, `#a16207` border, `#fef3c7` text). Both screens use the same two-row quick speed layout: 0.1x, 0.5x, 1.0x, base/default, 1.5x on row 1 and 2.0x, 2.5x, 3.0x, 3.5x, 4.0x on row 2. In Main, the green `BaseSpeedPreset` is always the native default 1.1x. In Granular Speed Editor, the green `BaseSpeedPreset` dynamically reflects the Main screen SPEED value passed into the editor.
     * Slider Thumb Standard: All `Slider` thumbs are globally enlarged to 18×18px resting (was 12px), growing slowly (0.3s `TransformOperationsTransition`) to `scale(1.4)` on hover and `scale(2.0)` when pressed/dragged. The thumb uses a radial gradient (`#7dd3fc` → `#38bdf8` → `#0ea5e9`) on hover. `CompactSlider` class thumbs (timeline scrubber + vertical volume) are 21×21px resting. This standard is defined in `AvaloniaApp.axaml` and applies to every slider app-wide.
-     * Volume Slider Standard: The vertical `VolumeSlider` (in MainWindow, flush between the video border and the right pane) uses the PLAIN default Avalonia slider style (matching the Granular Speed horizontal slider), NOT a custom gradient track. It sits inside a slim clear frame: a `Border` `Width="56"` with `Padding="4,8"`, `Background="#15202b"`, `BorderBrush="#475569"`, `BorderThickness="1"`, and `VerticalAlignment="Stretch"` so it anchors to the top and bottom edges of the video player and stretches/shrinks with the app. There is NO horizontal gap on either side — the parent grid `Margin` right edge is `0` (not 16) so the frame touches the right pane, and the video sits flush against its left. A `VolumeBadgeText` (e.g. "100%") sits above the slider in the frame. The old `VolumeSlider` CSS class and gradient track styles have been removed.
+     * Volume Slider Standard: The vertical `VolumeSlider` (in MainWindow, flush between the video border and the right pane) uses the PLAIN default Avalonia slider style (matching the Granular Speed horizontal slider), NOT a custom gradient track. It sits inside a slim clear frame: a `Border` `Width="40"` with `Padding="0,8"`, `Background="#15202b"`, `BorderBrush="#475569"`, `BorderThickness="1"`, and `VerticalAlignment="Stretch"` so it anchors to the top and bottom edges of the video player and stretches/shrinks with the app. There is NO horizontal gap on either side — the parent grid `Margin` right edge is `0` (not 16) so the frame touches the right pane, and the video sits flush against its left. To counter vertical track layout drift, its inner Grid is clamped `HorizontalAlignment="Left"` with `Margin="-6,0,0,0"`. The `VolumeBadgeText` ("100%") and speaker icon are colored `#00C870` and shifted `3px` to the right to visually align with the track perfectly.
     * Portrait Dimming (FOV Guide): When Portrait (9:16) mode is enabled, 40% opacity black bands are drawn over the left and right sides of the video to show the crop region. The dimming math EXACTLY matches the export pipeline's "Portrait Canvas Trick" (see `CoordinateMath.cs` + `MobileFilterBuilder.cs`): the export scales source to fill 1280×1920 internal space then center-crops 1280px wide, meaning the surviving horizontal width = `ih × (1280/1920)` = `ih × (2/3)`. The clear center strip is therefore `ih*2/3` and each dim band is `(iw - ih*2/3) / 2` = `iw/2 - ih/3`. Because `MpvVideoView` extends `NativeControlHost` and the native MPV HWND paints over all Avalonia overlays on Windows, this guide is rendered via MPV's own `vf` (video filter) `lavfi=[drawbox...]` chain. The filter is: `lavfi=[drawbox=x=0:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill,drawbox=x=iw/2+ih/3:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill]`. For 1920×1080: band_w = 600px, clear center = 720px (exactly matching the 1280/3413.33 scale→crop ratio). The Avalonia `PortraitDimmingGrid` is kept hidden (`IsVisible="False"`, `IsHitTestVisible="False"`) as a structural reference only.
     * Overlay Feedback Bubbles: All Main/Granular tactical feedback uses the shared `FloatingFeedback.Show(...)` Popup animation. MainWindow uses `FeedbackPopup`; Granular Speed Editor uses `GranularFeedbackPopup`. Feedback appears at the bottom-center of the VIDEO area and floats upward while fading out. Because the native MPV HWND (embedded via `--wid`) paints over ALL Avalonia overlays AND suppresses MPV's own OSD layer on Windows, feedback MUST be rendered via an **Avalonia `Popup`**. A `Popup` creates a SEPARATE native popup window (WS_POPUP) with its own z-order that floats ABOVE the embedded MPV HWND. Styling: golden text (`#facc15`) on 50% semi-transparent dark blue (`#0f1b3a`) background. The old bottom-right `ToastHost` feedback path is removed and must not be reintroduced for tactical editor feedback.
     * Music Wizard Toast Layering: `MusicWizardWindow.ShowToast(...)` must set the toast `ZIndex` before adding it to the host panel. The toast ZIndex must be at least 999 and above every existing sibling so it cannot render behind list boxes or content panels.
     * SpinningWheelSlider Tooltips: The `SpinningWheelSlider` custom control suppresses its tooltip during active interaction (drag, wheel scroll, key navigation) to prevent it from destructively popping up over the spinner. The tooltip is saved, cleared during interaction, and restored 1.2 seconds after the last interaction via a cancellable `Task.Delay`.
-    * Music Wizard Timeline & Playhead: The wizard timeline uses a dual-marker system: a static dashed gray line for the track offset, and an active smooth-moving red playhead synced at 60fps with the background `ffplay` process. Click-to-seek handles instant audio/visual repositioning.
-    * Main App Music Overlay: The applied music is drawn on the main timeline as a pink block with draggable "🎵" text-block markers on both ends. These dictate `TimelineStartSeconds` and `TimelineEndSeconds`, which dynamically sync to both the Avalonia video preview loop and the FFmpeg export pipeline via `TimelineStartDelay`.
+    * Music Wizard Timeline & Playhead: The wizard timeline uses a dual-marker system: a static dashed gray line for the song start point, and an active smooth-moving red playhead synced at 60fps with the MPV audio preview. Click-to-seek handles instant audio/visual repositioning.
+    * NativeControlHost Visibility Bug (MpvVideoView): Avalonia's `NativeControlHost` on Windows has a known bug where setting `IsVisible="False"` on a parent panel does not reliably hide the underlying native HWND. If hidden, the MPV window becomes a persistent invisible click-blocking rectangle. To hide a video view (e.g. navigating back from Phase 3 in the Music Wizard), you MUST completely remove the `MpvVideoView` from the logical tree and call `DisposeMpv()` to forcefully destroy the HWND. It must be dynamically re-instantiated when needed again.
+    * Main App Music Overlay: The applied music is drawn on the main timeline as a pink block. The draggable "♫" text-block markers on both ends that glow and cast deep-pink shadows on hover are implemented using **Avalonia `Popup`s**. Because the native MPV HWND paints over all standard Avalonia overlay panels, the markers must be housed in `Popup` controls to guarantee they draw on top of the video player. These dictate `TimelineStartSeconds` and `TimelineEndSeconds`. Advanced pointer handlers enforce strict bounding math: dragging the block or the notes encounters "brick wall" collisions that prevent dragging past the video start/end boundaries, preserving duration exactly without truncation. Arrow keys (`1s` increments) and `Ctrl` + Arrow keys (`50ms` increments) provide extreme granular finessing. Click-focus draws a yellow marching-ants border around the block, which is cleared by clicking elsewhere or hitting Spacebar.
     * Timeline Overlay: The timeline floats at the bottom of the video area on a semi-transparent `#B3000000` strip (height 52px). It includes scale ticks, trim markers, scrub slider, and the pink music overlay block. The music overlay block is drawn last to remain on top and provides grab-handles (🎵) to independently slide the music start, end, and absolute placement. When the user selects a thumbnail frame, `UpdateTimelineMarkers()` draws a persistent yellow camera marker centered on the exact X-axis timeline position.
 
 * Repository & Dependency Architecture:
@@ -202,7 +203,7 @@ the MAIN App's bottom navigation bar:
 ------------------------------------------------------------------------------
 \ (Root Directory)
 |-- Build.cmd
-|   Role: Underlying production NativeAOT script. Triggers NativeAOT compilation, manages temporary 
+|   Role: Underlying production NativeAOT script. Triggers NativeAOT compilation, manages temporary
 |         artifacts, zips payload, and drops the final bundled installer executable into .\compiled.
 |
 |-- compile.cmd
@@ -243,6 +244,8 @@ the MAIN App's bottom navigation bar:
     |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation footprint tracking.
     |   |-- DeploymentProgressWindow.axaml & .cs
     |   |   Role: Dark-themed, elegant installer and uninstaller Avalonia Window providing live status and console logs via TextBox.
+    |   |-- Controls\SettingsWindow.axaml & .cs
+    |   |   Role: Modal settings UI tracking `KeyBinds` and `DefaultValues`. Includes Default Music Folder tracking synced via `SessionStateFile` and live-updated `CustomMusicDirectory` integration.
     |   |-- RuntimeLog.cs
     |   |   Role: Writes verbose startup & operational logs to `%TMP%\Fortnite_Video_Software.log`.
     |   |-- FloatingFeedback.cs
@@ -255,7 +258,7 @@ the MAIN App's bottom navigation bar:
     |   |   Role: [APP 2 - Video Merger] Drag-and-drop Avalonia window for joining/merging two or
     |   |         more separate video files into one long video via FFmpeg concatenation. See §2.5.
     |   |-- MusicWizardWindow.axaml & .cs
-    |   |   Role: Wizard for Background Music selection. Features a dual-marker interactive timeline (static offset line + moving 60fps playhead), double-click selection, permanent scrollbars, and click-to-seek synchronized directly with `ffplay`.
+    |   |   Role: Wizard for Background Music selection. Features a dual-marker interactive timeline (static song-start line + moving 60fps playhead), double-click selection, permanent scrollbars, and click-to-seek synchronized directly with MPV audio preview. Music is selected from the chosen MP3/music folder only; the wizard intentionally does not provide a separate single-file picker button.
     |   |-- GranularSpeedEditorWindow.axaml & .cs
     |   |   Role: UI for splitting video into distinct time segments with independent playback speeds.
     |   |-- CropToolWindow.axaml & .cs
@@ -286,6 +289,8 @@ the MAIN App's bottom navigation bar:
             |   Role: Asynchronously probes the host machine for active GPU accelerators.
             |-- MpvWrapper.cs
             |   Role: C# `[LibraryImport]` bindings for the unmanaged `libmpv-2.dll`.
+            |-- MpvIpcClient.cs
+            |   Role: JSON IPC controller for out-of-process MPV instances using Named Pipes. Handles audio-only mode (`--vid=no --vo=null`) and `loadfile`/`time-pos` synchronization.
             |-- MPVSafetyManager.cs
             |   Role: Multi-threaded Watchdog & Debouncer preventing native MPV queue stalls.
             |-- CanvasMath.cs
@@ -302,4 +307,13 @@ the MAIN App's bottom navigation bar:
             |   Role: Manages advanced `highpass/lowpass` split logic and RMS sidechain compression for audio ducking game tracks against music.
             |-- MediaProber.cs
             |   Role: Interacts with ffprobe to accurately measure duration and format metrics for the sync engine.
-EXEMPTION ADDED: In MainWindow.axaml, the CancelButton intentionally has Width="125" (unlike the 90px standard) to match the ProcessButton. This prevents a horizontal layout shift when toggling visibility.
+EXEMPTION ADDED: In MainWindow.axaml, the CancelButton intentionally has Width="125" (unlike the 90px standard) to match the ProcessButton. This prevents a horizontal layout shift when toggling visibility. The ProcessButton also intentionally has Height="60" as a specific exemption to the 32px standard.
+
+==============================================================================
+MUSIC WIZARD 3-PHASE ARCHITECTURE
+==============================================================================
+The Add Music Wizard (MusicWizardWindow.axaml) is strictly divided into 3 sequential phases:
+- PHASE 1 (Track Selection): Users select a music track from their local library/files. No playback.
+- PHASE 2 (Waveform & Trimming): Users preview the selected MP3 waveform, trim it, and toggle ducking/carving options. Audio preview is active via MpvIpcClient.
+- PHASE 3 (Final Review Summary): Side-by-side preview of the original video and the trimmed music. Includes both MpvVideoView (for the video) and MpvIpcClient (for the music), with synchronized playback, waveform timeline, and volume sliders.
+- Lifecycle: The 3 phases depend on MusicWizardWindow(string videoPath, double trimStartMs, double trimEndMs) constructor being populated by MainWindow.axaml.cs.

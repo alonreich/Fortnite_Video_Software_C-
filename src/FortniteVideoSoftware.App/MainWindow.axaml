@@ -25,7 +25,7 @@
                  Right margin removed so the volume frame sits flush against the right pane (no gap). -->
             <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,0,10" ClipToBounds="False">
                 <!-- Video Border contains the video, overlays, and the floating timeline -->
-                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2">
+                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True">
                     <Grid ClipToBounds="False">
                         <!-- MpvVideoView: bottom margin leaves room for the overlaid timeline
                              so the native HWND does not cover the Avalonia timeline controls -->
@@ -47,12 +47,14 @@
                         <!-- Upload Video Overlay -->
                         <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6" ClipToBounds="False">
                             <Grid ClipToBounds="False">
-                                <Border BorderBrush="#64748b" BorderThickness="2" CornerRadius="6" Margin="20">
-                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                                <Grid Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Rectangle Stroke="#64748b" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="8" RadiusY="8" Fill="#1a2536" Opacity="0.8" />
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Margin="60,40">
+                                        <TextBlock Text="Drag &amp; Drop video file here" Foreground="#94a3b8" FontSize="14" HorizontalAlignment="Center" />
                                         <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
                                         <Button Name="CenterUploadButton" Classes="Primary" Content="BROWSE VIDEO" Width="200" Cursor="Hand" HorizontalAlignment="Center" />
                                     </StackPanel>
-                                </Border>
+                                </Grid>
                                 <!-- Settings Button -->
                                 <Button Name="SettingsOverlayBtn" Classes="Primary" CornerRadius="8" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="30" Cursor="Hand" ToolTip.Tip="Open Settings and Key Binds">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -65,7 +67,7 @@
                         <!-- Timeline overlay: floats at the bottom of the video border.
                              The MpvVideoView has Margin="0,0,0,52" so the native HWND
                              does not extend into this strip, keeping the Avalonia controls visible. -->
-                        <Border Name="TimelineOverlay" VerticalAlignment="Bottom" Height="72" Background="Transparent" ZIndex="9999" Cursor="Hand" ClipToBounds="False">
+                        <Border Name="TimelineOverlay" IsVisible="False" VerticalAlignment="Bottom" Height="72" Background="Transparent" ZIndex="9999" Cursor="Hand" ClipToBounds="False">
                             <Border VerticalAlignment="Bottom" Background="#B3000000" Padding="8,0,8,3" Height="52" ClipToBounds="False">
                                 <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                                     <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" FontSize="10" Margin="0,0,8,0" />
@@ -99,21 +101,9 @@
                      (left) and the right pane (right) with no horizontal gaps. Stretches to the video height. -->
                 <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="#475569" BorderThickness="1" Padding="0,8" Width="40" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Left" Margin="-6,0,0,0">
-                        <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#00C870" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,-5,6" Opacity="0" />
-                        <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#00C870">
-                            <Slider.Styles>
-                                <Style Selector="Slider:vertical /template/ Thumb">
-                                    <Setter Property="Background" Value="#00C870" />
-                                </Style>
-                                <Style Selector="Slider:vertical /template/ Thumb:pointerover">
-                                    <Setter Property="Background" Value="#10E880" />
-                                </Style>
-                                <Style Selector="Slider:vertical /template/ Thumb:pressed">
-                                    <Setter Property="Background" Value="#00A850" />
-                                </Style>
-                            </Slider.Styles>
-                        </Slider>
-                        <Path Grid.Row="2" HorizontalAlignment="Center" Fill="Transparent" Stroke="#00C870" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="14" Stretch="Uniform" Margin="5,8,-5,0" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
+                        <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,-5,6" Opacity="1" />
+                        <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
+                        <Path Name="VolumeSpeakerIcon" Grid.Row="2" HorizontalAlignment="Center" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="14" Stretch="Uniform" Margin="5,8,-5,0" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                     </Grid>
                 </Border>
             </Grid>
@@ -197,16 +187,16 @@
                 <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
                 <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video"/>
 
-                <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#cbd5e1" FontSize="12" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
+                <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#00783C" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
 
                 <StackPanel Grid.Row="4" Margin="0,0,0,15" Spacing="5">
                     <Viewbox Width="140" Height="50" HorizontalAlignment="Left" Stretch="Uniform" StretchDirection="DownOnly" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}">
                         <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="50" FontSize="16" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" TextWrapping="Wrap" AcceptsReturn="True" />
                     </Viewbox>
-                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" Foreground="White" IsEnabled="False" />
-                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" Foreground="White" IsEnabled="False" />
-                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" Foreground="White" IsEnabled="False" />
-                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" Foreground="White" IsEnabled="False" />
+                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" IsEnabled="False" />
+                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" IsEnabled="False" />
+                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" IsEnabled="False" />
+                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" IsEnabled="False" />
                 </StackPanel>
 
                 <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>

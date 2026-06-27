@@ -40,7 +40,7 @@ public class MpvIpcClient : IDisposable
             {
                 FileName = mpvPath,
                 // GPU mode: hardware decode if available; software fallback handled by VideoRenderMode
-                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec={(_useHardware ? "auto-safe" : "no")} --input-default-bindings=no",
+                Arguments = $"--idle --wid={hwnd.ToInt64()} --input-ipc-server={pipePath} --keep-open=yes --hwdec={(_useHardware ? "auto-safe" : "no")} --input-default-bindings=no --log-file=mpv_wizard.log",
                 UseShellExecute = false,
                 CreateNoWindow = true
             }
@@ -65,6 +65,26 @@ public class MpvIpcClient : IDisposable
             {
                 FileName = mpvPath,
                 Arguments = $"--idle --input-ipc-server={pipePath} --keep-open=yes --hwdec=no --input-default-bindings=no",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        _mpvProcess.Start();
+        await ConnectPipeAndObserve(pipeName);
+    }
+
+    public async Task StartAudioOnlyAsync(string mpvPath)
+    {
+        string pipeName = $"mpv-avalonia-pipe-{Guid.NewGuid():N}";
+        string pipePath = $@"\\.\pipe\{pipeName}";
+
+        _mpvProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = mpvPath,
+                Arguments = $"--idle --vid=no --vo=null --ao=wasapi --input-ipc-server={pipePath} --keep-open=yes",
                 UseShellExecute = false,
                 CreateNoWindow = true
             }

@@ -8,16 +8,20 @@ namespace FortniteVideoSoftware.Core.Media;
 
 public static class WaveformGenerator
 {
-    public static async Task<string?> GenerateWaveformImageAsync(string ffmpegPath, string audioFilePath, int width = 4000, int height = 400, CancellationToken cancellationToken = default)
+    public static async Task<string?> GenerateWaveformImageAsync(string ffmpegPath, string audioFilePath, int width = 4000, int height = 400, double? startSec = null, double? durationSec = null, CancellationToken cancellationToken = default)
     {
         try
         {
             string tempPng = Path.Combine(Path.GetTempPath(), $"fvs_wave_{Guid.NewGuid():N}.png");
             
+            string timeArgs = "";
+            if (startSec.HasValue) timeArgs += $"-ss {startSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
+            if (durationSec.HasValue) timeArgs += $"-t {durationSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
+
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error -i \"{audioFilePath}\" -frames:v 1 -filter_complex \"aformat=channel_layouts=mono,volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full\" \"{tempPng}\"",
+                Arguments = $"-y -hide_banner -loglevel error {timeArgs}-i \"{audioFilePath}\" -frames:v 1 -filter_complex \"aformat=channel_layouts=mono,volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full\" \"{tempPng}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,

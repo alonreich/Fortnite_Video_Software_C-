@@ -31,6 +31,20 @@ public class MpvVideoView : NativeControlHost
         }
     }
 
+    public void DisposeMpv()
+    {
+        var client = IpcClient;
+        IpcClient = null;
+        if (client != null)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try { client.Dispose(); }
+                catch (System.Exception ex) { RuntimeLog.Fail("MPV", $"Error disposing IPC client: {ex.Message}"); }
+            });
+        }
+    }
+
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
         IPlatformHandle handle = base.CreateNativeControlCore(parent);

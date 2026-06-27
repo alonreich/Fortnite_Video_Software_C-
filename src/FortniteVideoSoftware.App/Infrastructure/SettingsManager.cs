@@ -21,6 +21,10 @@ public class KeyBinds
     public Key SeekBackward { get; set; } = Key.Left;
     public Key VolumeUp { get; set; } = Key.Up;
     public Key VolumeDown { get; set; } = Key.Down;
+    public Key FineSeekForward { get; set; } = Key.Right;
+    public Key FineSeekBackward { get; set; } = Key.Left;
+    public Key AggressiveVolumeUp { get; set; } = Key.Up;
+    public Key AggressiveVolumeDown { get; set; } = Key.Down;
 }
 
 /// <summary>

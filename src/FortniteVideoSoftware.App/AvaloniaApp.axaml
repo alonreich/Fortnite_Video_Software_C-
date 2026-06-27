@@ -168,6 +168,35 @@
             <Setter Property="Background" Value="#3a4452"/>
         </Style>
 
+        <!-- Secondary Buttons (Metallic Gray) -->
+        <Style Selector="Button.Secondary">
+            <Setter Property="BorderBrush" Value="#334155"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#64748b"/>
+                    <GradientStop Offset="0.15" Color="#475569"/>
+                    <GradientStop Offset="1.0" Color="#334155"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#94a3b8"/>
+                    <GradientStop Offset="0.15" Color="#64748b"/>
+                    <GradientStop Offset="1.0" Color="#475569"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.Secondary:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="Button.Secondary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
+        </Style>
+
         <Style Selector="ToggleButton.Primary:disabled">
             <Setter Property="Foreground" Value="#88ffffff"/>
             <Setter Property="BorderBrush" Value="#2a3340"/>
@@ -333,6 +362,7 @@
 
         <!-- Issue #17: ListBoxItem hover/focus feedback -->
         <Style Selector="ListBoxItem">
+            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.08" />
@@ -359,6 +389,8 @@
 
         <!-- ToggleButton must match Button styling for consistency (e.g., FREEZE FRAME) -->
         <Style Selector="ToggleButton">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="FontSize" Value="10"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Focusable" Value="True"/>
@@ -366,6 +398,15 @@
             <Setter Property="CornerRadius" Value="8"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="BorderThickness" Value="1,1,1,2"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.1"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.05"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ToggleButton:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="RenderTransform" Value="translateY(2px)"/>
         </Style>
         <Style Selector="ToggleButton.Primary">
             <Setter Property="BorderBrush" Value="#174f6b"/>

@@ -1,9 +1,23 @@
 {
   "MainWindowBounds": {
-    "X": 347,
-    "Y": 111,
+    "X": 303,
+    "Y": 99,
     "Width": 1200,
     "Height": 800,
+    "WindowState": 0
+  },
+  "VideoMergerBounds": {
+    "X": 252,
+    "Y": 42,
+    "Width": 1216,
+    "Height": 839,
+    "WindowState": 0
+  },
+  "CropToolBounds": {
+    "X": 84,
+    "Y": 52,
+    "Width": 1800,
+    "Height": 930,
     "WindowState": 0
   },
   "GranularBounds": {
@@ -14,17 +28,17 @@
     "WindowState": 0
   },
   "MusicWizardBounds": {
-    "X": 524,
-    "Y": 152,
-    "Width": 900,
-    "Height": 700,
+    "X": 369,
+    "Y": 98,
+    "Width": 1200,
+    "Height": 850,
     "WindowState": 0
   },
   "SettingsBounds": {
-    "X": 587,
-    "Y": 251,
-    "Width": 720,
-    "Height": 520,
+    "X": 316,
+    "Y": 107,
+    "Width": 980,
+    "Height": 719,
     "WindowState": 0
   }
 }

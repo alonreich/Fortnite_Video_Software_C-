@@ -16,38 +16,41 @@ public static class WindowBoundsHelper
             var state = await store.LoadAsync().ConfigureAwait(false);
             if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
             {
-                if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
-                {
-                    int px = (int)x;
-                    int py = (int)y;
-                    
-                    bool intersectsAny = false;
-                    foreach (var screen in window.Screens.All)
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                    if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
                     {
-                        if (screen.Bounds.Contains(new PixelPoint(px, py)))
+                        int px = (int)x;
+                        int py = (int)y;
+                        
+                        bool intersectsAny = false;
+                        foreach (var screen in window.Screens.All)
                         {
-                            intersectsAny = true;
-                            break;
+                            if (screen.Bounds.Contains(new PixelPoint(px, py)))
+                            {
+                                intersectsAny = true;
+                                break;
+                            }
                         }
+                        
+                        if (!intersectsAny && window.Screens.Primary != null)
+                        {
+                            px = window.Screens.Primary.Bounds.X + 50;
+                            py = window.Screens.Primary.Bounds.Y + 50;
+                        }
+                        
+                        window.WindowStartupLocation = WindowStartupLocation.Manual;
+                        window.Position = new PixelPoint(px, py);
                     }
-                    
-                    if (!intersectsAny && window.Screens.Primary != null)
+                    if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
                     {
-                        px = window.Screens.Primary.Bounds.X + 50;
-                        py = window.Screens.Primary.Bounds.Y + 50;
+                        window.Width = (double)w;
+                        window.Height = (double)h;
                     }
-                    
-                    window.Position = new PixelPoint(px, py);
-                }
-                if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
-                {
-                    window.Width = (double)w;
-                    window.Height = (double)h;
-                }
-                if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
-                {
-                    window.WindowState = (WindowState)(int)stateNode;
-                }
+                    if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
+                    {
+                        window.WindowState = (WindowState)(int)stateNode;
+                    }
+                });
             }
         }
         catch { }

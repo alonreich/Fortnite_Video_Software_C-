@@ -298,7 +298,7 @@ public partial class CropToolWindow : Window
 
     private async Task OpenVideoAsync()
     {
-        IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var options = new FilePickerOpenOptions
         {
             Title = "Open Reference Video",
             AllowMultiple = false,
@@ -309,12 +309,38 @@ public partial class CropToolWindow : Window
                     Patterns = ["*.mp4", "*.mkv", "*.avi", "*.mov", "*.webm", "*.m4v"]
                 }
             ]
-        });
+        };
+
+        var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
+        try
+        {
+            if (System.IO.File.Exists(paths.SessionStateFile))
+            {
+                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
+                if (state != null && state["CropToolUploadDirectory"]?.ToString() is string startPath && System.IO.Directory.Exists(startPath))
+                {
+                    options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                }
+            }
+        }
+        catch { }
+
+        IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(options);
 
         if (files.Count == 0)
         {
             return;
         }
+
+        try
+        {
+            var state = System.IO.File.Exists(paths.SessionStateFile) 
+                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                : new System.Text.Json.Nodes.JsonObject();
+            state["CropToolUploadDirectory"] = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
+            System.IO.File.WriteAllText(paths.SessionStateFile, state.ToJsonString());
+        }
+        catch { }
 
         await LoadVideoAsync(files[0].Path.LocalPath, startPaused: true);
     }
