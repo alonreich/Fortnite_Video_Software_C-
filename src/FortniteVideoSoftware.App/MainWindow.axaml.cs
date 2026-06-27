@@ -33,9 +33,17 @@ public partial class MainWindow : Window
     private bool _draggingStartMarker = false;
     private bool _draggingEndMarker = false;
     private MusicWizardResult? _musicWizardResult;
+    private System.Diagnostics.Process? _musicPreviewProcess;
+    private bool _isMusicPreviewPlaying = false;
+    private double _lastMusicPreviewSyncTime = -1;
     private DispatcherTimer? _playbackTimer;
     private bool _isTimerUpdatingSlider = false;
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
+
+    private bool _isMusicBlockFocused = false;
+    private Avalonia.Controls.Shapes.Rectangle? _musicBlockRectRef;
+    private DispatcherTimer? _marchingAntsTimer;
+    private double _marchingAntsOffset = 0;
 
     // Granular speed segments set via the Granular Speed Editor dialog
     private readonly System.Collections.Generic.List<SpeedSegment> _speedSegments = new();
@@ -43,6 +51,7 @@ public partial class MainWindow : Window
     private bool _isTimelineDrawn = false;
     private string _loadedVideoPath = string.Empty;
     private string _hardwareMode = "CPU";
+    private System.Threading.CancellationTokenSource? _processCts;
 
     // Crash recovery manager — saves/restores editing session state across crashes
     private readonly RecoveryManager _recovery = new RecoveryManager();
@@ -53,6 +62,18 @@ public partial class MainWindow : Window
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
         InitializeComponent();
+
+        var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
+        if (overlay != null)
+        {
+            overlay.CancelRequested += (s, e) =>
+            {
+                if (_processCts != null && !_processCts.IsCancellationRequested)
+                {
+                    _processCts.Cancel();
+                }
+            };
+        }
         
         this.Loaded += (s, e) => InitializeMpv();
         
@@ -86,6 +107,27 @@ public partial class MainWindow : Window
         {
             canvas.SizeChanged += (s, e) => UpdateTimelineMarkers();
         }
+
+        this.PointerPressed += (s, e) => 
+        {
+            if (_isMusicBlockFocused)
+            {
+                _isMusicBlockFocused = false;
+                UpdateTimelineMarkers();
+            }
+        };
+
+        _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        _marchingAntsTimer.Tick += (s, e) => 
+        {
+            if (_isMusicBlockFocused && _musicBlockRectRef != null)
+            {
+                _marchingAntsOffset += 1;
+                if (_marchingAntsOffset > 1000) _marchingAntsOffset = 0;
+                _musicBlockRectRef.StrokeDashOffset = _marchingAntsOffset;
+            }
+        };
+        _marchingAntsTimer.Start();
 
         var slider = this.FindControl<Slider>("TimelineSlider");
 
@@ -150,6 +192,8 @@ public partial class MainWindow : Window
                 // Pause main player while dialog is open
                 if (_videoHost?.IpcClient != null)
                     _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+
+                EnsureTrimPointsSet();
 
                 // Pass the MARK START/END trim region so the editor is constrained to just that clip
                 var editor = new GranularSpeedEditorWindow(
@@ -276,6 +320,7 @@ public partial class MainWindow : Window
         {
             markStartButton.Click += (s, e) => 
             {
+                EnsureTrimPointsSet();
                 RuntimeLog.Info("UI", $"User clicked MARK START at {TimeSpan.FromMilliseconds(_trimStartMs):hh\\:mm\\:ss\\.ff}.");
                 double time = GetCurrentMpvTime();
                 _trimStartMs = time * 1000;
@@ -296,21 +341,11 @@ public partial class MainWindow : Window
         {
             markEndButton.Click += (s, e) => 
             {
+                EnsureTrimPointsSet();
                 RuntimeLog.Info("UI", $"User clicked MARK END at {TimeSpan.FromMilliseconds(_trimEndMs):hh\\:mm\\:ss\\.ff}.");
                 double time = GetCurrentMpvTime();
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss}";
-                
-                // Smart feature: If MARK START hasn't been set yet, auto-default it to
-                // the very beginning of the video (far left corner, position 0)
-                if (!_trimStartSet)
-                {
-                    _trimStartMs = 0;
-                    _trimStartSet = true;
-                    if (markStartButton != null)
-                        markStartButton.Content = $"START: {TimeSpan.FromSeconds(0):hh\\:mm\\:ss}";
-                    ShowTacticalFeedback("Start auto-set to beginning");
-                }
 
                 // Pause the video automatically
                 if (_videoHost?.IpcClient != null)
@@ -388,6 +423,9 @@ public partial class MainWindow : Window
                     }
                 }
             };
+            
+            volumeSlider.PointerEntered += (s, e) => volumeBadgeText.Opacity = 1.0;
+            volumeSlider.PointerExited += (s, e) => volumeBadgeText.Opacity = 0.0;
         }
 
         var qualitySlider = this.FindControl<SpinningWheelSlider>("QualitySlider");
@@ -427,12 +465,45 @@ public partial class MainWindow : Window
                     return;
                 }
 
+                EnsureTrimPointsSet();
+
                 var wizard = new MusicWizardWindow();
                 await wizard.ShowDialog(this);
                 
                 if (wizard.Result != null)
                 {
                     _musicWizardResult = wizard.Result;
+                    
+                    double vidStartSec = 0.0;
+                    double vidEndSec = 100.0;
+                    if (_videoHost != null && _videoHost.IpcClient != null) {
+                        vidEndSec = _videoHost.IpcClient.Duration;
+                    }
+                    if (_trimStartSet && _trimEndMs > _trimStartMs) {
+                        vidStartSec = _trimStartMs / 1000.0;
+                        vidEndSec = _trimEndMs / 1000.0;
+                    }
+                    
+                    double musicStartInTimeline = vidStartSec;
+                    if (_musicWizardResult.OffsetSeconds > 0)
+                    {
+                        musicStartInTimeline += _musicWizardResult.OffsetSeconds;
+                    }
+                    
+                    _musicWizardResult.TimelineStartSeconds = musicStartInTimeline;
+                    
+                    double effectiveMusicLength = _musicWizardResult.MusicDurationSeconds;
+                    if (_musicWizardResult.OffsetSeconds < 0)
+                    {
+                        effectiveMusicLength += _musicWizardResult.OffsetSeconds;
+                    }
+                    
+                    double musicEndInTimeline = musicStartInTimeline + effectiveMusicLength;
+                    if (musicEndInTimeline > vidEndSec) 
+                        musicEndInTimeline = vidEndSec;
+                        
+                    _musicWizardResult.TimelineEndSeconds = musicEndInTimeline;
+
                     RuntimeLog.Info("UI", $"User added music via wizard: {_musicWizardResult.MusicFilePath}, ducking={_musicWizardResult.EnableDucking}");
 
                     // Toggle button to red "REMOVE MUSIC" state
@@ -443,6 +514,8 @@ public partial class MainWindow : Window
                     {
                         volSlider.Value = _musicWizardResult.VideoVolume * 100.0;
                     }
+                    
+                    UpdateTimelineMarkers(); // Force redraw UI
                 }
             };
         }
@@ -614,6 +687,9 @@ public partial class MainWindow : Window
 
             // Reset to user-configured defaults on every new file upload
             _speedSegments.Clear();
+            _musicWizardResult = null;
+            StopMusicPreview();
+            SetMusicButtonActive(false);
             _trimStartMs = 0;
             _trimEndMs = 0;
             _trimStartSet = false;
@@ -1049,60 +1125,7 @@ public partial class MainWindow : Window
             }
 
             // ── DRAW MUSIC OVERLAY ──
-            if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
-            {
-                double musicStartMs = _musicWizardResult.OffsetSeconds * 1000.0;
-                double musicDurMs = _musicWizardResult.MusicDurationSeconds > 0 ? _musicWizardResult.MusicDurationSeconds * 1000.0 : duration * 1000.0;
-                double musicEndMs = musicStartMs + musicDurMs;
-                
-                double mStartX = (musicStartMs / 1000.0 / duration) * canvasWidth;
-                double mEndX = (musicEndMs / 1000.0 / duration) * canvasWidth;
-                
-                var musicRect = new Avalonia.Controls.Shapes.Rectangle
-                {
-                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(120, 255, 105, 180)), // Pink
-                    Width = Math.Max(2, mEndX - mStartX),
-                    Height = trimMarkerHeight,
-                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
-                };
-                Avalonia.Controls.Canvas.SetLeft(musicRect, mStartX);
-                Avalonia.Controls.Canvas.SetTop(musicRect, trimMarkerTop);
-                
-                bool draggingMusic = false;
-                double dragStartPointerX = 0;
-                double dragStartMusicOffset = 0;
-                
-                musicRect.PointerPressed += (s, e) => {
-                    draggingMusic = true;
-                    dragStartPointerX = e.GetPosition(canvas).X;
-                    dragStartMusicOffset = _musicWizardResult.OffsetSeconds;
-                    e.Pointer.Capture(musicRect);
-                    e.Handled = true;
-                };
-                
-                musicRect.PointerReleased += (s, e) => {
-                    draggingMusic = false;
-                    e.Pointer.Capture(null);
-                    SaveRecoveryState();
-                };
-                
-                musicRect.PointerMoved += (s, e) => {
-                    if (draggingMusic) {
-                        double currentX = e.GetPosition(canvas).X;
-                        double dx = currentX - dragStartPointerX;
-                        double dtSeconds = (dx / canvasWidth) * duration;
-                        double newOffset = dragStartMusicOffset + dtSeconds;
-                        
-                        if (newOffset < 0) newOffset = 0;
-                        _musicWizardResult.OffsetSeconds = newOffset;
-                        
-                        double updatedStartX = (newOffset / duration) * canvasWidth;
-                        Avalonia.Controls.Canvas.SetLeft(musicRect, updatedStartX);
-                    }
-                };
-                
-                canvas.Children.Add(musicRect);
-            }
+
 
             // ── DRAW SPEED SEGMENTS (above region, below ticks/markers) ──
             if (_speedSegments != null && _speedSegments.Count > 0)
@@ -1265,6 +1288,218 @@ public partial class MainWindow : Window
                     }
                 };
             }
+
+            // ── DRAW MUSIC OVERLAY (Drawn last to be on top) ──
+            if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
+            {
+                double mStartX = (_musicWizardResult.TimelineStartSeconds / duration) * canvasWidth;
+                double mEndX = (_musicWizardResult.TimelineEndSeconds / duration) * canvasWidth;
+                
+                var musicRect = new Avalonia.Controls.Shapes.Rectangle
+                {
+                    Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(120, 255, 105, 180)), // Pink
+                    Width = Math.Max(2, mEndX - mStartX),
+                    Height = trimMarkerHeight,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                    IsHitTestVisible = true
+                };
+
+                if (_isMusicBlockFocused)
+                {
+                    musicRect.Stroke = Avalonia.Media.Brushes.Yellow;
+                    musicRect.StrokeThickness = 1;
+                    musicRect.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(2, 2);
+                    musicRect.StrokeDashOffset = _marchingAntsOffset;
+                }
+                
+                _musicBlockRectRef = musicRect;
+
+                Avalonia.Controls.Canvas.SetLeft(musicRect, mStartX);
+                Avalonia.Controls.Canvas.SetTop(musicRect, trimMarkerTop);
+                canvas.Children.Add(musicRect);
+
+                var musicStartMarker = new Avalonia.Controls.Border {
+                    Background = Avalonia.Media.Brushes.Transparent,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
+                    Padding = new Avalonia.Thickness(4, 4),
+                    ZIndex = 1000,
+                    Child = new TextBlock { Text = "♫", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 48, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center }
+                };
+                
+                // Glowing hover effect
+                musicStartMarker.PointerEntered += (s, e) => {
+                    ((TextBlock)musicStartMarker.Child).Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147)); // DeepPink (brighter)
+                    musicStartMarker.BoxShadow = Avalonia.Media.BoxShadows.Parse("0 0 10 2 #FF69B4");
+                };
+                musicStartMarker.PointerExited += (s, e) => {
+                    ((TextBlock)musicStartMarker.Child).Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
+                    musicStartMarker.BoxShadow = new Avalonia.Media.BoxShadows();
+                };
+
+                Avalonia.Controls.Canvas.SetLeft(musicStartMarker, mStartX - 20);
+                Avalonia.Controls.Canvas.SetTop(musicStartMarker, (trimMarkerHeight / 2) - 20);
+                canvas.Children.Add(musicStartMarker);
+
+                var musicEndMarker = new Avalonia.Controls.Border {
+                    Background = Avalonia.Media.Brushes.Transparent,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
+                    Padding = new Avalonia.Thickness(4, 4),
+                    ZIndex = 1000,
+                    Child = new TextBlock { Text = "♫", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 48, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center }
+                };
+
+                musicEndMarker.PointerEntered += (s, e) => {
+                    ((TextBlock)musicEndMarker.Child).Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147));
+                    musicEndMarker.BoxShadow = Avalonia.Media.BoxShadows.Parse("0 0 10 2 #FF69B4");
+                };
+                musicEndMarker.PointerExited += (s, e) => {
+                    ((TextBlock)musicEndMarker.Child).Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
+                    musicEndMarker.BoxShadow = new Avalonia.Media.BoxShadows();
+                };
+
+                Avalonia.Controls.Canvas.SetLeft(musicEndMarker, mEndX - 20);
+                Avalonia.Controls.Canvas.SetTop(musicEndMarker, (trimMarkerHeight / 2) - 20);
+                canvas.Children.Add(musicEndMarker);
+
+                bool draggingMusicStart = false;
+                bool draggingMusicEnd = false;
+                bool draggingMusicBlock = false;
+                double dragStartPointerX = 0;
+                double dragInitialStartSec = 0;
+                double dragInitialEndSec = 0;
+
+                musicStartMarker.PointerPressed += (s, e) => {
+                    _isMusicBlockFocused = false;
+                    draggingMusicStart = true;
+                    e.Pointer.Capture(musicStartMarker);
+                    e.Handled = true;
+                };
+                musicStartMarker.PointerReleased += (s, e) => {
+                    draggingMusicStart = false;
+                    e.Pointer.Capture(null);
+                    UpdateTimelineMarkers();
+                    SaveRecoveryState();
+                };
+                musicStartMarker.PointerMoved += (s, e) => {
+                    if (draggingMusicStart) {
+                        double currentX = e.GetPosition(canvas).X;
+                        
+                        // Magnetic Snap to MARK START
+                        double markStartX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
+                        if (Math.Abs(currentX - markStartX) < 10) currentX = markStartX;
+                        
+                        double newStart = (currentX / canvasWidth) * duration;
+                        if (newStart < 0) newStart = 0;
+                        if (newStart >= _musicWizardResult.TimelineEndSeconds - 0.5) newStart = _musicWizardResult.TimelineEndSeconds - 0.5;
+                        _musicWizardResult.TimelineStartSeconds = newStart;
+                        double nx = (newStart / duration) * canvasWidth;
+                        Avalonia.Controls.Canvas.SetLeft(musicStartMarker, nx - 20);
+                        Avalonia.Controls.Canvas.SetLeft(musicRect, nx);
+                        musicRect.Width = Math.Max(2, ((_musicWizardResult.TimelineEndSeconds / duration) * canvasWidth) - nx);
+                    }
+                };
+
+                musicEndMarker.PointerPressed += (s, e) => {
+                    _isMusicBlockFocused = false;
+                    draggingMusicEnd = true;
+                    e.Pointer.Capture(musicEndMarker);
+                    e.Handled = true;
+                };
+                musicEndMarker.PointerReleased += (s, e) => {
+                    draggingMusicEnd = false;
+                    e.Pointer.Capture(null);
+                    UpdateTimelineMarkers();
+                    SaveRecoveryState();
+                };
+                musicEndMarker.PointerMoved += (s, e) => {
+                    if (draggingMusicEnd) {
+                        double currentX = e.GetPosition(canvas).X;
+                        
+                        // Magnetic Snap to MARK END
+                        double markEndX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
+                        if (Math.Abs(currentX - markEndX) < 10) currentX = markEndX;
+                        
+                        double newEnd = (currentX / canvasWidth) * duration;
+                        if (newEnd > duration) newEnd = duration;
+                        if (newEnd <= _musicWizardResult.TimelineStartSeconds + 0.5) newEnd = _musicWizardResult.TimelineStartSeconds + 0.5;
+                        _musicWizardResult.TimelineEndSeconds = newEnd;
+                        double nx = (newEnd / duration) * canvasWidth;
+                        Avalonia.Controls.Canvas.SetLeft(musicEndMarker, nx - 20);
+                        musicRect.Width = Math.Max(2, nx - ((_musicWizardResult.TimelineStartSeconds / duration) * canvasWidth));
+                    }
+                };
+
+                musicRect.PointerPressed += (s, e) => {
+                    if (!_isMusicBlockFocused)
+                    {
+                        _isMusicBlockFocused = true;
+                        musicRect.Stroke = Avalonia.Media.Brushes.Yellow;
+                        musicRect.StrokeThickness = 1;
+                        musicRect.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(2, 2);
+                    }
+                    draggingMusicBlock = true;
+                    dragStartPointerX = e.GetPosition(canvas).X;
+                    dragInitialStartSec = _musicWizardResult.TimelineStartSeconds;
+                    dragInitialEndSec = _musicWizardResult.TimelineEndSeconds;
+                    e.Pointer.Capture(musicRect);
+                    e.Handled = true;
+                };
+                musicRect.PointerReleased += (s, e) => {
+                    draggingMusicBlock = false;
+                    e.Pointer.Capture(null);
+                    UpdateTimelineMarkers();
+                    SaveRecoveryState();
+                };
+                musicRect.PointerMoved += (s, e) => {
+                    if (draggingMusicBlock) {
+                        double currentX = e.GetPosition(canvas).X;
+                        double dxSeconds = ((currentX - dragStartPointerX) / canvasWidth) * duration;
+                        double dur = dragInitialEndSec - dragInitialStartSec;
+                        double rawNewStart = dragInitialStartSec + dxSeconds;
+                        double rawNewEnd = dragInitialEndSec + dxSeconds;
+                        
+                        // Magnetic Snapping logic for the whole block
+                        double markStartSec = _trimStartMs / 1000.0;
+                        double markEndSec = _trimEndMs / 1000.0;
+                        
+                        double distStartToMarkStart = Math.Abs((rawNewStart / duration) * canvasWidth - (markStartSec / duration) * canvasWidth);
+                        double distEndToMarkEnd = Math.Abs((rawNewEnd / duration) * canvasWidth - (markEndSec / duration) * canvasWidth);
+                        
+                        double newStart = rawNewStart;
+                        double newEnd = rawNewEnd;
+
+                        if (distStartToMarkStart < 10 && distStartToMarkStart <= distEndToMarkEnd)
+                        {
+                            newStart = markStartSec;
+                            newEnd = newStart + dur;
+                        }
+                        else if (distEndToMarkEnd < 10)
+                        {
+                            newEnd = markEndSec;
+                            newStart = newEnd - dur;
+                        }
+
+                        if (newStart < 0) {
+                            newStart = 0;
+                            newEnd = dur;
+                        }
+                        if (newEnd > duration) {
+                            newEnd = duration;
+                            newStart = duration - dur;
+                        }
+                        
+                        _musicWizardResult.TimelineStartSeconds = newStart;
+                        _musicWizardResult.TimelineEndSeconds = newEnd;
+                        
+                        double nStartX = (newStart / duration) * canvasWidth;
+                        double nEndX = (newEnd / duration) * canvasWidth;
+                        
+                        Avalonia.Controls.Canvas.SetLeft(musicRect, nStartX);
+                        Avalonia.Controls.Canvas.SetLeft(musicStartMarker, nStartX - 20);
+                        Avalonia.Controls.Canvas.SetLeft(musicEndMarker, nEndX - 20);
+                    }
+                };
+            }
         });
     }
 
@@ -1321,6 +1556,72 @@ public partial class MainWindow : Window
         return icon;
     }
 
+    private void StartMusicPreview(double currentVideoTimeSec)
+    {
+        if (_musicWizardResult == null || string.IsNullOrEmpty(_musicWizardResult.MusicFilePath)) return;
+
+        double offsetFromMusicStart = currentVideoTimeSec - _musicWizardResult.TimelineStartSeconds;
+        if (_musicWizardResult.OffsetSeconds < 0) offsetFromMusicStart += -_musicWizardResult.OffsetSeconds;
+        
+        if (offsetFromMusicStart < 0) offsetFromMusicStart = 0;
+
+        string ffplayExe = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? System.AppContext.BaseDirectory, "binaries", "ffplay.exe");
+        if (!System.IO.File.Exists(ffplayExe)) ffplayExe = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? System.AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffplay.exe");
+        if (!System.IO.File.Exists(ffplayExe)) ffplayExe = "ffplay.exe";
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = ffplayExe,
+            Arguments = $"-nodisp -autoexit -ss {offsetFromMusicStart.ToString(System.Globalization.CultureInfo.InvariantCulture)} -volume {(_musicWizardResult.MusicVolume * 100).ToString(System.Globalization.CultureInfo.InvariantCulture)} \"{_musicWizardResult.MusicFilePath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        try
+        {
+            _musicPreviewProcess = System.Diagnostics.Process.Start(psi);
+            _isMusicPreviewPlaying = true;
+            _lastMusicPreviewSyncTime = currentVideoTimeSec;
+        }
+        catch { }
+    }
+
+    private void StopMusicPreview()
+    {
+        if (_musicPreviewProcess != null)
+        {
+            try
+            {
+                if (!_musicPreviewProcess.HasExited)
+                    _musicPreviewProcess.Kill();
+            }
+            catch { }
+            _musicPreviewProcess = null;
+        }
+        _isMusicPreviewPlaying = false;
+    }
+
+    private void EnsureTrimPointsSet()
+    {
+        if (!_trimStartSet && _videoHost?.IpcClient != null)
+        {
+            double dur = _videoHost.IpcClient.Duration;
+            if (dur > 0)
+            {
+                _trimStartSet = true;
+                _trimEndSet = true;
+                _trimStartMs = 0;
+                _trimEndMs = dur * 1000.0;
+                var markStartBtn = this.FindControl<Button>("MarkStartButton");
+                if (markStartBtn != null) markStartBtn.Content = "MARK START [00:00:00.00]";
+                var markEndBtn = this.FindControl<Button>("MarkEndButton");
+                if (markEndBtn != null) markEndBtn.Content = $"MARK END [{TimeSpan.FromSeconds(dur).ToString("hh\\:mm\\:ss\\.ff")}]";
+                UpdateTimelineMarkers();
+                SaveRecoveryState();
+            }
+        }
+    }
+
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
@@ -1344,6 +1645,31 @@ public partial class MainWindow : Window
         double time = _videoHost.IpcClient.CurrentTime;
         double dur = _videoHost.IpcClient.Duration;
         double displayTime = dur > 0 ? Math.Clamp(time, 0, dur) : Math.Max(0, time);
+
+        if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
+        {
+            bool isPaused = _videoHost.IpcClient.IsPaused;
+            bool shouldPlayMusic = !isPaused && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds;
+
+            if (shouldPlayMusic && _isMusicPreviewPlaying && Math.Abs(time - _lastMusicPreviewSyncTime) > 0.5)
+            {
+                StopMusicPreview();
+            }
+
+            if (shouldPlayMusic && !_isMusicPreviewPlaying)
+            {
+                StartMusicPreview(time);
+            }
+            else if (!shouldPlayMusic && _isMusicPreviewPlaying)
+            {
+                StopMusicPreview();
+            }
+
+            if (_isMusicPreviewPlaying)
+            {
+                _lastMusicPreviewSyncTime = time;
+            }
+        }
 
         // ── Apply granular speed segments in real-time ──
         // When speed segments exist, dynamically adjust MPV playback speed
@@ -1465,10 +1791,42 @@ public partial class MainWindow : Window
         }
         else if (e.Key == kb.PlayPause)
         {
+            if (_isMusicBlockFocused)
+            {
+                _isMusicBlockFocused = false;
+                UpdateTimelineMarkers();
+            }
             if (_videoHost?.IpcClient != null)
             {
                 bool isPaused = _videoHost.IpcClient.IsPaused;
                 _ = _videoHost.IpcClient.SetPropertyAsync("pause", isPaused ? "no" : "yes");
+                e.Handled = true;
+            }
+        }
+        else if (_isMusicBlockFocused && _musicWizardResult != null && (e.Key == Key.Left || e.Key == Key.Right))
+        {
+            double duration = _videoHost?.IpcClient?.Duration ?? 0;
+            if (duration > 0)
+            {
+                double dur = _musicWizardResult.TimelineEndSeconds - _musicWizardResult.TimelineStartSeconds;
+                double offset = e.KeyModifiers.HasFlag(KeyModifiers.Control) ? 0.05 : ((_trimEndMs - _trimStartMs) / 1000.0) * 0.01;
+                
+                double newStart = _musicWizardResult.TimelineStartSeconds + (e.Key == Key.Left ? -offset : offset);
+                double newEnd = newStart + dur;
+
+                if (newStart < 0) {
+                    newStart = 0;
+                    newEnd = dur;
+                }
+                if (newEnd > duration) {
+                    newEnd = duration;
+                    newStart = duration - dur;
+                }
+
+                _musicWizardResult.TimelineStartSeconds = newStart;
+                _musicWizardResult.TimelineEndSeconds = newEnd;
+                UpdateTimelineMarkers();
+                SaveRecoveryState();
                 e.Handled = true;
             }
         }
@@ -1506,8 +1864,13 @@ public partial class MainWindow : Window
         }
     }
 
-        private async Task ProcessVideoAsync(Button processButton)
+    private async Task ProcessVideoAsync(Button processButton)
     {
+        if (_videoHost?.IpcClient != null)
+        {
+            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        }
+
         if (string.IsNullOrEmpty(_loadedVideoPath) || !File.Exists(_loadedVideoPath))
         {
             ShowTacticalFeedback("No valid video loaded to process!");
@@ -1516,6 +1879,8 @@ public partial class MainWindow : Window
             processButton.Content = "PROCESS";
             return;
         }
+
+        _processCts = new System.Threading.CancellationTokenSource();
 
         await Task.Yield();
 
@@ -1611,9 +1976,14 @@ public partial class MainWindow : Window
             // Pass Music Wizard config
             if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath) && File.Exists(_musicWizardResult.MusicFilePath))
             {
+                double startDelay = _musicWizardResult.TimelineStartSeconds - (worker.StartTimeMs / 1000.0);
+                if (startDelay < 0) startDelay = 0;
+                double dur = _musicWizardResult.TimelineEndSeconds - _musicWizardResult.TimelineStartSeconds;
+                if (dur <= 0) dur = 1.0;
+
                 worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>
                 {
-                    new MusicTrack(_musicWizardResult.MusicFilePath, _musicWizardResult.OffsetSeconds, worker.EndTimeMs / 1000.0)
+                    new MusicTrack(_musicWizardResult.MusicFilePath, _musicWizardResult.OffsetSeconds, dur, startDelay)
                 };
 
                 worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
@@ -1627,7 +1997,7 @@ public partial class MainWindow : Window
             }
 
             // Start processing asynchronously but we don't block the UI thread
-            _ = worker.RunAsync(new CancellationTokenSource().Token);
+            _ = worker.RunAsync(_processCts.Token);
         }
         catch (Exception ex)
         {
@@ -1704,6 +2074,7 @@ public partial class MainWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        StopMusicPreview();
         // If the background work is done, allow the window to close normally
         if (_isSafeToClose)
         {

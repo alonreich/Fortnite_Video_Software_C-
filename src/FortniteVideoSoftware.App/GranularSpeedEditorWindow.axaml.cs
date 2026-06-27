@@ -725,11 +725,13 @@ public partial class GranularSpeedEditorWindow : Window
     private void RedrawTimeline()
     {
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
+        var scaleCanvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineScaleCanvas");
         if (canvas == null) return;
 
         Dispatcher.UIThread.Post(() =>
         {
             canvas.Children.Clear();
+            scaleCanvas?.Children.Clear();
             double dur = GetDuration();
             double w = canvas.Bounds.Width;
             double h = Math.Max(canvas.Bounds.Height, 28);
@@ -737,18 +739,6 @@ public partial class GranularSpeedEditorWindow : Window
 
             // ── DRAW ORDER: segments FIRST (bottom z-order), ticks LAST (top z-order) ──
             // This ensures the X-axis tick marks/labels are always visible on top.
-
-            // --- Phase 0: Base overlay (same look/feel as main app timeline overlay) ---
-            var baseOverlay = new Avalonia.Controls.Shapes.Rectangle
-            {
-                Width = w,
-                Height = h,
-                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 204, 204, 204)),
-                IsHitTestVisible = false
-            };
-            Avalonia.Controls.Canvas.SetLeft(baseOverlay, 0);
-            Avalonia.Controls.Canvas.SetTop(baseOverlay, 0);
-            canvas.Children.Add(baseOverlay);
 
             // --- Phase 1: Draw each segment as a colored bar (bottom layer) ---
             for (int i = 0; i < _segments.Count; i++)
@@ -864,11 +854,12 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(140, 255, 255, 255)),
                     Width = 1,
-                    Height = h
+                    Height = scaleCanvas != null ? Math.Max(1, scaleCanvas.Bounds.Height) : 14
                 };
                 Avalonia.Controls.Canvas.SetLeft(tickLine, tx);
                 Avalonia.Controls.Canvas.SetTop(tickLine, 0);
-                canvas.Children.Add(tickLine);
+                if (scaleCanvas != null) scaleCanvas.Children.Add(tickLine);
+                else canvas.Children.Add(tickLine);
 
                 // Tick label with dark background for readability over segments
                 var tickText = new TextBlock
@@ -881,7 +872,8 @@ public partial class GranularSpeedEditorWindow : Window
                 };
                 Avalonia.Controls.Canvas.SetLeft(tickText, tx + 2);
                 Avalonia.Controls.Canvas.SetTop(tickText, 0);
-                canvas.Children.Add(tickText);
+                if (scaleCanvas != null) scaleCanvas.Children.Add(tickText);
+                else canvas.Children.Add(tickText);
             }
 
             // Draw pending start marker

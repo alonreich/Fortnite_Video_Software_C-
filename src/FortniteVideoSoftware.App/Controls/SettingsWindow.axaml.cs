@@ -21,6 +21,8 @@ public partial class SettingsWindow : Window
 
     // Pending default values (edited in the Defaults tab, applied on SAVE)
     private DefaultValues _pendingDefaults = new();
+    private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
+    private string _pendingMusicFolder = "";
 
     public SettingsWindow()
     {
@@ -167,6 +169,50 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeCheckboxRow("Boss HP", _pendingDefaults.BossHp, v => _pendingDefaults.BossHp = v));
         panel.Children.Add(MakeCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammates, v => _pendingDefaults.ShowTeammates = v));
         panel.Children.Add(MakeCheckboxRow("Disable Fade-In/Out", _pendingDefaults.NoFade, v => _pendingDefaults.NoFade = v));
+
+        // ── Default Music Folder ──
+        try
+        {
+            if (System.IO.File.Exists(_paths.SessionStateFile))
+            {
+                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile));
+                if (state != null && state.ContainsKey("CustomMusicDirectory"))
+                {
+                    _pendingMusicFolder = state["CustomMusicDirectory"]?.ToString() ?? "";
+                }
+            }
+        }
+        catch { }
+
+        var txtFolder = this.FindControl<TextBox>("DefaultMusicFolderTextBox");
+        if (txtFolder != null)
+        {
+            txtFolder.Text = _pendingMusicFolder;
+            txtFolder.TextChanged += (_, _) => _pendingMusicFolder = txtFolder.Text ?? "";
+        }
+
+        var btnFolder = this.FindControl<Button>("BrowseMusicFolderBtn");
+        if (btnFolder != null)
+        {
+            btnFolder.Click += async (s, e) =>
+            {
+                string startPath = string.IsNullOrWhiteSpace(_pendingMusicFolder) ? Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) : _pendingMusicFolder;
+                var folder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                
+                var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+                {
+                    Title = "Select Default Music Folder",
+                    SuggestedStartLocation = folder,
+                    AllowMultiple = false
+                });
+
+                if (result != null && result.Count > 0)
+                {
+                    _pendingMusicFolder = result[0].Path.LocalPath;
+                    if (txtFolder != null) txtFolder.Text = _pendingMusicFolder;
+                }
+            };
+        }
     }
 
     private Grid MakeCheckboxRow(string label, bool isChecked, Action<bool> onToggle)
@@ -206,6 +252,20 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.Defaults = _pendingDefaults;
 
         SettingsManager.Save();
+        
+        try
+        {
+            System.Text.Json.Nodes.JsonObject state;
+            if (System.IO.File.Exists(_paths.SessionStateFile))
+                state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject();
+            else
+                state = new System.Text.Json.Nodes.JsonObject();
+
+            state["CustomMusicDirectory"] = _pendingMusicFolder;
+            System.IO.File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+        }
+        catch { }
+
         Close(true); // Return true to indicate settings were changed
     }
 

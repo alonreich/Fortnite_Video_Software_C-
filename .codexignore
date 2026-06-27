@@ -40,3 +40,9 @@ pnpm-lock.yaml
 .env
 appsettings.Development.json
 appsettings.Local.json
+
+# Custom Project Folders
+compiled/
+temp_staging/
+.dev_data/
+binaries/

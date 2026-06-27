@@ -30,23 +30,23 @@
             <UniformGrid Grid.Row="2" HorizontalAlignment="Center" Columns="2" Rows="2"
                          Margin="0,18,0,0">
                 <Button Content="WHATSAPP SHARE"
-                        Click="OnWhatsAppClicked" Width="135" Height="36" Margin="8"
-                        Classes="Success" FontWeight="Bold" FontSize="10"
+                        Click="OnWhatsAppClicked" Width="135" Margin="8"
+                        Classes="Success" FontWeight="Bold"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                 <Button Content="EXIT APP!"
-                        Click="OnExitClicked" Width="135" Height="36" Margin="8"
-                        Classes="Danger" FontWeight="Bold" FontSize="10"
+                        Click="OnExitClicked" Width="135" Margin="8"
+                        Classes="Danger" FontWeight="Bold"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                 <Button Content="OPEN FOLDER"
-                        Click="OnOpenFolderClicked" Width="135" Height="36" Margin="8"
-                        Classes="Primary" FontWeight="Bold" FontSize="10"
+                        Click="OnOpenFolderClicked" Width="135" Margin="8"
+                        Classes="Primary" FontWeight="Bold"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                 <Button Content="RETURN TO EDITOR"
-                        Click="OnUploadNewClicked" Width="135" Height="36" Margin="8"
-                        Classes="Primary" FontWeight="Bold" FontSize="10"
+                        Click="OnUploadNewClicked" Width="135" Margin="8"
+                        Classes="Primary" FontWeight="Bold"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
             </UniformGrid>

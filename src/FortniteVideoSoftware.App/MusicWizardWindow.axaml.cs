@@ -45,14 +45,21 @@ public partial class MusicWizardWindow : Window
     private bool _isSafeToClose = false;
     private string? _lastWaveformFile;
     private double _trackDuration = 100.0;
-    private bool _isDraggingWaveform;
     private MusicTrackItem? _selectedTrack;
     private Process? _previewProcess;
     private bool _isPreviewPlaying = false;
+    private double _previewCurrentOffset = 0.0;
+    private DateTime? _previewStartTime = null;
+    private double _musicWizardOffset = 0.0;
+    private Avalonia.Threading.DispatcherTimer? _playheadTimer;
 
     public MusicWizardWindow()
     {
         InitializeComponent();
+
+        _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _playheadTimer.Tick += (s, e) => { if (_isPreviewPlaying) UpdatePlayhead(); };
+        _playheadTimer.Start();
 
         this.Loaded += async (s, e) => {
             await WindowBoundsHelper.LoadBoundsAsync(this, "MusicWizardBounds");
@@ -63,6 +70,14 @@ public partial class MusicWizardWindow : Window
         {
             listbox.ItemsSource = AvailableTracks;
             listbox.SelectionChanged += (s, e) => OnTrackSelected(listbox.SelectedItem as MusicTrackItem);
+            listbox.DoubleTapped += (s, e) => 
+            {
+                if (listbox.SelectedItem != null && _currentStep == 1)
+                {
+                    RuntimeLog.Info("UI", "User double-clicked a track to proceed in Music Wizard.");
+                    OnNextClicked(listbox, new RoutedEventArgs());
+                }
+            };
             LoadMusicDirectory();
         }
 
@@ -74,13 +89,20 @@ public partial class MusicWizardWindow : Window
         {
             changeFolderBtn.Click += async (s, e) =>
             {
+                var musicPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+                var musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(musicPath));
+                
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
                 {
-                    Title = "Select Music Folder"
+                    Title = "Select Music Folder",
+                    SuggestedStartLocation = musicFolder,
+                    AllowMultiple = false
                 });
+                
                 if (result != null && result.Count > 0)
                 {
-                    string selectedPath = result[0].Path.LocalPath;
+                    string selectedFolderPath = result[0].Path.LocalPath;
+                    
                     try
                     {
                         System.Text.Json.Nodes.JsonObject state;
@@ -89,26 +111,75 @@ public partial class MusicWizardWindow : Window
                         else
                             state = new System.Text.Json.Nodes.JsonObject();
 
-                        state["CustomMusicDirectory"] = selectedPath;
+                        state["CustomMusicDirectory"] = selectedFolderPath;
                         File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
                     }
                     catch { }
 
-                    ScanDirectoryForMusic(selectedPath);
+                    ScanDirectoryForMusic(selectedFolderPath);
                 }
             };
         }
 
-        var offsetSlider = this.FindControl<Slider>("OffsetSlider");
-        if (offsetSlider != null)
+        var selectFileBtn = this.FindControl<Button>("SelectFileBtn");
+        if (selectFileBtn != null)
         {
-            offsetSlider.PropertyChanged += (s, e) =>
+            selectFileBtn.Click += async (s, e) =>
             {
-                if (e.Property == Slider.ValueProperty)
+                var musicPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+                var musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(musicPath));
+                
+                var result = await this.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
                 {
-                    var lbl = this.FindControl<TextBlock>("OffsetLabel");
-                    if (lbl != null) lbl.Text = $"{offsetSlider.Value:F1}s";
-                    UpdatePlayhead();
+                    Title = "Select specific MP3 file",
+                    SuggestedStartLocation = musicFolder,
+                    FileTypeFilter = new[] { new Avalonia.Platform.Storage.FilePickerFileType("MP3 Music Files") { Patterns = new[] { "*.mp3", "*.wav", "*.m4a", "*.aac", "*.ogg" } } },
+                    AllowMultiple = false
+                });
+                
+                if (result != null && result.Count > 0)
+                {
+                    string selectedFilePath = result[0].Path.LocalPath;
+                    string selectedFolderPath = System.IO.Path.GetDirectoryName(selectedFilePath) ?? selectedFilePath;
+                    
+                    try
+                    {
+                        System.Text.Json.Nodes.JsonObject state;
+                        if (File.Exists(_paths.SessionStateFile))
+                            state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject();
+                        else
+                            state = new System.Text.Json.Nodes.JsonObject();
+
+                        state["CustomMusicDirectory"] = selectedFolderPath;
+                        File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+                    }
+                    catch { }
+
+                    ScanDirectoryForMusic(selectedFolderPath);
+                    
+                    var track = AvailableTracks.FirstOrDefault(t => t.FilePath.Equals(selectedFilePath, StringComparison.OrdinalIgnoreCase));
+                    if (track != null)
+                    {
+                        var musicListBox = this.FindControl<ListBox>("MusicListBox");
+                        if (musicListBox != null)
+                        {
+                            musicListBox.SelectedItem = track;
+                        }
+                    }
+                }
+            };
+        }
+
+        var timelineMarkersCanvas = this.FindControl<Canvas>("TimelineMarkersCanvas");
+        if (timelineMarkersCanvas != null)
+        {
+            timelineMarkersCanvas.SizeChanged += (s, e) => { DrawTimelineScale(); UpdatePlayhead(); };
+            timelineMarkersCanvas.PointerPressed += (s, e) =>
+            {
+                var pt = e.GetCurrentPoint(timelineMarkersCanvas);
+                if (pt.Properties.IsLeftButtonPressed)
+                {
+                    SetOffsetFromPointer(pt.Position.X, timelineMarkersCanvas.Bounds.Width);
                 }
             };
         }
@@ -116,28 +187,14 @@ public partial class MusicWizardWindow : Window
         var canvas = this.FindControl<Canvas>("WaveformCanvas");
         if (canvas != null)
         {
+            canvas.SizeChanged += (s, e) => { UpdatePlayhead(); };
             canvas.PointerPressed += (s, e) =>
             {
                 var pt = e.GetCurrentPoint(canvas);
                 if (pt.Properties.IsLeftButtonPressed)
                 {
-                    _isDraggingWaveform = true;
                     SetOffsetFromPointer(pt.Position.X, canvas.Bounds.Width);
                 }
-            };
-
-            canvas.PointerMoved += (s, e) =>
-            {
-                if (_isDraggingWaveform)
-                {
-                    var pt = e.GetCurrentPoint(canvas);
-                    SetOffsetFromPointer(pt.Position.X, canvas.Bounds.Width);
-                }
-            };
-
-            canvas.PointerReleased += (s, e) =>
-            {
-                _isDraggingWaveform = false;
             };
         }
 
@@ -173,6 +230,12 @@ public partial class MusicWizardWindow : Window
         {
             playBtn.Click += (s, e) => TogglePreview();
         }
+
+        var skipBackBtn = this.FindControl<Button>("SkipBackBtn");
+        if (skipBackBtn != null) skipBackBtn.Click += (s, e) => SkipPreview(-30);
+
+        var skipForwardBtn = this.FindControl<Button>("SkipForwardBtn");
+        if (skipForwardBtn != null) skipForwardBtn.Click += (s, e) => SkipPreview(30);
 
         var nextBtn = this.FindControl<Button>("NextBtn");
         if (nextBtn != null) nextBtn.Click += (s, e) =>
@@ -328,13 +391,15 @@ public partial class MusicWizardWindow : Window
             double duration = await prober.GetDurationAsync();
             _trackDuration = Math.Max(1.0, duration);
 
-            var offsetSlider = this.FindControl<Slider>("OffsetSlider");
-            if (offsetSlider != null)
-            {
-                offsetSlider.Minimum = -_trackDuration;
-                offsetSlider.Maximum = _trackDuration;
-                offsetSlider.Value = 0;
-            }
+            _musicWizardOffset = 0;
+            _previewCurrentOffset = 0;
+            var lbl = this.FindControl<TextBlock>("OffsetLabel");
+            if (lbl != null) lbl.Text = $"{_musicWizardOffset:F1}s";
+            
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                DrawTimelineScale();
+                UpdatePlayhead();
+            });
 
             // Improvement #3: Show selected track name
             var selectedLabel = this.FindControl<TextBlock>("SelectedTrackLabel");
@@ -356,7 +421,6 @@ public partial class MusicWizardWindow : Window
         else if (_currentStep == 3)
         {
             // Finalize — create result and close
-            var offsetSlider = this.FindControl<Slider>("OffsetSlider");
             var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
             var carvingCheck = this.FindControl<CheckBox>("CarvingCheckBox");
             var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
@@ -365,7 +429,7 @@ public partial class MusicWizardWindow : Window
             Result = new MusicWizardResult
             {
                 MusicFilePath = _selectedTrack?.FilePath ?? "",
-                OffsetSeconds = offsetSlider?.Value ?? 0.0,
+                OffsetSeconds = _musicWizardOffset,
                 EnableDucking = duckingCheck?.IsChecked ?? true,
                 EnableCarving = carvingCheck?.IsChecked ?? true,
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
@@ -391,9 +455,8 @@ public partial class MusicWizardWindow : Window
         var summaryTrack = this.FindControl<TextBlock>("SummaryTrack");
         if (summaryTrack != null) summaryTrack.Text = _selectedTrack?.Name ?? "—";
 
-        var offsetSlider = this.FindControl<Slider>("OffsetSlider");
         var summaryOffset = this.FindControl<TextBlock>("SummaryOffset");
-        if (summaryOffset != null) summaryOffset.Text = $"{offsetSlider?.Value ?? 0:F1}s";
+        if (summaryOffset != null) summaryOffset.Text = $"{_musicWizardOffset:F1}s";
 
         var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
         var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
@@ -431,7 +494,7 @@ public partial class MusicWizardWindow : Window
     // ============================================================
     // Improvement #2: PLAY button — real audio preview
     // ============================================================
-    private async void TogglePreview()
+    private void TogglePreview()
     {
         if (_isPreviewPlaying)
         {
@@ -445,38 +508,67 @@ public partial class MusicWizardWindow : Window
             return;
         }
 
+        double startOffset = _previewCurrentOffset;
+
+        StartPreviewInternal(startOffset);
+    }
+
+    private void SkipPreview(double offsetSeconds)
+    {
+        if (_selectedTrack == null) return;
+        
+        bool wasPlaying = _isPreviewPlaying;
+        StopPreview(); // Accurately calculates the exact current position and stops playback
+        
+        _previewCurrentOffset += offsetSeconds;
+        if (_previewCurrentOffset < 0) _previewCurrentOffset = 0;
+        if (_previewCurrentOffset > _selectedTrack.DurationSec) _previewCurrentOffset = _selectedTrack.DurationSec;
+        
+        if (wasPlaying)
+        {
+            StartPreviewInternal(_previewCurrentOffset);
+        }
+    }
+
+    private async void StartPreviewInternal(double startOffset)
+    {
         var playBtn = this.FindControl<Button>("PlayBtn");
         if (playBtn != null)
         {
-            playBtn.Content = "STOP PREVIEW";
-            playBtn.Classes.Remove("Primary");
+            playBtn.Classes.Remove("Success");
             playBtn.Classes.Add("Danger");
+            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+            var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+            if (playIcon != null) playIcon.IsVisible = false;
+            if (pauseIcon != null) pauseIcon.IsVisible = true;
         }
         _isPreviewPlaying = true;
+        _previewCurrentOffset = startOffset;
+        _previewStartTime = DateTime.UtcNow;
 
+        Process? currentProcess = null;
         try
         {
-            // Play a 10-second preview of the music using ffplay (simpler than MPV for a quick audio clip)
             var ffplayPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffplay.exe");
             if (!File.Exists(ffplayPath)) ffplayPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffplay.exe");
             if (!File.Exists(ffplayPath)) ffplayPath = "ffplay.exe";
 
-            var offsetSlider = this.FindControl<Slider>("OffsetSlider");
-            double startOffset = Math.Max(0, offsetSlider?.Value ?? 0);
+            var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
+            double musicVol = (musicVolSlider?.Value ?? 100.0);
 
-            // Launch ffplay with the music file (muted window, just audio)
             var psi = new ProcessStartInfo
             {
                 FileName = ffplayPath,
-                Arguments = $"-nodisp -autoexit -t 10 -ss {startOffset.ToString(System.Globalization.CultureInfo.InvariantCulture)} \"{_selectedTrack.FilePath}\"",
+                Arguments = $"-nodisp -autoexit -t 10 -ss {startOffset.ToString(System.Globalization.CultureInfo.InvariantCulture)} -volume {musicVol.ToString(System.Globalization.CultureInfo.InvariantCulture)} \"{_selectedTrack!.FilePath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
 
             _previewProcess = Process.Start(psi);
-            if (_previewProcess != null)
+            currentProcess = _previewProcess;
+            if (currentProcess != null)
             {
-                await _previewProcess.WaitForExitAsync();
+                await currentProcess.WaitForExitAsync();
             }
         }
         catch (Exception ex)
@@ -486,12 +578,24 @@ public partial class MusicWizardWindow : Window
         }
         finally
         {
-            StopPreview();
+            // Only stop if this specific process is still the active one
+            if (_previewProcess == currentProcess)
+            {
+                StopPreview();
+            }
         }
     }
 
     private void StopPreview()
     {
+        if (_previewStartTime.HasValue)
+        {
+            _previewCurrentOffset += (DateTime.UtcNow - _previewStartTime.Value).TotalSeconds;
+            if (_selectedTrack != null && _previewCurrentOffset > _selectedTrack.DurationSec)
+                _previewCurrentOffset = _selectedTrack.DurationSec;
+            _previewStartTime = null;
+        }
+
         if (_previewProcess != null && !_previewProcess.HasExited)
         {
             try { _previewProcess.Kill(entireProcessTree: true); } catch { }
@@ -502,9 +606,12 @@ public partial class MusicWizardWindow : Window
         var playBtn = this.FindControl<Button>("PlayBtn");
         if (playBtn != null)
         {
-            playBtn.Content = "PLAY PREVIEW";
             playBtn.Classes.Remove("Danger");
-            playBtn.Classes.Add("Primary");
+            playBtn.Classes.Add("Success");
+            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+            var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+            if (playIcon != null) playIcon.IsVisible = true;
+            if (pauseIcon != null) pauseIcon.IsVisible = false;
         }
     }
 
@@ -554,25 +661,106 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    private void DrawTimelineScale()
+    {
+        var scaleCanvas = this.FindControl<Canvas>("TimelineScaleCanvas");
+        if (scaleCanvas == null || _trackDuration <= 0) return;
+
+        double canvasWidth = scaleCanvas.Bounds.Width;
+        if (canvasWidth <= 0) return;
+
+        scaleCanvas.Children.Clear();
+        
+        double interval = 10.0;
+        if (_trackDuration > 300) interval = 60.0;
+        else if (_trackDuration > 60) interval = 30.0;
+        else if (_trackDuration < 30) interval = 5.0;
+
+        for (double t = 0; t <= _trackDuration; t += interval)
+        {
+            double fraction = t / _trackDuration;
+            double xPos = fraction * canvasWidth;
+
+            var tickLine = new Avalonia.Controls.Shapes.Line
+            {
+                StartPoint = new Avalonia.Point(xPos, scaleCanvas.Bounds.Height - 4),
+                EndPoint = new Avalonia.Point(xPos, scaleCanvas.Bounds.Height),
+                Stroke = Avalonia.Media.Brushes.Gray,
+                StrokeThickness = 1,
+                IsHitTestVisible = false
+            };
+            scaleCanvas.Children.Add(tickLine);
+
+            var tickLabel = new TextBlock
+            {
+                Text = TimeSpan.FromSeconds(t).ToString(@"m\:ss"),
+                FontSize = 9,
+                Foreground = Avalonia.Media.Brushes.Gray,
+                IsHitTestVisible = false,
+                RenderTransform = new Avalonia.Media.TranslateTransform(xPos - 10, -2)
+            };
+            scaleCanvas.Children.Add(tickLabel);
+        }
+    }
+
     private void UpdatePlayhead()
     {
         var canvas = this.FindControl<Canvas>("WaveformCanvas");
-        var offsetSlider = this.FindControl<Slider>("OffsetSlider");
-        if (canvas == null || offsetSlider == null) return;
+        var timelineCanvas = this.FindControl<Canvas>("TimelineMarkersCanvas");
+        if (canvas == null) return;
 
-        double songStartTime = offsetSlider.Value < 0 ? -offsetSlider.Value : 0;
-        double fraction = songStartTime / Math.Max(0.1, _trackDuration);
-        double xPos = canvas.Bounds.Width * fraction;
+        double offsetTime = _musicWizardOffset < 0 ? -_musicWizardOffset : 0;
+        double offsetFraction = offsetTime / Math.Max(0.1, _trackDuration);
+        double offsetXPos = canvas.Bounds.Width * offsetFraction;
+
+        double currentTime = _previewCurrentOffset;
+        if (_isPreviewPlaying && _previewStartTime.HasValue)
+        {
+            currentTime += (DateTime.UtcNow - _previewStartTime.Value).TotalSeconds;
+        }
+        double playheadFraction = currentTime / Math.Max(0.1, _trackDuration);
+        if (playheadFraction > 1.0) playheadFraction = 1.0;
+        double playheadXPos = canvas.Bounds.Width * playheadFraction;
 
         canvas.Children.Clear();
-        var line = new Avalonia.Controls.Shapes.Line
+        
+        // Draw static offset line
+        var offsetLine = new Avalonia.Controls.Shapes.Line
         {
-            StartPoint = new Avalonia.Point(xPos, 0),
-            EndPoint = new Avalonia.Point(xPos, canvas.Bounds.Height),
-            Stroke = Avalonia.Media.Brushes.Red,
-            StrokeThickness = 2
+            StartPoint = new Avalonia.Point(offsetXPos, 0),
+            EndPoint = new Avalonia.Point(offsetXPos, canvas.Bounds.Height),
+            Stroke = Avalonia.Media.Brushes.Gray,
+            StrokeThickness = 2,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(new[] { 2.0, 2.0 }),
+            IsHitTestVisible = false
         };
-        canvas.Children.Add(line);
+        canvas.Children.Add(offsetLine);
+
+        // Draw moving playhead line
+        var playheadLine = new Avalonia.Controls.Shapes.Line
+        {
+            StartPoint = new Avalonia.Point(playheadXPos, 0),
+            EndPoint = new Avalonia.Point(playheadXPos, canvas.Bounds.Height),
+            Stroke = Avalonia.Media.Brushes.Red,
+            StrokeThickness = 2,
+            IsHitTestVisible = false
+        };
+        canvas.Children.Add(playheadLine);
+
+        if (timelineCanvas != null)
+        {
+            timelineCanvas.Children.Clear();
+            double txPos = timelineCanvas.Bounds.Width * playheadFraction;
+            var tLine = new Avalonia.Controls.Shapes.Line
+            {
+                StartPoint = new Avalonia.Point(txPos, 0),
+                EndPoint = new Avalonia.Point(txPos, timelineCanvas.Bounds.Height),
+                Stroke = Avalonia.Media.Brushes.Red,
+                StrokeThickness = 2,
+                IsHitTestVisible = false
+            };
+            timelineCanvas.Children.Add(tLine);
+        }
     }
 
     private void SetOffsetFromPointer(double x, double width)
@@ -581,11 +769,18 @@ public partial class MusicWizardWindow : Window
         double fraction = x / width;
         fraction = Math.Clamp(fraction, 0.0, 1.0);
 
-        var offsetSlider = this.FindControl<Slider>("OffsetSlider");
-        if (offsetSlider != null)
-        {
-            offsetSlider.Value = -(_trackDuration * fraction);
-        }
+        _musicWizardOffset = -(_trackDuration * fraction);
+        
+        var lbl = this.FindControl<TextBlock>("OffsetLabel");
+        if (lbl != null) lbl.Text = $"{_musicWizardOffset:F1}s";
+        
+        bool wasPlaying = _isPreviewPlaying;
+        if (wasPlaying) StopPreview();
+        
+        _previewCurrentOffset = _trackDuration * fraction;
+        
+        if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
+        else UpdatePlayhead();
     }
 
     private void OnBackClicked(object? sender, RoutedEventArgs e)

@@ -1,0 +1,30 @@
+{
+  "MainWindowBounds": {
+    "X": 347,
+    "Y": 111,
+    "Width": 1200,
+    "Height": 800,
+    "WindowState": 0
+  },
+  "GranularBounds": {
+    "X": 278,
+    "Y": 113,
+    "Width": 1050,
+    "Height": 720,
+    "WindowState": 0
+  },
+  "MusicWizardBounds": {
+    "X": 524,
+    "Y": 152,
+    "Width": 900,
+    "Height": 700,
+    "WindowState": 0
+  },
+  "SettingsBounds": {
+    "X": 587,
+    "Y": 251,
+    "Width": 720,
+    "Height": 520,
+    "WindowState": 0
+  }
+}

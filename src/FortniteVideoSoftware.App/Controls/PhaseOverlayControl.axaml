@@ -10,6 +10,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
         <!-- Progress Bar Area -->
@@ -38,5 +39,8 @@
                  CornerRadius="4"
                  Padding="8"
                  TextWrapping="Wrap" />
+
+        <!-- Cancel Button Area -->
+        <Button Grid.Row="3" x:Name="CancelProcessButton" Classes="Danger" Content="CANCEL" Width="125" Height="60" CornerRadius="8" HorizontalAlignment="Center" Margin="0,20,0,0" ToolTip.Tip="Cancel the current operation"/>
     </Grid>
 </UserControl>

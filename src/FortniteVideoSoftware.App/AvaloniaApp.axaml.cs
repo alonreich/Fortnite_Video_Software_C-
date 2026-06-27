@@ -78,10 +78,6 @@ public partial class AvaloniaApp : Application
             {
                 desktop.MainWindow = new VideoMergerWindow();
             }
-            else if (System.Linq.Enumerable.Any(argsList, a => a.Equals("--advanced-editor", System.StringComparison.OrdinalIgnoreCase)))
-            {
-                desktop.MainWindow = new AdvancedVideoEditorWindow();
-            }
             else
             {
                 desktop.MainWindow = new MainWindow();

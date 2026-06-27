@@ -154,7 +154,7 @@ public class AudioFilterChain
 
             var musicFilters = new List<string>
             {
-                $"atrim=start={fileStart:F3}:duration={track.Duration:F3}",
+                $"atrim=start={fileStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:duration={track.Duration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
                 "asetpts=PTS-STARTPTS"
             };
 
@@ -162,16 +162,19 @@ public class AudioFilterChain
             if (!disableFades && track.Duration > 0.5)
             {
                 double fadeDur = Math.Min(1.5, track.Duration / 2.0);
-                musicFilters.Add($"afade=t=in:st=0:d={fadeDur:F3}");
-                musicFilters.Add($"afade=t=out:st={Math.Max(0, track.Duration - fadeDur):F3}:d={fadeDur:F3}");
+                musicFilters.Add($"afade=t=in:st=0:d={fadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                if (track.ApplyFadeOut)
+                {
+                    musicFilters.Add($"afade=t=out:st={Math.Max(0, track.Duration - fadeDur).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={fadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
             }
 
             double mVol = GetDouble(musicConfig, "music_vol", GetDouble(musicConfig, "volume", 0.8));
-            musicFilters.Add($"volume={mVol:F4}");
+            musicFilters.Add($"volume={mVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
 
             chain.Add($"{inputLabel}{string.Join(",", musicFilters)}{preLabel}");
 
-            int delayMs = (int)((accumProjectSec + extraDelay) * 1000);
+            int delayMs = (int)((accumProjectSec + extraDelay + track.TimelineStartDelay) * 1000);
             if (delayMs > 0)
                 chain.Add($"{preLabel}adelay={delayMs}|{delayMs}{outLabel}");
             else
@@ -210,7 +213,7 @@ public class AudioFilterChain
         if (volumeNormalizeDb != 0)
             vVolGame *= Math.Pow(10, volumeNormalizeDb / 20.0);
 
-        chain.Add($"[a_main_raw]volume={vVolGame:F4}[game_scaled]");
+        chain.Add($"[a_main_raw]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_scaled]");
         chain.Add("[game_scaled]asplit=2[game_out_pre][game_trig]");
         // Trigger cleaning: highpass→lowpass→agate→equalizer for detection
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
@@ -225,7 +228,7 @@ public class AudioFilterChain
         // Sidechain compression
         double dThresh = GetDouble(musicConfig, "ducking_threshold", 0.15);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", 2.5);
-        string duckParams = $"threshold={dThresh}:ratio={dRatio}:attack=1:release=400:detection=rms";
+        string duckParams = $"threshold={dThresh.ToString(System.Globalization.CultureInfo.InvariantCulture)}:ratio={dRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}:attack=1:release=400:detection=rms";
         chain.Add($"[mus_high][trig_final]sidechaincompress={duckParams}[mus_high_ducked]");
 
         // Reconstruct music
@@ -234,7 +237,6 @@ public class AudioFilterChain
         // Final mix: game + reconstructed music
         chain.Add($"[game_out_pre][a_music_reconstructed]amix=inputs=2:" +
                   $"duration=first:dropout_transition=3:weights='1 1':normalize=0," +
-                  $"dynaudnorm=f=150:g=15," +
                   $"alimiter=limit=0.95:attack=5:release=50," +
                   $"aresample={targetSampleRate}:async=1[a_music_prepared]");
 
@@ -251,6 +253,6 @@ public class AudioFilterChain
 
 /// <summary>
 /// Represents a single music track for the audio chain.
-/// Path, offset (in seconds from file start), and duration.
+/// Path, offset (in seconds from file start), duration, timeline delay (in seconds from video start), and whether to fade out.
 /// </summary>
-public record MusicTrack(string Path, double Offset, double Duration);
+public record MusicTrack(string Path, double Offset, double Duration, double TimelineStartDelay = 0.0, bool ApplyFadeOut = true);

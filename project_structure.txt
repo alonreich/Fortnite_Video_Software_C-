@@ -27,7 +27,7 @@ CRITICAL MANDATES FOR ALL AI AGENTS:
      • `src/FortniteVideoSoftware.Core/Media/CanvasMath.cs` — UI canvas boundary math
    Constants (`CoordinateConstants`): InternalW=1280, InternalH=1920, PortraitW=1080,
    PortraitH=1920, ContentW=1080, ContentH=1620, PaddingTop=150, PaddingBottom=150.
-   BackendScale = 1280/1080 = 16/15.
+   BackendScale = 1280/1080 = 32/27.
 
    BEFORE writing or modifying ANY portrait-related math (dimming overlays, FOV guides,
    crop previews, coordinate transforms, overlay placements), ALWAYS verify your formula
@@ -109,12 +109,13 @@ free footprint.
   consistently stays at 16 Consolas.
   Development testing is handled separately by `dev.cmd`:
   - `dev.cmd` starts `dotnet watch run` hot reload for functionality and look/feel checks.
-  - `dev.cmd run` launches one Debug app session.
+  - `dev.cmd run` launches one Debug app session. (Incremental, fast)
   - `dev.cmd build` performs a fast Debug compile-only check and does not open the app.
   - `dev.cmd restore` refreshes NuGet assets after package/project changes.
-  - `dev.cmd clean` cleans Debug output.
-  Dev commands target `Debug` + `win-x64` + `--no-self-contained` and use `--no-restore`
-  for warm-loop speed. Run `dev.cmd restore` first after package/reference changes.
+  - `dev.cmd clean` securely wipes Debug output (`bin`/`obj`) to guarantee a fresh build.
+  Dev commands safely sandbox their execution via `FVS_PROGRAMDATA_ROOT=.dev_data`, ensuring 
+  local developer tests do not overwrite or corrupt your real production `%PROGRAMDATA%` configs.
+  Dev commands target `Debug` + `win-x64` + `--no-self-contained`.
   The app project explicitly includes `**\*.axaml` in `dotnet watch` so UI markup saves
   participate in the hot-reload/watch workflow.
 
@@ -125,10 +126,10 @@ free footprint.
   - Custom Window Chrome: Custom extended-client-area windows use a shared darker grey brushed-metal chrome. The 30px title bar uses `TitleBarBackground`; the 5px surrounding frame uses `WindowTitleBorder`. Do not hard-code `LightGray` or add per-OS title/frame overrides that bypass these resources.
   - Synchronous Window Bounds tracking via `WindowBoundsHelper.SaveBoundsSync` guarantees that layout, window position, monitor affinity, and sizing are safely committed to disk before the Avalonia application loop terminates.
   - Design System Standards (UX/UI audit baseline):
-    * Window Title Standard: All custom title bars use the global `TextBlock.WindowTitleText` style from `AvaloniaApp.axaml`. Window titles are horizontally centered in the 30px title bar across Main, Settings, Music Wizard, Granular Speed Editor, Video Merger, Crop Tools, and Advanced Editor. Do not locally set left margins on title text.
+    * Window Title Standard: All custom title bars use the global `TextBlock.WindowTitleText` style from `AvaloniaApp.axaml`. Window titles are horizontally centered in the 30px title bar across Main, Settings, Music Wizard, Granular Speed Editor, Video Merger, and Crop Tools. Do not locally set left margins on title text.
     * Metallic Chrome Standard: `AvaloniaApp.axaml` owns the shared `TitleBarBackground`, `TitleBarForeground`, and `WindowTitleBorder` resources. The main app title is `Fortnite Video Software` (no `- Pro Edition`). All `MainBorder` 5px frames must bind `BorderBrush="{DynamicResource WindowTitleBorder}"`; all title bars must bind `Background="{DynamicResource TitleBarBackground}"`.
     * Checkbox Standard: All CheckBox controls inherit from a single global style in `AvaloniaApp.axaml` (FontFamily system-default, FontSize 10, Foreground White, Cursor Hand). Hover (`:pointerover`) applies a subtle `#22ffffff` background tint; focus (`:focus`/`:focus-visible`) shows a 2px `#7dd3fc`/`#38bdf8` border ring. This applies app-wide to every checkbox. No CheckBox should set a local `FontSize` override — the global style is the single source of truth.
-    * Apply/Cancel Button Standard: All dialog/window Apply and Cancel action buttons (Settings APPLY/CANCEL, Granular Speed APPLY/CANCEL) MUST use identical dimensions: `Width="90" Height="32" FontSize="10"`. The canonical reference is `GranularSpeedEditorWindow.axaml` (`CancelGranularBtn` / `AcceptGranularBtn`). The APPLY button uses the `Success` (green) class; the CANCEL button uses the `Danger` (red) class. Both rely on the global `Button` style for `CornerRadius="8"`, `FontWeight="SemiBold"`, and `BorderThickness="1,1,1,2"`. Note: The MAIN App's PROCESS/CANCEL buttons (`Width="125" Height="42"`) and Music Wizard's CANCEL/PLAY buttons (`Width="110" Height="42"`) are intentionally larger — they are primary workflow actions, not dialog Apply/Cancel buttons.
+    * App-Wide Action Button Standard: ALL buttons app-wide (including Main App workflow buttons like PROCESS/CANCEL, dialog actions like APPLY/CANCEL, and wizard steps like PLAY PREVIEW/NEXT) inherit from a single ROOT source of truth in `AvaloniaApp.axaml`. The base `<Style Selector="Button">` enforces a strict universal dimension: `Height="32"` and `FontSize="10"`. Individual buttons may locally override `Width` (e.g., `Width="125"` for PROCESS, `Width="90"` for CANCEL) but MUST NOT hardcode `Height` or `FontSize` in their `.axaml` files. The gigantic buttons of the past (e.g. Height 42, FontSize 12) have been eliminated to ensure consistent scaling and aesthetics across every window. Both rely on the global `Button` style for `CornerRadius="8"`, `FontWeight="SemiBold"`, and `BorderThickness="1,1,1,2"`. The APPLY/PROCESS buttons use the `Success` (green) class; the CANCEL buttons use the `Danger` (red) class.
     * Speed Preset Button Standard: MainWindow and GranularSpeedEditorWindow share global `Button.SpeedPreset`, `Button.BaseSpeedPreset`, and `StackPanel.SpeedPresetRows` styles from `AvaloniaApp.axaml` plus shared wiring in `SpeedPresetButtons.cs`. Preset buttons are `31x25` px with `Padding="0"` so labels never get clipped, the vertical row gap is `3px`, and hover uses a subtle dark amber glow (`#4a3714` background, `#a16207` border, `#fef3c7` text). Both screens use the same two-row quick speed layout: 0.1x, 0.5x, 1.0x, base/default, 1.5x on row 1 and 2.0x, 2.5x, 3.0x, 3.5x, 4.0x on row 2. In Main, the green `BaseSpeedPreset` is always the native default 1.1x. In Granular Speed Editor, the green `BaseSpeedPreset` dynamically reflects the Main screen SPEED value passed into the editor.
     * Slider Thumb Standard: All `Slider` thumbs are globally enlarged to 18×18px resting (was 12px), growing slowly (0.3s `TransformOperationsTransition`) to `scale(1.4)` on hover and `scale(2.0)` when pressed/dragged. The thumb uses a radial gradient (`#7dd3fc` → `#38bdf8` → `#0ea5e9`) on hover. `CompactSlider` class thumbs (timeline scrubber + vertical volume) are 21×21px resting. This standard is defined in `AvaloniaApp.axaml` and applies to every slider app-wide.
      * Volume Slider Standard: The vertical `VolumeSlider` (in MainWindow, flush between the video border and the right pane) uses the PLAIN default Avalonia slider style (matching the Granular Speed horizontal slider), NOT a custom gradient track. It sits inside a slim clear frame: a `Border` `Width="56"` with `Padding="4,8"`, `Background="#15202b"`, `BorderBrush="#475569"`, `BorderThickness="1"`, and `VerticalAlignment="Stretch"` so it anchors to the top and bottom edges of the video player and stretches/shrinks with the app. There is NO horizontal gap on either side — the parent grid `Margin` right edge is `0` (not 16) so the frame touches the right pane, and the video sits flush against its left. A `VolumeBadgeText` (e.g. "100%") sits above the slider in the frame. The old `VolumeSlider` CSS class and gradient track styles have been removed.
@@ -136,12 +137,14 @@ free footprint.
     * Overlay Feedback Bubbles: All Main/Granular tactical feedback uses the shared `FloatingFeedback.Show(...)` Popup animation. MainWindow uses `FeedbackPopup`; Granular Speed Editor uses `GranularFeedbackPopup`. Feedback appears at the bottom-center of the VIDEO area and floats upward while fading out. Because the native MPV HWND (embedded via `--wid`) paints over ALL Avalonia overlays AND suppresses MPV's own OSD layer on Windows, feedback MUST be rendered via an **Avalonia `Popup`**. A `Popup` creates a SEPARATE native popup window (WS_POPUP) with its own z-order that floats ABOVE the embedded MPV HWND. Styling: golden text (`#facc15`) on 50% semi-transparent dark blue (`#0f1b3a`) background. The old bottom-right `ToastHost` feedback path is removed and must not be reintroduced for tactical editor feedback.
     * Music Wizard Toast Layering: `MusicWizardWindow.ShowToast(...)` must set the toast `ZIndex` before adding it to the host panel. The toast ZIndex must be at least 999 and above every existing sibling so it cannot render behind list boxes or content panels.
     * SpinningWheelSlider Tooltips: The `SpinningWheelSlider` custom control suppresses its tooltip during active interaction (drag, wheel scroll, key navigation) to prevent it from destructively popping up over the spinner. The tooltip is saved, cleared during interaction, and restored 1.2 seconds after the last interaction via a cancellable `Task.Delay`.
-    * Timeline Overlay: The timeline (scale ticks, trim markers, scrub slider) floats at the bottom of the video area on a semi-transparent `#B3000000` strip (height 52px). The `MpvVideoView` has a bottom `Margin="0,0,0,52"` so the native HWND does not extend into this strip, keeping the Avalonia controls visible and interactable above the video. The overlay uses fixed lanes: a 14px scale-label lane and a 32px scrubber/marker lane, preventing tick labels, trim markers, thumbnail markers, and the scrubber thumb from colliding. Endpoint tick labels are omitted because elapsed/remaining time labels live outside the x-axis. Remaining time is clamped to zero so the UI never displays negative overflow. When the user selects a thumbnail frame, `UpdateTimelineMarkers()` draws a persistent yellow camera marker centered on the exact X-axis timeline position for `_thumbnailPosMs`; `_thumbnailSet` controls whether this marker is shown.
+    * Music Wizard Timeline & Playhead: The wizard timeline uses a dual-marker system: a static dashed gray line for the track offset, and an active smooth-moving red playhead synced at 60fps with the background `ffplay` process. Click-to-seek handles instant audio/visual repositioning.
+    * Main App Music Overlay: The applied music is drawn on the main timeline as a pink block with draggable "🎵" text-block markers on both ends. These dictate `TimelineStartSeconds` and `TimelineEndSeconds`, which dynamically sync to both the Avalonia video preview loop and the FFmpeg export pipeline via `TimelineStartDelay`.
+    * Timeline Overlay: The timeline floats at the bottom of the video area on a semi-transparent `#B3000000` strip (height 52px). It includes scale ticks, trim markers, scrub slider, and the pink music overlay block. The music overlay block is drawn last to remain on top and provides grab-handles (🎵) to independently slide the music start, end, and absolute placement. When the user selects a thumbnail frame, `UpdateTimelineMarkers()` draws a persistent yellow camera marker centered on the exact X-axis timeline position.
 
 * Repository & Dependency Architecture:
   - Clean separation from legacy code: All critical FFmpeg and MPV binaries are now hosted independently in a `binaries/` directory and injected at build time.
   - Git LFS Integration (`.gitattributes`): Transparently handles large native binaries (`*.exe`, `*.dll`, `*.com`, `*.zip`) to prevent repository bloat.
-  - Intelligent Agent & IDE Exclusions: Employs `.clineignore`, `.agignore`, `.geminiignore`, and `.codexignore` to perfectly optimize AI context windows (excluding `node_modules`, `dist`, lockfiles, `*.g.cs`) while preserving access to local editor setups.
+  - Intelligent Agent & IDE Exclusions: Employs `.clineignore`, `.agignore`, `.geminiignore`, and `.codexignore` to perfectly optimize AI context windows (excluding `compiled`, `temp_staging`, `.dev_data`, `binaries`, `node_modules`, `dist`, lockfiles, `*.g.cs`) while preserving access to local editor setups.
   - Hardened `.gitignore` safeguards secrets (`.env`, `appsettings.json`), package caches, and test results, while explicitly whitelisting the `binaries/` folder.
 
 2.5. THE THREE (3) APPS / SUB-APPLICATIONS
@@ -252,15 +255,13 @@ the MAIN App's bottom navigation bar:
     |   |   Role: [APP 2 - Video Merger] Drag-and-drop Avalonia window for joining/merging two or
     |   |         more separate video files into one long video via FFmpeg concatenation. See §2.5.
     |   |-- MusicWizardWindow.axaml & .cs
-    |   |   Role: 3-Step Wizard for Background Music selection. Features an interactive timeline with a visual waveform where users can drag the playhead to set precisely tuned offset ducking configurations.
+    |   |   Role: Wizard for Background Music selection. Features a dual-marker interactive timeline (static offset line + moving 60fps playhead), double-click selection, permanent scrollbars, and click-to-seek synchronized directly with `ffplay`.
     |   |-- GranularSpeedEditorWindow.axaml & .cs
     |   |   Role: UI for splitting video into distinct time segments with independent playback speeds.
     |   |-- CropToolWindow.axaml & .cs
     |   |   Role: [APP 3 - Crop Tools] Precision Canvas-based interface for defining crop regions
     |   |         and overlay positions on a landscape video clip, which exports the JSON config file
     |   |         used by the MAIN App's Portrait mode. See §2.5.
-    |   |-- AdvancedVideoEditorWindow.axaml & .cs
-    |   |   Role: Currently indefinitely postponed migration. Intended for keyframe-level video processing and complex text/image overlays.
     |
     +-- FortniteVideoSoftware.Core\ (Business, IPC, & Media Logic Layer)
         |-- FortniteVideoSoftware.Core.csproj
@@ -301,3 +302,4 @@ the MAIN App's bottom navigation bar:
             |   Role: Manages advanced `highpass/lowpass` split logic and RMS sidechain compression for audio ducking game tracks against music.
             |-- MediaProber.cs
             |   Role: Interacts with ffprobe to accurately measure duration and format metrics for the sync engine.
+EXEMPTION ADDED: In MainWindow.axaml, the CancelButton intentionally has Width="125" (unlike the 90px standard) to match the ProcessButton. This prevents a horizontal layout shift when toggling visibility.

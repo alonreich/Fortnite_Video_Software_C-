@@ -1,74 +1,375 @@
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:CompileBindings="False"
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
         Title="Portrait 1080x1920 (Crop Tool)"
         Width="1800" Height="930"
+        MinWidth="1250" MinHeight="760"
         Background="#1e293b"
-        MinWidth="1200" MinHeight="800"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
+    <Border Name="MainBorder"
+            Background="#1e293b"
+            BorderBrush="{DynamicResource WindowTitleBorder}"
+            BorderThickness="5">
+        <Grid RowDefinitions="30,*">
+            <Border Name="TitleBarBorder"
+                    Grid.Row="0"
+                    Background="{DynamicResource TitleBarBackground}"
+                    IsHitTestVisible="False">
+                <TextBlock Classes="WindowTitleText"
+                           Text="{Binding $parent[Window].Title}"
+                           Foreground="{DynamicResource TitleBarForeground}" />
+            </Border>
 
-    <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
-            <Grid RowDefinitions="30, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
-                    <TextBlock Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
-                </Border>
-                <Grid Grid.Row="1" ColumnDefinitions="*, 350">
-                    <!-- LEFT: Portrait Canvas Area -->
-                    <Border Grid.Column="0" Background="Black" Margin="10" CornerRadius="6" ClipToBounds="True">
-                        <Grid>
-                            <Viewbox Stretch="Uniform">
-                                <Canvas Name="PortraitCanvas" Width="1080" Height="1920" Background="#1e1e1e">
-                                    <local:MpvVideoView Name="BackgroundVideo" Width="1080" Height="1920" Canvas.Top="0" Canvas.Left="0" ZIndex="0" />
-                                    <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="0" Canvas.Left="0" ZIndex="100"/>
-                                    <Rectangle Width="1080" Height="150" Fill="Black" Canvas.Top="1770" Canvas.Left="0" ZIndex="100"/>
-                                </Canvas>
-                            </Viewbox>
+            <Grid Grid.Row="1" ColumnDefinitions="*,624">
+                <Grid Grid.Column="0" RowDefinitions="78,*,42,42" Background="#1a252f">
+                    <Border Grid.Row="0"
+                            Background="#243447"
+                            BorderBrush="#334155"
+                            BorderThickness="0,0,0,1"
+                            Padding="16,10">
+                        <Grid RowDefinitions="20,20,8">
+                            <ProgressBar Name="WizardProgress"
+                                         Grid.Row="0"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Value="20"
+                                         Height="18" />
+                            <TextBlock Name="GoalLabel"
+                                       Grid.Row="1"
+                                       Text="Goal: Upload Video"
+                                       Foreground="#cbd5e1"
+                                       FontSize="12"
+                                       FontWeight="Bold" />
+                            <TextBlock Name="StatusLabel"
+                                       Grid.Row="2"
+                                       Text=""
+                                       Foreground="#94a3b8"
+                                       FontSize="10" />
                         </Grid>
                     </Border>
 
-                    <!-- RIGHT: Tools & Layers -->
-                    <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
-                        <Grid RowDefinitions="Auto, *, Auto, Auto">
-                            <StackPanel Grid.Row="0" Spacing="10">
-                                <TextBlock Text="CROP TOOLS" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                                <Button Name="OpenVideoButton" Classes="Primary" Content="OPEN VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Open a reference video for crop placement"/>
-                                <Button Name="SnapshotButton" Classes="Primary" Content="TAKE SNAPSHOT" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Snapshot capture is not available in this crop tool build"/>
-                                <Button Name="MagicWandButton" Classes="Primary" Content="MAGIC WAND" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Automatic crop detection is not available in this crop tool build"/>
-                                <CheckBox Name="SnapToggle" Content="Snap to Grid" Foreground="White" IsChecked="True"/>
-                                <CheckBox Name="ShowPlaceholders" Content="Show Placeholders" Foreground="White" IsChecked="True"/>
-                            </StackPanel>
-
-                            <!-- Layers List -->
-                            <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" Margin="0,15">
-                                <ListBox Name="LayerList" Background="Transparent" Foreground="White" FontSize="12">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate x:DataType="x:String">
-                                            <TextBlock Text="{Binding}"/>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
+                    <Grid Grid.Row="1">
+                        <Grid Name="VideoPanel" Background="Black">
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="1280" Height="720" Background="Black">
+                                    <local:MpvVideoView Name="VideoHost"
+                                                        Width="1280"
+                                                        Height="720" />
+                                </Grid>
+                            </Viewbox>
+                            <Border Name="UploadHint"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Background="#dd000000"
+                                    BorderBrush="#7dd3fc"
+                                    BorderThickness="2"
+                                    CornerRadius="8"
+                                    Padding="34,20">
+                                <TextBlock Text="UPLOAD VIDEO"
+                                           Foreground="White"
+                                           FontSize="28"
+                                           FontWeight="Bold" />
                             </Border>
+                        </Grid>
 
-                            <!-- Action Buttons -->
-                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" Margin="0,0,0,15">
-                                <Button Name="DeleteSelectedButton" Classes="Danger" Content="DELETE" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Deleting crop regions is not available in this crop tool build"/>
-                                <Button Name="UndoButton" Classes="Primary" Content="UNDO" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Undo is not available in this crop tool build"/>
-                                <Button Name="RedoButton" Classes="Primary" Content="REDO" Width="90" Height="42" FontSize="12" IsEnabled="False" ToolTip.Tip="Redo is not available in this crop tool build"/>
-                            </StackPanel>
+                        <Grid Name="SnapshotPanel"
+                              Background="#0f172a"
+                              IsVisible="False"
+                              RowDefinitions="*,44">
+                            <ScrollViewer Grid.Row="0"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto"
+                                          Background="#0f172a">
+                                <Viewbox Stretch="Uniform">
+                                    <Canvas Name="SourceCanvas"
+                                            Width="1920"
+                                            Height="1080"
+                                            Background="Black"
+                                            Cursor="Cross">
+                                        <Image Name="SnapshotImage"
+                                               Width="1920"
+                                               Height="1080"
+                                               Stretch="Fill" />
+                                    </Canvas>
+                                </Viewbox>
+                            </ScrollViewer>
+                            <Border Grid.Row="1"
+                                    Background="#172033"
+                                    BorderBrush="#334155"
+                                    BorderThickness="0,1,0,0"
+                                    Padding="12,6">
+                                <Grid ColumnDefinitions="220,*,150">
+                                    <ComboBox Name="RoleCombo"
+                                              Grid.Column="0"
+                                              Height="30"
+                                              Foreground="White"
+                                              Background="#334155" />
+                                    <TextBlock Name="SelectionInfo"
+                                               Grid.Column="1"
+                                               Text="Draw a box around a HUD element, then assign its role."
+                                               Foreground="#cbd5e1"
+                                               VerticalAlignment="Center"
+                                               FontSize="11"
+                                               Margin="12,0,12,0" />
+                                    <Button Name="AddSelectionButton"
+                                            Grid.Column="2"
+                                            Classes="Success"
+                                            Content="ADD SELECTION"
+                                            IsEnabled="False" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
 
-                            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                                <Button Name="ReturnButton" Classes="Primary" Content="RETURN" Width="140" Height="42" FontSize="12"/>
-                                <Button Name="SaveButton" Classes="Success" Content="SAVE" Width="140" Height="42" FontSize="12"/>
-                            </StackPanel>
+                    <Border Name="TimelinePanel"
+                            Grid.Row="2"
+                            Background="#1e293b"
+                            BorderBrush="#334155"
+                            BorderThickness="0,1,0,0"
+                            Padding="16,5"
+                            IsVisible="False">
+                        <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
+                            <TextBlock Name="CurrentTimeLabel"
+                                       Grid.Column="0"
+                                       Text="00:00"
+                                       Foreground="White"
+                                       VerticalAlignment="Center"
+                                       Width="64"
+                                       FontSize="10"
+                                       Margin="0,0,8,0" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
+                                <Canvas Name="CropTimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
+                                <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
+                                    <Slider Name="TimelineSlider" Classes="TimelineSlider CompactSlider" Minimum="0" Maximum="1000" Value="0" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
+                                    <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
+                                </Grid>
+                            </Grid>
+                            <TextBlock Name="TotalTimeLabel"
+                                       Grid.Column="2"
+                                       Text="00:00"
+                                       Foreground="White"
+                                       VerticalAlignment="Center"
+                                       Width="64"
+                                       TextAlignment="Right"
+                                       FontSize="10"
+                                       Margin="8,0,0,0" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="3"
+                            Background="#243447"
+                            BorderBrush="#334155"
+                            BorderThickness="0,1,0,0"
+                            Padding="16,5">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto">
+                            <Button Name="OpenVideoButton"
+                                    Grid.Column="0"
+                                    Classes="Primary"
+                                    Content="OPEN VIDEO"
+                                    Width="120"
+                                    ToolTip.Tip="Open a video file"
+                                    Margin="0,0,12,0" />
+                            <Button Name="SnapshotButton"
+                                    Grid.Column="1"
+                                    Classes="Primary"
+                                    Content="START CROPPING"
+                                    Width="130"
+                                    ToolTip.Tip="Capture a frame and start cropping"
+                                    IsEnabled="False"
+                                    Margin="0,0,12,0" />
+                            <Button Name="MagicWandButton"
+                                    Grid.Column="2"
+                                    Classes="Primary"
+                                    Content="MAGIC WAND"
+                                    Width="120"
+                                    ToolTip.Tip="Auto-detect game UI elements"
+                                    IsVisible="False"
+                                    Margin="0,0,12,0" />
+                            <Button Name="BackToVideoButton"
+                                    Grid.Column="3"
+                                    Classes="Primary"
+                                    Content="BACK TO VIDEO"
+                                    Width="130"
+                                    ToolTip.Tip="Return to video view"
+                                    IsVisible="False"
+                                    Margin="0,0,12,0" />
+                            <Button Name="PlayPauseButton"
+                                    Grid.Column="5"
+                                    Classes="Primary"
+                                    Content="PLAY"
+                                    Width="90"
+                                    ToolTip.Tip="Play or pause video playback"
+                                    IsEnabled="False"
+                                    Margin="0,0,12,0" />
+                            <Button Name="ReturnButton"
+                                    Grid.Column="6"
+                                    Classes="Primary"
+                                    Content="RETURN"
+                                    Width="90"
+                                    ToolTip.Tip="Return to the main application"
+                                    Margin="0,0,12,0" />
+                            <Button Name="ResetButton"
+                                    Grid.Column="7"
+                                    Classes="Danger"
+                                    Content="RESET"
+                                    Width="90"
+                                    ToolTip.Tip="Clear all layers" />
                         </Grid>
                     </Border>
                 </Grid>
+
+                <Border Grid.Column="1"
+                        Background="#253549"
+                        BorderBrush="#475569"
+                        BorderThickness="1,0,0,0">
+                    <Grid RowDefinitions="42,*,46">
+                    <Border Grid.Row="0"
+                            Background="#334155"
+                            BorderBrush="#475569"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,6">
+                        <Grid ColumnDefinitions="Auto,128,*,Auto,24,Auto">
+                            <CheckBox Name="ShowPlaceholders"
+                                      Grid.Column="0"
+                                      Content="Show Existing Crops"
+                                      Foreground="White"
+                                      IsChecked="False"
+                                      VerticalAlignment="Center" />
+                            <Slider Name="PlaceholderOpacitySlider"
+                                    Grid.Column="1"
+                                    Minimum="20"
+                                    Maximum="255"
+                                    Value="95"
+                                    IsVisible="False"
+                                    Margin="10,0,0,0" />
+                            <CheckBox Name="SnapToggle"
+                                      Grid.Column="3"
+                                      Content="Snap"
+                                      Foreground="White"
+                                      IsChecked="True"
+                                      VerticalAlignment="Center" />
+                            <Button Name="SaveButton"
+                                    Grid.Column="5"
+                                    Classes="Success"
+                                    Content="FINISH &amp; SAVE"
+                                    Width="120"
+                                    ToolTip.Tip="Save crop settings"
+                                    IsEnabled="False" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,90,184">
+                        <Border Grid.Column="0"
+                                Background="Black"
+                                ClipToBounds="True">
+                            <Viewbox Stretch="Uniform">
+                                <Canvas Name="PortraitCanvas"
+                                        Width="1080"
+                                        Height="1920"
+                                        Background="Transparent"
+                                        Cursor="Cross">
+                                    <Image Name="ComposerBackgroundImage"
+                                           Width="1080"
+                                           Height="1920"
+                                           Stretch="Fill"
+                                           Opacity="0.22"
+                                           ZIndex="-90" />
+                                    <Rectangle Width="1080"
+                                               Height="1920"
+                                               Fill="#1e1e1e"
+                                               ZIndex="-100" />
+                                    <Rectangle Width="1080"
+                                               Height="150"
+                                               Fill="Black"
+                                               Canvas.Top="0"
+                                               Canvas.Left="0"
+                                               ZIndex="900" />
+                                    <Rectangle Width="1080"
+                                               Height="150"
+                                               Fill="Black"
+                                               Canvas.Top="1770"
+                                               Canvas.Left="0"
+                                               ZIndex="900" />
+                                </Canvas>
+                            </Viewbox>
+                        </Border>
+
+                        <StackPanel Grid.Column="1"
+                                    Background="#253549"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Center"
+                                    Spacing="30"
+                                    Margin="8,0">
+                            <Button Name="UndoButton"
+                                    Classes="Primary"
+                                    Content="UNDO"
+                                    Width="90"
+                                    ToolTip.Tip="Undo the last crop action"
+                                    IsEnabled="False" />
+                            <Button Name="RedoButton"
+                                    Classes="Primary"
+                                    Content="REDO"
+                                    Width="90"
+                                    ToolTip.Tip="Redo the last crop action"
+                                    IsEnabled="False" />
+                        </StackPanel>
+
+                        <Border Grid.Column="2"
+                                Background="#1e293b"
+                                BorderBrush="#475569"
+                                BorderThickness="1,0,0,0"
+                                Padding="8">
+                            <Grid RowDefinitions="20,*">
+                                <TextBlock Grid.Row="0"
+                                           Text="LAYERS"
+                                           Foreground="#94a3b8"
+                                           FontSize="10"
+                                           FontWeight="Bold" />
+                                <ListBox Name="LayerList"
+                                         Grid.Row="1"
+                                         Background="Transparent"
+                                         Foreground="White"
+                                         FontSize="11" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <Border Grid.Row="2"
+                            Background="#334155"
+                            BorderBrush="#475569"
+                            BorderThickness="0,1,0,0"
+                            Padding="16,7">
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Spacing="22">
+                            <Button Name="LowerButton"
+                                    Classes="Primary"
+                                    Content="MOVE DOWN"
+                                    Width="110"
+                                    ToolTip.Tip="Move selected layer down"
+                                    IsEnabled="False" />
+                            <Button Name="DeleteSelectedButton"
+                                    Classes="Danger"
+                                    Content="DELETE"
+                                    Width="90"
+                                    ToolTip.Tip="Delete the selected layer"
+                                    IsEnabled="False" />
+                            <Button Name="RaiseButton"
+                                    Classes="Primary"
+                                    Content="MOVE UP"
+                                    Width="110"
+                                    ToolTip.Tip="Move selected layer up"
+                                    IsEnabled="False" />
+                        </StackPanel>
+                    </Border>
+                    </Grid>
+                </Border>
             </Grid>
-        </Border>
-    </Grid>
+        </Grid>
+    </Border>
 </Window>

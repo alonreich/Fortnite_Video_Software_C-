@@ -28,6 +28,12 @@
                             <ScrollViewer>
                                 <StackPanel Name="DefaultsPanel" Margin="10" Spacing="15">
                                     <TextBlock Text="Default values applied when the app opens." Foreground="#94a3b8" FontSize="12" Margin="0,0,0,10" />
+                                    
+                                    <TextBlock Text="Default Music Folder" Foreground="White" FontWeight="SemiBold"/>
+                                    <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,10">
+                                        <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="#0f172a" BorderBrush="#334155" Foreground="White"/>
+                                        <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand"/>
+                                    </Grid>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
@@ -40,8 +46,8 @@
                         </TabItem>
                     </TabControl>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
-                        <Button Name="CancelBtn" Classes="Danger" Content="CANCEL" Width="90" Height="32" FontSize="10" ToolTip.Tip="Discard changes and close"/>
-                        <Button Name="SaveBtn" Classes="Success" Content="APPLY" Width="90" Height="32" FontSize="10" ToolTip.Tip="Apply settings and close"/>
+                        <Button Name="CancelBtn" Classes="Danger" Content="CANCEL" Width="90" ToolTip.Tip="Discard changes and close"/>
+                        <Button Name="SaveBtn" Classes="Success" Content="APPLY" Width="90" ToolTip.Tip="Apply settings and close"/>
                     </StackPanel>
                 </Grid>
             </Grid>

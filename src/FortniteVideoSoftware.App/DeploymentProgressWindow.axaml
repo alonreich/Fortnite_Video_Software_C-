@@ -67,9 +67,9 @@
                     Content="Finish"
                     HorizontalAlignment="Center"
                     Width="120"
-                    Height="32"
+                   
                     IsVisible="False"
-                    FontSize="14"
+                   
                     FontWeight="Bold"
                     Click="OnFinishClick"/>
         </Grid>

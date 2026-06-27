@@ -33,9 +33,16 @@ public partial class PhaseOverlayControl : UserControl
         _timer.Tick += OnTick;
     }
 
+    public event EventHandler? CancelRequested;
+
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
+        var cancelBtn = this.FindControl<Button>("CancelProcessButton");
+        if (cancelBtn != null)
+        {
+            cancelBtn.Click += (s, e) => CancelRequested?.Invoke(this, EventArgs.Empty);
+        }
     }
     
     public void StartOverlay()

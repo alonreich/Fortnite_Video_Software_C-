@@ -54,6 +54,8 @@
 
         <!-- Issue #1: Buttons MUST be focusable for keyboard navigation (WCAG 2.1.1, 2.4.7) -->
         <Style Selector="Button">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="FontSize" Value="10"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Focusable" Value="True"/>
@@ -75,6 +77,15 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
         <Style Selector="Button:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
+        <Style Selector="ToggleButton:focus /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="ToggleButton:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="BorderBrush" Value="#38bdf8"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
@@ -154,6 +165,14 @@
             <Setter Property="BorderBrush" Value="#2a3340"/>
         </Style>
         <Style Selector="Button.Primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
+        </Style>
+
+        <Style Selector="ToggleButton.Primary:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="ToggleButton.Primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="#3a4452"/>
         </Style>
 

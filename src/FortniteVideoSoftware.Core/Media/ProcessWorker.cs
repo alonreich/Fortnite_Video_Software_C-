@@ -53,9 +53,12 @@ public class ProcessWorker : IDisposable
     public ProcessWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
-        _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
+        _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "binaries", "ffmpeg.exe");
+        if (!File.Exists(_ffmpegPath)) _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffmpeg.exe");
         if (!File.Exists(_ffmpegPath)) _ffmpegPath = "ffmpeg.exe";
-        _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
+        
+        _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "binaries", "ffprobe.exe");
+        if (!File.Exists(_ffprobePath)) _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffprobe.exe");
         if (!File.Exists(_ffprobePath)) _ffprobePath = "ffprobe.exe";
     }
 
@@ -332,8 +335,8 @@ public class ProcessWorker : IDisposable
                         var ffmpegArgs = new List<string>
                         {
                             "-y", "-hide_banner", "-progress", "pipe:1",
-                            "-ss", $"{StartTimeMs / 1000.0:F3}",
-                            "-t", $"{(EndTimeMs - StartTimeMs) / 1000.0:F3}",
+                            "-ss", (StartTimeMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                            "-t", ((EndTimeMs - StartTimeMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-i", InputPath,
                         };
 
@@ -349,7 +352,7 @@ public class ProcessWorker : IDisposable
                                 : StartTimeMs / 1000.0;
                             if (sourceDuration > 0.25)
                                 introAbsSec = Math.Min(Math.Max(0, introAbsSec), Math.Max(0, sourceDuration - 0.2));
-                            ffmpegArgs.AddRange(["-ss", $"{introAbsSec:F3}", "-t", $"{Math.Max(0.2, introDurationSec + 0.1):F3}", "-i", InputPath]);
+                            ffmpegArgs.AddRange(["-ss", introAbsSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-t", Math.Max(0.2, introDurationSec + 0.1).ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", InputPath]);
                         }
 
                         // Text PNG input
@@ -361,7 +364,7 @@ public class ProcessWorker : IDisposable
                         ffmpegArgs.AddRange(["-map", "[v_render_out]", "-map", currentALabel]);
                         ffmpegArgs.AddRange(codecArgs);
                         ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
-                            "-t", $"{renderDurationSec:F3}",
+                            "-t", renderDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-movflags", "+faststart", corePath]);
 
                         string cmdLine = string.Join(" ", ffmpegArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
@@ -536,8 +539,8 @@ public class ProcessWorker : IDisposable
             var args = new List<string>
             {
                 "-y", "-hide_banner",
-                "-ss", $"{StartTimeMs / 1000.0:F3}",
-                "-t", $"{(EndTimeMs - StartTimeMs) / 1000.0:F3}",
+                "-ss", (StartTimeMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                "-t", ((EndTimeMs - StartTimeMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-i", InputPath,
                 "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",

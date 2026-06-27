@@ -71,7 +71,6 @@ static async Task<int> RunAsync(string[] args)
             "--cleanup-worker" => await RunUiAsync(args),
             "--crop-tool" => await RunUiAsync(args),
             "--merger" => await RunUiAsync(args),
-            "--advanced-editor" => await RunUiAsync(args),
             _ => PrintUsage(command)
         };
     }

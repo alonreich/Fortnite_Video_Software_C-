@@ -36,7 +36,7 @@
             <Grid Grid.Row="2" RowDefinitions="Auto, Auto" Margin="10,15,10,10">
                 <!-- Top Row: Play/Pause -->
                 <Grid Grid.Row="0" Margin="0,0,0,10">
-                    <Button Name="PlayPauseButton" Classes="Success" Width="60" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video">
+                    <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video">
                         <Panel Width="16" Height="16">
                             <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                             <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -50,13 +50,13 @@
                 <!-- Bottom Row: Return To App, Merge Videos, Add Music -->
                 <Grid Grid.Row="1" Margin="0,10,0,0">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="ReturnButton" Classes="Primary" Content="RETURN TO APP" Width="140" Height="42" FontSize="12" ToolTip.Tip="Close merger and return to main app"/>
+                        <Button Name="ReturnButton" Classes="Primary" Content="RETURN TO APP" Width="140" ToolTip.Tip="Close merger and return to main app"/>
                     </StackPanel>
                     
                     <!-- Centered buttons -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Height="42" FontSize="12" Margin="0,0,15,0" IsEnabled="False" ToolTip.Tip="Add at least two videos to enable merging"/>
-                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" Height="42" FontSize="12" ToolTip.Tip="Add background music to the video"/>
+                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Margin="0,0,15,0" IsEnabled="False" ToolTip.Tip="Add at least two videos to enable merging"/>
+                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" ToolTip.Tip="Add background music to the video"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -81,10 +81,10 @@
                 </Border>
 
                 <StackPanel Grid.Row="2" Spacing="10" Margin="0,0,0,15">
-                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" Height="32" FontSize="9" ToolTip.Tip="Add another video to the queue"/>
-                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
-                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video that is not already first"/>
-                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" Height="32" FontSize="9" IsEnabled="False" ToolTip.Tip="Select a video that is not already last"/>
+                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
+                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
+                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video that is not already first"/>
+                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video that is not already last"/>
                 </StackPanel>
                 <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"/>
             </Grid>
