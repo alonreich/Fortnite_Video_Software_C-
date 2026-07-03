@@ -27,6 +27,7 @@ namespace FortniteVideoSoftware.App.Controls
         private CancellationTokenSource? _tooltipRestoreCts;
         
         public event EventHandler<int>? ValueChanged;
+        public event EventHandler<int>? ValueChangeCompleted;
 
         public SpinningWheelSlider()
         {
@@ -67,6 +68,7 @@ namespace FortniteVideoSoftware.App.Controls
                         {
                             ToolTip.SetTip(this, _savedToolTip);
                             _isTooltipSuppressed = false;
+                            ValueChangeCompleted?.Invoke(this, _value);
                         }
                     });
                 }

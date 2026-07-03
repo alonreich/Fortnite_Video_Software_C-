@@ -23,12 +23,15 @@ public partial class VideoMergerWindow : Window
     private MusicWizardResult? _musicResult;
 
     private bool _isSafeToClose = false;
+    private MergerWorker? _activeMergerWorker;
+    private System.Threading.CancellationTokenSource? _mergeCts;
 
     private Avalonia.Threading.DispatcherTimer? _playbackTimer;
 
     public VideoMergerWindow()
     {
         InitializeComponent();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
 
         this.Loaded += (s, e) => InitializeMpv();
         
@@ -37,7 +40,7 @@ public partial class VideoMergerWindow : Window
         _playbackTimer.Start();
 
         this.Loaded += async (s, e) => {
-            await WindowBoundsHelper.LoadBoundsAsync(this, "VideoMergerBounds");
+
         };
 
         var videoList = this.FindControl<ListBox>("VideoList");
@@ -54,6 +57,7 @@ public partial class VideoMergerWindow : Window
                 UpdateQueueState();
             };
             videoList.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, VideoList_DragOver);
+            videoList.AddHandler(Avalonia.Input.DragDrop.DragLeaveEvent, VideoList_DragLeave);
             videoList.AddHandler(Avalonia.Input.DragDrop.DropEvent, VideoList_Drop);
             videoList.PointerPressed += VideoList_PointerPressed;
             videoList.PointerMoved += VideoList_PointerMoved;
@@ -71,12 +75,24 @@ public partial class VideoMergerWindow : Window
         {
             playPauseBtn.Click += (s, e) =>
             {
+                RuntimeLog.Info("UI", "User clicked Play/Pause in Video Merger.");
                 if (_videoHost?.IpcClient != null)
                 {
                     _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
                 }
             };
         }
+
+        OverlayLayer.CancelRequested += (_, _) =>
+        {
+            if (_mergeCts != null && !_mergeCts.IsCancellationRequested)
+            {
+                RuntimeLog.Info("MERGER", "User requested merge cancellation from shared phase overlay.");
+                SetQueueStatus("Canceling merge...", false);
+                _mergeCts.Cancel();
+                _activeMergerWorker?.Cancel();
+            }
+        };
 
         var addBtn = this.FindControl<Button>("AddVideoButton");
         if (addBtn != null)
@@ -93,18 +109,56 @@ public partial class VideoMergerWindow : Window
                 };
 
                 var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
+                string startPath = "";
                 try
                 {
                     if (System.IO.File.Exists(paths.SessionStateFile))
                     {
                         var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
-                        if (state != null && state["MergerUploadDirectory"]?.ToString() is string startPath && System.IO.Directory.Exists(startPath))
+                        if (state != null && state["MergerUploadDirectory"] != null)
                         {
-                            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                            string sp = state["MergerUploadDirectory"]!.GetValue<string>();
+                            if (System.IO.Directory.Exists(sp))
+                            {
+                                startPath = sp;
+                            }
                         }
                     }
                 }
                 catch { }
+
+                if (string.IsNullOrEmpty(startPath) || !System.IO.Directory.Exists(startPath))
+                {
+                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    string myVideos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                    string myDocuments = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    string[] probes = new[]
+                    {
+                        System.IO.Path.Combine(localAppData, "Temp", "Highlights", "Fortnite"),
+                        System.IO.Path.Combine(localAppData, "Temp", "Highlights"),
+                        System.IO.Path.Combine(localAppData, "NVIDIA Corporation", "GeForce Experience", "Highlights"),
+                        System.IO.Path.Combine(myVideos, "Highlights", "Fortnite"),
+                        System.IO.Path.Combine(myVideos, "Fortnite"),
+                        System.IO.Path.Combine(myVideos, "Highlights"),
+                        System.IO.Path.Combine(myDocuments, "Highlights")
+                    };
+
+                    startPath = myVideos; // fallback
+                    foreach (var probe in probes)
+                    {
+                        if (System.IO.Directory.Exists(probe))
+                        {
+                            startPath = probe;
+                            break;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
+                {
+                    try { Environment.CurrentDirectory = startPath; } catch { }
+                    options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                }
 
                 var files = await StorageProvider.OpenFilePickerAsync(options);
 
@@ -128,13 +182,20 @@ public partial class VideoMergerWindow : Window
                 SetQueueStatus(files.Count > 0 ? $"{files.Count} video file(s) added." : "No files selected.", false);
             };
         }
-
         var addMusicBtn = this.FindControl<Button>("AddMusicButton");
         if (addMusicBtn != null)
         {
             addMusicBtn.Click += async (s, e) =>
             {
-                var wizard = new MusicWizardWindow();
+                RuntimeLog.Info("UI", "User clicked Add Music in Video Merger.");
+                if (VideoQueue.Count < 2)
+                {
+                    UpdateQueueState();
+                    SetQueueStatus("Add at least two videos before adding music.", true);
+                    return;
+                }
+
+                var wizard = new MusicWizardWindow(VideoQueue.ToList());
                 await wizard.ShowDialog(this);
 
                 if (wizard.Result != null)
@@ -217,10 +278,12 @@ public partial class VideoMergerWindow : Window
 
                 try
                 {
+                    _mergeCts = new System.Threading.CancellationTokenSource();
                     var worker = new MergerWorker
                     {
                         InputFiles = new List<string>(VideoQueue)
                     };
+                    _activeMergerWorker = worker;
 
                     if (_musicResult != null)
                     {
@@ -274,7 +337,7 @@ public partial class VideoMergerWindow : Window
                         });
                     };
 
-                    await worker.RunAsync();
+                    await worker.RunAsync(_mergeCts.Token);
                 }
                 catch (Exception ex)
                 {
@@ -284,6 +347,12 @@ public partial class VideoMergerWindow : Window
                     mergeBtn.Content = "MERGE VIDEOS";
                     UpdateQueueState();
                     SetQueueStatus("Merge error: " + ex.Message, true);
+                }
+                finally
+                {
+                    _activeMergerWorker = null;
+                    _mergeCts?.Dispose();
+                    _mergeCts = null;
                 }
             };
         }
@@ -305,6 +374,21 @@ public partial class VideoMergerWindow : Window
         {
             mergeBtn.IsEnabled = count >= 2;
             ToolTip.SetTip(mergeBtn, count >= 2 ? "Merge all listed videos together" : "Add at least two videos to enable merging");
+        }
+
+        var addMusicBtn = this.FindControl<Button>("AddMusicButton");
+        if (addMusicBtn != null)
+        {
+            bool canAddMusic = count >= 2;
+            addMusicBtn.IsEnabled = canAddMusic;
+            if (!canAddMusic)
+            {
+                _musicResult = null;
+                addMusicBtn.Content = "ADD MUSIC";
+            }
+            ToolTip.SetTip(addMusicBtn, canAddMusic
+                ? "Add background music to the merged video"
+                : "Add at least two videos before adding music");
         }
 
         var removeBtn = this.FindControl<Button>("RemoveVideoButton");
@@ -457,8 +541,21 @@ public partial class VideoMergerWindow : Window
 
     private void ReturnToMainApp()
     {
-        RuntimeLog.Info("MERGER", "Returning to parent main window.");
-        Close();
+        RuntimeLog.Info("MERGER", "Returning to Main app.");
+        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+        var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath) { UseShellExecute = false });
+        if (p != null)
+        {
+            Task.Run(() =>
+            {
+                try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
+            });
+        }
+        else
+        {
+            Close();
+        }
     }
 
     public void OnSuccessAction(string action)
@@ -486,6 +583,7 @@ public partial class VideoMergerWindow : Window
 
         // STOP the synchronous UI-blocking close
         e.Cancel = true;
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
         // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
@@ -493,7 +591,7 @@ public partial class VideoMergerWindow : Window
         try
         {
             // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
-            await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds");
+
 
             if (_videoHost?.IpcClient != null)
             {
@@ -565,15 +663,23 @@ public partial class VideoMergerWindow : Window
         if (e.Data.Contains("VideoItem"))
         {
             e.DragEffects = Avalonia.Input.DragDropEffects.Move;
+            SetVideoListDragState(true);
         }
         else
         {
             e.DragEffects = Avalonia.Input.DragDropEffects.None;
+            SetVideoListDragState(false);
         }
+    }
+
+    private void VideoList_DragLeave(object? sender, Avalonia.Input.DragEventArgs e)
+    {
+        SetVideoListDragState(false);
     }
 
     private void VideoList_Drop(object? sender, Avalonia.Input.DragEventArgs e)
     {
+        SetVideoListDragState(false);
         if (e.Data.Contains("VideoItem"))
         {
             string? itemToMove = e.Data.Get("VideoItem") as string;
@@ -591,5 +697,14 @@ public partial class VideoMergerWindow : Window
                 }
             }
         }
+    }
+
+    private void SetVideoListDragState(bool active)
+    {
+        var frame = this.FindControl<Border>("VideoListFrame");
+        if (frame == null) return;
+
+        frame.Background = Avalonia.Media.SolidColorBrush.Parse(active ? "#243447" : "#1e293b");
+        frame.BorderBrush = Avalonia.Media.SolidColorBrush.Parse(active ? "#38bdf8" : "#475569");
     }
 }

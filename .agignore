@@ -1,4 +1,5 @@
 # Build Outputs & Node
+mp3/
 bin/
 obj/
 TestResults/

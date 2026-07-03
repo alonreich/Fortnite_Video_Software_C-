@@ -14,11 +14,6 @@ public class MpvVideoView : OpenGlControlBase
     private LibMpvInterop.GetProcAddressCb? _getProcAddressCb;
     private LibMpvInterop.MpvRenderUpdateFn? _renderUpdateCb;
 
-    // Cached unmanaged pointers for the render loop
-    private nint _fboPtr = nint.Zero;
-    private nint _flipYPtr = nint.Zero;
-    private LibMpvInterop.mpv_render_param[]? _renderParams;
-
     public MpvIpcClient? IpcClient { get; private set; }
 
     public void InitializeMpv(string mpvPath)
@@ -54,13 +49,6 @@ public class MpvVideoView : OpenGlControlBase
         }
 
         MpvWrapper.mpv_set_option_string(_mpvHandle, "force-window", "no");
-
-        // Disable MPV's built-in OSD seek/progress bar overlay. By default MPV shows a grey
-        // progress bar in the center of the video on every seek (click-to-seek, arrow keys,
-        // drag). This app renders its own custom Avalonia timeline/overlays, so MPV's native
-        // OSD bar is redundant and visually intrusive. Disabling it here covers ALL MPV video
-        // previews app-wide (Main, Granular, Crop Tool, Video Merger, Music Wizard).
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "osd-bar", "no");
 
         MpvWrapper.mpv_initialize(_mpvHandle);
         IpcClient = new MpvIpcClient(_mpvHandle);
@@ -102,7 +90,8 @@ public class MpvVideoView : OpenGlControlBase
         // ════════════════════════════════════════════════════════════════
         // CRITICAL: Render context MUST be created HERE, inside
         // OnOpenGlRender, where the Avalonia OpenGL context is CURRENT
-        // on this thread.
+        // on this thread. Creating it from InitializeMpv (UI thread)
+        // produces a broken context because glGetString returns NULL.
         // ════════════════════════════════════════════════════════════════
         if (_renderContext == nint.Zero && _mpvHandle != nint.Zero)
         {
@@ -119,21 +108,6 @@ public class MpvVideoView : OpenGlControlBase
                     return nint.Zero;
                 }
             };
-
-            // Pre-allocate render loop pointers
-            if (_fboPtr == nint.Zero)
-            {
-                _fboPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_fbo>());
-                _flipYPtr = Marshal.AllocHGlobal(sizeof(int));
-                Marshal.WriteInt32(_flipYPtr, 1); // Avalonia flipY is always 1
-
-                _renderParams = new LibMpvInterop.mpv_render_param[]
-                {
-                    new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO, data = _fboPtr },
-                    new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_FLIP_Y, data = _flipYPtr },
-                    new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero }
-                };
-            }
 
             var initParams = new LibMpvInterop.mpv_opengl_init_params
             {
@@ -190,11 +164,6 @@ public class MpvVideoView : OpenGlControlBase
 
         if (width <= 0 || height <= 0)
         {
-            // CRITICAL FIX: Pump the render context with an empty parameter array to prevent the fatal
-            // 'mpv_render_context_render() not being called or stuck' crash during Avalonia occlusion culling.
-            var emptyParams = new LibMpvInterop.mpv_render_param[] { new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero } };
-            LibMpvInterop.mpv_render_context_render(_renderContext, emptyParams);
-
             Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
             return;
         }
@@ -209,11 +178,26 @@ public class MpvVideoView : OpenGlControlBase
             internal_format = 32856
         };
 
-        // Overwrite the pre-allocated FBO memory block with the new dimensions
-        Marshal.StructureToPtr(fbo, _fboPtr, false);
+        nint fboPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_fbo>());
+        Marshal.StructureToPtr(fbo, fboPtr, false);
 
-        // Command MPV to draw onto the Avalonia FBO layer using cached params
-        LibMpvInterop.mpv_render_context_render(_renderContext, _renderParams!);
+        int flipY = 1;
+        nint flipYPtr = Marshal.AllocHGlobal(sizeof(int));
+        Marshal.WriteInt32(flipYPtr, flipY);
+
+        var renderParams = new LibMpvInterop.mpv_render_param[]
+        {
+            new() { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO, data = fboPtr },
+            new() { type = LibMpvInterop.MPV_RENDER_PARAM_FLIP_Y, data = flipYPtr },
+            new() { type = 0, data = nint.Zero }
+        };
+
+        LibMpvInterop.mpv_render_context_render(_renderContext, renderParams);
+        Marshal.FreeHGlobal(fboPtr);
+        Marshal.FreeHGlobal(flipYPtr);
+
+        // Continuous render loop
+        Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)
@@ -230,19 +214,6 @@ public class MpvVideoView : OpenGlControlBase
             MpvWrapper.mpv_terminate_destroy(_mpvHandle);
             _mpvHandle = nint.Zero;
         }
-
-        // Free cached unmanaged memory
-        if (_fboPtr != nint.Zero)
-        {
-            Marshal.FreeHGlobal(_fboPtr);
-            _fboPtr = nint.Zero;
-        }
-        if (_flipYPtr != nint.Zero)
-        {
-            Marshal.FreeHGlobal(_flipYPtr);
-            _flipYPtr = nint.Zero;
-        }
-
         base.OnOpenGlDeinit(gl);
     }
 }

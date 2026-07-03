@@ -1,173 +1,288 @@
 using System;
-using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
-using FortniteVideoSoftware.Core.Infrastructure;
+using Avalonia.OpenGL;
+using Avalonia.OpenGL.Controls;
+using Avalonia.Threading;
+using FortniteVideoSoftware.Core.Media;
 
-namespace FortniteVideoSoftware.Core.Media;
+namespace FortniteVideoSoftware.App;
 
-/// <summary>
-/// Manages a cross-process MemoryMappedFile that the MPV worker process writes
-/// raw BGRA frames to and the UI process reads from. Used only in software mode
-/// (when <see cref="VideoRenderMode.UseHardwareAcceleration"/> is false).
-///
-/// Frame layout in shared memory (header + pixel data):
-///   Offset 0:   FrameCounter  (int)  — incremented by worker after each frame write
-///   Offset 4:   Width         (int)  — frame width in pixels
-///   Offset 8:   Height        (int)  — frame height in pixels
-///   Offset 12:  Padding       (int)  — reserved for alignment
-///   Offset 16:  PixelData     (byte[]) — BGRA pixel data, Width*Height*4 bytes
-/// </summary>
-public sealed class MmapFrameBridge : IDisposable
+public class MpvVideoView : OpenGlControlBase
 {
-    private const int HEADER_SIZE = 16; // 4 ints: counter, width, height, padding
-    private const string MAP_NAME_PREFIX = "FVS_FrameBuffer";
+    private nint _mpvHandle;
+    private nint _renderContext;
+    private LibMpvInterop.GetProcAddressCb? _getProcAddressCb;
+    private LibMpvInterop.MpvRenderUpdateFn? _renderUpdateCb;
 
-    private readonly MemoryMappedFile _mmap;
-    private readonly MemoryMappedViewAccessor _view;
-    private readonly int _frameBufferSize;
-    private int _lastFrameCounter = -1;
+    public MpvIpcClient? IpcClient { get; private set; }
 
-    /// <summary>The unique map name passed to the MPV worker process.</summary>
-    public string MapName { get; }
-
-    /// <summary>The maximum frame width this buffer was allocated for.</summary>
-    public int Width { get; }
-
-    /// <summary>The maximum frame height this buffer was allocated for.</summary>
-    public int Height { get; }
-
-    /// <summary>Total size of the memory-mapped region (header + pixel data).</summary>
-    public int TotalSize => HEADER_SIZE + _frameBufferSize;
-
-    private MmapFrameBridge(string mapName, int width, int height, MemoryMappedFile mmap)
+    public void InitializeMpv(string mpvPath)
     {
-        MapName = mapName;
-        Width = width;
-        Height = height;
-        _frameBufferSize = width * height * 4; // BGRA = 4 bytes/pixel
-        _mmap = mmap;
-        _view = mmap.CreateViewAccessor(0, HEADER_SIZE + _frameBufferSize, MemoryMappedFileAccess.ReadWrite);
-    }
-
-    /// <summary>
-    /// Creates a new shared memory region for a 1920×1080 BGRA frame buffer.
-    /// The UI process calls this before launching the MPV worker.
-    /// </summary>
-    public static MmapFrameBridge Create(int width = 1920, int height = 1080)
-    {
-        string mapName = $"{MAP_NAME_PREFIX}_{Guid.NewGuid():N}";
-        int totalSize = HEADER_SIZE + width * height * 4;
-
-        CoreLogger.Info("MMAP", $"Creating frame buffer '{mapName}' — {totalSize:N0} bytes ({width}×{height} BGRA)");
-
-        var mmap = MemoryMappedFile.CreateOrOpen(mapName, totalSize, MemoryMappedFileAccess.ReadWrite);
-
-        // Initialize header
-        using var headerView = mmap.CreateViewAccessor(0, HEADER_SIZE, MemoryMappedFileAccess.ReadWrite);
-        headerView.Write(0, 0);  // FrameCounter = 0
-        headerView.Write(4, width);
-        headerView.Write(8, height);
-        headerView.Write(12, 0); // padding
-        headerView.Flush();
-
-        return new MmapFrameBridge(mapName, width, height, mmap);
-    }
-
-    /// <summary>
-    /// Opens an existing shared memory region by name.
-    /// Used when the MPV worker connects to a buffer created by the UI process.
-    /// </summary>
-    public static MmapFrameBridge Open(string mapName)
-    {
-        var mmap = MemoryMappedFile.OpenExisting(mapName, MemoryMappedFileRights.ReadWrite);
-        using var headerView = mmap.CreateViewAccessor(0, HEADER_SIZE, MemoryMappedFileAccess.Read);
-        int width = headerView.ReadInt32(4);
-        int height = headerView.ReadInt32(8);
-
-        CoreLogger.Info("MMAP", $"Opened existing frame buffer '{mapName}' — {width}×{height}");
-        return new MmapFrameBridge(mapName, width, height, mmap);
-    }
-
-    /// <summary>
-    /// Checks whether the worker process has written a new frame since the last read.
-    /// </summary>
-    public bool IsNewFrameAvailable
-    {
-        get
+        RuntimeLog.Info("MPV", "InitializeMpv: Creating mpv handle...");
+        _mpvHandle = MpvWrapper.mpv_create();
+        if (_mpvHandle == nint.Zero)
         {
-            int counter = _view.ReadInt32(0);
-            return counter != _lastFrameCounter;
+            RuntimeLog.Fail("MPV", "InitializeMpv: mpv_create returned ZERO handle!");
+            return;
+        }
+        RuntimeLog.Info("MPV", $"InitializeMpv: Handle created OK ({_mpvHandle})");
+
+        // CRITICAL FIX 1: 'wid=0' strictly forbids the OS from ever spawning a detached window.
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", "0");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "libmpv");
+
+        // The embedded preview renders through libmpv's OpenGL FBO path. Letting mpv
+        // probe hwdec interop here produces noisy failed D3D/DXVA/CUDA/Vulkan attempts
+        // before falling back, so preview decode is kept explicit and deterministic.
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", "no");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "gpu-hwdec-interop", "no");
+        // CRITICAL FIX 2: Opaque background prevents Avalonia from discarding fully transparent FBOs.
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "background", "#FF000000");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "keep-open", "yes");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
+
+        // In DEV MODE: Enable detailed MPV debug logging to a file in the dev log dir.
+        if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
+        {
+            string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, "mpv_debug.log");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "yes");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "msg-level", "all=v");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "log-file", mpvLogPath);
+            RuntimeLog.Info("MPV", $"InitializeMpv: Dev mode — MPV debug log at {mpvLogPath}");
+        }
+        else
+        {
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "msg-level", "all=warn");
+        }
+
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "force-window", "no");
+
+        int initResult = MpvWrapper.mpv_initialize(_mpvHandle);
+        RuntimeLog.Info("MPV", $"InitializeMpv: mpv_initialize returned {initResult}");
+
+        IpcClient = new MpvIpcClient(_mpvHandle);
+        RuntimeLog.Info("MPV", "InitializeMpv: IpcClient created. Render context will be created on next GL frame.");
+
+        // Request a frame render — the render context will be created inside
+        // OnOpenGlRender where the GL context is actually current.
+        RequestNextFrameRendering();
+    }
+
+    public Task StartMpvProcessAsync(string mpvPath)
+    {
+        InitializeMpv(mpvPath);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Forcefully destroys the MPV handle and render context.
+    /// </summary>
+    public void DisposeMpv()
+    {
+        if (_renderContext != nint.Zero)
+        {
+            LibMpvInterop.mpv_render_context_free(_renderContext);
+            _renderContext = nint.Zero;
+        }
+
+        IpcClient?.Dispose();
+        IpcClient = null;
+
+        if (_mpvHandle != nint.Zero)
+        {
+            MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+            _mpvHandle = nint.Zero;
         }
     }
 
-    /// <summary>
-    /// Copies the latest frame from shared memory into the destination buffer.
-    /// Returns false if no new frame is available.
-    /// </summary>
-    /// <param name="destination">Pointer to destination buffer (must be at least Width*Height*4 bytes).</param>
-    /// <param name="destinationWidth">Width of the destination buffer (for resolution matching).</param>
-    /// <param name="destinationHeight">Height of the destination buffer.</param>
-    public bool TryCopyFrame(IntPtr destination, int destinationWidth, int destinationHeight)
+    protected override void OnOpenGlInit(GlInterface gl)
     {
-        int counter = _view.ReadInt32(0);
-        if (counter == _lastFrameCounter)
-            return false; // No new frame
+        base.OnOpenGlInit(gl);
+        RuntimeLog.Info("MPV-GL", $"OnOpenGlInit: Fired. _mpvHandle={_mpvHandle}, GL version={gl?.Version}");
+        // The render context will be created in OnOpenGlRender where we have
+        // the GL context + the mpv handle both ready.
+    }
 
-        _lastFrameCounter = counter;
+    /// <summary>
+    /// Creates the mpv render context using the OpenGL interface.
+    /// MUST be called from within OnOpenGlRender where the GL context is current.
+    /// </summary>
+    private bool TryCreateRenderContext(GlInterface gl)
+    {
+        if (_mpvHandle == nint.Zero || _renderContext != nint.Zero)
+            return true; // Already created, or no mpv handle yet
 
-        // Use the configured dimensions (resolution changes require recreating the bridge)
-        int sourceWidth = _view.ReadInt32(4);
-        int sourceHeight = _view.ReadInt32(8);
-        int sourceSize = sourceWidth * sourceHeight * 4;
+        RuntimeLog.Info("MPV-GL", "TryCreateRenderContext: Creating OpenGL render context...");
 
-        // Read pixel data from shared memory into the destination
-        using var pixelView = _mmap.CreateViewAccessor(HEADER_SIZE, sourceSize, MemoryMappedFileAccess.Read);
-        // Safe copy — uses unmanaged memory copy via pointers
-        unsafe
+        // CRITICAL FIX 3: Avalonia throws exceptions for missing GL extensions.
+        _getProcAddressCb = (ctx, name) =>
         {
-            byte* src = (byte*)pixelView.SafeMemoryMappedViewHandle.DangerousGetHandle();
-            Buffer.MemoryCopy(src, (void*)destination, destinationWidth * destinationHeight * 4, sourceSize);
+            try
+            {
+                nint addr = gl.GetProcAddress(name);
+                return addr;
+            }
+            catch
+            {
+                return nint.Zero;
+            }
+        };
+
+        var initParams = new LibMpvInterop.mpv_opengl_init_params
+        {
+            get_proc_address = Marshal.GetFunctionPointerForDelegate(_getProcAddressCb),
+            get_proc_address_ctx = nint.Zero
+        };
+
+        nint initParamsPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_init_params>());
+        Marshal.StructureToPtr(initParams, initParamsPtr, false);
+        nint apiTypePtr = Marshal.StringToHGlobalAnsi("opengl");
+
+        var renderParams = new LibMpvInterop.mpv_render_param[]
+        {
+            new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_API_TYPE, data = apiTypePtr },
+            new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data = initParamsPtr },
+            new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero }
+        };
+
+        int createResult = LibMpvInterop.mpv_render_context_create(out _renderContext, _mpvHandle, renderParams);
+        RuntimeLog.Info("MPV-GL", $"TryCreateRenderContext: mpv_render_context_create returned {createResult}, _renderContext={_renderContext}");
+
+        Marshal.FreeHGlobal(initParamsPtr);
+        Marshal.FreeHGlobal(apiTypePtr);
+
+        if (_renderContext == nint.Zero)
+        {
+            RuntimeLog.Fail("MPV-GL", $"TryCreateRenderContext: Render context creation FAILED (error {createResult})! Video will NOT render.");
+            return false;
         }
 
+        // Set up the render update callback for frame notifications.
+        _renderUpdateCb = (ctx) =>
+        {
+            try
+            {
+                if (_renderContext != nint.Zero)
+                {
+                    ulong flags = LibMpvInterop.mpv_render_context_update(_renderContext);
+                    if ((flags & LibMpvInterop.MPV_RENDER_UPDATE_FRAME) != 0)
+                    {
+                        Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
+                    }
+                }
+            }
+            catch
+            {
+            }
+        };
+        LibMpvInterop.mpv_render_context_set_update_callback(_renderContext, _renderUpdateCb, nint.Zero);
+
+        RuntimeLog.Info("MPV-GL", "TryCreateRenderContext: Render context created successfully!");
         return true;
     }
 
-    /// <summary>
-    /// Writes a frame to shared memory (used by the MPV worker side — not the UI process).
-    /// </summary>
-    public void WriteFrame(IntPtr source, int width, int height)
+    protected override void OnOpenGlRender(GlInterface gl, int fb)
     {
-        int size = width * height * 4;
-        if (size > _frameBufferSize)
-            throw new InvalidOperationException($"Frame too large: {size} > buffer capacity {_frameBufferSize}");
-
-        using var pixelView = _mmap.CreateViewAccessor(HEADER_SIZE, size, MemoryMappedFileAccess.Write);
-        unsafe
+        // ──────────────────────────────────────────────────────────────
+        // RACE CONDITION FIX: Create the render context here, inside
+        // OnOpenGlRender, where the Avalonia OpenGL context is actually
+        // current on this thread. Creating it from InitializeMpv (which
+        // runs on the UI thread from the Loaded event) fails because the
+        // GL context is NOT current on that thread, causing
+        // glGetString(GL_VERSION) to return NULL → error -18.
+        // ──────────────────────────────────────────────────────────────
+        if (_renderContext == nint.Zero && _mpvHandle != nint.Zero)
         {
-            byte* dst = (byte*)pixelView.SafeMemoryMappedViewHandle.DangerousGetHandle();
-            Buffer.MemoryCopy((void*)source, dst, size, size);
+            if (!TryCreateRenderContext(gl))
+            {
+                // Render context creation failed — retry on next frame.
+                Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
+                return;
+            }
         }
 
-        // Increment frame counter AFTER writing (signals UI that a new frame is ready)
-        int counter = _view.ReadInt32(0) + 1;
-        _view.Write(0, counter);
-        _view.Flush();
+        if (_renderContext == nint.Zero)
+        {
+            if (!_loggedNoContext)
+            {
+                RuntimeLog.Fail("MPV-GL", "OnOpenGlRender: _renderContext is ZERO — cannot render!");
+                _loggedNoContext = true;
+            }
+            Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
+            return;
+        }
+
+        // Consume the newly decoded frame.
+        LibMpvInterop.mpv_render_context_update(_renderContext);
+
+        var scale = VisualRoot?.RenderScaling ?? 1.0;
+        int width = (int)(Bounds.Width * scale);
+        int height = (int)(Bounds.Height * scale);
+
+        // Log first valid render to confirm pipeline is working
+        if (!_loggedFirstRender && width > 0 && height > 0)
+        {
+            RuntimeLog.Info("MPV-GL", $"OnOpenGlRender: First valid render! dims={width}x{height}, fb={fb}, scale={scale}");
+            _loggedFirstRender = true;
+        }
+
+        // Prevent poisoning the MPV render context with a 0×0 FBO.
+        if (width <= 0 || height <= 0)
+        {
+            Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
+            return;
+        }
+
+        // CRITICAL FIX 4: Explicitly define GL_RGBA8 (32856).
+        var fbo = new LibMpvInterop.mpv_opengl_fbo
+        {
+            fbo = fb,
+            w = width,
+            h = height,
+            internal_format = 32856
+        };
+
+        nint fboPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_fbo>());
+        Marshal.StructureToPtr(fbo, fboPtr, false);
+
+        int flipY = 1;
+        nint flipYPtr = Marshal.AllocHGlobal(sizeof(int));
+        Marshal.WriteInt32(flipYPtr, flipY);
+
+        var renderParams = new LibMpvInterop.mpv_render_param[]
+        {
+            new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO, data = fboPtr },
+            new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_FLIP_Y, data = flipYPtr },
+            new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero }
+        };
+
+        LibMpvInterop.mpv_render_context_render(_renderContext, renderParams);
+        Marshal.FreeHGlobal(fboPtr);
+        Marshal.FreeHGlobal(flipYPtr);
+
+        // Enforce a continuous render loop to prevent frame delivery stalls.
+        Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
     }
 
-    /// <summary>
-    /// Generates the MPV IPC command line arguments for writing raw frames to this buffer.
-    /// The MPV worker uses --vo=rawvideo with --lavf-compliance to output BGRA.
-    /// </summary>
-    public string GetMpvVoArgs()
-    {
-        // MPV writes raw video to a named pipe/file; our custom VO adapter reads it.
-        // For now, we use the standard rawvideo output which the UI polls.
-        return $"--vo=rawvideo --video-format=bgra --video-unscaled=yes";
-    }
+    private bool _loggedFirstRender;
+    private bool _loggedNoContext;
 
-    public void Dispose()
+    protected override void OnOpenGlDeinit(GlInterface gl)
     {
-        try { _view?.Dispose(); } catch { }
-        try { _mmap?.Dispose(); } catch { }
+        RuntimeLog.Info("MPV-GL", "OnOpenGlDeinit: Tearing down GL context.");
+        if (_renderContext != nint.Zero)
+        {
+            LibMpvInterop.mpv_render_context_free(_renderContext);
+            _renderContext = nint.Zero;
+        }
+        if (_mpvHandle != nint.Zero)
+        {
+            IpcClient?.Dispose();
+            IpcClient = null;
+            MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+            _mpvHandle = nint.Zero;
+        }
+        base.OnOpenGlDeinit(gl);
     }
 }

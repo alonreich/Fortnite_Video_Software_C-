@@ -1,4 +1,8 @@
+using System;
+using System.IO;
+using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace FortniteVideoSoftware.App;
 
@@ -6,6 +10,11 @@ public static class RuntimeLog
 {
     private static readonly object Sync = new();
     private static bool _initialized;
+    private static bool _exitRegistered;
+    private static string _appName = "[MAIN APP]";
+    private const long MaxLogSize = 10 * 1024 * 1024; // 10 MB
+    private static string? _cachedLogPath;
+    private static long _approximateBytes;
     
     public static event Action<string>? LogAppended;
 
@@ -13,32 +22,92 @@ public static class RuntimeLog
     {
         get
         {
+            if (_cachedLogPath != null) return _cachedLogPath;
+
+            // DEV MODE: If FVS_DEV_LOG_DIR is set (by dev.cmd), route ALL logs
+            // exclusively to the dev log directory. Never write to %TMP%,
+            // %PROGRAMDATA%, or the project root in dev mode.
+            string? devLogDir = Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR");
+            if (!string.IsNullOrWhiteSpace(devLogDir))
+            {
+                Directory.CreateDirectory(devLogDir);
+                _cachedLogPath = Path.Combine(devLogDir, "Fortnite_Video_Software_DEV.log");
+                return _cachedLogPath;
+            }
+
             if (DeploymentFootprint.IsRunningFromInstallPath())
             {
                 var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
                 paths.EnsureWritableDirectories();
-                return Path.Combine(paths.LogsDirectory, "Fortnite_Video_Software.log");
+                _cachedLogPath = Path.Combine(paths.LogsDirectory, "Fortnite_Video_Software.log");
             }
-            return DeploymentFootprint.InstallReportPath;
+            else
+            {
+                _cachedLogPath = DeploymentFootprint.InstallReportPath;
+            }
+            return _cachedLogPath;
         }
+    }
+
+    /// <summary>
+    /// Returns true if the app is running in dev mode (FVS_DEV_LOG_DIR env var is set).
+    /// Used to enable verbose MPV debug logging and other dev-only diagnostics.
+    /// </summary>
+    public static bool IsDevMode => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR"));
+
+    /// <summary>
+    /// Returns the dev log directory if in dev mode, otherwise null.
+    /// </summary>
+    public static string? DevLogDir => Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR");
+
+    public static void InitializeAppName(string[] args)
+    {
+        if (args.Any(a => a.Equals("--crop-tool", StringComparison.OrdinalIgnoreCase)))
+            _appName = "[CROP TOOLS]";
+        else if (args.Any(a => a.Equals("--merger", StringComparison.OrdinalIgnoreCase)))
+            _appName = "[VIDEO MERGER]";
+        else
+            _appName = "[MAIN APP]";
     }
 
     public static void ResetForProcess()
     {
         lock (Sync)
         {
-            string header =
-                "==============================================================================" + Environment.NewLine +
-                "Fortnite Video Software Runtime Log" + Environment.NewLine +
-                $"Started : {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}" + Environment.NewLine +
-                $"Machine : {Environment.MachineName}" + Environment.NewLine +
-                $"User    : {Environment.UserName}" + Environment.NewLine +
-                $"PID     : {Environment.ProcessId}" + Environment.NewLine +
-                $"Log file: {LogPath}" + Environment.NewLine +
-                "==============================================================================" + Environment.NewLine;
+            // Seed the byte counter from the current file size
+            try
+            {
+                string lp = LogPath;
+                if (File.Exists(lp))
+                    _approximateBytes = new FileInfo(lp).Length;
+            }
+            catch { /* ignore — counter starts at 0 */ }
 
-            SafeWrite(header, append: false);
+            TrimLogIfNeeded();
+
+            string header = Environment.NewLine +
+                $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName})" + Environment.NewLine;
+
+            SafeWrite(header);
             _initialized = true;
+
+            if (!_exitRegistered)
+            {
+                AppDomain.CurrentDomain.ProcessExit += (s, e) => WriteExitSeparator();
+                _exitRegistered = true;
+            }
+        }
+    }
+
+    private static void WriteExitSeparator()
+    {
+        lock (Sync)
+        {
+            string separator = Environment.NewLine + 
+                               "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine + 
+                               Environment.NewLine + 
+                               "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine;
+            SafeWrite(separator);
         }
     }
 
@@ -49,7 +118,7 @@ public static class RuntimeLog
 
     public static void Success(string step, string detail)
     {
-        Write("OK", step, detail);
+        Write("SUCCESS", step, detail);
     }
 
     public static void Fail(string step, string detail)
@@ -59,8 +128,11 @@ public static class RuntimeLog
 
     public static void AppendRaw(string line)
     {
-        SafeWrite(line + Environment.NewLine, append: true);
-        LogAppended?.Invoke(line);
+        lock (Sync)
+        {
+            SafeWrite(line + Environment.NewLine);
+            LogAppended?.Invoke(line);
+        }
     }
 
     public static void Fail(string step, Exception exception)
@@ -77,26 +149,26 @@ public static class RuntimeLog
                 ResetForProcess();
             }
 
-            string line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{level}] {step} - {detail}{Environment.NewLine}";
-            SafeWrite(line, append: true);
-            LogAppended?.Invoke($"[{level}] {step} - {detail}");
+            string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
+            SafeWrite(line);
+            LogAppended?.Invoke(line.TrimEnd());
         }
     }
 
-    private static void SafeWrite(string text, bool append)
+    private static void SafeWrite(string text)
     {
         int retries = 5;
         while (retries > 0)
         {
             try
             {
-                using var fs = new FileStream(
-                    LogPath,
-                    append ? FileMode.Append : FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.ReadWrite);
+                if (_approximateBytes >= MaxLogSize)
+                    TrimLogIfNeeded();
+
+                using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
                 using var sw = new StreamWriter(fs, new UTF8Encoding(false));
                 sw.Write(text);
+                _approximateBytes += text.Length;
                 break;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -105,6 +177,31 @@ public static class RuntimeLog
                 if (retries == 0) break;
                 Thread.Sleep(50);
             }
+        }
+    }
+
+    private static void TrimLogIfNeeded()
+    {
+        try
+        {
+            string lp = LogPath;
+            if (!File.Exists(lp)) return;
+            var fileInfo = new FileInfo(lp);
+            if (fileInfo.Length < MaxLogSize) return;
+
+            // Log exceeds 10MB, keep the last half
+            string[] lines = File.ReadAllLines(lp);
+            int linesToKeep = lines.Length / 2;
+            var remainingLines = lines.Skip(lines.Length - linesToKeep).ToArray();
+            
+            File.WriteAllLines(lp, remainingLines, new UTF8Encoding(false));
+
+            // Reset byte counter to actual remaining size
+            _approximateBytes = File.Exists(lp) ? new FileInfo(lp).Length : 0;
+        }
+        catch
+        {
+            // Ignore trim errors (e.g. file locked)
         }
     }
 }

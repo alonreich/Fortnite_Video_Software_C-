@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
 
         // Snapshot current defaults so CANCEL discards changes
         _pendingDefaults = new DefaultValues
@@ -37,8 +38,7 @@ public partial class SettingsWindow : Window
             BossHp = SettingsManager.Instance.Defaults.BossHp,
             ShowTeammates = SettingsManager.Instance.Defaults.ShowTeammates,
             NoFade = SettingsManager.Instance.Defaults.NoFade,
-            QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
-            Volume = SettingsManager.Instance.Defaults.Volume
+            QualityIndex = SettingsManager.Instance.Defaults.QualityIndex
         };
 
         LoadCurrentKeybinds();
@@ -129,30 +129,31 @@ public partial class SettingsWindow : Window
             panel.Children.Add(grid);
         }
 
-        var resetBtn = new Button 
-        { 
-            Content = "Reset to Factory Defaults", 
-            Classes = { "Danger" }, 
-            HorizontalAlignment = HorizontalAlignment.Right, 
-            Margin = new Thickness(0, 10, 0, 0)
-        };
-        resetBtn.Click += (s, e) => 
+        var resetBtn = this.FindControl<Button>("ResetKeyBindsBtn");
+        if (resetBtn != null)
         {
-            var def = new KeyBinds();
-            foreach (var kvp in _pendingKeys.Keys.ToList())
+            resetBtn.Click += (s, e) =>
             {
-                var prop = typeof(KeyBinds).GetProperty(kvp);
-                if (prop != null)
+                ResetPendingKeyBinds();
+            };
+        }
+    }
+
+    private void ResetPendingKeyBinds()
+    {
+        var def = new KeyBinds();
+        foreach (var kvp in _pendingKeys.Keys.ToList())
+        {
+            var prop = typeof(KeyBinds).GetProperty(kvp);
+            if (prop != null)
+            {
+                _pendingKeys[kvp] = (Key)prop.GetValue(def)!;
+                if (_keyButtons.TryGetValue(kvp, out var btnRef))
                 {
-                    _pendingKeys[kvp] = (Key)prop.GetValue(def)!;
-                    if (_keyButtons.TryGetValue(kvp, out var btnRef))
-                    {
-                        btnRef.Content = _pendingKeys[kvp].ToString();
-                    }
+                    btnRef.Content = _pendingKeys[kvp].ToString();
                 }
             }
-        };
-        panel.Children.Add(resetBtn);
+        }
     }
 
     private void BuildDefaultsUi()
@@ -189,14 +190,7 @@ public partial class SettingsWindow : Window
         qGrid.Children.Add(qLabel); qGrid.Children.Add(qCombo);
         panel.Children.Add(qGrid);
 
-        // ── Default Volume (0-100) ──
-        var volGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 150") };
-        var volLabel = new TextBlock { Text = "Default Volume", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
-        var volSlider = new Slider { Minimum = 0, Maximum = 100, Value = _pendingDefaults.Volume, Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
-        volSlider.PropertyChanged += (_, e) => { if (e.Property == Slider.ValueProperty) _pendingDefaults.Volume = (int)volSlider.Value; };
-        Grid.SetColumn(volLabel, 0); Grid.SetColumn(volSlider, 1);
-        volGrid.Children.Add(volLabel); volGrid.Children.Add(volSlider);
-        panel.Children.Add(volGrid);
+
 
         // ── Checkbox Defaults ──
         panel.Children.Add(MakeCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitMode, v => _pendingDefaults.PortraitMode = v));
@@ -312,7 +306,7 @@ public partial class SettingsWindow : Window
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        _ = WindowBoundsHelper.LoadBoundsAsync(this, "SettingsBounds");
+
     }
 
     protected override async void OnClosing(WindowClosingEventArgs e)
@@ -326,6 +320,7 @@ public partial class SettingsWindow : Window
 
         // STOP the synchronous UI-blocking close
         e.Cancel = true;
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
         // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
@@ -333,7 +328,7 @@ public partial class SettingsWindow : Window
         try
         {
             // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
-            await WindowBoundsHelper.SaveBoundsAsync(this, "SettingsBounds");
+
         }
         catch (Exception ex)
         {

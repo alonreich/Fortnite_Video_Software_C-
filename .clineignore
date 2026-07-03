@@ -4,6 +4,7 @@ obj/
 TestResults/
 out/
 publish/
+mp3/
 dist/
 build/
 coverage/
@@ -30,6 +31,7 @@ pnpm-lock.yaml
 *.zip
 *.dmp
 *.log
+*.mp3
 
 # Generated Code
 **/Migrations/*

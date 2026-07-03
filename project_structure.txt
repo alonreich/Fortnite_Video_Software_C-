@@ -104,7 +104,7 @@ free footprint.
 * Single-File Deployment & Build Pipeline:
   Targets `win-x64` using `<PublishAot>true</PublishAot>` and `<TrimMode>full</TrimMode>`.
   Packages all managed code, MSIL, and embedded native libraries into one .exe.
-  The production compile entry point is `compile.cmd`, which delegates to `Build.cmd`.
+  The production compile entry point is `Build.cmd`.
   `Build.cmd` operates without PowerShell UI mutation to ensure the console font
   consistently stays at 16 Consolas.
   Development testing is handled separately by `dev.cmd`:
@@ -116,6 +116,16 @@ free footprint.
   Dev commands safely sandbox their execution via `FVS_PROGRAMDATA_ROOT=.dev_data`, ensuring
   local developer tests do not overwrite or corrupt your real production `%PROGRAMDATA%` configs.
   Dev commands target `Debug` + `win-x64` + `--no-self-contained`.
+  *** DEV LOGGING ISOLATION ***: When running via `dev.cmd`, ALL logs are routed
+  EXCLUSIVELY to `%TMP%\Fortnite_Video_Software_DEV\`. This includes:
+    - `Fortnite_Video_Software_DEV.log` — the main application log (RuntimeLog)
+    - `mpv_debug.log` — detailed libmpv verbose debug log (msg-level=all=v)
+  Logs are NEVER written to the project root, bare `%TMP%`, or `%PROGRAMDATA%` in dev mode.
+  This is controlled by the `FVS_DEV_LOG_DIR` environment variable set in `dev.cmd`.
+  `dev.cmd` also wipes `.dev_data\` and clears previous dev logs on every run for a
+  clean-slate (OOB) boot + fresh debugging session.
+  The `RuntimeLog.IsDevMode` and `RuntimeLog.DevLogDir` properties are used app-wide to
+  detect dev mode and route logs/files accordingly.
   The app project explicitly includes `**\*.axaml` in `dotnet watch` so UI markup saves
   participate in the hot-reload/watch workflow.
 
@@ -139,14 +149,46 @@ free footprint.
     * SpinningWheelSlider Tooltips: The `SpinningWheelSlider` custom control suppresses its tooltip during active interaction (drag, wheel scroll, key navigation) to prevent it from destructively popping up over the spinner. The tooltip is saved, cleared during interaction, and restored 1.2 seconds after the last interaction via a cancellable `Task.Delay`.
     * Music Wizard Timeline & Playhead: The wizard timeline uses a dual-marker system: a static dashed gray line for the song start point, and an active smooth-moving red playhead synced at 60fps with the MPV audio preview. Click-to-seek handles instant audio/visual repositioning.
     * NativeControlHost Visibility Bug (MpvVideoView): Avalonia's `NativeControlHost` on Windows has a known bug where setting `IsVisible="False"` on a parent panel does not reliably hide the underlying native HWND. If hidden, the MPV window becomes a persistent invisible click-blocking rectangle. To hide a video view (e.g. navigating back from Phase 3 in the Music Wizard), you MUST completely remove the `MpvVideoView` from the logical tree and call `DisposeMpv()` to forcefully destroy the HWND. It must be dynamically re-instantiated when needed again.
+    * Native Airspace & Drag-and-Drop Limitation: Because MPV relies on a native HWND via `NativeControlHost`, Windows routes mouse events directly to the MPV process, bypassing Avalonia. Furthermore, Windows UIPI (User Interface Privilege Isolation) completely blocks OLE Drag & Drop from standard processes (like Windows Explorer) into Elevated processes. To fix this: (1) We implemented `EnableWindow(_hwnd, false)` P/Invoke inside `MpvVideoView.cs`. This suppresses the native HWND from swallowing Windows OLE messages, successfully allowing `DragEnter` and `Drop` events to bubble up to Avalonia. (2) We ensured `DeploymentLifecycle` launches the app with `UseShellExecute = false` post-install to prevent it from inheriting the installer's Administrator token, avoiding the UIPI block.
+    * MPV IPC `loadfile` Syntax: MPV's IPC strictly requires options (like `start=X`) to be set independently via `SetPropertyAsync("start", time)` before issuing the `loadfile` command. Appending options directly to the `loadfile` JSON command array causes MPV to silently ignore the load request, leaving the player idle.
     * Main App Music Overlay: The applied music is drawn on the main timeline as a pink block. The draggable "♫" text-block markers on both ends that glow and cast deep-pink shadows on hover are implemented using **Avalonia `Popup`s**. Because the native MPV HWND paints over all standard Avalonia overlay panels, the markers must be housed in `Popup` controls to guarantee they draw on top of the video player. These dictate `TimelineStartSeconds` and `TimelineEndSeconds`. Advanced pointer handlers enforce strict bounding math: dragging the block or the notes encounters "brick wall" collisions that prevent dragging past the video start/end boundaries, preserving duration exactly without truncation. Arrow keys (`1s` increments) and `Ctrl` + Arrow keys (`50ms` increments) provide extreme granular finessing. Click-focus draws a yellow marching-ants border around the block, which is cleared by clicking elsewhere or hitting Spacebar.
     * Timeline Overlay: The timeline floats at the bottom of the video area on a semi-transparent `#B3000000` strip (height 52px). It includes scale ticks, trim markers, scrub slider, and the pink music overlay block. The music overlay block is drawn last to remain on top and provides grab-handles (🎵) to independently slide the music start, end, and absolute placement. When the user selects a thumbnail frame, `UpdateTimelineMarkers()` draws a persistent yellow camera marker centered on the exact X-axis timeline position.
-
+    * Installer & State Persistence Sandbox:
+      - The `DeploymentLifecycle` triggers a native `ShowQuestion` dialog on upgrades, asking the user to preserve settings. If rejected, it wipes `session_state.json` to guarantee an Out-Of-Box (OOB) experience. This dialog forcefully utilizes the `MB_TOPMOST` (`0x00040000`) Win32 flag to ensure it punches through and floats above the `Topmost="True"` Avalonia Installer UI.
+      - Installer execution speed is optimized by intentionally bypassing `%TEMP%` file staging during initial launch. Bypassing the copy-to-temp routine prevents Windows Defender from initiating a synchronous "First-Seen" scan on the executable, which completely eliminates the frustrating 10+ second stall before the UAC elevation prompt appears.
+      - State keys are aggressively isolated to prevent cross-contamination: `UploadVideoDirectory` with `Videos\Highlights\Fortnite` fallback (Main App), `MergerUploadDirectory` with `Downloads` fallback (Video Merger), and `CustomMusicDirectory` with `My Music` fallback (Music Wizard/Settings).
+      - `dev.cmd` overrides the global state path via `FVS_PROGRAMDATA_ROOT=.dev_data`, ensuring live dev testing NEVER contaminates the compiled production `%PROGRAMDATA%` footprint.
+    * Settings Menu Screenspace: The `SettingsWindow` avoids cramped grids. `SpinningWheelSlider` controls utilize `StackPanel` and generous spacing (e.g., separating the "Default Speed" label far away from the "1.1x" value) to ensure a wide, breathable layout.
+    * Persistent Volume Memory: The main app volume slider value is securely tracked and restored across boots via `state["MainVolume"]`.
 * Repository & Dependency Architecture:
   - Clean separation from legacy code: All critical FFmpeg and MPV binaries are now hosted independently in a `binaries/` directory and injected at build time.
   - Git LFS Integration (`.gitattributes`): Transparently handles large native binaries (`*.exe`, `*.dll`, `*.com`, `*.zip`) to prevent repository bloat.
   - Intelligent Agent & IDE Exclusions: Employs `.clineignore`, `.agignore`, `.geminiignore`, and `.codexignore` to perfectly optimize AI context windows (excluding `compiled`, `temp_staging`, `.dev_data`, `binaries`, `node_modules`, `dist`, lockfiles, `*.g.cs`) while preserving access to local editor setups.
   - Hardened `.gitignore` safeguards secrets (`.env`, `appsettings.json`), package caches, and test results, while explicitly whitelisting the `binaries/` folder.
+
+* Feature Requests
+  - Granular Speed Editor must enforce main window trim bounds (MARK START/END), support identical frame-by-frame keyboard shortcuts, and hide conflicting main window overlays (like music notes) during use.
+  - An exclusive toggle mechanism limits playback to only one freeze frame at a time, enforcing an immediate reset and segment purge upon untoggling.
+  - Granular Freeze defaults to exactly 1.0s if the user clicks the Freeze Image button without selecting a preset duration.
+  - A specialized native Popup camera icon with a rigid placement avoids clipping under the native MPV HWND by remaining outside the video's absolute boundary.
+  - The speaker icon next to the volume slider must act as a memory-aware mute toggle (mutes to 0%, restores to previous %).
+  - Music Wizard audio playback must synchronize precisely with video timeline seeking, and correctly shift if the global MARK START boundary is altered.
+  - Loading a new video must trigger a total workspace reset, wiping all freeze frames, thumbnails, speed segments, and restoring UI buttons to their default state.
+  - Set Thumbnail must prepend a 0.1-second static frame intro to the exported video (retaining all text overlays and crops) to prevent messaging apps from selecting black fade-in frames as the preview thumbnail.
+
+* Product Specifications
+  - Granular Speed Editor Global Synchronization:
+    Inherits _trimStartMs and _trimEndMs from the main window; the MPV start property is configured prior to LoadFileAsync to ensure accurate initialization. Timeline playback is clamped to halt at MARK END; automatic looping is disabled. Pink music note overlays are explicitly hidden when the modal opens and restored when it closes to prevent Z-index visual collision. Inherits main window shortcut keys, including [, ], Spacebar, and ctrl/shift + left/right for highly sensitive frame-by-frame seeking.
+  - Freeze Image Workflow & UI/UX:
+    Unselected duration triggers a 350ms/color UI validation cycle (Red, White, Yellow, Red, Blue) on preset buttons and displays a SELECT FREEZE DURATION Border overlay. Selecting a preset immediately hides validation overlays and commits the _freezeDurationS. Timeline visualizer draws a 36x28 yellow camera icon placed via Canvas.SetTop(-90) to render above the video, with a 62px high, 2px wide vertical yellow line connecting to the timeline track. Playback logic halts MPV execution for the exact _freezeDurationS without triggering the global UI Pause state or interrupting background audio playback.
+  - Mute Toggle Memory:
+    Implements _previousVolume cache. SpeakerIcon_PointerPressed checks if volume is > 0: caches value and mutes. If volume is 0: restores cached value (or defaults to 100).
+  - Music Wizard Seek Synchronization:
+    TogglePreview captures the exact _previewCurrentOffset generated by timeline clicks and passes it to StartPreviewInternal. StartPreviewInternal dispatches an absolute seek command to the audio backend to guarantee sync before unpausing. Global MARK START modifications trigger a recalculation that shifts the music timeline offset and visually updates the pink note boundaries.
+  - Workspace Reset on Video Load:
+    File load handlers (OnVideoDrop, OnUploadVideoClicked) execute identical state-clearing logic. Variables _thumbnailSet=false, _thumbnailPosMs=0, _freezeTimeMs=-1, _freezeDurationS=1.0 are explicitly zeroed. DOM elements (e.g., SetThumbnailButton) are reverted to Primary class and default text. Timeline is automatically scrubbed of legacy overlays via the subsequent FileLoaded -> UpdateTimelineMarkers loop.
+  - Anti-Fade Thumbnail Pre-roll (WhatsApp Fix):
+    Activating a thumbnail in the frontend routes _thumbnailPosMs to ProcessWorker.IntroAbsTimeMs and enables ProcessWorker.IntroStillSec = 0.1. FFMPEG filtergraph natively extracts the frame at IntroAbsTimeMs, loops it for 0.1s (loop=loop=X), and applies concat demuxing against the primary video stream. Concatenation occurs upstream of the MobileFilterBuilder, ensuring the 0.1s intro dynamically inherits any user-defined text canvases or resolution crops, guaranteeing a seamless, zero-delay transition into the main video payload while defeating WhatsApp/Discord fade-in thumbnail extraction.
 
 2.5. THE THREE (3) APPS / SUB-APPLICATIONS
 ------------------------------------------------------------------------------
@@ -171,8 +213,8 @@ the MAIN App's bottom navigation bar:
   │    • The user drags-and-drops multiple MP4 files; the app runs an    │
   │      FFmpeg concatenation pipeline that aligns and pads mismatched   │
   │      resolutions, producing one seamless output file.                │
-  │    • Opened as a modal dialog from the MAIN App's "VIDEO MERGER"     │
-  │      button.                                                        │
+  │    • Opened as a completely separate executable process from the     │
+  │      MAIN App's "VIDEO MERGER" button, cleanly closing the Main App. │
   │    • File: `VideoMergerWindow.axaml` / `VideoMergerWindow.axaml.cs`  │
   └──────────────────────────────────────────────────────────────────────┘
 
@@ -190,14 +232,17 @@ the MAIN App's bottom navigation bar:
   │      the export pipeline reads THIS JSON config file to know exactly │
   │      where to crop and where to place overlays for the 9:16 portrait │
   │      conversion. This is where those coordinates originate from.     │
-  │    • Opened as a modal dialog from the MAIN App's "CROP SETTINGS"    │
-  │      button.                                                        │
+  │    • Opened as a completely separate executable process from the     │
+  │      MAIN App's "CROP SETTINGS" button, cleanly closing the Main App.│
   │    • File: `CropToolWindow.axaml` / `CropToolWindow.axaml.cs`        │
   └──────────────────────────────────────────────────────────────────────┘
 
-  NOTE: Video Merger and Crop Tools are opened as modal dialogs from the
-  MAIN App. They preserve the MAIN App's full session state (video, trim
-  points, speed, music) while open and return to it when closed.
+  NOTE [INTENTIONAL ARCHITECTURE - DO NOT CHANGE]: Video Merger and Crop Tools
+  are strictly opened as entirely new separate processes, immediately killing
+  and closing the Main App. This is an intentional design choice for strict memory
+  and context isolation. Session state is seamlessly preserved via the crash
+  recovery protocol. Under NO circumstances should an AI agent attempt to convert
+  these to modal dialogs (`.ShowDialog()`). DO NOT FLAG THIS AS A DEFECT.
 
 3. FILE & FOLDER STRUCTURE MINIMAP
 ------------------------------------------------------------------------------
@@ -206,9 +251,6 @@ the MAIN App's bottom navigation bar:
 |   Role: Underlying production NativeAOT script. Triggers NativeAOT compilation, manages temporary
 |         artifacts, zips payload, and drops the final bundled installer executable into .\compiled.
 |
-|-- compile.cmd
-|   Role: Production compile entry point. Thin wrapper around `Build.cmd`; use this when
-|         requesting a full NativeAOT compile.
 |
 |-- dev.cmd
 |   Role: Development test loop script. `dev.cmd` opens hot reload mode for UI/functionality
@@ -238,8 +280,8 @@ the MAIN App's bottom navigation bar:
     |   |   Role: Avalonia app initialization, global styles. Routes `--install-worker` and `--cleanup-worker` to UI.
     |   |-- MainWindow.axaml & MainWindow.axaml.cs
     |   |   Role: [APP 1 - MAIN App] The primary visual shell and main opening app. Integrates MPV
-    |   |         playback, handles UI navigation, global shortcuts, and hosts the Video Merger and
-    |   |         Crop Tools dialogs. See §2.5 for full description.
+    |   |         playback, handles UI navigation, global shortcuts, and launches the Video Merger and
+    |   |         Crop Tools apps as separate processes. See §2.5 for full description.
     |   |-- DeploymentLifecycle.cs, DeploymentFootprint.cs, DeploymentReporter.cs
     |   |   Role: Handles extracting payload, elevating permissions, managing registry keys, and logging installation footprint tracking.
     |   |-- DeploymentProgressWindow.axaml & .cs
@@ -307,7 +349,45 @@ the MAIN App's bottom navigation bar:
             |   Role: Manages advanced `highpass/lowpass` split logic and RMS sidechain compression for audio ducking game tracks against music.
             |-- MediaProber.cs
             |   Role: Interacts with ffprobe to accurately measure duration and format metrics for the sync engine.
-EXEMPTION ADDED: In MainWindow.axaml, the CancelButton intentionally has Width="125" (unlike the 90px standard) to match the ProcessButton. This prevents a horizontal layout shift when toggling visibility. The ProcessButton also intentionally has Height="60" as a specific exemption to the 32px standard.
+
+4. RECENT ARCHITECTURAL & UI CHANGES
+------------------------------------------------------------------------------
+* Window Manager & Bounds Tracking:
+  - Replaced `WindowBoundsHelper` with a robust `WindowManager.cs` that sets `WindowStartupLocation.CenterScreen` BEFORE window initialization to guarantee perfectly centered fresh installs.
+  - Safely falls back to the primary display if the previously saved monitor drops offline.
+* OLE Drag-and-Drop over Native MPV HWND:
+  - Implemented `EnableWindow(_hwnd, false)` P/Invoke inside `MpvVideoView.cs`. This suppresses the native HWND from swallowing Windows OLE messages, successfully allowing `DragEnter` and `Drop` events to bubble up to Avalonia.
+  - App manifest strictly requests `asInvoker` to bypass UIPI admin elevation blocks.
+  - Installer (`DeploymentLifecycle.cs`) now correctly triggers `explorer.exe` with `UseShellExecute = true` upon installation completion. This guarantees the post-install launch drops its inherited Administrator token, ensuring drag-and-drop UIPI isn't blocked out of the box.
+* Smart File Picker Probing (NVIDIA Highlights):
+  - File pickers across all apps (Main, Video Merger, Crop Tools) no longer hardcode generic fallback paths.
+  - Probes `%LOCALAPPDATA%\Temp\Highlights\Fortnite` and `%USERPROFILE%\Videos\Highlights\Fortnite` first, ensuring fast uploads for ShadowPlay users, before falling back to `Videos`.
+  - Fixes Avalonia `TryGetFolderFromPathAsync` by using the raw `startPath` string rather than constructing a URI, which fixes silent local path parsing failures on Windows.
+* UI Polish & Fixes:
+  - Settings Default Volume tab removed; the Main volume slider tracks itself directly into config.
+  - Music Wizard `NEXT` button disappearance bug resolved via `InvalidateMeasure()` and `InvalidateArrange()` on the Window's root `Content` when returning to Phase 2.
+  - Z-Index Airspace fixed: Pink music note popups (`♫`) programmatically hide when the main Processing phase overlay or modal editors open.
+  - Thumbnail button state seamlessly changes footprint to a red `REMOVE THUMBNAIL` state.
+  - MPV missing/crash fixed for NativeAOT: `FindBinary` and `ResolveMpvPath` logic now safely probe `System.Environment.ProcessPath` instead of `AppContext.BaseDirectory`.
+  - MPV IPC `loadfile` string parameter bug fixed: `loadfile` via JSON IPC strictly rejects string options like `start=X`. Explicit `SetPropertyAsync("time-pos")` is now used sequentially.
+  - Phase 3 Thumbnails grid accuracy fixed: FFmpeg `fps` extraction explicitly uses `16.0 / durationSec` to slightly over-sample the 15 frames for the `tile=15x1` grid parameter, preventing the last 1/3 of the video lane from rendering black/blank due to exact floating-point rounding.
+  - Window State Persistence explicitly wired: The high-performance `OnClosing` overrides (which cancel window closure to hide the UI instantly) explicitly call `WindowManager.SaveAll()` so bounds are safely committed to disk before process death.
+  - PixelRect.Inflate Avalonia bounds error fixed: Secondary monitor affinity checks in `WindowManager.cs` use manual coordinate expansion instead of `.Inflate(50)` which does not exist on Avalonia's `PixelRect`.
+  - Timeline Camera Icons (Set Thumbnail / Freeze Image) are rendered using Avalonia Popups and shifted 35px upwards to guarantee they float above the native MPV video layer, mirroring the music note airspace strategy.
+  - Granular Editor Timeline Hit-Testing: Hit-testing is explicitly disabled (`IsHitTestVisible="False"`) on rapidly redrawn timeline elements (rectangles, ticks, labels, markers) to prevent continuous mouse cursor stutter and false hit invalidations over underlying segment UI panels.
+* Granular Freeze Frame FX (`📸`):
+  - Implemented a strictly single-instance Freeze Frame mechanism (presets: 0.5s - 3.0s).
+  - When "FREEZE IMAGE" is clicked, playback pauses instantly to guarantee exact-frame precision while the user selects a duration. If unselected, a 1.0s default is enforced to prevent zero-duration infinity loops.
+  - Missing duration triggers a smooth, cascading gradient glow animation across the preset buttons and pulses the text overlay scale to draw user attention.
+  - Infinite stuttering bugs caused by sub-tick playback triggering the freeze boundary continuously are prevented by enforcing a strict anti-retrigger lock (`_lastFreezeTriggerAbsMs`).
+  - The timeline UI visually pauses without expanding the track. This is achieved by natively pausing the MPV engine (`pause=yes`) during the preview to lock the video caret.
+  - VITAL UI OVERRIDE: While the engine is paused for a freeze, the tick timer artificially overrides the `IsPaused` state sent to the UI. The Play/Pause button strictly remains in its "Playing" state (Pause bars) so the user does not think the app halted.
+  - VITAL AUDIO DECOUPLING: The background music preview logic also ignores this artificial freeze pause. The MP3 continues to play seamlessly forward at 1.0x native speed through the freeze, exactly mirroring how FFmpeg processes the final render.
+  - If the user explicitly clicks the Play/Pause button during a freeze hold, the engine aborts the active freeze-hold state and natively pauses both the video and music.
+  - The FFmpeg backend (`ProcessWorker`) physically extends the final video duration (by duplicating the frozen frame) and silences the original audio track during the hold, while leaving the background MP3 unaffected.
+  - Granular speed labels enforce a strict single decimal precision (`0.0x`) matching the main screen.
+EXEMPTION ADDED: In MainWindow.axaml, the CancelButton intentionally has Width="125" (unlike the 90px standard) to match the ProcessButton. This prevents a horizontal layout shift when toggling visibility. The ProcessButton and CancelButton also intentionally have Height="60" as a specific exemption to the 32px standard.
+EXEMPTION ADDED: The main CancelButton (next to ProcessButton) is intentionally hardcoded to `IsVisible="False"` and its click event invokes `Close()`. The actual functional cancel action during processing is handled exclusively by the `PhaseOverlayControl` which appears immediately after hitting PROCESS. Do NOT attempt to "fix" the visibility of the main CancelButton or flag its `Close()` behavior as a bug.
 
 ==============================================================================
 MUSIC WIZARD 3-PHASE ARCHITECTURE
@@ -315,5 +395,324 @@ MUSIC WIZARD 3-PHASE ARCHITECTURE
 The Add Music Wizard (MusicWizardWindow.axaml) is strictly divided into 3 sequential phases:
 - PHASE 1 (Track Selection): Users select a music track from their local library/files. No playback.
 - PHASE 2 (Waveform & Trimming): Users preview the selected MP3 waveform, trim it, and toggle ducking/carving options. Audio preview is active via MpvIpcClient.
-- PHASE 3 (Final Review Summary): Side-by-side preview of the original video and the trimmed music. Includes both MpvVideoView (for the video) and MpvIpcClient (for the music), with synchronized playback, waveform timeline, and volume sliders.
+- PHASE 3 (Final Review Summary): Side-by-side preview of the original video and the trimmed music. Includes both MpvVideoView (for the video) and MpvIpcClient (for the music), with synchronized playback, waveform timeline, and volume sliders. Loading state overlays explicitly communicate background FFmpeg generation times to the user to prevent confusion.
 - Lifecycle: The 3 phases depend on MusicWizardWindow(string videoPath, double trimStartMs, double trimEndMs) constructor being populated by MainWindow.axaml.cs.
+- Shared Merger Mode Context: The wizard is a shared feature. When invoked from Video Merger (where video duration is substantially longer), smart detection enables `MultiSongHelperPanel` to assist users in automatically autofilling/tiling multiple songs back-to-back to cover the concatenated video length.
+
+Z-INDEX HIERARCHY MAP — HARDWARE COMPOSITION LAYERS
+This section maps every explicit `ZIndex` declaration across the entire
+codebase (.axaml markup + .cs programmatic). Elements are grouped by parent
+file / Window / UserControl context. For each entry: element name/type,
+assigned Z-Index value, and direct parent container are listed.
+
+Legend:
+  [X]  = Declared in XAML markup (e.g., ZIndex="10")
+  [CS] = Assigned programmatically in C# (e.g., element.ZIndex = ...)
+
+------------------------------------------------------------------------------
+A. GLOBAL STYLES — `AvaloniaApp.axaml` (applies app-wide to ALL windows)
+------------------------------------------------------------------------------
+These are Style Setter declarations that affect every matching control
+across the entire application:
+
+  1. [X] Slider /template/ Thumb      | ZIndex = 9999
+     Style Selector: `Slider /template/ Thumb` (line 278)
+     Applies to: The draggable thumb of EVERY Slider control app-wide
+     (enlarged 18×18px resting dot; 21×21px for CompactSlider class).
+     Purpose: Ensures the thumb floats above the track and ticks.
+
+  2. [X] Slider /template/ Track      | ZIndex = 9998
+     Style Selector: `Slider /template/ Track` (line 295)
+     Applies to: The track of EVERY Slider control app-wide.
+     Purpose: Sits just below the thumb (9999) in the slider template.
+
+------------------------------------------------------------------------------
+B. MAIN APP — `MainWindow.axaml`
+------------------------------------------------------------------------------
+  Timeline Overlay Strip (bottom of video area):
+  Parent chain: Border `VideoAreaBorder` → unnamed `<Grid ClipToBounds="False">`
+
+  1. [X] Border `TimelineOverlay`     | ZIndex = 9999
+     Parent: unnamed `<Grid>` (inside `VideoAreaBorder`)
+     Purpose: The floating semi-transparent timeline strip container.
+     IsVisible="False" by default; shown when video is loaded.
+
+  Timeline Inner Stack (inside TimelineOverlay → inner Border):
+  Parent: `<Grid Grid.Column="1" RowDefinitions="14,32">` (unnamed)
+
+  2. [X] Canvas `TimelineScaleCanvas` | ZIndex = 10000
+     Parent: unnamed Grid (Row="0"), inside timeline inner Border
+     Purpose: Scale tick marks drawn above the slider track.
+
+  3. [X] Grid (unnamed)               | ZIndex = 10001
+     Parent: unnamed Grid (Row="1"), inside timeline inner Border
+     Purpose: Container row holding the scrub slider + marker canvas.
+
+  4. [X] Slider `TimelineSlider`      | ZIndex = 10002
+     Parent: unnamed Grid (Row="1" container above)
+     Class: TimelineSlider CompactSlider
+     Purpose: The main timeline scrub slider (overrides thumb via global
+             CompactSlider style → 21×21px thumb with ZIndex 9999).
+
+  5. [X] Canvas `TimelineMarkersCanvas` | ZIndex = 10003
+     Parent: unnamed Grid (Row="1" container above)
+     Purpose: Interactive marker canvas for trim handles, thumbnail camera,
+             music overlay block. IsHitTestVisible="True".
+
+  Volume Slider Frame (right edge of video area):
+  Parent chain: main content Grid → Grid.Column="1"
+
+  6. [X] Border (volume frame)        | ZIndex = 9999
+     Parent: unnamed Grid (Grid.Column="1" of the video/content row)
+     Purpose: The slim clear frame (#15202b bg, #475569 border) housing
+             the vertical VolumeSlider. Width="40", Padding="0,8".
+
+  7. [X] Slider `VolumeSlider`        | ZIndex = 10000
+     Parent: Grid (RowDefinitions="Auto,*,Auto") inside volume Border
+     Class: CompactSlider, Orientation="Vertical"
+     Purpose: Vertical master volume slider.
+
+  PROGRAMMATIC (`MainWindow.axaml.cs`):
+  8. [CS] N/A — (line 2282 is a COMMENT referencing ZIndex regarding music
+     note popups that float above PhaseOverlayControl; no actual assignment.)
+
+------------------------------------------------------------------------------
+C. GRANULAR SPEED EDITOR — `GranularSpeedEditorWindow.axaml`
+------------------------------------------------------------------------------
+  Video Host Area:
+  Parent chain: Border `GranularVideoAreaBorder` → unnamed `<Grid>`
+
+  1. [X] MpvVideoView `GranularVideoHost` | ZIndex = 0
+     Parent: unnamed Grid (inside `GranularVideoAreaBorder`)
+     Purpose: The native MPV video surface (baseline layer).
+
+  2. [X] Popup `FreezeValidationPopup`    | ZIndex = 11
+     Parent: unnamed Grid (inside `GranularVideoAreaBorder`)
+     Purpose: "SELECT FREEZE DURATION" validation overlay popup.
+     IsHitTestVisible="False", Placement="Center".
+
+  3. [X] Popup `GranularFeedbackPopup`    | ZIndex = 11
+     Parent: unnamed Grid (inside `GranularVideoAreaBorder`)
+     Purpose: Shared floating tactical feedback popup (FloatingFeedback).
+     IsHitTestVisible="False", PlacementMode from attributes.
+
+  4. [X] Canvas `GranularOverlayCanvas`   | ZIndex = 10
+     Parent: unnamed Grid (inside `GranularVideoAreaBorder`)
+     Purpose: Overlay canvas for freeze-frame camera icons and visual FX.
+     IsHitTestVisible="False", ClipToBounds="True".
+
+  Timeline Inner Stack:
+  Parent: `<Grid Grid.Column="1" RowDefinitions="14,32">` (unnamed)
+
+  5. [X] Canvas `GranularTimelineScaleCanvas` | ZIndex = 10000
+     Parent: unnamed Grid (Row="0"), timeline area
+     Purpose: Scale tick marks.
+
+  6. [X] Grid (unnamed)                        | ZIndex = 10001
+     Parent: unnamed Grid (Row="1"), timeline area
+     Purpose: Container for scrub slider + marker canvas.
+
+  7. [X] Slider `GranularTimeline`            | ZIndex = 10002
+     Parent: unnamed Grid (Row="1" container above)
+     Class: TimelineSlider CompactSlider
+     Purpose: Granular editor timeline scrub slider.
+
+  8. [X] Canvas `GranularTimelineCanvas`      | ZIndex = 10003
+     Parent: unnamed Grid (Row="1" container above)
+     Purpose: Segment/marker canvas for speed segments. IsHitTestVisible="True".
+
+------------------------------------------------------------------------------
+D. MUSIC WIZARD — `MusicWizardWindow.axaml`
+------------------------------------------------------------------------------
+  Step Progress Bar (top of wizard):
+  Parent: `<Grid Grid.Row="0" ColumnDefinitions="*,*,*">` (unnamed)
+
+  1. [X] StackPanel (Step 1 column) | ZIndex = 1
+     Parent: unnamed Grid (Column="0")
+     Contains: Border `Step1Dot` (32×32 circle)
+     Purpose: Step indicator column for Phase 1.
+
+  2. [X] StackPanel (Step 2 column) | ZIndex = 1
+     Parent: unnamed Grid (Column="1")
+     Contains: Border `Step2Dot` (32×32 circle)
+     Purpose: Step indicator column for Phase 2.
+
+  3. [X] StackPanel (Step 3 column) | ZIndex = 1
+     Parent: unnamed Grid (Column="2")
+     Contains: Border `Step3Dot` (32×32 circle)
+     Purpose: Step indicator column for Phase 3.
+
+  Timeline Area (Phase 2/3 waveform timeline):
+  Parent: `<Grid RowDefinitions="20,14,32">` (unnamed, inside timeline region)
+
+  4. [X] Canvas `TimelineScaleCanvas`   | ZIndex = 10000
+     Parent: unnamed Grid (Row="1")
+     Purpose: Scale tick marks for the waveform timeline.
+
+  5. [X] Grid (unnamed, Row="2")        | ZIndex = 10001
+     Parent: unnamed Grid (Row="2")
+     Purpose: Timeline track container (holds background bar + slider).
+
+  6. [X] Canvas `TimelineMarkersCanvas` | ZIndex = 10003
+     Parent: unnamed Grid (Grid.Row="0" Grid.RowSpan="3")
+     Purpose: Interactive click-to-seek marker canvas spanning all rows.
+     IsHitTestVisible="True", Cursor="Hand".
+
+  PROGRAMMATIC (`MusicWizardWindow.axaml.cs`):
+  7. [CS] Border `toast`               | ZIndex = topZIndex (dynamic)
+     Parent: `Panel` (hostPanel = Step1Panel.Parent as Panel)
+     Formula: `Math.Max(999, hostPanel.Children.Max(child => child.ZIndex) + 1)`
+     (line 2562; falls back to 999 if panel is empty)
+     Purpose: Music Wizard toast notifications. Ensures toast renders above
+     every existing sibling (list boxes, content panels). Per project rule,
+     toast ZIndex must be ≥ 999.
+
+------------------------------------------------------------------------------
+E. PHASE OVERLAY CONTROL — `Controls/PhaseOverlayControl.axaml`
+------------------------------------------------------------------------------
+  1. [X] UserControl (root element)    | ZIndex = 999
+     Element: `<UserControl x:Class="...PhaseOverlayControl">` (line 7)
+     Parent: Dynamically added to MainWindow's visual tree during PROCESS
+     Purpose: Full-screen processing overlay (progress bar, phase title,
+     cancel button). Background="#990b141d", IsVisible="False" by default.
+
+------------------------------------------------------------------------------
+F. CROP TOOL WINDOW — `CropToolWindow.axaml`
+------------------------------------------------------------------------------
+  Timeline Area:
+  Parent: `<Grid Grid.Column="1" RowDefinitions="14,32">` (unnamed)
+
+  1. [X] Canvas `CropTimelineScaleCanvas`   | ZIndex = 10000
+     Parent: unnamed Grid (Row="0")
+     Purpose: Scale tick marks.
+
+  2. [X] Grid (unnamed)                     | ZIndex = 10001
+     Parent: unnamed Grid (Row="1")
+     Purpose: Container for scrub slider + marker canvas.
+
+  3. [X] Slider `TimelineSlider`            | ZIndex = 10002
+     Parent: unnamed Grid (Row="1" container)
+     Class: TimelineSlider CompactSlider
+     Purpose: Crop tool timeline scrub slider.
+
+  4. [X] Canvas `CropTimelineMarkersCanvas` | ZIndex = 10003
+     Parent: unnamed Grid (Row="1" container)
+     Purpose: Timeline marker canvas. IsHitTestVisible="True".
+
+  Portrait Composer Canvas:
+  Parent: `<Canvas Name="PortraitCanvas" Width="1080" Height="1920">`
+  (inside Viewbox → Border Grid.Column="0")
+
+  5. [X] Image `ComposerBackgroundImage`    | ZIndex = -90
+     Parent: Canvas `PortraitCanvas`
+     Purpose: Dimmed (Opacity="0.22") background reference frame.
+
+  6. [X] Rectangle (background fill)        | ZIndex = -100
+     Parent: Canvas `PortraitCanvas`
+     Attributes: Width="1080" Height="1920" Fill="#1e1e1e"
+     Purpose: Solid dark canvas background (lowest layer).
+
+  7. [X] Rectangle (top padding band)       | ZIndex = 900
+     Parent: Canvas `PortraitCanvas`
+     Attributes: Width="1080" Height="150" Fill="Black" Canvas.Top="0"
+     Purpose: Visual mask for top padding zone (PaddingTop=150px).
+
+  8. [X] Rectangle (bottom padding band)    | ZIndex = 900
+     Parent: Canvas `PortraitCanvas`
+     Attributes: Width="1080" Height="150" Fill="Black" Canvas.Top="1770"
+     Purpose: Visual mask for bottom padding zone (PaddingBottom=150px).
+
+------------------------------------------------------------------------------
+G. CROP TOOL WINDOW — `CropToolWindow.axaml.cs` (PROGRAMMATIC / DYNAMIC)
+------------------------------------------------------------------------------
+  All dynamic elements are added to either `_sourceCanvas` (Canvas
+  `SourceCanvas`) or `_portraitCanvas` (Canvas `PortraitCanvas`).
+
+  Source Canvas Elements (added to `_sourceCanvas`):
+  1. [CS] Rectangle `_selectionRect`        | ZIndex = 500
+     Parent: `_sourceCanvas` (Canvas `SourceCanvas`)
+     Method: `EnsureSelectionRectangle()` (line 641)
+     Purpose: Green source-canvas selection box (#2ecc71 stroke).
+     IsHitTestVisible="False". Sits above snapshot image but below candidates.
+
+  2. [CS] Rectangle (magic wand candidate)  | ZIndex = 450
+     Parent: `_sourceCanvas` (Canvas `SourceCanvas`)
+     Method: `ShowMagicWandCandidates()` (line 1277)
+     Purpose: Auto-detected HUD region candidates (#e91e63 magenta stroke).
+     Tagged with CandidateSpec; clickable to accept.
+
+  Portrait Canvas Elements (added to `_portraitCanvas`):
+  3. [CS] Canvas `root` (item root)         | ZIndex = snapshot.Z (dynamic)
+     Parent: `_portraitCanvas` (Canvas `PortraitCanvas`)
+     Method: `CreateItem()` (line 782) / `ApplyItemLayout()` (line 1042)
+     Value source: `role.DefaultZ` (see HudRole table below). If another
+     item already occupies that Z, it becomes `max(items.Z) + 1`.
+     Purpose: Root container for each placed HUD overlay element. Holds
+     Image, Border, handles, and label.
+
+  4. [CS] Rectangle (placeholder rect)      | ZIndex = Math.Max(1, z)
+     Parent: `_portraitCanvas` (Canvas `PortraitCanvas`)
+     Method: `LoadExistingPlaceholdersAsync()` (line 1206)
+     Value source: z = ReadInt(zOrders[role.Key], role.DefaultZ)
+     Purpose: Green translucent placeholder showing saved overlay position.
+
+  5. [CS] TextBlock (placeholder label)     | ZIndex = Math.Max(1, z) + 1
+     Parent: `_portraitCanvas` (Canvas `PortraitCanvas`)
+     Method: `LoadExistingPlaceholdersAsync()` (line 1221)
+     Purpose: Text label for placeholder (always 1 above its rectangle).
+
+  6. [CS] Line (snap guide line)            | ZIndex = 1200
+     Parent: `_portraitCanvas` (Canvas `PortraitCanvas`)
+     Method: `DrawGuide()` (line 1720)
+     Purpose: Blue (#7dd3fc) alignment snap guide lines during drag.
+     IsHitTestVisible="False". Highest Z in portrait canvas.
+
+  Item Internal Hierarchy (children of each item `root` Canvas):
+  7. [CS] Rectangle (resize handle)         | ZIndex = 20
+     Parent: item root Canvas (via `CreateHandle()`, line 887)
+     Variables: `tlHandle` (TopLeft), `brHandle` (BottomRight)
+     Purpose: Red resize handles (18×18px). IsVisible="False" unless selected.
+
+  HudRole Default Z-Order Table (source of initial Z for placed items):
+  ┌──────────────┬────────────────────────────────────┬──────────┐
+  │ Role Key     │ Display Name                        │ DefaultZ │
+  ├──────────────┼────────────────────────────────────┼──────────┤
+  │ loot         │ Loot Area                           │    10    │
+  │ normal_hp    │ Own Health Bar (HP)                 │    20    │
+  │ boss_hp      │ Boss HP                             │    20    │
+  │ stats        │ Mini Map + Stats                    │    30    │
+  │ team         │ Teammates health Bars (HP)          │    40    │
+  │ spectating   │ Spectating Eye                      │   100    │
+  └──────────────┴────────────────────────────────────┴──────────┘
+  (Defined at CropToolWindow.axaml.cs lines 97–102)
+
+Z-INDEX LAYER SUMMARY (Global Numeric Scale)
+Sorted ascending (lowest = bottom/backmost, highest = top/frontmost):
+
+   -100  │ CropTool portrait canvas solid background fill
+    -90  │ CropTool composer background image (dimmed reference)
+     0   │ Granular editor MpvVideoView (video surface baseline)
+     1   │ Music Wizard step indicator StackPanels
+    10   │ Granular editor overlay canvas (freeze FX)
+    20   │ CropTool item resize handles (within item root)
+   10–100│ CropTool placed HUD items (dynamic, from HudRole.DefaultZ)
+   450   │ CropTool magic wand candidate rectangles (source canvas)
+   500   │ CropTool source selection rectangle (source canvas)
+   900   │ CropTool portrait padding band masks (top + bottom)
+   999   │ PhaseOverlayControl root UserControl (processing overlay)
+   ≥999  │ Music Wizard toast (dynamic: max(999, highest sibling + 1))
+  1000   │ (reserved — implicit Avalonia default for highest child)
+  1200   │ CropTool snap guide lines (portrait canvas)
+  9998   │ Global Slider Track (all sliders app-wide)
+  9999   │ Global Slider Thumb (all sliders app-wide)
+  9999   │ MainWindow TimelineOverlay Border + Volume Border frame
+ 10000   │ Timeline Scale Canvases + VolumeSlider (all 3 timeline windows)
+ 10001   │ Timeline Grid containers (all 3 timeline windows)
+ 10002   │ Timeline Scrub Sliders (all 3 timeline windows)
+ 10003   │ Timeline Marker Canvases (all 3 timeline windows)
+ 10003   │ Music Wizard TimelineMarkersCanvas (spans 3 rows)
+
+  NOTE: The consistent 10000–10003 scale is a shared timeline composition
+  pattern used identically across MainWindow, GranularSpeedEditorWindow,
+  MusicWizardWindow, and CropToolWindow. The 9998–9999 range is reserved
+  for global slider template parts (thumb/track) from AvaloniaApp.axaml.

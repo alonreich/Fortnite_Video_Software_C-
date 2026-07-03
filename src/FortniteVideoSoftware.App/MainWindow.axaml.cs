@@ -28,8 +28,26 @@ public partial class MainWindow : Window
     private double _trimEndMs = 0;
     private double _thumbnailPosMs = 0;
     private bool _thumbnailSet = false;
+
+    private double _freezeTimeMs = -1;
+    private double _freezeDurationS = 1.0;
+    private bool _isCurrentlyFrozen = false;
+    private DateTime _freezeStartTime;
+    private double _previousVolume = 100;
+
     private bool _trimStartSet = false;   // Tracks whether MARK START has been explicitly or auto-set
     private bool _trimEndSet = false;      // Tracks whether MARK END has been explicitly set
+
+    private void SetTrimStart(double valueMs)
+    {
+        _trimStartMs = valueMs;
+        if (_musicWizardResult != null && _isMusicActive)
+        {
+            double dur = _musicWizardResult.TimelineEndSeconds - _musicWizardResult.TimelineStartSeconds;
+            _musicWizardResult.TimelineStartSeconds = valueMs / 1000.0;
+            _musicWizardResult.TimelineEndSeconds = (valueMs / 1000.0) + dur;
+        }
+    }
     private bool _draggingStartMarker = false;
     private bool _draggingEndMarker = false;
     private MusicWizardResult? _musicWizardResult;
@@ -42,8 +60,14 @@ public partial class MainWindow : Window
 
     private bool _isMusicBlockFocused = false;
     private Avalonia.Controls.Shapes.Rectangle? _musicBlockRectRef;
+    private Avalonia.Controls.Control? _musicStartPopupRef;
+    private Avalonia.Controls.Control? _musicEndPopupRef;
     private DispatcherTimer? _marchingAntsTimer;
     private double _marchingAntsOffset = 0;
+    private bool _isThumbnailMarkerSelected = false;
+    private bool _isDraggingThumbnailMarker = false;
+    private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerIconAntsRef;
+    private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerLineAntsRef;
 
     // Granular speed segments set via the Granular Speed Editor dialog
     private readonly System.Collections.Generic.List<SpeedSegment> _speedSegments = new();
@@ -64,7 +88,9 @@ public partial class MainWindow : Window
         RuntimeLog.Info("UI", "Initializing MainWindow");
         InitializeComponent();
 
+        this.AddHandler(DragDrop.DragEnterEvent, OnVideoDragEnter);
         this.AddHandler(DragDrop.DragOverEvent, OnVideoDragOver);
+        this.AddHandler(DragDrop.DragLeaveEvent, OnVideoDragLeave);
         this.AddHandler(DragDrop.DropEvent, OnVideoDrop);
 
         var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
@@ -88,6 +114,7 @@ public partial class MainWindow : Window
         {
             settingsBtn.Click += async (s, e) =>
             {
+                RuntimeLog.Info("UI", "User clicked Settings Overlay button.");
                 var settingsWin = new FortniteVideoSoftware.App.Controls.SettingsWindow();
                 bool changed = await settingsWin.ShowDialog<bool>(this);
                 if (changed) UpdateTooltips();
@@ -96,7 +123,7 @@ public partial class MainWindow : Window
 
         UpdateTooltips();
 
-        LoadWindowState();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
 
         // Issue #19: Removed duplicate timer creation that caused double UI updates and visual flicker
         _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -119,11 +146,27 @@ public partial class MainWindow : Window
                 _isMusicBlockFocused = false;
                 UpdateTimelineMarkers();
             }
+            if (_isThumbnailMarkerSelected && !_isDraggingThumbnailMarker)
+            {
+                _isThumbnailMarkerSelected = false;
+                UpdateTimelineMarkers();
+            }
         };
 
         _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _marchingAntsTimer.Tick += (s, e) =>
         {
+            bool hasThumbnailMarkerAnts = (_isThumbnailMarkerSelected || _isDraggingThumbnailMarker) &&
+                                          _thumbnailMarkerIconAntsRef != null &&
+                                          _thumbnailMarkerLineAntsRef != null;
+            if (hasThumbnailMarkerAnts)
+            {
+                _marchingAntsOffset += 1;
+                if (_marchingAntsOffset > 1000) _marchingAntsOffset = 0;
+                _thumbnailMarkerIconAntsRef!.StrokeDashOffset = _marchingAntsOffset;
+                _thumbnailMarkerLineAntsRef!.StrokeDashOffset = _marchingAntsOffset;
+            }
+
             if (_isMusicBlockFocused && _musicBlockRectRef != null)
             {
                 _marchingAntsOffset += 1;
@@ -199,21 +242,29 @@ public partial class MainWindow : Window
 
                 EnsureTrimPointsSet();
 
-                // Pass the MARK START/END trim region so the editor is constrained to just that clip
+                SetTimelinePopupsVisible(false);
+
                 var editor = new GranularSpeedEditorWindow(
                     _loadedVideoPath,
                     _trimStartMs,
                     _trimEndMs > 0 ? _trimEndMs : (_videoHost?.IpcClient?.Duration ?? 0) * 1000,
                     _speedSegments,
-                    _baseSpeed);
+                    _baseSpeed,
+                    _freezeTimeMs,
+                    _freezeDurationS);
 
                 await editor.ShowDialog(this);
+
+                SetTimelinePopupsVisible(true);
+                if (_musicBlockRectRef != null) _musicBlockRectRef.IsVisible = true;
 
                 if (editor.Accepted)
                 {
                     _speedSegments.Clear();
                     _speedSegments.AddRange(editor.ResultSegments);
                     _baseSpeed = editor.ResultBaseSpeed;
+                    _freezeTimeMs = editor.ResultFreezeTimeMs;
+                    _freezeDurationS = editor.ResultFreezeDurationS;
 
                     int count = _speedSegments.Count;
                     RuntimeLog.Info("UI", $"Granular editor closed. {count} segment(s) saved. Base speed={_baseSpeed:F2}x");
@@ -234,34 +285,36 @@ public partial class MainWindow : Window
         var uploadButton = this.FindControl<Button>("UploadButton");
         if (uploadButton != null)
         {
-            uploadButton.Click += OnUploadVideoClicked;
+            uploadButton.Click += (s, e) => { RuntimeLog.Info("UI", "User clicked Upload Video button"); OnUploadVideoClicked(s, e); };
         }
 
         var centerUploadButton = this.FindControl<Button>("CenterUploadButton");
         if (centerUploadButton != null)
         {
-            centerUploadButton.Click += OnUploadVideoClicked;
+            centerUploadButton.Click += (s, e) => { RuntimeLog.Info("UI", "User clicked Center Upload Video button"); OnUploadVideoClicked(s, e); };
         }
 
         var videoMergerButton = this.FindControl<Button>("VideoMergerButton");
         if (videoMergerButton != null)
         {
             // Issue #3: Open as modal dialog instead of killing the process — preserves all session state
-            videoMergerButton.Click += async (s, e) =>
+            videoMergerButton.Click += (s, e) =>
             {
-                RuntimeLog.Info("UI", "User clicked VIDEO MERGER button. Opening as modal dialog (preserving session state).");
-                try
+                SaveRecoveryState();
+                RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
+                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+                var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
+                if (p != null)
                 {
-                    var mergerWindow = new VideoMergerWindow();
-                    // Pause video while merger is open so session state stays intact
-                    if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-                    await mergerWindow.ShowDialog(this);
-                    RuntimeLog.Info("UI", "Video Merger dialog closed. Returning to main window.");
+                    Task.Run(() =>
+                    {
+                        try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => this.Close());
+                    });
                 }
-                catch (Exception ex)
+                else
                 {
-                    RuntimeLog.Fail("UI", $"Failed to open Video Merger dialog: {ex.Message}");
-                    ShowTacticalFeedback("Could not open Video Merger.");
+                    this.Close();
                 }
             };
         }
@@ -270,21 +323,23 @@ public partial class MainWindow : Window
         if (cropSettingsButton != null)
         {
             // Issue #3: Open as modal dialog instead of killing the process — preserves all session state
-            cropSettingsButton.Click += async (s, e) =>
+            cropSettingsButton.Click += (s, e) =>
             {
-                RuntimeLog.Info("UI", "User clicked CROP SETTINGS button. Opening as modal dialog (preserving session state).");
-                try
+                SaveRecoveryState();
+                RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
+                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+                var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
+                if (p != null)
                 {
-                    var cropWindow = new CropToolWindow();
-                    // Pause video while crop tool is open so session state stays intact
-                    if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-                    await cropWindow.ShowDialog(this);
-                    RuntimeLog.Info("UI", "Crop Tool dialog closed. Returning to main window.");
+                    Task.Run(() =>
+                    {
+                        try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => this.Close());
+                    });
                 }
-                catch (Exception ex)
+                else
                 {
-                    RuntimeLog.Fail("UI", $"Failed to open Crop Tool dialog: {ex.Message}");
-                    ShowTacticalFeedback("Could not open Crop Tool.");
+                    this.Close();
                 }
             };
         }
@@ -295,8 +350,16 @@ public partial class MainWindow : Window
             playPauseButton.Click += (s, e) =>
             {
                 RuntimeLog.Info("UI", "User toggled Play/Pause state.");
-                // Toggle MPV pause state
-                if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
+                if (_videoHost?.IpcClient != null) 
+                {
+                    if (_isCurrentlyFrozen)
+                    {
+                        _isCurrentlyFrozen = false;
+                        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                        return;
+                    }
+                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
+                }
             };
         }
 
@@ -305,14 +368,32 @@ public partial class MainWindow : Window
         {
             setThumbnailButton.Click += (s, e) =>
             {
-                RuntimeLog.Info("UI", $"User clicked SET THUMBNAIL at {TimeSpan.FromMilliseconds(_thumbnailPosMs):hh\\:mm\\:ss\\.ff}.");
-                double time = GetCurrentMpvTime();
-                _thumbnailPosMs = time * 1000;
-                _thumbnailSet = true;
+                var txt = this.FindControl<TextBlock>("SetThumbnailText");
+                if (_thumbnailSet)
+                {
+                    _thumbnailSet = false;
+                    _thumbnailPosMs = 0;
+                    _isThumbnailMarkerSelected = false;
+                    _isDraggingThumbnailMarker = false;
+                    setThumbnailButton.Classes.Remove("Danger");
+                    setThumbnailButton.Classes.Add("Primary");
+                    if (txt != null) txt.Text = "SET THUMBNAIL";
+                    ShowTacticalFeedback("Thumbnail removed");
+                }
+                else
+                {
+                    double time = GetCurrentMpvTime();
+                    _thumbnailPosMs = time * 1000;
+                    _thumbnailSet = true;
+                    setThumbnailButton.Classes.Remove("Primary");
+                    setThumbnailButton.Classes.Add("Danger");
+                    if (txt != null) txt.Text = "REMOVE THUMBNAIL";
 
-                PlayUiSound();
-                ShowTacticalFeedback($"📸 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
-                ShowTimelineGlow(_thumbnailPosMs, Avalonia.Media.Brushes.DeepSkyBlue);
+                    PlayUiSound();
+                    ShowTacticalFeedback($"📸 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
+                    ShowTimelineGlow(_thumbnailPosMs, Avalonia.Media.Brushes.DeepSkyBlue);
+                }
+
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
@@ -327,7 +408,7 @@ public partial class MainWindow : Window
                 EnsureTrimPointsSet();
                 RuntimeLog.Info("UI", $"User clicked MARK START at {TimeSpan.FromMilliseconds(_trimStartMs):hh\\:mm\\:ss\\.ff}.");
                 double time = GetCurrentMpvTime();
-                _trimStartMs = time * 1000;
+                SetTrimStart(time * 1000);
                 _trimStartSet = true;
                 markStartButton.Content = $"START: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss}";
 
@@ -408,6 +489,10 @@ public partial class MainWindow : Window
                 UpdateSpeedLabel();
                 SaveRecoveryState();
             };
+            mainSpeedSlider.ValueChangeCompleted += (s, e) =>
+            {
+                RuntimeLog.Info("UI", $"Speed slider final resting value: {e / 10.0:F1}x");
+            };
             UpdateSpeedLabel();
         }
 
@@ -439,6 +524,29 @@ public partial class MainWindow : Window
                     }
                 }
             };
+
+            // Wire mute/unmute handlers to the enlarged SpeakerHitBox (35x35 square) which sits
+            // on top (ZIndex 10001) for easy clicking. The icon Path itself is non-hit-testable;
+            // the hit box receives all pointer/keyboard input.
+            var speakerHitBox = this.FindControl<Border>("SpeakerHitBox");
+            if (speakerHitBox != null)
+            {
+                speakerHitBox.PointerPressed += SpeakerIcon_PointerPressed;
+                speakerHitBox.KeyDown += SpeakerIcon_KeyDown;
+            }
+
+            volumeSlider.PointerReleased += (s, e) =>
+            {
+                try
+                {
+                    var state = System.IO.File.Exists(_paths.SessionStateFile)
+                        ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                        : new System.Text.Json.Nodes.JsonObject();
+                    state["MainVolume"] = volumeSlider.Value;
+                    System.IO.File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+                }
+                catch { }
+            };
         }
 
         var qualitySlider = this.FindControl<SpinningWheelSlider>("QualitySlider");
@@ -457,6 +565,10 @@ public partial class MainWindow : Window
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
             };
+            qualitySlider.ValueChangeCompleted += (s, v) =>
+            {
+                RuntimeLog.Info("UI", $"Quality slider final resting value: {(v < 20 ? $"{5 + v * 5}MB" : "ORIGINAL QUALITY")}");
+            };
         }
 
 
@@ -465,6 +577,7 @@ public partial class MainWindow : Window
         {
             addMusicButton.Click += async (s, e) =>
             {
+                RuntimeLog.Info("UI", "User clicked ADD MUSIC button.");
                 RuntimeLog.Info("UI", "User clicked ADD MUSIC button (launching Wizard).");
 
                 // If music is active, this click removes it
@@ -484,8 +597,10 @@ public partial class MainWindow : Window
                 if (_videoHost?.IpcClient != null)
                     _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
+                SetTimelinePopupsVisible(false);
                 var wizard = new MusicWizardWindow(_loadedVideoPath, _trimStartMs, _trimEndMs > 0 ? _trimEndMs : (_videoHost?.IpcClient?.Duration ?? 0) * 1000);
                 await wizard.ShowDialog(this);
+                SetTimelinePopupsVisible(true);
 
                 if (wizard.Result != null)
                 {
@@ -584,6 +699,38 @@ public partial class MainWindow : Window
         // MainWindow bounds saving moved to async OnClosing override below
     }
 
+    private void SpeakerIcon_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        ToggleMuteFromSpeakerIcon();
+    }
+
+    private void SpeakerIcon_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter || e.Key == Key.Space)
+        {
+            ToggleMuteFromSpeakerIcon();
+            e.Handled = true;
+        }
+    }
+
+    private void ToggleMuteFromSpeakerIcon()
+    {
+        var volumeSlider = this.FindControl<Slider>("VolumeSlider");
+        if (volumeSlider != null)
+        {
+            if (volumeSlider.Value > 0)
+            {
+                _previousVolume = volumeSlider.Value;
+                volumeSlider.Value = 0;
+            }
+            else
+            {
+                volumeSlider.Value = _previousVolume > 0 ? _previousVolume : 100;
+            }
+            SaveRecoveryState();
+        }
+    }
+
     private void SeekTimelineFromPointer(PointerPressedEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
     {
         if (_draggingStartMarker || _draggingEndMarker) return;
@@ -626,6 +773,21 @@ public partial class MainWindow : Window
 
 
 
+    private void OnVideoDragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data.GetFiles() != null)
+        {
+            var popup = this.FindControl<Avalonia.Controls.Primitives.Popup>("DragOverlayPopup");
+            if (popup != null) popup.IsOpen = true;
+        }
+    }
+
+    private void OnVideoDragLeave(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var popup = this.FindControl<Avalonia.Controls.Primitives.Popup>("DragOverlayPopup");
+        if (popup != null) popup.IsOpen = false;
+    }
+
     private void OnVideoDragOver(object? sender, DragEventArgs e)
     {
         if (e.Data.GetFiles() != null)
@@ -638,71 +800,29 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnVideoDrop(object? sender, DragEventArgs e)
+    private async void OnVideoDrop(object? sender, DragEventArgs e)
     {
+        var popup = this.FindControl<Avalonia.Controls.Primitives.Popup>("DragOverlayPopup");
+        if (popup != null) popup.IsOpen = false;
+
         var files = e.Data.GetFiles();
-        if (files != null)
+        if (files == null)
         {
-            foreach (var file in files)
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            string path = file.Path.LocalPath;
+            if (IsSupportedVideoPath(path))
             {
-                string path = file.Path.LocalPath;
-                string ext = Path.GetExtension(path).ToLowerInvariant();
-                if (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov")
-                {
-                    // Update state exactly like OnUploadVideoClicked
-                    _loadedVideoPath = path;
-                    _isTimelineDrawn = false;
-                    RuntimeLog.Info("UI", $"User dropped video: {path}");
-
-                    try
-                    {
-                        var state = File.Exists(_paths.SessionStateFile)
-                            ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                            : new System.Text.Json.Nodes.JsonObject();
-                        state["UploadVideoDirectory"] = Path.GetDirectoryName(path);
-                        File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
-                    }
-                    catch { }
-
-                    _ = _videoHost?.IpcClient?.LoadFileAsync(path);
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
-
-                    // Reset to user-configured defaults on every new file upload
-                    _speedSegments.Clear();
-                    _musicWizardResult = null;
-                    StopMusicPreview();
-                    SetMusicButtonActive(false);
-                    _trimStartMs = 0;
-                    _trimEndMs = 0;
-                    _trimStartSet = false;
-                    _trimEndSet = false;
-                    _thumbnailSet = false;
-                    _thumbnailPosMs = 0;
-                    var markStartReset = this.FindControl<Button>("MarkStartButton");
-                    if (markStartReset != null) markStartReset.Content = "MARK START";
-                    var markEndReset = this.FindControl<Button>("MarkEndButton");
-                    if (markEndReset != null) markEndReset.Content = "MARK END";
-                    SetGranularButtonActive(false);
-                    ApplyDefaults();
-                    UpdateSpeedLabel();
-                    UpdateEstimatedQuality();
-
-                    if (_videoHost != null) _videoHost.IsVisible = true;
-                    UpdatePortraitOverlay();
-
-                    var uploadOverlay = this.FindControl<Border>("UploadOverlay");
-                    if (uploadOverlay != null) uploadOverlay.IsVisible = false;
-
-                    var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
-                    if (timelineOverlay != null) timelineOverlay.IsVisible = true;
-
-                    // Enable all controls that were greyed out until a video was loaded
-                    EnableEditingControls();
-                    SaveRecoveryState();
-                    break; // Only load the first valid video
-                }
+                await LoadVideoIntoEditorAsync(path, "dropped");
+                return;
             }
         }
+
+        ShowTacticalFeedback("Drop an MP4, MKV, AVI, or MOV file.");
+        PlayUiSound();
     }
 
     private async void OnUploadVideoClicked(object? sender, RoutedEventArgs e)
@@ -719,72 +839,180 @@ public partial class MainWindow : Window
 
         try
         {
-            if (File.Exists(_paths.SessionStateFile))
+            string startPath = "";
+            try
             {
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile));
-                if (state != null && state["UploadVideoDirectory"]?.ToString() is string startPath && Directory.Exists(startPath))
+                string stateFile = _paths.SessionStateFile;
+                if (File.Exists(stateFile))
                 {
+                    string json = File.ReadAllText(stateFile);
+                    var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(json);
+                    if (state != null && state["UploadVideoDirectory"] != null)
+                    {
+                        startPath = state["UploadVideoDirectory"]!.ToString();
+                    }
+                }
+
+                if (string.IsNullOrEmpty(startPath) || !Directory.Exists(startPath))
+                {
+                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    string myVideos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                    string myDocuments = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    string[] probes = new[]
+                    {
+                        System.IO.Path.Combine(localAppData, "Temp", "Highlights", "Fortnite"),
+                        System.IO.Path.Combine(localAppData, "Temp", "Highlights"),
+                        System.IO.Path.Combine(localAppData, "NVIDIA Corporation", "GeForce Experience", "Highlights"),
+                        System.IO.Path.Combine(myVideos, "Highlights", "Fortnite"),
+                        System.IO.Path.Combine(myVideos, "Fortnite"),
+                        System.IO.Path.Combine(myVideos, "Highlights"),
+                        System.IO.Path.Combine(myDocuments, "Highlights")
+                    };
+
+                    startPath = myVideos; // fallback
+                    foreach (var probe in probes)
+                    {
+                        if (System.IO.Directory.Exists(probe))
+                        {
+                            startPath = probe;
+                            break;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
+                {
+                    try { Environment.CurrentDirectory = startPath; } catch { }
                     options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
                 }
             }
+            catch { }
         }
         catch { }
 
+        SetTimelinePopupsVisible(false);
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(options);
+        SetTimelinePopupsVisible(true);
 
         if (files.Count > 0)
         {
-            string path = files[0].Path.LocalPath;
-            _loadedVideoPath = path;
-            _isTimelineDrawn = false;
-            RuntimeLog.Info("UI", $"User uploaded video: {path}");
-
-            try
-            {
-                var state = File.Exists(_paths.SessionStateFile)
-                    ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                    : new System.Text.Json.Nodes.JsonObject();
-                state["UploadVideoDirectory"] = Path.GetDirectoryName(path);
-                File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
-            }
-            catch { }
-
-            _ = _videoHost?.IpcClient?.LoadFileAsync(path);
-            _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
-
-            // Reset to user-configured defaults on every new file upload
-            _speedSegments.Clear();
-            _musicWizardResult = null;
-            StopMusicPreview();
-            SetMusicButtonActive(false);
-            _trimStartMs = 0;
-            _trimEndMs = 0;
-            _trimStartSet = false;
-            _trimEndSet = false;
-            _thumbnailSet = false;
-            _thumbnailPosMs = 0;
-            var markStartReset = this.FindControl<Button>("MarkStartButton");
-            if (markStartReset != null) markStartReset.Content = "MARK START";
-            var markEndReset = this.FindControl<Button>("MarkEndButton");
-            if (markEndReset != null) markEndReset.Content = "MARK END";
-            SetGranularButtonActive(false);
-            ApplyDefaults();
-            UpdateSpeedLabel();
-            UpdateEstimatedQuality();
-
-            if (_videoHost != null) _videoHost.IsVisible = true;
-            UpdatePortraitOverlay();
-
-            var uploadOverlay = this.FindControl<Border>("UploadOverlay");
-            if (uploadOverlay != null) uploadOverlay.IsVisible = false;
-
-            var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
-            if (timelineOverlay != null) timelineOverlay.IsVisible = true;
-
-            // Enable all controls that were greyed out until a video was loaded
-            EnableEditingControls();
-            SaveRecoveryState();
+            await LoadVideoIntoEditorAsync(files[0].Path.LocalPath, "uploaded");
         }
+    }
+
+    private static bool IsSupportedVideoPath(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov";
+    }
+
+    private async Task LoadVideoIntoEditorAsync(string path, string source)
+    {
+        if (!IsSupportedVideoPath(path) || !File.Exists(path))
+        {
+            ShowTacticalFeedback("Choose an MP4, MKV, AVI, or MOV file.");
+            PlayUiSound();
+            return;
+        }
+
+        RuntimeLog.Info("UI", $"User {source} video: {path}");
+        ShowTacticalFeedback("Loading video...");
+
+        var videoHost = _videoHost;
+        if (videoHost?.IpcClient == null)
+        {
+            ShowTacticalFeedback("Video player is still starting.");
+            PlayUiSound();
+            return;
+        }
+
+        _loadedVideoPath = path;
+        _isTimelineDrawn = false;
+        SaveUploadDirectory(path);
+        ResetEditingStateForNewVideo();
+
+        double previousDuration = videoHost.IpcClient.Duration;
+        videoHost.IsVisible = true;
+        await videoHost.IpcClient.LoadFileAsync(path);
+        await videoHost.IpcClient.SetPropertyAsync("pause", "no");
+
+        if (!await WaitForVideoMetadataAsync(previousDuration))
+        {
+            ShowTacticalFeedback("Video preview failed to load.");
+            PlayUiSound();
+            return;
+        }
+
+        ApplyDefaults();
+        UpdateSpeedLabel();
+        UpdateEstimatedQuality();
+        UpdatePortraitOverlay();
+
+        var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+        if (uploadOverlay != null) uploadOverlay.IsVisible = false;
+
+        var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
+        if (timelineOverlay != null) timelineOverlay.IsVisible = true;
+
+        EnableEditingControls();
+        SaveRecoveryState();
+    }
+
+    private void SaveUploadDirectory(string path)
+    {
+        try
+        {
+            var state = File.Exists(_paths.SessionStateFile)
+                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                : new System.Text.Json.Nodes.JsonObject();
+            state["UploadVideoDirectory"] = Path.GetDirectoryName(path);
+            File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+        }
+        catch { }
+    }
+
+    private void ResetEditingStateForNewVideo()
+    {
+        _speedSegments.Clear();
+        _musicWizardResult = null;
+        StopMusicPreview();
+        SetMusicButtonActive(false);
+        _trimStartMs = 0;
+        _trimEndMs = 0;
+        _trimStartSet = false;
+        _trimEndSet = false;
+        _thumbnailSet = false;
+        _thumbnailPosMs = 0;
+        _freezeTimeMs = -1;
+        _freezeDurationS = 1.0;
+
+        var thumbBtn = this.FindControl<Button>("SetThumbnailButton");
+        if (thumbBtn != null) { thumbBtn.Classes.Remove("Danger"); thumbBtn.Classes.Add("Primary"); }
+        var thumbTxt = this.FindControl<TextBlock>("SetThumbnailText");
+        if (thumbTxt != null) thumbTxt.Text = "SET THUMBNAIL";
+        var markStartReset = this.FindControl<Button>("MarkStartButton");
+        if (markStartReset != null) markStartReset.Content = "MARK START";
+        var markEndReset = this.FindControl<Button>("MarkEndButton");
+        if (markEndReset != null) markEndReset.Content = "MARK END";
+        SetGranularButtonActive(false);
+    }
+
+    private async Task<bool> WaitForVideoMetadataAsync(double previousDuration)
+    {
+        if (_videoHost?.IpcClient == null) return false;
+
+        for (int i = 0; i < 30; i++)
+        {
+            double duration = _videoHost.IpcClient.Duration;
+            if (duration > 0 && (previousDuration <= 0 || Math.Abs(duration - previousDuration) > 0.01 || i >= 10))
+            {
+                return true;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return _videoHost.IpcClient.Duration > 0;
     }
 
     /// <summary>
@@ -803,7 +1031,24 @@ public partial class MainWindow : Window
         if (qs != null) qs.Value = d.QualityIndex;
 
         var vol = this.FindControl<Slider>("VolumeSlider");
-        if (vol != null) vol.Value = d.Volume;
+        if (vol != null) 
+        {
+            try
+            {
+                var state = System.IO.File.Exists(_paths.SessionStateFile)
+                    ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                    : new System.Text.Json.Nodes.JsonObject();
+                if (state.ContainsKey("MainVolume"))
+                {
+                    vol.Value = state["MainVolume"]?.GetValue<double>() ?? 100.0;
+                }
+                else
+                {
+                    vol.Value = 100.0;
+                }
+            }
+            catch { vol.Value = 100.0; }
+        }
 
         var portrait = this.FindControl<CheckBox>("PortraitModeCheckbox");
         if (portrait != null) portrait.IsChecked = d.PortraitMode;
@@ -997,6 +1242,114 @@ public partial class MainWindow : Window
         });
     }
 
+    private void AttachThumbnailCameraMarkerInteractions(Control marker, Canvas timelineCanvas, double durationSeconds)
+    {
+        marker.PointerEntered += (_, _) => SetTimelineCameraHover(marker, true);
+        marker.PointerExited += (_, _) =>
+        {
+            if (!_isDraggingThumbnailMarker)
+            {
+                SetTimelineCameraHover(marker, false);
+            }
+        };
+        marker.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            _isThumbnailMarkerSelected = true;
+            _isDraggingThumbnailMarker = true;
+            if (_thumbnailMarkerIconAntsRef != null) _thumbnailMarkerIconAntsRef.IsVisible = true;
+            if (_thumbnailMarkerLineAntsRef != null) _thumbnailMarkerLineAntsRef.IsVisible = true;
+            marker.Focus();
+            SetTimelineCameraHover(marker, true);
+            MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            e.Pointer.Capture(marker);
+            e.Handled = true;
+        };
+        marker.PointerMoved += (_, e) =>
+        {
+            if (!_isDraggingThumbnailMarker)
+            {
+                return;
+            }
+
+            MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            e.Handled = true;
+        };
+        marker.PointerReleased += (_, e) =>
+        {
+            if (!_isDraggingThumbnailMarker)
+            {
+                return;
+            }
+
+            MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            _isDraggingThumbnailMarker = false;
+            _isThumbnailMarkerSelected = true;
+            e.Pointer.Capture(null);
+            SetTimelineCameraHover(marker, false);
+            UpdateTimelineMarkers();
+            UpdateEstimatedQuality();
+            SaveRecoveryState();
+            e.Handled = true;
+        };
+    }
+
+    private void MoveThumbnailMarkerToCanvasX(double canvasX, Canvas timelineCanvas, double durationSeconds, Control marker, bool seekPreview)
+    {
+        double width = timelineCanvas.Bounds.Width;
+        if (durationSeconds <= 0 || width <= 0)
+        {
+            return;
+        }
+
+        double clampedX = Math.Clamp(canvasX, 0, width);
+        _thumbnailPosMs = (clampedX / width) * durationSeconds * 1000.0;
+        _thumbnailSet = true;
+        Canvas.SetLeft(marker, ClampTimelineCameraLeft(clampedX, width));
+
+        if (seekPreview)
+        {
+            SeekMainPreviewToMarkerMs(_thumbnailPosMs);
+        }
+    }
+
+    private void MoveThumbnailMarkerByPixels(int pixelDelta)
+    {
+        var canvas = this.FindControl<Canvas>("TimelineMarkersCanvas");
+        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double width = canvas?.Bounds.Width ?? 0.0;
+        if (!_thumbnailSet || canvas == null || duration <= 0 || width <= 0)
+        {
+            return;
+        }
+
+        double deltaMs = (duration * 1000.0 / width) * pixelDelta;
+        _thumbnailPosMs = Math.Clamp(_thumbnailPosMs + deltaMs, 0, duration * 1000.0);
+        SeekMainPreviewToMarkerMs(_thumbnailPosMs);
+        UpdateTimelineMarkers();
+        UpdateEstimatedQuality();
+        SaveRecoveryState();
+    }
+
+    private void SeekMainPreviewToMarkerMs(double markerMs)
+    {
+        if (_videoHost?.IpcClient == null)
+        {
+            return;
+        }
+
+        _isCurrentlyFrozen = false;
+        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        _ = _videoHost.IpcClient.SendCommandAsync(
+            "seek",
+            (markerMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "absolute");
+    }
+
     private double CalculateEffectiveDurationMs(double trimStartMs, double trimEndMs, double baseSpeed)
     {
         if (_speedSegments == null || _speedSegments.Count == 0)
@@ -1155,6 +1508,23 @@ public partial class MainWindow : Window
         SaveRecoveryState();
     }
 
+    private void SetTimelinePopupsVisible(bool visible)
+    {
+        var canvas = this.FindControl<Canvas>("TimelineMarkersCanvas");
+        if (canvas != null)
+        {
+            foreach (var child in canvas.Children)
+            {
+                if (child is Avalonia.Controls.Primitives.Popup popup)
+                {
+                    popup.IsOpen = visible;
+                }
+            }
+        }
+        if (_musicStartPopupRef != null) _musicStartPopupRef.IsVisible = visible;
+        if (_musicEndPopupRef != null) _musicEndPopupRef.IsVisible = visible;
+    }
+
     private void UpdateTimelineMarkers()
     {
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
@@ -1262,20 +1632,16 @@ public partial class MainWindow : Window
                 double thumbMs = Math.Clamp(_thumbnailPosMs, 0, duration * 1000.0);
                 double thumbX = (thumbMs / 1000.0 / duration) * canvasWidth;
 
-                var thumbLine = new Avalonia.Controls.Shapes.Rectangle
-                {
-                    Fill = Avalonia.Media.Brushes.Gold,
-                    Width = 2,
-                    Height = canvas.Bounds.Height,
-                    IsHitTestVisible = false
-                };
-                Avalonia.Controls.Canvas.SetLeft(thumbLine, thumbX - 1);
-                Avalonia.Controls.Canvas.SetTop(thumbLine, 0);
-                canvas.Children.Add(thumbLine);
+                // redundant thumbLine removed
 
-                var cameraIcon = CreateTimelineCameraIcon();
-                Avalonia.Controls.Canvas.SetLeft(cameraIcon, ClampLabelLeft(thumbX - 9, 18));
-                Avalonia.Controls.Canvas.SetTop(cameraIcon, 2);
+                var cameraIcon = CreateTimelineCameraIcon(
+                    _isThumbnailMarkerSelected || _isDraggingThumbnailMarker,
+                    _marchingAntsOffset,
+                    out _thumbnailMarkerIconAntsRef,
+                    out _thumbnailMarkerLineAntsRef);
+                Avalonia.Controls.Canvas.SetTop(cameraIcon, -79);
+                Avalonia.Controls.Canvas.SetLeft(cameraIcon, ClampTimelineCameraLeft(thumbX, canvasWidth));
+                AttachThumbnailCameraMarkerInteractions(cameraIcon, canvas, duration);
                 canvas.Children.Add(cameraIcon);
             }
 
@@ -1293,9 +1659,10 @@ public partial class MainWindow : Window
                 startRect.PointerMoved += (s,e) => {
                     if (_draggingStartMarker) {
                         double pos = e.GetPosition(canvas).X;
-                        _trimStartMs = (pos / canvas.Bounds.Width) * duration * 1000;
-                        if (_trimStartMs < 0) _trimStartMs = 0;
-                        if (_trimStartMs > _trimEndMs && _trimEndMs > 0) _trimStartMs = _trimEndMs;
+                        double val = (pos / canvas.Bounds.Width) * duration * 1000;
+                        if (val < 0) val = 0;
+                        if (val > _trimEndMs && _trimEndMs > 0) val = _trimEndMs;
+                        SetTrimStart(val);
                         Avalonia.Controls.Canvas.SetLeft(startRect, ((_trimStartMs / 1000.0 / duration) * canvasWidth) - (trimMarkerWidth / 2.0));
                         Avalonia.Controls.Canvas.SetTop(startRect, trimMarkerTop);
                     }
@@ -1359,6 +1726,15 @@ public partial class MainWindow : Window
                 };
             }
 
+            if (_freezeTimeMs >= 0)
+            {
+                double freezeX = (_freezeTimeMs / 1000.0 / duration) * canvasWidth;
+                var freezeCam = CreateTimelineCameraIcon();
+                Avalonia.Controls.Canvas.SetTop(freezeCam, -79);
+                Avalonia.Controls.Canvas.SetLeft(freezeCam, ClampTimelineCameraLeft(freezeX, canvasWidth));
+                canvas.Children.Add(freezeCam);
+            }
+
             // ── DRAW MUSIC OVERLAY (Drawn last to be on top) ──
             if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
             {
@@ -1395,16 +1771,7 @@ public partial class MainWindow : Window
                     Padding = new Avalonia.Thickness(4, 4),
                     Child = startNoteText
                 };
-                var musicStartPopup = new Avalonia.Controls.Primitives.Popup {
-                    PlacementTarget = canvas,
-                    Placement = Avalonia.Controls.PlacementMode.TopEdgeAlignedLeft,
-                    HorizontalOffset = mStartX - 20,
-                    VerticalOffset = -10, // Move above the timeline
-                    IsOpen = true,
-                    IsHitTestVisible = true,
-                    Child = musicStartBorder
-                };
-
+                
                 // Glowing hover effect
                 musicStartBorder.PointerEntered += (s, e) => {
                     startNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147)); // DeepPink (brighter)
@@ -1412,9 +1779,11 @@ public partial class MainWindow : Window
                 musicStartBorder.PointerExited += (s, e) => {
                     startNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
                 };
-
-                // We must add popups to the logical tree (or a container) to render
-                canvas.Children.Add(musicStartPopup);
+                
+                _musicStartPopupRef = musicStartBorder; // Keep ref as Control instead of Popup
+                Avalonia.Controls.Canvas.SetTop(musicStartBorder, -15);
+                Avalonia.Controls.Canvas.SetLeft(musicStartBorder, mStartX - 20);
+                canvas.Children.Add(musicStartBorder);
 
                 var endNoteText = new TextBlock { Text = "♫", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 40, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 } };
                 var musicEndBorder = new Avalonia.Controls.Border {
@@ -1423,16 +1792,7 @@ public partial class MainWindow : Window
                     Padding = new Avalonia.Thickness(4, 4),
                     Child = endNoteText
                 };
-                var musicEndPopup = new Avalonia.Controls.Primitives.Popup {
-                    PlacementTarget = canvas,
-                    Placement = Avalonia.Controls.PlacementMode.TopEdgeAlignedLeft,
-                    HorizontalOffset = mEndX - 20,
-                    VerticalOffset = -10, // Move above the timeline
-                    IsOpen = true,
-                    IsHitTestVisible = true,
-                    Child = musicEndBorder
-                };
-
+                
                 musicEndBorder.PointerEntered += (s, e) => {
                     endNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147));
                 };
@@ -1440,7 +1800,10 @@ public partial class MainWindow : Window
                     endNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
                 };
 
-                canvas.Children.Add(musicEndPopup);
+                _musicEndPopupRef = musicEndBorder;
+                Avalonia.Controls.Canvas.SetTop(musicEndBorder, -15);
+                Avalonia.Controls.Canvas.SetLeft(musicEndBorder, mEndX - 20);
+                canvas.Children.Add(musicEndBorder);
 
                 bool draggingMusicStart = false;
                 bool draggingMusicEnd = false;
@@ -1474,8 +1837,8 @@ public partial class MainWindow : Window
                         if (newStart >= _musicWizardResult.TimelineEndSeconds - 0.5) newStart = _musicWizardResult.TimelineEndSeconds - 0.5;
                         _musicWizardResult.TimelineStartSeconds = newStart;
                         double nx = (newStart / duration) * canvasWidth;
-                        musicStartPopup.HorizontalOffset = nx - 20;
                         Avalonia.Controls.Canvas.SetLeft(musicRect, nx);
+                        Avalonia.Controls.Canvas.SetLeft(musicStartBorder, nx - 20);
                         musicRect.Width = Math.Max(2, ((_musicWizardResult.TimelineEndSeconds / duration) * canvasWidth) - nx);
                     }
                 };
@@ -1505,7 +1868,7 @@ public partial class MainWindow : Window
                         if (newEnd <= _musicWizardResult.TimelineStartSeconds + 0.5) newEnd = _musicWizardResult.TimelineStartSeconds + 0.5;
                         _musicWizardResult.TimelineEndSeconds = newEnd;
                         double nx = (newEnd / duration) * canvasWidth;
-                        musicEndPopup.HorizontalOffset = nx - 20;
+                        Avalonia.Controls.Canvas.SetLeft(musicEndBorder, nx - 20);
                         musicRect.Width = Math.Max(2, nx - ((_musicWizardResult.TimelineStartSeconds / duration) * canvasWidth));
                     }
                 };
@@ -1576,65 +1939,200 @@ public partial class MainWindow : Window
                         double nEndX = (newEnd / duration) * canvasWidth;
 
                         Avalonia.Controls.Canvas.SetLeft(musicRect, nStartX);
-                        musicStartPopup.HorizontalOffset = nStartX - 20;
-                        musicEndPopup.HorizontalOffset = nEndX - 20;
+                        Avalonia.Controls.Canvas.SetLeft(musicStartBorder, nStartX - 20);
+                        Avalonia.Controls.Canvas.SetLeft(musicEndBorder, nEndX - 20);
                     }
                 };
             }
         });
     }
 
-    private static Control CreateTimelineCameraIcon()
+    public static Control CreateTimelineCameraIcon()
+    {
+        return CreateTimelineCameraIcon(false, 0, out _, out _);
+    }
+
+    public static Control CreateTimelineCameraIcon(
+        bool isSelected,
+        double marchingAntsOffset,
+        out Avalonia.Controls.Shapes.Rectangle iconAnts,
+        out Avalonia.Controls.Shapes.Rectangle lineAnts)
     {
         var icon = new Border
         {
-            Width = 18,
-            Height = 14,
+            Width = 36,
+            Height = 28,
             Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(220, 15, 23, 42)),
             BorderBrush = Avalonia.Media.Brushes.Gold,
-            BorderThickness = new Avalonia.Thickness(1),
-            CornerRadius = new Avalonia.CornerRadius(2),
+            BorderThickness = new Avalonia.Thickness(2),
+            CornerRadius = new Avalonia.CornerRadius(4),
             IsHitTestVisible = false
         };
 
-        var canvas = new Canvas { Width = 18, Height = 14 };
+        var hoverIconGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconGlow",
+            Width = 44,
+            Height = 36,
+            Stroke = Avalonia.Media.Brushes.Gold,
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(hoverIconGlow, 4);
+        Avalonia.Controls.Canvas.SetTop(hoverIconGlow, 24);
+
+        var hoverLineGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineGlow",
+            Width = 8,
+            Height = 53,
+            Stroke = Avalonia.Media.Brushes.Gold,
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(hoverLineGlow, 20);
+        Avalonia.Controls.Canvas.SetTop(hoverLineGlow, 53);
+
+        var canvas = new Canvas { Width = 36, Height = 28 };
         var top = new Avalonia.Controls.Shapes.Rectangle
         {
-            Width = 6,
-            Height = 3,
+            Width = 12,
+            Height = 6,
             Fill = Avalonia.Media.Brushes.Gold,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(top, 3);
-        Avalonia.Controls.Canvas.SetTop(top, 1);
+        Avalonia.Controls.Canvas.SetLeft(top, 6);
+        Avalonia.Controls.Canvas.SetTop(top, 2);
         canvas.Children.Add(top);
 
         var lens = new Avalonia.Controls.Shapes.Ellipse
         {
-            Width = 6,
-            Height = 6,
+            Width = 12,
+            Height = 12,
             Stroke = Avalonia.Media.Brushes.Gold,
-            StrokeThickness = 1.4,
+            StrokeThickness = 2.8,
             Fill = Avalonia.Media.Brushes.Transparent,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(lens, 6);
-        Avalonia.Controls.Canvas.SetTop(lens, 5);
+        Avalonia.Controls.Canvas.SetLeft(lens, 12);
+        Avalonia.Controls.Canvas.SetTop(lens, 10);
         canvas.Children.Add(lens);
 
         var flash = new Avalonia.Controls.Shapes.Ellipse
         {
-            Width = 2,
-            Height = 2,
+            Width = 4,
+            Height = 4,
             Fill = Avalonia.Media.Brushes.Gold,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(flash, 13);
-        Avalonia.Controls.Canvas.SetTop(flash, 4);
+        Avalonia.Controls.Canvas.SetLeft(flash, 26);
+        Avalonia.Controls.Canvas.SetTop(flash, 8);
         canvas.Children.Add(flash);
 
         icon.Child = canvas;
-        return icon;
+
+        var outerCanvas = new Canvas
+        {
+            Width = 52,
+            Height = 103,
+            ClipToBounds = false,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Focusable = true
+        };
+
+        var hitBox = new Border
+        {
+            Width = 52,
+            Height = 103,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(hitBox, 0);
+        Avalonia.Controls.Canvas.SetTop(hitBox, 0);
+        outerCanvas.Children.Add(hitBox);
+        outerCanvas.Children.Add(hoverIconGlow);
+        outerCanvas.Children.Add(hoverLineGlow);
+        Avalonia.Controls.Canvas.SetTop(icon, 28);
+        Avalonia.Controls.Canvas.SetLeft(icon, 8);
+        outerCanvas.Children.Add(icon);
+
+        var line = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Width = 2,
+            Height = 47,
+            Fill = Avalonia.Media.Brushes.Gold,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetTop(line, 56);
+        Avalonia.Controls.Canvas.SetLeft(line, 23);
+        outerCanvas.Children.Add(line);
+
+        iconAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconAnts",
+            Width = 36,
+            Height = 28,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(iconAnts, 8);
+        Avalonia.Controls.Canvas.SetTop(iconAnts, 28);
+        outerCanvas.Children.Add(iconAnts);
+
+        lineAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineAnts",
+            Width = 6,
+            Height = 49,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(lineAnts, 21);
+        Avalonia.Controls.Canvas.SetTop(lineAnts, 55);
+        outerCanvas.Children.Add(lineAnts);
+
+        return outerCanvas;
+    }
+
+    public static double ClampTimelineCameraLeft(double markerCenterX, double canvasWidth)
+    {
+        const double markerWidth = 52.0;
+        return Math.Max(0, Math.Min(Math.Max(0, canvasWidth - markerWidth), markerCenterX - markerWidth / 2.0));
+    }
+
+    public static void SetTimelineCameraHover(Control marker, bool isHovered)
+    {
+        double opacity = isHovered ? 0.38 : 0.0;
+        SetTimelineCameraHoverRecursive(marker, opacity);
+    }
+
+    private static void SetTimelineCameraHoverRecursive(Control control, double opacity)
+    {
+        if (control.Name is "TimelineCameraIconGlow" or "TimelineCameraLineGlow")
+        {
+            control.Opacity = opacity;
+        }
+
+        if (control is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is Control childControl)
+                {
+                    SetTimelineCameraHoverRecursive(childControl, opacity);
+                }
+            }
+        }
     }
 
     private void NormalizeMusicPlacement(MusicWizardResult result)
@@ -1741,6 +2239,7 @@ public partial class MainWindow : Window
         if (playIcon != null && pauseIcon != null)
         {
             bool isPaused = _videoHost.IpcClient.IsPaused;
+            if (_isCurrentlyFrozen) isPaused = false; // keep showing Pause bars during freeze frame!
             playIcon.IsVisible = isPaused;   // show play triangle when paused
             pauseIcon.IsVisible = !isPaused;  // show pause bars when playing
         }
@@ -1752,6 +2251,7 @@ public partial class MainWindow : Window
         if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
         {
             bool isPaused = _videoHost.IpcClient.IsPaused;
+            if (_isCurrentlyFrozen) isPaused = false; // ensure music continues playing seamlessly during freeze
             double songTime = _musicWizardResult.OffsetSeconds + (time - _musicWizardResult.TimelineStartSeconds);
             bool songHasAudio = _musicWizardResult.MusicDurationSeconds <= 0 || songTime < _musicWizardResult.MusicDurationSeconds;
             bool shouldPlayMusic = !isPaused && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds && songHasAudio;
@@ -1779,10 +2279,35 @@ public partial class MainWindow : Window
         // ── Apply granular speed segments in real-time ──
         // When speed segments exist, dynamically adjust MPV playback speed
         // based on the current position so the preview matches the final export
+        double currentAbsMs = time * 1000.0;
+
+        // Single instance Freeze Frame playback logic
+        if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
+        {
+            if (currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150)
+            {
+                _isCurrentlyFrozen = true;
+                _freezeStartTime = DateTime.UtcNow;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                return;
+            }
+        }
+        else if (_isCurrentlyFrozen)
+        {
+            if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= _freezeDurationS)
+            {
+                _isCurrentlyFrozen = false;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
+            }
+            else
+            {
+                return; // UI global timecode stops counting
+            }
+        }
+
         if (!_videoHost.IpcClient.IsPaused && _speedSegments.Count > 0)
         {
-            double currentMs = time * 1000.0;
-            double targetSpeed = GetSpeedForPosition(currentMs);
+            double targetSpeed = GetSpeedForPosition(currentAbsMs);
             if (Math.Abs(targetSpeed - _lastAppliedSpeed) > 0.001)
             {
                 _lastAppliedSpeed = targetSpeed;
@@ -1884,6 +2409,13 @@ public partial class MainWindow : Window
             return; // Let textboxes handle their own typing
         }
 
+        if (_isThumbnailMarkerSelected && _thumbnailSet && e.Key is Key.Left or Key.Right)
+        {
+            MoveThumbnailMarkerByPixels(e.Key == Key.Left ? -1 : 1);
+            e.Handled = true;
+            return;
+        }
+
         var kb = SettingsManager.Instance.KeyBinds;
 
         if (e.Key == Key.Delete)
@@ -1894,7 +2426,21 @@ public partial class MainWindow : Window
                 try { System.IO.File.Delete(filePath); } catch { }
             }
         }
-        else if (e.Key == kb.PlayPause)
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        var markStart = new Avalonia.Input.KeyGesture(kb.MarkStart);
+        var markEnd = new Avalonia.Input.KeyGesture(kb.MarkEnd);
+        var seekFwd = new Avalonia.Input.KeyGesture(kb.SeekForward);
+        var seekBack = new Avalonia.Input.KeyGesture(kb.SeekBackward);
+        var fineSeekFwdCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekFwdShift = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Shift);
+        var fineSeekBackCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekBackShift = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Shift);
+        var volUp = new Avalonia.Input.KeyGesture(kb.VolumeUp);
+        var volDown = new Avalonia.Input.KeyGesture(kb.VolumeDown);
+        var aggVolUpCtrl = new Avalonia.Input.KeyGesture(kb.AggressiveVolumeUp, Avalonia.Input.KeyModifiers.Control);
+        var aggVolDownCtrl = new Avalonia.Input.KeyGesture(kb.AggressiveVolumeDown, Avalonia.Input.KeyModifiers.Control);
+
+        if (playPause.Matches(e))
         {
             if (_isMusicBlockFocused)
             {
@@ -1935,53 +2481,53 @@ public partial class MainWindow : Window
                 e.Handled = true;
             }
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == kb.FineSeekForward)
+        else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 0.5);
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-step");
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == kb.FineSeekBackward)
+        else if (fineSeekBackCtrl.Matches(e) || fineSeekBackShift.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -0.5);
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-back-step");
             e.Handled = true;
         }
-        else if (e.Key == kb.SeekForward)
+        else if (seekFwd.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5);
             e.Handled = true;
         }
-        else if (e.Key == kb.SeekBackward)
+        else if (seekBack.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5);
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == kb.AggressiveVolumeUp)
+        else if (aggVolUpCtrl.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", 10);
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == kb.AggressiveVolumeDown)
+        else if (aggVolDownCtrl.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", -10);
             e.Handled = true;
         }
-        else if (e.Key == kb.VolumeUp)
+        else if (volUp.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", 2);
             e.Handled = true;
         }
-        else if (e.Key == kb.VolumeDown)
+        else if (volDown.Matches(e))
         {
             _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", -2);
             e.Handled = true;
         }
-        else if (e.Key == kb.MarkStart)
+        else if (markStart.Matches(e))
         {
             var btn = this.FindControl<Button>("MarkStartButton");
             btn?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             e.Handled = true;
         }
-        else if (e.Key == kb.MarkEnd)
+        else if (markEnd.Matches(e))
         {
             var btn = this.FindControl<Button>("MarkEndButton");
             btn?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2012,12 +2558,25 @@ public partial class MainWindow : Window
         try
         {
             RuntimeLog.Info("Process", "Starting video processing pipeline via ProcessWorker.");
+            SetTimelinePopupsVisible(false);
 
             var paths = ApplicationPaths.CreateDefault();
             var worker = new ProcessWorker(paths);
 
             if (_videoHost != null) _videoHost.IsVisible = false;
             this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
+
+            // Hide music note popups during processing — they are OS-level WS_POPUP windows
+            // that float above the PhaseOverlayControl regardless of ZIndex
+            var markersCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+            if (markersCanvas != null)
+            {
+                foreach (var child in markersCanvas.Children)
+                {
+                    if (child is Avalonia.Controls.Primitives.Popup popup)
+                        popup.IsOpen = false;
+                }
+            }
 
             // Wire up progress and completion
             worker.ProgressUpdate += percent =>
@@ -2042,6 +2601,7 @@ public partial class MainWindow : Window
                 {
                     this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
                     if (_videoHost != null) _videoHost.IsVisible = true;
+                    // Do not restore popups after processing completes
                     if (success)
                     {
                         RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
@@ -2078,9 +2638,20 @@ public partial class MainWindow : Window
             duration = _videoHost?.IpcClient?.Duration ?? 0.0;
 
             worker.EndTimeMs = _trimEndMs > 0 ? _trimEndMs : duration * 1000;
-            worker.SpeedSegments = new System.Collections.Generic.List<SpeedSegment>(_speedSegments);
+            var allSegments = new System.Collections.Generic.List<SpeedSegment>(_speedSegments);
+            if (_freezeTimeMs >= 0)
+            {
+                allSegments.Add(new SpeedSegment((int)_freezeTimeMs, (int)(_freezeTimeMs + _freezeDurationS * 1000.0), 0.0));
+            }
+            worker.SpeedSegments = allSegments;
             worker.SpeedFactor = _baseSpeed;
-            worker.ThumbnailPosMs = _thumbnailPosMs;
+            worker.ThumbnailPosMs = _thumbnailSet ? _thumbnailPosMs : 0;
+            if (_thumbnailSet && _thumbnailPosMs > 0)
+            {
+                worker.IntroAbsTimeMs = _thumbnailPosMs;
+                worker.IntroStillSec = 0.1;
+            }
+            
             worker.HardwareStrategy = hwMode;
             worker.IsMobileFormat = this.FindControl<CheckBox>("MobileCheckbox")?.IsChecked ?? this.FindControl<CheckBox>("PortraitModeCheckbox")?.IsChecked ?? true;
             worker.IsBossHp = this.FindControl<CheckBox>("BossHpCheckbox")?.IsChecked ?? false;
@@ -2106,9 +2677,14 @@ public partial class MainWindow : Window
                 double dur = _musicWizardResult.TimelineEndSeconds - _musicWizardResult.TimelineStartSeconds;
                 if (dur <= 0) dur = 1.0;
 
+                // Determine fade-out: only apply when the music end note aligns with MARK END.
+                // If the user dragged the right ♫ note before MARK END, the music cuts instantly.
+                double videoEndSec = worker.EndTimeMs / 1000.0;
+                bool applyFadeOut = Math.Abs(_musicWizardResult.TimelineEndSeconds - videoEndSec) < 0.05;
+
                 worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>
                 {
-                    new MusicTrack(_musicWizardResult.MusicFilePath, _musicWizardResult.OffsetSeconds, dur, startDelay)
+                    new MusicTrack(_musicWizardResult.MusicFilePath, _musicWizardResult.OffsetSeconds, dur, startDelay, applyFadeOut)
                 };
 
                 worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
@@ -2218,7 +2794,6 @@ public partial class MainWindow : Window
         try
         {
             // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
-            SaveWindowState();
             await WindowBoundsHelper.SaveBoundsAsync(this, "MainWindowBounds");
 
             // Clean up crash-recovery lock so the next launch is treated as fresh
@@ -2246,78 +2821,6 @@ public partial class MainWindow : Window
     {
         base.OnClosed(e);
         Environment.Exit(0);
-    }
-
-    private void LoadWindowState()
-    {
-        try
-        {
-            if (File.Exists(_paths.WindowStateFile))
-            {
-                string json = File.ReadAllText(_paths.WindowStateFile);
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(json);
-                if (state != null)
-                {
-                    double w = state["Width"]?.GetValue<double>() ?? 1200;
-                    double h = state["Height"]?.GetValue<double>() ?? 800;
-                    int x = state["X"]?.GetValue<int>() ?? 0;
-                    int y = state["Y"]?.GetValue<int>() ?? 0;
-
-                    this.Width = w;
-                    this.Height = h;
-
-                    var p = new Avalonia.PixelPoint(x, y);
-                    bool isOnScreen = false;
-
-                    if (this.Screens != null)
-                    {
-                        foreach (var screen in this.Screens.All)
-                        {
-                            if (screen.Bounds.Contains(p))
-                            {
-                                isOnScreen = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (isOnScreen)
-                    {
-                        this.Position = p;
-                        this.WindowStartupLocation = WindowStartupLocation.Manual;
-                    }
-                    else
-                    {
-                        this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                    }
-                }
-            }
-            else
-            {
-                this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            }
-        }
-        catch
-        {
-            this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        }
-    }
-
-    private void SaveWindowState()
-    {
-        try
-        {
-            _paths.EnsureWritableDirectories();
-            var state = new System.Text.Json.Nodes.JsonObject
-            {
-                ["Width"] = this.Bounds.Width,
-                ["Height"] = this.Bounds.Height,
-                ["X"] = this.Position.X,
-                ["Y"] = this.Position.Y
-            };
-            File.WriteAllText(_paths.WindowStateFile, state.ToJsonString());
-        }
-        catch { }
     }
 
     private void AttachTitleBarDrag()
@@ -2425,8 +2928,14 @@ public partial class MainWindow : Window
                 ["bossHp"] = this.FindControl<CheckBox>("BossHpCheckbox")?.IsChecked ?? false,
                 ["showTeammates"] = this.FindControl<CheckBox>("TeammatesCheckbox")?.IsChecked ?? false,
                 ["noFade"] = this.FindControl<CheckBox>("NoFadeCheckbox")?.IsChecked ?? false,
-                ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? ""
+                ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? "",
+                ["freezeTimeMs"] = _freezeTimeMs,
+                ["freezeDurationS"] = _freezeDurationS
             };
+
+            RuntimeLog.Info("RECOVERY", "Preparing crash recovery state dump...");
+            if (_freezeTimeMs >= 0)
+                RuntimeLog.Info("RECOVERY", $"Crash Recovery Prep: Serialized Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
 
             // Serialize speed segments
             var segArray = new System.Text.Json.Nodes.JsonArray();
@@ -2491,6 +3000,15 @@ public partial class MainWindow : Window
             _trimEndSet = state["trimEndSet"]?.GetValue<bool>() ?? false;
             _thumbnailPosMs = state["thumbnailPosMs"]?.GetValue<double>() ?? 0;
             _thumbnailSet = state["thumbnailSet"]?.GetValue<bool>() ?? _thumbnailPosMs > 0;
+            
+            var thumbBtnRest = this.FindControl<Button>("SetThumbnailButton");
+            var thumbTxtRest = this.FindControl<TextBlock>("SetThumbnailText");
+            if (thumbBtnRest != null && _thumbnailSet)
+            {
+                thumbBtnRest.Classes.Remove("Primary");
+                thumbBtnRest.Classes.Add("Danger");
+                if (thumbTxtRest != null) thumbTxtRest.Text = "REMOVE THUMBNAIL";
+            }
 
             // Restore MARK START/END button labels
             var markStartBtn = this.FindControl<Button>("MarkStartButton");
@@ -2509,6 +3027,12 @@ public partial class MainWindow : Window
             int qualityVal = state["qualitySliderValue"]?.GetValue<int>() ?? 7;
             var qualitySliderRestore = this.FindControl<SpinningWheelSlider>("QualitySlider");
             if (qualitySliderRestore != null) qualitySliderRestore.Value = qualityVal;
+
+            // Restore freeze state
+            _freezeTimeMs = state["freezeTimeMs"]?.GetValue<double>() ?? -1;
+            _freezeDurationS = state["freezeDurationS"]?.GetValue<double>() ?? 1.0;
+            if (_freezeTimeMs >= 0)
+                RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: Successfully reinstated Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
 
             // Restore speed segments
             _speedSegments.Clear();

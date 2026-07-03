@@ -99,7 +99,24 @@ internal static class DeploymentLifecycle
             await DeploymentReporter.ResetAsync("INSTALL/UPGRADE").ConfigureAwait(false);
             await DeploymentReporter.StepAsync("INIT", "Starting elevated install/upgrade worker.", 1).ConfigureAwait(false);
 
-            await ReportExistingVersionAsync().ConfigureAwait(false);
+            bool isUpgrade = await ReportExistingVersionAsync().ConfigureAwait(false);
+            if (isUpgrade)
+            {
+                bool preserve = NativeDialog.ShowQuestion(
+                    "Previous Installation Detected!\r\nWould you like to preserve settings from the older installed app?",
+                    "Fortnite Video Software Setup");
+                if (!preserve)
+                {
+                    try
+                    {
+                        var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
+                        if (File.Exists(paths.SessionStateFile))
+                            File.Delete(paths.SessionStateFile);
+                    }
+                    catch { }
+                }
+            }
+
             await PerformFullHostCleanupAsync("Pre-Install Cleanup", 5, 55, requireZeroFootprint: false, purgeUserArtifacts: false, includeProgramData: true).ConfigureAwait(false);
             await InstallFreshAsync().ConfigureAwait(false);
             await DeploymentReporter.StepAsync("SUCCESS", "Install/upgrade finished. All files, registry entries, and Start Menu shortcut are in place.", 100).ConfigureAwait(false);
@@ -134,6 +151,19 @@ internal static class DeploymentLifecycle
         string source = Environment.ProcessPath ?? DeploymentFootprint.UninstallPath;
         string tempUninstaller = Path.Combine(SessionTempFolder, DeploymentFootprint.UninstallExeName);
         File.Copy(source, tempUninstaller, overwrite: true);
+
+        string? sourceDir = Path.GetDirectoryName(source);
+        if (sourceDir != null)
+        {
+            foreach (string dll in new[] { "libSkiaSharp.dll", "libHarfBuzzSharp.dll" })
+            {
+                string sourceDll = Path.Combine(sourceDir, dll);
+                if (File.Exists(sourceDll))
+                {
+                    File.Copy(sourceDll, Path.Combine(SessionTempFolder, dll), overwrite: true);
+                }
+            }
+        }
 
         int parentPid = Environment.ProcessId;
         string workerArgs = $"--uninstall --cleanup-worker {parentPid}" + (quiet ? " --quiet" : "");
@@ -200,7 +230,7 @@ internal static class DeploymentLifecycle
         }
     }
 
-    private static async Task ReportExistingVersionAsync()
+    private static async Task<bool> ReportExistingVersionAsync()
     {
         string? existingVersion = GetInstalledVersion();
         bool hasFolder = Directory.Exists(DeploymentFootprint.InstallFolder);
@@ -212,10 +242,12 @@ internal static class DeploymentLifecycle
                 "UPGRADE DETECTED",
                 $"Existing install detected. Version='{existingVersion ?? "unknown"}', folderExists={hasFolder}, exeExists={hasExe}. It will be upgraded automatically.",
                 3).ConfigureAwait(false);
+            return true;
         }
         else
         {
             await DeploymentReporter.StepAsync("FRESH INSTALL", "No previous installation was detected.", 3).ConfigureAwait(false);
+            return false;
         }
     }
 
@@ -643,8 +675,8 @@ internal static class DeploymentLifecycle
             {
                 using Process? process = Process.Start(new ProcessStartInfo
                 {
-                    FileName = DeploymentFootprint.InstallPath,
-                    WorkingDirectory = DeploymentFootprint.InstallFolder,
+                    FileName = "explorer.exe",
+                    Arguments = $"\"{DeploymentFootprint.InstallPath}\"",
                     UseShellExecute = true
                 });
 
@@ -839,14 +871,12 @@ internal static class DeploymentLifecycle
 
     private static async Task RelaunchInstallFromTempAsync(bool noLaunch, bool quiet)
     {
-        Directory.CreateDirectory(SessionTempFolder);
         string source = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot resolve current executable path.");
-        string tempInstaller = Path.Combine(SessionTempFolder, "FortniteVideoSoftware_Setup.exe");
-        File.Copy(source, tempInstaller, overwrite: true);
+
 
         string args = BuildInstallWorkerArgs(noLaunch, quiet);
         
-        if (!TryStartElevated(tempInstaller, args))
+        if (!TryStartElevated(source, args))
         {
             await DeploymentReporter.FailAsync("ELEVATION", "User cancelled Administrator permission or Windows refused to start the elevated installer worker.", 10).ConfigureAwait(false);
             NativeDialog.ShowError(

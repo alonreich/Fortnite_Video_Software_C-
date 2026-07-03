@@ -56,7 +56,7 @@
                     <!-- Centered buttons -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Margin="0,0,15,0" IsEnabled="False" ToolTip.Tip="Add at least two videos to enable merging"/>
-                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" ToolTip.Tip="Add background music to the video"/>
+                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music"/>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -67,7 +67,7 @@
             <Grid RowDefinitions="Auto, *, Auto, Auto">
                 <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
                 
-                <Border Grid.Row="1" Background="#1e293b" CornerRadius="4" Margin="0,0,0,15">
+                <Border Grid.Row="1" Name="VideoListFrame" Background="#1e293b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,15">
                     <Grid>
                         <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="12" DragDrop.AllowDrop="True">
                             <ListBox.ItemTemplate>

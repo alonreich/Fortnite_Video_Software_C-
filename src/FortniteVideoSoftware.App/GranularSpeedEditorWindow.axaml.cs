@@ -50,6 +50,22 @@ public partial class GranularSpeedEditorWindow : Window
         .ToList()
         .AsReadOnly();
     public double ResultBaseSpeed => _baseSpeed;
+    public double ResultFreezeTimeMs => _freezeTimeMs;
+    public double ResultFreezeDurationS => _freezeDurationS;
+
+    private double _freezeTimeMs = -1;
+    private double _freezeDurationS = 1.0;
+    private double _selectedFreezePresetS = -1.0;
+    private double _lastFreezeTriggerAbsMs = -10000;
+    private bool _isCurrentlyFrozen = false;
+    private DateTime _freezeStartTime;
+    private bool _isFreezeCameraSelected = false;
+    private bool _isDraggingFreezeCamera = false;
+    private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
+    private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
+    // Freeze preset gentle pulse timer — keeps the duration buttons gently glowing until the user picks one.
+    private DispatcherTimer? _freezePulseTimer;
+    private double _freezePulseOffset = 0;
 
     // ------------------------------------------------------------------ ctor
     /// <summary>
@@ -63,20 +79,26 @@ public partial class GranularSpeedEditorWindow : Window
     /// The editor will only show/seek between trimStartMs and trimEndMs.
     /// Segments are stored in absolute video timestamps.
     /// </summary>
-    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IReadOnlyList<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1)
+    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0)
     {
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
         _baseSpeed = baseSpeed;
+        _freezeTimeMs = freezeTimeMs;
+        _freezeDurationS = freezeDurationS;
+        _selectedFreezePresetS = -1.0;
+
+        InitializeComponent();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        
         _pendingSpeed = baseSpeed;
         _lastAppliedSpeed = baseSpeed;
 
-        InitializeComponent();
         var initialSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"); if(initialSpeedSlider!=null)initialSpeedSlider.SetRange(1, 40);
         SpeedPresetButtons.SetSpinningWheelValue(initialSpeedSlider, _pendingSpeed);
         var initialSpeedLabel = this.FindControl<TextBlock>("PendingSpeedLabel");
-        if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:F2}x";
+        if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:0.0}x";
         
         if (existingSegments != null)
         {
@@ -102,17 +124,44 @@ public partial class GranularSpeedEditorWindow : Window
         RefreshSegmentList();
         UpdateDeleteButtonVisibility();
 
+        if (_freezeTimeMs >= 0)
+        {
+            var toggle = this.FindControl<Button>("FreezeImageToggle");
+            if (toggle != null)
+            {
+                toggle.Classes.Remove("Primary");
+                toggle.Classes.Add("Danger");
+                var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
+                var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+                if (icon != null) icon.Text = "🔓";
+                if (txt != null) txt.Text = "UNFREEZE IMAGE";
+            }
+        }
+
         // Issue #4: Marching ants animation timer for selected segment
         _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         _marchingAntsTimer.Tick += (_, _) => {
             _marchingAntsOffset = (_marchingAntsOffset + 1) % 8;
-            RedrawTimeline();
+            if (_isDraggingFreezeCamera && _freezeCameraIconAntsRef != null && _freezeCameraLineAntsRef != null)
+            {
+                _freezeCameraIconAntsRef.StrokeDashOffset = _marchingAntsOffset;
+                _freezeCameraLineAntsRef.StrokeDashOffset = _marchingAntsOffset;
+            }
+            else
+            {
+                RedrawTimeline();
+            }
         };
         _marchingAntsTimer.Start();
 
         _playbackTimer.Tick += PlaybackTimer_Tick;
         _playbackTimer.Start();
 
+        var fvPopup = this.FindControl<Avalonia.Controls.Primitives.Popup>("FreezeValidationPopup");
+        var gfPopup = this.FindControl<Avalonia.Controls.Primitives.Popup>("GranularFeedbackPopup");
+        var targetBorder = this.FindControl<Avalonia.Controls.Border>("GranularVideoAreaBorder");
+        if (fvPopup != null && targetBorder != null) fvPopup.PlacementTarget = targetBorder;
+        if (gfPopup != null && targetBorder != null) gfPopup.PlacementTarget = targetBorder;
     }
 
     // ------------------------------------------------------------------ init
@@ -185,6 +234,13 @@ public partial class GranularSpeedEditorWindow : Window
 
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
 
+        if (_isFreezeCameraSelected && _freezeTimeMs >= 0 && e.Key is Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
+        {
+            MoveFreezeCameraByPixels(e.Key == Avalonia.Input.Key.Left ? -1 : 1);
+            e.Handled = true;
+            return;
+        }
+
         // Issue #4: Delete key removes the selected segment
         if (e.Key == Avalonia.Input.Key.Delete || e.Key == Avalonia.Input.Key.Back)
         {
@@ -201,25 +257,45 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        if (e.Key == kb.PlayPause)
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        var markStart = new Avalonia.Input.KeyGesture(kb.MarkStart);
+        var markEnd = new Avalonia.Input.KeyGesture(kb.MarkEnd);
+        var seekFwd = new Avalonia.Input.KeyGesture(kb.SeekForward);
+        var seekBack = new Avalonia.Input.KeyGesture(kb.SeekBackward);
+        var fineSeekFwdCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekFwdShift = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Shift);
+        var fineSeekBackCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekBackShift = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Shift);
+
+        if (playPause.Matches(e))
         {
             var btn = this.FindControl<Button>("GranularPlayPause");
             btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             e.Handled = true;
         }
-        else if (e.Key == kb.MarkStart)
+        else if (markStart.Matches(e))
         {
             var btn = this.FindControl<Button>("MarkStartBtn");
             btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             e.Handled = true;
         }
-        else if (e.Key == kb.MarkEnd)
+        else if (markEnd.Matches(e))
         {
             var btn = this.FindControl<Button>("MarkEndBtn");
             btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             e.Handled = true;
         }
-        else if (e.Key == kb.SeekForward)
+        else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-step");
+            e.Handled = true;
+        }
+        else if (fineSeekBackCtrl.Matches(e) || fineSeekBackShift.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-back-step");
+            e.Handled = true;
+        }
+        else if (seekFwd.Matches(e))
         {
             // Seek forward but clamp to trim region end
             double currentAbs = _videoHost?.IpcClient?.CurrentTime ?? 0;
@@ -228,7 +304,7 @@ public partial class GranularSpeedEditorWindow : Window
             _ = SeekInternal(target - (_trimStartMs / 1000.0));
             e.Handled = true;
         }
-        else if (e.Key == kb.SeekBackward)
+        else if (seekBack.Matches(e))
         {
             // Seek backward but clamp to trim region start
             double currentAbs = _videoHost?.IpcClient?.CurrentTime ?? 0;
@@ -253,24 +329,11 @@ public partial class GranularSpeedEditorWindow : Window
     {
         if (string.IsNullOrWhiteSpace(_videoPath) || _videoHost?.IpcClient == null) return;
 
-        _ = _videoHost.IpcClient.LoadFileAsync(_videoPath);
-        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-
-        // Constrain playback to the trim region using MPV's A-B loop feature.
-        // This ensures MPV itself prevents playback beyond the MARK END boundary
-        // and loops back to MARK START — the user only ever sees their clip.
         double startSec = _trimStartMs / 1000.0;
-        double endSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : 0;
-
-        // Set A-B loop points (MPV will loop playback within this region)
-        _ = _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", startSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        if (endSec > startSec)
-        {
-            _ = _videoHost.IpcClient.SetPropertyAsync("ab-loop-b", endSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        // Seek to the trim start position so the editor opens at MARK START
-        _ = _videoHost.IpcClient.SendCommandAsync("seek", startSec.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
+        
+        // LoadFileAsync accepts startTime and sets 'start' property before loading.
+        _ = _videoHost.IpcClient.LoadFileAsync(_videoPath, startSec);
+        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
     }
 
     private void WireUpControls()
@@ -314,7 +377,7 @@ public partial class GranularSpeedEditorWindow : Window
                     var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                     var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
                     if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
-                    if (speedLbl != null) speedLbl.Text = seg.Speed < 0.01 ? "0.00x (FREEZE)" : $"{seg.Speed:F2}x";
+                    if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
 
                     UpdateDeleteButtonVisibility();
                     RedrawTimeline();
@@ -324,10 +387,19 @@ public partial class GranularSpeedEditorWindow : Window
                 else
                 {
                     // Click on empty area deselects
+                    if (_isFreezeCameraSelected)
+                    {
+                        _isFreezeCameraSelected = false;
+                        _isDraggingFreezeCamera = false;
+                    }
                     if (_selectedSegmentIndex >= 0)
                     {
                         _selectedSegmentIndex = -1;
                         UpdateDeleteButtonVisibility();
+                        RedrawTimeline();
+                    }
+                    else if (_isFreezeCameraSelected == false)
+                    {
                         RedrawTimeline();
                     }
                 }
@@ -354,6 +426,13 @@ public partial class GranularSpeedEditorWindow : Window
         playPause?.AddHandler(Button.ClickEvent, (_, _) =>
         {
             RuntimeLog.Info("UI", "User toggled Play/Pause in Granular Speed Editor.");
+            if (_isCurrentlyFrozen)
+            {
+                // User clicked "Pause" while the timeline is faking playback during a freeze.
+                // Cancel the freeze tracking and leave MPV paused natively.
+                _isCurrentlyFrozen = false;
+                return;
+            }
             if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
         });
 
@@ -455,7 +534,7 @@ public partial class GranularSpeedEditorWindow : Window
             {
                 _pendingSpeed = Math.Round(e / 10.0, 2);
                 var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                if (lbl != null) lbl.Text = $"{_pendingSpeed:F2}x";
+                if (lbl != null) lbl.Text = $"{_pendingSpeed:0.0}x";
 
                 // Issue #4: If a segment is selected, update its speed live
                 if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
@@ -471,19 +550,8 @@ public partial class GranularSpeedEditorWindow : Window
         // Issue #7: Speed preset buttons
         WireUpSpeedPresets(speedSlider);
 
-        // Freeze frame checkbox syncs slider to 0
-        var freezeCheck = this.FindControl<Avalonia.Controls.Primitives.ToggleButton>("FreezeFrameCheck");
-        if (freezeCheck != null && speedSlider != null)
-        {
-            freezeCheck.IsCheckedChanged += (_, _) =>
-            {
-                bool frozen = freezeCheck.IsChecked == true;
-                speedSlider.IsEnabled = !frozen;
-                if (frozen) { SpeedPresetButtons.SetSpinningWheelValue(speedSlider, 0.1); _pendingSpeed = 0.0; }
-                var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                if (lbl != null) lbl.Text = frozen ? "0.00x (FREEZE)" : $"{_pendingSpeed:F2}x";
-            };
-        }
+        // Freeze Image logic
+        WireUpFreezeImage();
 
         // ---- Delete single segment (Issue #6) ----
         var deleteSegBtn = this.FindControl<Button>("DeleteSegmentBtn");
@@ -534,6 +602,234 @@ public partial class GranularSpeedEditorWindow : Window
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, GranularKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
+    private void WireUpFreezeImage()
+    {
+        var freezeImageToggle = this.FindControl<Button>("FreezeImageToggle");
+
+        var freezePresets = new[] {
+            this.FindControl<Button>("FreezePreset05"), this.FindControl<Button>("FreezePreset10"), this.FindControl<Button>("FreezePreset15"),
+            this.FindControl<Button>("FreezePreset20"), this.FindControl<Button>("FreezePreset25"), this.FindControl<Button>("FreezePreset30")
+        };
+        double[] presetValues = { 0.5, 1.0, 1.5, 2.0, 2.5, 3.0 };
+
+        // ── IDEA 1: Selected preset turns GREEN (matching BaseSpeedPreset theme) ──
+        // Green palette: bg=#14532d, border=#22c55e, fg=#86efac (same as the main app base speed button)
+        var selectedBg = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#14532d"));
+        var selectedBorder = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#22c55e"));
+        var selectedFg = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#86efac"));
+
+        void SetFreezePresetSelection(int selectedIndex)
+        {
+            for (int j = 0; j < freezePresets.Length; j++)
+            {
+                var preset = freezePresets[j];
+                if (preset == null) continue;
+
+                if (j == selectedIndex)
+                {
+                    // Selected button = GREEN (Idea 1)
+                    preset.Classes.Remove("Primary");
+                    preset.Background = selectedBg;
+                    preset.BorderBrush = selectedBorder;
+                    preset.Foreground = selectedFg;
+                }
+                else
+                {
+                    // Non-selected = clear overrides, back to default SpeedPreset style
+                    preset.ClearValue(Avalonia.Controls.Button.BackgroundProperty);
+                    preset.ClearValue(Avalonia.Controls.Button.BorderBrushProperty);
+                    preset.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
+                }
+            }
+        }
+
+        // ── IDEA 3: Gentle pulse timer — keeps buttons softly glowing until user picks one ──
+        // Slow, gentle sine wave (~1.5s per cycle). Not fast or jarring.
+        _freezePulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _freezePulseTimer.Tick += (_, _) =>
+        {
+            _freezePulseOffset += 0.04; // slow increment = gentle
+            double pulse = 0.5 + 0.5 * Math.Sin(_freezePulseOffset); // 0..1 wave
+
+            for (int j = 0; j < freezePresets.Length; j++)
+            {
+                var b = freezePresets[j];
+                if (b == null) continue;
+
+                // Only pulse buttons that are NOT selected (green) and NOT disabled
+                bool isSelected = (Math.Abs(_selectedFreezePresetS - presetValues[j]) < 0.01);
+                if (isSelected) continue;
+
+                // Gentle amber glow oscillation
+                byte r = (byte)(74 + (120 - 74) * pulse);  // #4a → #78
+                byte g = (byte)(55 + (90 - 55) * pulse);   // #37 → #5a
+                byte bl = (byte)(20 + (26 - 20) * pulse);   // #14 → #1a
+                b.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(r, g, bl));
+
+                byte br = (byte)(161 + (250 - 161) * pulse); // #a1 → #fa
+                byte bg2 = (byte)(98 + (197 - 98) * pulse);  // #62 → #c5
+                byte bb = (byte)(7 + (22 - 7) * pulse);      // #07 → #16
+                b.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(br, bg2, bb));
+
+                byte fr = (byte)(254 + (255 - 254) * pulse);
+                byte fg = (byte)(243 + (247 - 243) * pulse);
+                byte fb = (byte)(199 + (237 - 199) * pulse);
+                b.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(fr, fg, fb));
+            }
+        };
+
+        // ── Helper: Grey out (disable) all other buttons until a duration is picked (Idea 5) ──
+        void SetControlsEnabledDuringFreezePrompt(bool enabled)
+        {
+            // Grey out: MARK START, MARK END, PLAY/PAUSE, speed slider, speed presets, delete/clear
+            var controlsToToggle = new Control?[] {
+                this.FindControl<Button>("MarkStartBtn"),
+                this.FindControl<Button>("MarkEndBtn"),
+                this.FindControl<Button>("GranularPlayPause"),
+                this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"),
+                this.FindControl<StackPanel>("SpeedPresetsPanel"),
+                this.FindControl<Button>("DeleteSegmentBtn"),
+                this.FindControl<Button>("ClearAllSegmentsBtn"),
+            };
+            foreach (var c in controlsToToggle)
+            {
+                if (c is Avalonia.Input.InputElement input) input.IsEnabled = enabled;
+            }
+        }
+
+        for (int i = 0; i < freezePresets.Length; i++)
+        {
+            var btn = freezePresets[i];
+            var val = presetValues[i];
+            int presetIndex = i;
+            if (btn != null)
+            {
+                btn.Click += (_, _) =>
+                {
+                    _selectedFreezePresetS = val;
+
+                    // Stop the gentle pulse (Idea 3)
+                    _freezePulseTimer?.Stop();
+
+                    // Apply GREEN selection (Idea 1)
+                    SetFreezePresetSelection(presetIndex);
+
+                    // Hide the hint label (Idea 5)
+                    var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+                    if (hint != null) hint.IsVisible = false;
+
+                    // Un-grey all other controls (Idea 5)
+                    SetControlsEnabledDuringFreezePrompt(true);
+
+                    var popup = this.FindControl<Avalonia.Controls.Primitives.Popup>("FreezeValidationPopup");
+                    if (popup != null) popup.IsOpen = false;
+
+                    if (_freezeTimeMs >= 0)
+                    {
+                        _freezeDurationS = val;
+                        RedrawTimeline();
+                        FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked freeze preset button. Set freeze duration to {val}s.");
+                    }
+                };
+            }
+        }
+
+        if (freezeImageToggle != null)
+        {
+            freezeImageToggle.Click += async (_, _) =>
+            {
+                if (_freezeTimeMs < 0)
+                {
+                    bool promptPreset = (_selectedFreezePresetS < 0);
+
+                    if (promptPreset)
+                    {
+                        // ── IDEA 3: Start gentle pulse ──
+                        _freezePulseTimer?.Start();
+
+                        // ── IDEA 5: Show hint label + grey out other controls ──
+                        var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+                        if (hint != null) hint.IsVisible = true;
+
+                        SetControlsEnabledDuringFreezePrompt(false);
+
+                        FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", "State Change: User clicked 'Freeze Image' toggle but no preset was selected. Showing hint + gentle pulse + greying out other controls.");
+                    }
+
+                    // Place freeze at current ABSOLUTE playback time
+                    double currentAbsMs = (_videoHost?.IpcClient?.CurrentTime ?? 0) * 1000.0;
+                    if (_videoHost != null && _videoHost.IpcClient != null) {
+                        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                    }
+                    if (currentAbsMs < _trimStartMs) currentAbsMs = _trimStartMs;
+                    if (_trimEndMs > 0 && currentAbsMs > _trimEndMs) currentAbsMs = _trimEndMs;
+                    _freezeTimeMs = currentAbsMs;
+
+                    // If no preset was selected, default duration to 1.0s (will be overridden when they click)
+                    _freezeDurationS = promptPreset ? 1.0 : _selectedFreezePresetS;
+
+                    var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
+                    var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+                    if (icon != null) icon.Text = "🔓";
+                    if (txt != null) txt.Text = "UNFREEZE IMAGE";
+                    freezeImageToggle.Classes.Remove("Primary");
+                    freezeImageToggle.Classes.Add("Danger");
+
+                    RedrawTimeline();
+                    FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked 'Freeze Image' toggle. Button set to State 2 (Active/Red - UNFREEZE IMAGE).");
+
+                    // If the user had ALREADY picked a preset before clicking FREEZE IMAGE,
+                    // show the selection immediately (no prompt needed)
+                    if (!promptPreset)
+                    {
+                        // Find the index matching the selected value and apply green
+                        for (int k = 0; k < presetValues.Length; k++)
+                        {
+                            if (Math.Abs(presetValues[k] - _selectedFreezePresetS) < 0.01)
+                            {
+                                SetFreezePresetSelection(k);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    _freezeTimeMs = -1;
+                    _selectedFreezePresetS = -1.0;
+                    _isFreezeCameraSelected = false;
+                    _isDraggingFreezeCamera = false;
+                    var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
+                    var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+                    if (icon != null) icon.Text = "📸";
+                    if (txt != null) txt.Text = "FREEZE IMAGE";
+                    freezeImageToggle.Classes.Remove("Danger");
+                    freezeImageToggle.Classes.Add("Primary");
+
+                    // Stop pulse and hide hint if still running
+                    _freezePulseTimer?.Stop();
+                    var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+                    if (hint != null) hint.IsVisible = false;
+
+                    // Clear all preset styling back to default
+                    foreach (var b in freezePresets)
+                    {
+                        if (b == null) continue;
+                        b.ClearValue(Avalonia.Controls.Button.BackgroundProperty);
+                        b.ClearValue(Avalonia.Controls.Button.BorderBrushProperty);
+                        b.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
+                    }
+
+                    // Ensure controls are re-enabled
+                    SetControlsEnabledDuringFreezePrompt(true);
+
+                    RedrawTimeline();
+                    FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked 'Unfreeze Image' toggle. Button released to State 1 (Default/Blue - FREEZE IMAGE). Existing freeze instance was deleted from the timeline.");
+                }
+            };
+        }
+    }
+
     private void WireUpSpeedPresets(FortniteVideoSoftware.App.Controls.SpinningWheelSlider? speedSlider)
     {
         SpeedPresetButtons.ConfigureBaseButton(
@@ -552,7 +848,7 @@ public partial class GranularSpeedEditorWindow : Window
             SpeedPresetButtons.SetSpinningWheelValue(speedSlider, s);
             _pendingSpeed = s;
             var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-            if (lbl != null) lbl.Text = $"{s:F2}x";
+            if (lbl != null) lbl.Text = $"{s:0.0}x";
 
             if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
             {
@@ -617,7 +913,7 @@ public partial class GranularSpeedEditorWindow : Window
         _pendingStartMs = -1;
         _pendingEndMs   = -1;
         RefreshSegmentList();
-        SetStatus($"Segment added: {FormatMs(start)} – {FormatMs(end)} @ {speed:F2}x");
+        SetStatus($"Segment added: {FormatMs(start)} – {FormatMs(end)} @ {speed:0.0}x");
     }
 
     private void RefreshSegmentList()
@@ -634,7 +930,6 @@ public partial class GranularSpeedEditorWindow : Window
         {
             int idx = i;
             var seg = _segments[i];
-            bool isFreeze = seg.Speed < 0.01;
             bool isSelected = idx == _selectedSegmentIndex;
 
             // Row border — highlight if selected
@@ -646,8 +941,10 @@ public partial class GranularSpeedEditorWindow : Window
                 CornerRadius = new CornerRadius(5),
                 Margin = new Thickness(0, 2),
                 Padding = new Thickness(8, 6),
+                Focusable = true,
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
             };
+            ToolTip.SetTip(border, $"Select segment #{idx + 1}");
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
@@ -656,11 +953,8 @@ public partial class GranularSpeedEditorWindow : Window
             // Info text
             var info = new TextBlock
             {
-                Text = $"#{idx + 1}  {FormatMs(seg.StartMs)} → {FormatMs(seg.EndMs)}\n" +
-                       (isFreeze ? "❄ FREEZE FRAME" : $"{seg.Speed:F2}x speed"),
-                Foreground = isFreeze
-                    ? new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#60a5fa"))
-                    : new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#e2e8f0")),
+                Text = $"#{idx + 1}  {FormatMs(seg.StartMs)} → {FormatMs(seg.EndMs)}\n{seg.Speed:0.0}x speed",
+                Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#e2e8f0")),
                 FontSize = 10.5,
                 FontFamily = new Avalonia.Media.FontFamily("Consolas"),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
@@ -680,6 +974,8 @@ public partial class GranularSpeedEditorWindow : Window
                 CornerRadius = new CornerRadius(3),
                 Margin = new Thickness(4, 0, 0, 0)
             };
+            Avalonia.Automation.AutomationProperties.SetName(delBtn, $"Delete segment {idx + 1}");
+            ToolTip.SetTip(delBtn, $"Delete segment #{idx + 1}");
             delBtn.Click += (_, e) =>
             {
                 e.Handled = true;
@@ -693,23 +989,50 @@ public partial class GranularSpeedEditorWindow : Window
             };
 
             // Issue #4: Click border to select this segment
-            border.PointerPressed += (_, _) =>
+            void SelectThisSegment()
             {
                 _selectedSegmentIndex = idx;
                 _pendingSpeed = seg.Speed;
 
                 var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                 var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
-                if (speedLbl != null) speedLbl.Text = seg.Speed < 0.01 ? "0.00x (FREEZE)" : $"{seg.Speed:F2}x";
-
-                var freezeCheck = this.FindControl<Avalonia.Controls.Primitives.ToggleButton>("FreezeFrameCheck");
-                if (freezeCheck != null) freezeCheck.IsChecked = seg.Speed < 0.01;
+                if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
+                if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
 
                 RefreshSegmentList();
                 UpdateDeleteButtonVisibility();
                 RedrawTimeline();
                 SetStatus($"Selected segment #{idx + 1}. Change speed or press DELETE to remove.");
+            }
+
+            border.PointerEntered += (_, _) =>
+            {
+                if (_selectedSegmentIndex != idx)
+                    border.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#26364a"));
+            };
+            border.PointerExited += (_, _) =>
+            {
+                if (_selectedSegmentIndex != idx)
+                    border.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#1e293b"));
+            };
+            border.GotFocus += (_, _) =>
+            {
+                if (_selectedSegmentIndex != idx)
+                    border.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8"));
+            };
+            border.LostFocus += (_, _) =>
+            {
+                if (_selectedSegmentIndex != idx)
+                    border.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155"));
+            };
+            border.PointerPressed += (_, _) => SelectThisSegment();
+            border.KeyDown += (_, e) =>
+            {
+                if (e.Key == Avalonia.Input.Key.Enter || e.Key == Avalonia.Input.Key.Space)
+                {
+                    SelectThisSegment();
+                    e.Handled = true;
+                }
             };
 
             Grid.SetColumn(info, 0);
@@ -719,6 +1042,115 @@ public partial class GranularSpeedEditorWindow : Window
             border.Child = grid;
             panel.Children.Add(border);
         }
+    }
+
+    private void AttachFreezeCameraMarkerInteractions(Control marker, Canvas timelineCanvas, double durationSeconds)
+    {
+        marker.PointerEntered += (_, _) => MainWindow.SetTimelineCameraHover(marker, true);
+        marker.PointerExited += (_, _) =>
+        {
+            if (!_isDraggingFreezeCamera)
+            {
+                MainWindow.SetTimelineCameraHover(marker, false);
+            }
+        };
+        marker.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            _isFreezeCameraSelected = true;
+            _isDraggingFreezeCamera = true;
+            if (_freezeCameraIconAntsRef != null) _freezeCameraIconAntsRef.IsVisible = true;
+            if (_freezeCameraLineAntsRef != null) _freezeCameraLineAntsRef.IsVisible = true;
+            marker.Focus();
+            MainWindow.SetTimelineCameraHover(marker, true);
+            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            e.Pointer.Capture(marker);
+            e.Handled = true;
+        };
+        marker.PointerMoved += (_, e) =>
+        {
+            if (!_isDraggingFreezeCamera)
+            {
+                return;
+            }
+
+            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            e.Handled = true;
+        };
+        marker.PointerReleased += (_, e) =>
+        {
+            if (!_isDraggingFreezeCamera)
+            {
+                return;
+            }
+
+            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            _isDraggingFreezeCamera = false;
+            _isFreezeCameraSelected = true;
+            e.Pointer.Capture(null);
+            MainWindow.SetTimelineCameraHover(marker, false);
+            RedrawTimeline();
+            SetStatus($"Freeze moved to {FormatMs(_freezeTimeMs - _trimStartMs)}.");
+            e.Handled = true;
+        };
+    }
+
+    private void MoveFreezeCameraToCanvasX(double canvasX, Canvas timelineCanvas, double durationSeconds, Control marker, bool seekPreview)
+    {
+        double width = timelineCanvas.Bounds.Width;
+        if (durationSeconds <= 0 || width <= 0)
+        {
+            return;
+        }
+
+        double clampedX = Math.Clamp(canvasX, 0, width);
+        double relMs = (clampedX / width) * durationSeconds * 1000.0;
+        _freezeTimeMs = _trimStartMs + relMs;
+        Avalonia.Controls.Canvas.SetLeft(marker, MainWindow.ClampTimelineCameraLeft(clampedX, width));
+
+        if (seekPreview)
+        {
+            SeekGranularPreviewToFreezeMarker();
+        }
+    }
+
+    private void MoveFreezeCameraByPixels(int pixelDelta)
+    {
+        var canvas = this.FindControl<Canvas>("GranularTimelineCanvas");
+        double duration = GetDuration();
+        double width = canvas?.Bounds.Width ?? 0.0;
+        if (_freezeTimeMs < 0 || canvas == null || duration <= 0 || width <= 0)
+        {
+            return;
+        }
+
+        double deltaMs = (duration * 1000.0 / width) * pixelDelta;
+        double minMs = _trimStartMs;
+        double maxMs = _trimStartMs + duration * 1000.0;
+        _freezeTimeMs = Math.Clamp(_freezeTimeMs + deltaMs, minMs, maxMs);
+        SeekGranularPreviewToFreezeMarker();
+        RedrawTimeline();
+        SetStatus($"Freeze moved to {FormatMs(_freezeTimeMs - _trimStartMs)}.");
+    }
+
+    private void SeekGranularPreviewToFreezeMarker()
+    {
+        if (_videoHost?.IpcClient == null || _freezeTimeMs < 0)
+        {
+            return;
+        }
+
+        _isCurrentlyFrozen = false;
+        _lastFreezeTriggerAbsMs = -10000;
+        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        _ = _videoHost.IpcClient.SendCommandAsync(
+            "seek",
+            (_freezeTimeMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "absolute");
     }
 
     // ------------------------------------------------------------------ timeline overlay
@@ -753,7 +1185,8 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     Width  = Math.Max(2, x2 - x1),
                     Height = h,
-                    Fill   = new Avalonia.Media.SolidColorBrush(GetSegmentOverlayColor(seg))
+                    Fill   = new Avalonia.Media.SolidColorBrush(GetSegmentOverlayColor(seg)),
+                    IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(rect, x1);
                 Avalonia.Controls.Canvas.SetTop(rect, 0);
@@ -779,7 +1212,8 @@ public partial class GranularSpeedEditorWindow : Window
                         {
                             Width = drawW,
                             Height = 1,
-                            Fill = antsBrush
+                            Fill = antsBrush,
+                            IsHitTestVisible = false
                         };
                         Avalonia.Controls.Canvas.SetLeft(dash, x1 + drawX);
                         Avalonia.Controls.Canvas.SetTop(dash, 0);
@@ -796,7 +1230,8 @@ public partial class GranularSpeedEditorWindow : Window
                         {
                             Width = drawW,
                             Height = 1,
-                            Fill = antsBrush
+                            Fill = antsBrush,
+                            IsHitTestVisible = false
                         };
                         Avalonia.Controls.Canvas.SetLeft(dash, x1 + drawX);
                         Avalonia.Controls.Canvas.SetTop(dash, h - 1);
@@ -813,7 +1248,8 @@ public partial class GranularSpeedEditorWindow : Window
                         {
                             Width = 1,
                             Height = drawH,
-                            Fill = antsBrush
+                            Fill = antsBrush,
+                            IsHitTestVisible = false
                         };
                         Avalonia.Controls.Canvas.SetLeft(dash, x1);
                         Avalonia.Controls.Canvas.SetTop(dash, drawY);
@@ -830,7 +1266,8 @@ public partial class GranularSpeedEditorWindow : Window
                         {
                             Width = 1,
                             Height = drawH,
-                            Fill = antsBrush
+                            Fill = antsBrush,
+                            IsHitTestVisible = false
                         };
                         Avalonia.Controls.Canvas.SetLeft(dash, x1 + segW - 1);
                         Avalonia.Controls.Canvas.SetTop(dash, drawY);
@@ -854,7 +1291,8 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(140, 255, 255, 255)),
                     Width = 1,
-                    Height = scaleCanvas != null ? Math.Max(1, scaleCanvas.Bounds.Height) : 14
+                    Height = scaleCanvas != null ? Math.Max(1, scaleCanvas.Bounds.Height) : 14,
+                    IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(tickLine, tx);
                 Avalonia.Controls.Canvas.SetTop(tickLine, 0);
@@ -868,7 +1306,8 @@ public partial class GranularSpeedEditorWindow : Window
                     Foreground = Avalonia.Media.Brushes.White,
                     FontSize = 9,
                     Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 0, 0, 0)),
-                    Padding = new Thickness(2, 0)
+                    Padding = new Thickness(2, 0),
+                    IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(tickText, tx + 2);
                 Avalonia.Controls.Canvas.SetTop(tickText, 0);
@@ -883,7 +1322,8 @@ public partial class GranularSpeedEditorWindow : Window
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
-                    Fill = Avalonia.Media.Brushes.SeaGreen
+                    Fill = Avalonia.Media.Brushes.SeaGreen,
+                    IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(line, px);
                 canvas.Children.Add(line);
@@ -896,11 +1336,37 @@ public partial class GranularSpeedEditorWindow : Window
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
-                    Fill = Avalonia.Media.Brushes.SeaGreen
+                    Fill = Avalonia.Media.Brushes.SeaGreen,
+                    IsHitTestVisible = false
                 };
                 Avalonia.Controls.Canvas.SetLeft(line, px);
                 canvas.Children.Add(line);
             }
+
+            // ── Phase 4: Draw Freeze Frame Camera (top-most layer) ──
+            if (_freezeTimeMs >= 0)
+            {
+                double freezeRelMs = Math.Clamp(_freezeTimeMs - _trimStartMs, 0, dur * 1000.0);
+                double freezeX = (freezeRelMs / (dur * 1000.0)) * w;
+                var freezeCam = MainWindow.CreateTimelineCameraIcon(
+                    _isFreezeCameraSelected || _isDraggingFreezeCamera,
+                    _marchingAntsOffset,
+                    out var iconAnts,
+                    out var lineAnts);
+                _freezeCameraIconAntsRef = iconAnts;
+                _freezeCameraLineAntsRef = lineAnts;
+                ToolTip.SetTip(freezeCam, $"Freeze: {_freezeDurationS}s");
+                Avalonia.Controls.Canvas.SetTop(freezeCam, -79);
+                Avalonia.Controls.Canvas.SetLeft(freezeCam, MainWindow.ClampTimelineCameraLeft(freezeX, w));
+                AttachFreezeCameraMarkerInteractions(freezeCam, canvas, dur);
+                canvas.Children.Add(freezeCam);
+            }
+            else
+            {
+                _freezeCameraIconAntsRef = null;
+                _freezeCameraLineAntsRef = null;
+            }
+            // ── End of Phase 4 ──
         });
     }
 
@@ -908,16 +1374,6 @@ public partial class GranularSpeedEditorWindow : Window
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
-
-        // Update play/pause button label
-        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
-        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
-        if (playIcon != null && pauseIcon != null)
-        {
-            bool isPaused = _videoHost.IpcClient.IsPaused;
-            playIcon.IsVisible = isPaused;
-            pauseIcon.IsVisible = !isPaused;
-        }
 
         double t = _videoHost.IpcClient.CurrentTime;
         double fullDur = _videoHost.IpcClient.Duration;
@@ -928,6 +1384,7 @@ public partial class GranularSpeedEditorWindow : Window
         if (t >= trimEndSec && !_videoHost.IpcClient.IsPaused)
         {
             _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", trimEndSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         // Clamp current time to trim region for display purposes
@@ -947,9 +1404,37 @@ public partial class GranularSpeedEditorWindow : Window
         // ── Apply granular speed segments in real-time during preview ──
         // Segments are stored relative to trim start, and relTime is also relative.
         // So we check if the current relative position falls within any segment.
+        double currentRelMs = relTime * 1000.0;
+        double currentAbsMs = currentRelMs + _trimStartMs;
+
+        // Single instance Freeze Frame playback logic
+        if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
+        {
+            if (currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150 && Math.Abs(currentAbsMs - _lastFreezeTriggerAbsMs) > 1000)
+            {
+                _isCurrentlyFrozen = true;
+                _lastFreezeTriggerAbsMs = _freezeTimeMs;
+                _freezeStartTime = DateTime.UtcNow;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", (_freezeTimeMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+        }
+        else if (_isCurrentlyFrozen)
+        {
+            if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= _freezeDurationS)
+            {
+                _isCurrentlyFrozen = false;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
+            }
+            else
+            {
+                return; // UI global timecode stops counting
+            }
+        }
+
         if (!_videoHost.IpcClient.IsPaused && _segments.Count > 0)
         {
-            double currentRelMs = relTime * 1000.0;
             double targetSpeed = GetEditorSpeedForPosition(currentRelMs);
             if (Math.Abs(targetSpeed - _lastAppliedSpeed) > 0.001)
             {
@@ -957,6 +1442,17 @@ public partial class GranularSpeedEditorWindow : Window
                 _ = _videoHost.IpcClient.SetPropertyAsync("speed",
                     targetSpeed.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
             }
+        }
+
+        // Update play/pause button label
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        if (playIcon != null && pauseIcon != null)
+        {
+            bool isPaused = _videoHost.IpcClient.IsPaused;
+            if (_isCurrentlyFrozen) isPaused = false; // Spoof playing state during artificial freeze hold
+            playIcon.IsVisible = isPaused;
+            pauseIcon.IsVisible = !isPaused;
         }
 
         // Show time relative to the trim region (0:00 = MARK START)
@@ -1067,9 +1563,6 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private Avalonia.Media.Color GetSegmentOverlayColor(SpeedSegment seg)
     {
-        if (seg.Speed < 0.01)
-            return Avalonia.Media.Color.FromArgb(120, 96, 165, 250);  // blue — freeze frame
-
         if (seg.Speed < _baseSpeed - 0.0001)
             return Avalonia.Media.Color.FromArgb(100, 239, 68, 68);   // red — slower than base
 
@@ -1103,6 +1596,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         // STOP the synchronous UI-blocking close
         e.Cancel = true;
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
         // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
@@ -1114,7 +1608,7 @@ public partial class GranularSpeedEditorWindow : Window
         try
         {
             // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
-            await WindowBoundsHelper.SaveBoundsAsync(this, "GranularBounds");
+
 
             if (_videoHost?.IpcClient != null)
             {
@@ -1136,7 +1630,7 @@ public partial class GranularSpeedEditorWindow : Window
     protected override async void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        await WindowBoundsHelper.LoadBoundsAsync(this, "GranularBounds");
+
     }
 
     protected override void OnClosed(EventArgs e)
@@ -1163,3 +1657,9 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 }
+
+
+
+
+
+

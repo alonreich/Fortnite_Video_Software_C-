@@ -45,7 +45,6 @@ echo ###########################################################
 call :BUILD_NATIVE
 if errorlevel 1 exit /b 1
 
-if exist ".\LICENSE.txt" copy /y ".\LICENSE.txt" "%OUTPUT_DIR%\LICENSE.txt" >nul
 call :VALIDATE_COMPILED_OUTPUT
 if errorlevel 1 exit /b 1
 
@@ -115,7 +114,7 @@ exit /b 0
 
 :PURGE_COMPILED_EXTRAS
 for %%F in ("%OUTPUT_DIR%\*") do (
-  if /I not "%%~nxF"=="%OUTPUT_EXE%" if /I not "%%~nxF"=="LICENSE.txt" (
+  if /I not "%%~nxF"=="%OUTPUT_EXE%" (
     echo ERROR: Removing disallowed artifact from compiled: %%~nxF
     rd /s /q "%%~fF" 2>nul
     del /f /q "%%~fF" 2>nul
@@ -128,10 +127,10 @@ exit /b 0
 set "INVALID=0"
 if not exist "%OUTPUT_DIR%\%OUTPUT_EXE%" set "INVALID=1"
 for %%F in ("%OUTPUT_DIR%\*") do (
-  if /I not "%%~nxF"=="%OUTPUT_EXE%" if /I not "%%~nxF"=="LICENSE.txt" set "INVALID=1"
+  if /I not "%%~nxF"=="%OUTPUT_EXE%" set "INVALID=1"
 )
 if "!INVALID!"=="1" (
-  echo ERROR: %OUTPUT_DIR% must contain only %OUTPUT_EXE% and LICENSE.txt.
+  echo ERROR: %OUTPUT_DIR% must contain only %OUTPUT_EXE%.
   echo Actual:
   dir /b "%OUTPUT_DIR%" 2>nul
   exit /b 1

@@ -34,7 +34,7 @@ public partial class CropToolWindow : Window
     private const double ContentBottom = CoordinateConstants.PortraitH - CoordinateConstants.UIPaddingBottom;
     private const double MinSelectionSize = 10;
     private const double MinItemSize = 20;
-    private const double HandleSize = 18;
+    private const double HandleSize = 24;
     private const double SnapThreshold = 8;
 
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
@@ -114,6 +114,7 @@ public partial class CropToolWindow : Window
         _initialVideoPath = string.IsNullOrWhiteSpace(initialVideoPath) ? null : initialVideoPath;
 
         InitializeComponent();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
         FindControls();
         AttachTitleBarDrag();
         WireEvents();
@@ -123,7 +124,7 @@ public partial class CropToolWindow : Window
 
         Loaded += async (_, _) =>
         {
-            await WindowBoundsHelper.LoadBoundsAsync(this, "CropToolBounds");
+
             await InitializeMpvAsync();
             await LoadExistingPlaceholdersAsync();
 
@@ -314,16 +315,50 @@ public partial class CropToolWindow : Window
         var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
         try
         {
+            string? startPath = null;
             if (System.IO.File.Exists(paths.SessionStateFile))
             {
                 var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
-                if (state != null && state["CropToolUploadDirectory"]?.ToString() is string startPath && System.IO.Directory.Exists(startPath))
+                if (state != null && state["CropToolUploadDirectory"] != null)
                 {
-                    options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+                    startPath = state["CropToolUploadDirectory"]!.GetValue<string>();
                 }
             }
+
+            if (string.IsNullOrEmpty(startPath) || !System.IO.Directory.Exists(startPath))
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string myVideos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                string myDocuments = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                string[] probes = new[]
+                {
+                    System.IO.Path.Combine(localAppData, "Temp", "Highlights", "Fortnite"),
+                    System.IO.Path.Combine(localAppData, "Temp", "Highlights"),
+                    System.IO.Path.Combine(localAppData, "NVIDIA Corporation", "GeForce Experience", "Highlights"),
+                    System.IO.Path.Combine(myVideos, "Highlights", "Fortnite"),
+                    System.IO.Path.Combine(myVideos, "Fortnite"),
+                    System.IO.Path.Combine(myVideos, "Highlights"),
+                    System.IO.Path.Combine(myDocuments, "Highlights")
+                };
+
+                startPath = myVideos; // fallback
+                foreach (var probe in probes)
+                {
+                    if (System.IO.Directory.Exists(probe))
+                    {
+                        startPath = probe;
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
+            {
+                try { Environment.CurrentDirectory = startPath; } catch { }
+                options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
+            }
         }
-        catch { }
+        catch (Exception ex) { RuntimeLog.Info("CROP", $"Could not read suggested start location: {ex.Message}"); }
 
         IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(options);
 
@@ -340,7 +375,7 @@ public partial class CropToolWindow : Window
             state["CropToolUploadDirectory"] = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
             System.IO.File.WriteAllText(paths.SessionStateFile, state.ToJsonString());
         }
-        catch { }
+        catch (Exception ex) { RuntimeLog.Info("CROP", $"Could not save upload directory preference: {ex.Message}"); }
 
         await LoadVideoAsync(files[0].Path.LocalPath, startPaused: true);
     }
@@ -395,6 +430,7 @@ public partial class CropToolWindow : Window
                 _isTimelineUpdating = false;
             }
 
+            RuntimeLog.Info("CROP", $"Video loaded: {path} | Resolution: {_originalResolution} | Duration: {_durationMs:F0}ms");
             SetEnabled("SnapshotButton", true);
             SetWizardState(2, "Find HUD Frame", $"Frame ready ({_originalResolution}).");
         }
@@ -453,6 +489,7 @@ public partial class CropToolWindow : Window
 
             File.Move(tempOutput, output);
             _tempFiles.Add(output);
+            RuntimeLog.Info("CROP", $"Snapshot captured: {output} at {seconds:F3}s from {_videoPath}");
             await LoadSnapshotAsync(output);
             ShowSnapshotPanel();
         }
@@ -543,6 +580,7 @@ public partial class CropToolWindow : Window
         }
 
         Point p = ClampToSnapshot(e.GetPosition(_sourceCanvas));
+        _sourceCanvas.Focus();
         _sourceSelectionStart = p;
         _isDrawingSourceSelection = true;
         EnsureSelectionRectangle();
@@ -698,6 +736,7 @@ public partial class CropToolWindow : Window
             RefreshLayerList();
             MarkDirty();
             PushHistory();
+            RuntimeLog.Info("CROP", $"Added HUD element: {role.DisplayName} (role={role.Key}, source={sourceRect.Width}x{sourceRect.Height} at ({sourceRect.X},{sourceRect.Y}), z={z})");
             ClearSourceSelection();
             ClearMagicWandCandidates();
             SetWizardState(4, "Portrait Composer", $"Adjust {role.DisplayName}, then finish and save.");
@@ -740,9 +779,11 @@ public partial class CropToolWindow : Window
             Width = snapshot.Width,
             Height = snapshot.Height,
             Cursor = new Cursor(StandardCursorType.SizeAll),
+            Focusable = true,
             Tag = null,
             ZIndex = snapshot.Z
         };
+        Avalonia.Automation.AutomationProperties.SetName(root, $"{snapshot.DisplayName} crop item");
 
         var image = new Image
         {
@@ -858,6 +899,7 @@ public partial class CropToolWindow : Window
         }
 
         SelectItem(item);
+        root.Focus();
         _activeEditItem = item;
         _editStartSnapshot = CaptureSnapshot();
         _editPointerStart = e.GetPosition(_portraitCanvas);
@@ -1015,8 +1057,11 @@ public partial class CropToolWindow : Window
         Canvas.SetLeft(item.BottomRightHandle, item.Width - HandleSize / 2);
         Canvas.SetTop(item.BottomRightHandle, item.Height - HandleSize / 2);
 
-        item.LabelHost.Width = Math.Max(160, item.Width);
-        Canvas.SetLeft(item.LabelHost, (item.Width - item.LabelHost.Width) / 2);
+        double labelWidth = Math.Clamp(Math.Max(96, item.Width), 96, PortraitWidth - 20);
+        double labelLeft = (item.Width - labelWidth) / 2;
+        labelLeft = Math.Clamp(labelLeft, -item.X + 10, PortraitWidth - item.X - labelWidth - 10);
+        item.LabelHost.Width = labelWidth;
+        Canvas.SetLeft(item.LabelHost, labelLeft);
         Canvas.SetTop(item.LabelHost, item.Y > PortraitHeight / 2 ? -34 : item.Height + 10);
         item.LabelText.Text = item.DisplayName.ToUpperInvariant();
     }
@@ -1336,8 +1381,10 @@ public partial class CropToolWindow : Window
                     ["y"] = (int)Math.Round(oy)
                 };
                 zOrders[item.RoleKey] = item.Z;
+                RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{transformed.x}+{transformed.y}] scale={scale:F4} overlay=({(int)Math.Round(ox)},{(int)Math.Round(oy)}) z={item.Z}");
             }
 
+            RuntimeLog.Info("CROP", $"Saving {_items.Count} item(s) to config (schema v{CropConfigDefaults.SchemaVersion}).");
             config["schema_version"] = CropConfigDefaults.SchemaVersion;
             config["coordinate_space"] = CropConfigDefaults.CoordinateSpace;
             await store.SaveAsync(config);
@@ -1364,14 +1411,27 @@ public partial class CropToolWindow : Window
             {
                 ["returned_from_crop_tool"] = true
             });
-            RuntimeLog.Info("CROP", "Returning to parent main window.");
+            RuntimeLog.Info("CROP", "Returning to Main app.");
+            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath) { UseShellExecute = false });
+            if (p != null)
+            {
+                _ = Task.Run(() =>
+                {
+                    try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
+                });
+            }
+            else
+            {
+                Close();
+            }
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("CROP", "Error returning to main window: " + ex.Message);
+            Close();
         }
-
-        Close();
     }
 
     private void ResetWorkingState()
@@ -1763,8 +1823,9 @@ public partial class CropToolWindow : Window
         {
             return node?.GetValue<int>() ?? fallback;
         }
-        catch
+        catch (Exception ex)
         {
+            RuntimeLog.Info("CROP", $"JSON int parse fallback to {fallback}: {ex.Message}");
             return fallback;
         }
     }
@@ -1775,8 +1836,9 @@ public partial class CropToolWindow : Window
         {
             return node?.GetValue<double>() ?? fallback;
         }
-        catch
+        catch (Exception ex)
         {
+            RuntimeLog.Info("CROP", $"JSON double parse fallback to {fallback}: {ex.Message}");
             return fallback;
         }
     }
@@ -1931,6 +1993,18 @@ public partial class CropToolWindow : Window
 
         if (_selectedItem != null && e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
         {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                double resizeStep = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 2;
+                double delta = e.Key is Key.Left or Key.Up ? -resizeStep : resizeStep;
+                ResizeFromBottomRight(_selectedItem, delta);
+                ApplyItemLayout(_selectedItem);
+                MarkDirty();
+                PushHistory();
+                e.Handled = true;
+                return;
+            }
+
             double step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 5 : 1;
             double dx = e.Key == Key.Left ? -step : e.Key == Key.Right ? step : 0;
             double dy = e.Key == Key.Up ? -step : e.Key == Key.Down ? step : 0;
@@ -1954,12 +2028,13 @@ public partial class CropToolWindow : Window
         }
 
         e.Cancel = true;
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
         Hide();
 
         try
         {
             _timelineTimer?.Stop();
-            await WindowBoundsHelper.SaveBoundsAsync(this, "CropToolBounds");
+
 
             if (_videoHost?.IpcClient != null)
             {
@@ -1989,8 +2064,9 @@ public partial class CropToolWindow : Window
                     File.Delete(path);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                RuntimeLog.Info("CROP", $"Temp file cleanup skipped: {ex.Message}");
             }
         }
     }

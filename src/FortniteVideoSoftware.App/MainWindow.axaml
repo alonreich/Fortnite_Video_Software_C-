@@ -8,7 +8,8 @@
         Background="#1e293b"
         MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="30">
+        ExtendClientAreaTitleBarHeightHint="30"
+        DragDrop.AllowDrop="True">
 
     <Grid>
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
@@ -90,8 +91,8 @@
                         <Popup Name="FeedbackPopup" IsOpen="False" PlacementMode="Bottom" PlacementTarget="{Binding #VideoAreaBorder}"
                                HorizontalOffset="0" VerticalOffset="-80" IsLightDismissEnabled="False"
                                IsHitTestVisible="False">
-                            <Border Name="FeedbackPopupBorder" Background="#800f1b3a" BorderBrush="#FAfacc15" BorderThickness="1" CornerRadius="8" Padding="14,8" Opacity="0">
-                                <TextBlock Name="FeedbackPopupText" Text="" Foreground="#facc15" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <Border Name="FeedbackPopupBorder" Background="#800f1b3a" BorderBrush="#FAfacc15" BorderThickness="1" CornerRadius="8" Padding="24,12" Opacity="0">
+                                <TextBlock Name="FeedbackPopupText" Text="" Foreground="#facc15" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
                     </Grid>
@@ -103,7 +104,12 @@
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Left" Margin="-6,0,0,0">
                         <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,-5,6" Opacity="1" />
                         <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
-                        <Path Name="VolumeSpeakerIcon" Grid.Row="2" HorizontalAlignment="Center" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="14" Stretch="Uniform" Margin="5,8,-5,0" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
+                        <!-- Speaker icon: enlarged 35x35 hit box on top (ZIndex 10001), centered on the
+                             slider track at its bottom end. The icon Path itself is shifted 2px right and
+                             made non-hit-testable so the square hit box receives all clicks/hover. -->
+                        <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Mute or restore volume" AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
+                            <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>
@@ -113,10 +119,10 @@
                 <!-- Upper Row -->
                 <Grid Grid.Row="0" Margin="0,0,0,8">
                     <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="SetThumbnailButton" Classes="Primary" Width="140" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
+                        <Button Name="SetThumbnailButton" Classes="Primary" Width="160" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
                             <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="📸" FontSize="16" VerticalAlignment="Center" />
-                                <TextBlock Text="THUMBNAIL" FontSize="9" VerticalAlignment="Center" />
+                                <TextBlock Name="SetThumbnailText" Text="SET THUMBNAIL" FontSize="9" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -152,7 +158,7 @@
                         </StackPanel>
 
                         <!-- Issue #13: Normalize to 42px standard -->
-                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" CornerRadius="8" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
+                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="60" CornerRadius="8" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
                         <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Render and export the final video"/>
 
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
@@ -213,5 +219,14 @@
                 </Grid>
             </Grid>
         </Border>
+        <!-- Drag & Drop Airspace Override Popup -->
+        <Popup Name="DragOverlayPopup" PlacementTarget="VideoAreaBorder" Placement="Center" IsOpen="False" IsHitTestVisible="True" WindowManagerAddShadowHint="False">
+            <Border Background="#A0000000" BorderBrush="#FF1493" BorderThickness="3" CornerRadius="12" Padding="40" DragDrop.AllowDrop="True">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="🎬" FontSize="60" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <TextBlock Text="Drop Video Here" FontSize="32" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Popup>
     </Grid>
 </Window>

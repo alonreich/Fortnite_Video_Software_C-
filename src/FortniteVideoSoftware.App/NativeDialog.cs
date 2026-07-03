@@ -9,17 +9,38 @@ public static partial class NativeDialog
     private const uint IconError = 0x00000010;
     private const uint IconQuestion = 0x00000020;
     private const uint YesNo = 0x00000004;
+    private const uint Topmost = 0x00040000;
+    private const uint SetForeground = 0x00010000;
     private const int IdYes = 6;
     private const int IdNo = 7;
 
+    private static IntPtr GetOwnerHandle()
+    {
+        try
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+            {
+                var handle = desktop.MainWindow.TryGetPlatformHandle();
+                if (handle != null) return handle.Handle;
+            }
+        }
+        catch { }
+        return IntPtr.Zero;
+    }
+
     public static void ShowInfo(string message)
     {
-        Show(message, "Fortnite Video Software", Ok | IconInformation);
+        Show(message, "Fortnite Video Software", Ok | IconInformation | Topmost | SetForeground);
     }
 
     public static void ShowError(string message)
     {
-        Show(message, "Fortnite Video Software - Startup Failed", Ok | IconError);
+        Show(message, "Fortnite Video Software - Startup Failed", Ok | IconError | Topmost | SetForeground);
+    }
+
+    public static void ShowError(string message, string title)
+    {
+        Show(message, title, Ok | IconError | Topmost | SetForeground);
     }
 
     /// <summary>
@@ -30,7 +51,7 @@ public static partial class NativeDialog
     {
         try
         {
-            int result = MessageBoxW(IntPtr.Zero, message, title, YesNo | IconQuestion);
+            int result = MessageBoxW(GetOwnerHandle(), message, title, YesNo | IconQuestion | Topmost | SetForeground);
             return result == IdYes;
         }
         catch (DllNotFoundException)
@@ -47,7 +68,7 @@ public static partial class NativeDialog
     {
         try
         {
-            MessageBoxW(IntPtr.Zero, message, title, flags);
+            MessageBoxW(GetOwnerHandle(), message, title, flags);
         }
         catch (DllNotFoundException)
         {

@@ -7,7 +7,9 @@ temp_staging/
 !binaries/*.exe
 !binaries/*.dll
 !binaries/*.com
-AI AGENT PROMPT.txt
+*.mp3
+!mp3/Cool Dance Background Music (No CopyRights).mp3
+!mp3/Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3
 
 # ==============================================================================
 # .NET / C# Project Ignores

@@ -383,6 +383,8 @@ public class ProcessWorker : IDisposable
                         _currentProcess = Process.Start(psi);
                         if (_currentProcess == null) return false;
 
+                        try { ChildProcessTracker.AddProcess(_currentProcess); } catch { }
+
                         using var reg = cancellationToken.Register(() =>
                         {
                             try { _currentProcess.Kill(entireProcessTree: true); } catch { }

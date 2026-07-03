@@ -5,7 +5,7 @@
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
         Title="Portrait 1080x1920 (Crop Tool)"
         Width="1800" Height="930"
-        MinWidth="1250" MinHeight="760"
+        MinWidth="1500" MinHeight="760"
         Background="#1e293b"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
@@ -89,7 +89,9 @@
                                             Width="1920"
                                             Height="1080"
                                             Background="Black"
-                                            Cursor="Cross">
+                                            Cursor="Cross"
+                                            Focusable="True"
+                                            AutomationProperties.Name="Source snapshot selection canvas">
                                         <Image Name="SnapshotImage"
                                                Width="1920"
                                                Height="1080"
@@ -271,7 +273,9 @@
                                         Width="1080"
                                         Height="1920"
                                         Background="Transparent"
-                                        Cursor="Cross">
+                                        Cursor="Cross"
+                                        Focusable="True"
+                                        AutomationProperties.Name="Portrait crop layout canvas">
                                     <Image Name="ComposerBackgroundImage"
                                            Width="1080"
                                            Height="1920"

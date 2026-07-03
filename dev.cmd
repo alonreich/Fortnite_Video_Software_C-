@@ -10,6 +10,22 @@ set "DOTNET_WATCH_SUPPRESS_EMOJIS=1"
 REM Sandbox the developer config to prevent corrupting the real installed app settings.
 set "FVS_PROGRAMDATA_ROOT=%~dp0.dev_data"
 
+REM ──────────────────────────────────────────────────────────────────────
+REM DEV LOG DIRECTORY: All dev-mode logs go EXCLUSIVELY to
+REM %TMP%\Fortnite_Video_Software_DEV\. Never in the project root, %TMP%,
+REM or %PROGRAMDATA%. This includes the app log and detailed MPV debug logs.
+REM ──────────────────────────────────────────────────────────────────────
+set "FVS_DEV_LOG_DIR=%TMP%\Fortnite_Video_Software_DEV"
+if not exist "%FVS_DEV_LOG_DIR%" mkdir "%FVS_DEV_LOG_DIR%"
+
+REM ──────────────────────────────────────────────────────────────────────
+REM DEV CLEAN-SLATE: Wipe the sandboxed config/state on every dev run so
+REM the app boots as if freshly installed (OOB). This deletes session_state.json,
+REM recovery sentinels, logs, and any cached state under .dev_data.
+REM Also clears previous dev logs for a clean debugging session.
+REM ──────────────────────────────────────────────────────────────────────
+call :WIPE_DEV_CONFIG
+
 if "%~1"=="" goto WATCH
 if /I "%~1"=="run" goto RUN
 if /I "%~1"=="build" goto BUILD
@@ -57,4 +73,20 @@ echo Cleaning Debug output...
 if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin"
 if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
 dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary
+goto :EOF
+
+REM ═══════════════════════════════════════════════════════════════════════
+REM Subroutine: Wipe all sandboxed dev config/state for a fresh-install feel.
+REM Deletes .dev_data\ entirely so the app re-creates defaults on next boot.
+REM ═══════════════════════════════════════════════════════════════════════
+:WIPE_DEV_CONFIG
+if exist "%~dp0.dev_data" (
+    echo [DEV] Wiping sandboxed config .dev_data\ for clean-slate boot...
+    rd /s /q "%~dp0.dev_data" 2>nul
+)
+REM Clear previous dev logs for a fresh debugging session
+if exist "%FVS_DEV_LOG_DIR%" (
+    echo [DEV] Clearing previous dev logs in %FVS_DEV_LOG_DIR%...
+    del /q "%FVS_DEV_LOG_DIR%\*" 2>nul
+)
 goto :EOF

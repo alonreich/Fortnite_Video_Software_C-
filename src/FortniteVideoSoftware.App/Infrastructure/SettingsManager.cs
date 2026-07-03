@@ -10,6 +10,7 @@ public class AppSettings
 {
     public KeyBinds KeyBinds { get; set; } = new();
     public DefaultValues Defaults { get; set; } = new();
+    public int Volume { get; set; } = 100;
 }
 
 public class KeyBinds
@@ -51,13 +52,11 @@ public class DefaultValues
     /// <summary>Default Output File Size slider index (0-20, where 7 = 40MB)</summary>
     public int QualityIndex { get; set; } = 7;
 
-    /// <summary>Default Volume (0-100)</summary>
-    public int Volume { get; set; } = 100;
 }
 
 public static class SettingsManager
 {
-    private static readonly string SettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+    private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
     
     public static AppSettings Instance { get; private set; } = new AppSettings();
 

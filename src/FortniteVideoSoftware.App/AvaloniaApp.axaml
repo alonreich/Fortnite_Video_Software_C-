@@ -27,7 +27,7 @@
         <SolidColorBrush x:Key="AppPanelBrush" Color="#334155" />
         <SolidColorBrush x:Key="AppBorderBrush" Color="#475569" />
         <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#ffffff" />
-        <SolidColorBrush x:Key="AppTextMutedBrush" Color="#94a3b8" />
+        <SolidColorBrush x:Key="AppTextMutedBrush" Color="#b6c2d0" />
         <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
         <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
         <SolidColorBrush x:Key="AppSuccessBrush" Color="#22c55e" />

@@ -14,12 +14,19 @@ namespace FortniteVideoSoftware.App.Controls;
 /// Software fallback video view. Reads raw BGRA frames from a cross-process
 /// MemoryMappedFile and displays them via an Avalonia Image + WriteableBitmap.
 /// Used when <see cref="VideoRenderMode.UseHardwareAcceleration"/> is false.
+///
+/// NOTE: This view is currently unused — all three apps (Main, Video Merger,
+/// Crop Tools) use the GPU-accelerated <see cref="MpvVideoView"/> path via
+/// libmpv's OpenGL render API. The MemoryMappedFile bridge (MmapFrameBridge)
+/// was part of an abandoned out-of-process software-rendering experiment and
+/// has been stubbed out so the file compiles without blocking the build.
+/// If software fallback is needed in the future, implement MmapFrameBridge
+/// in Core/Media and restore ConnectToFrameBuffer().
 /// </summary>
 public class SoftwareVideoView : UserControl
 {
     private readonly Image _image = new();
     private WriteableBitmap? _bitmap;
-    private MmapFrameBridge? _mmap;
     private Timer? _framePump;
     private int _currentWidth;
     private int _currentHeight;
@@ -41,15 +48,13 @@ public class SoftwareVideoView : UserControl
 
     /// <summary>
     /// Connects to a MemoryMappedFile created by the MPV worker process.
+    /// Currently stubbed — see class-level NOTE.
     /// </summary>
     public void ConnectToFrameBuffer(string mapName)
     {
-        _mmap = MmapFrameBridge.Open(mapName);
-        var (w, h) = _mmap.GetFrameDimensions();
-        EnsureBitmap(w, h);
-
-        // Pump frames at ~60Hz (16ms interval)
-        _framePump = new Timer(PumpFrame, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(16));
+        // MmapFrameBridge was removed — this path is unused.
+        // All rendering goes through MpvVideoView (OpenGL/libmpv).
+        RuntimeLog.Info("SW-Video", "ConnectToFrameBuffer called but MmapFrameBridge is not implemented. Software fallback is disabled.");
     }
 
     private void EnsureBitmap(int width, int height)
@@ -69,47 +74,10 @@ public class SoftwareVideoView : UserControl
         FrameSizeChanged?.Invoke(width, height);
     }
 
-    private void PumpFrame(object? state)
-    {
-        var mmap = _mmap;
-        var bitmap = _bitmap;
-        if (mmap == null || bitmap == null)
-            return;
-
-        if (!mmap.IsNewFrameAvailable)
-            return;
-
-        try
-        {
-            // Check if resolution changed
-            var (w, h) = mmap.GetFrameDimensions();
-            if (w != _currentWidth || h != _currentHeight)
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => EnsureBitmap(w, h));
-                return;
-            }
-
-            // Lock the bitmap and copy the frame data
-            using (var lockCtx = bitmap.Lock())
-            {
-                mmap.TryCopyFrame(lockCtx.Address, _currentWidth, _currentHeight);
-            }
-
-            // Trigger UI invalidation on the dispatcher thread
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => _image.InvalidateVisual());
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Fail("SW-Video", $"Frame pump error: {ex.Message}");
-        }
-    }
-
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         _framePump?.Dispose();
         _framePump = null;
-        _mmap?.Dispose();
-        _mmap = null;
         _bitmap?.Dispose();
         _bitmap = null;
         base.OnDetachedFromVisualTree(e);

@@ -208,6 +208,9 @@ public class GranularSpeedBuilder
                               $"atrim=duration={dur:F4},asetpts=PTS-STARTPTS{aChunkLabel}");
 
                 finalDuration += dur;
+                FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Info("FFmpeg", $"FFmpeg Instructions: Freeze Frame detected at {chunk.Start:F4}s. Built chunked Granular Speed complex filter. " +
+                                          $"Math: Held video frame for exactly {dur:F4}s. Offset PTS translated forward. " +
+                                          $"Audio Routing: Muted/silenced original audio by generating anullsrc spanning [{chunk.Start:F4}s -> {chunk.Start + dur:F4}s].");
             }
             else
             {

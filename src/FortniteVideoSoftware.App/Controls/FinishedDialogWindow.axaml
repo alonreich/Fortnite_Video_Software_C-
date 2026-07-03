@@ -20,6 +20,8 @@
             
             <Button Grid.Row="0" HorizontalAlignment="Right"
                     Classes="CloseBtn" Content="✕"
+                    AutomationProperties.Name="Close dialog"
+                    ToolTip.Tip="Close dialog"
                     Click="OnCloseClicked" />
             
             <TextBlock Grid.Row="1" x:Name="MessageText"

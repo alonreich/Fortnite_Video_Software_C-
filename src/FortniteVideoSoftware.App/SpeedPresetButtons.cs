@@ -75,12 +75,9 @@ internal static class SpeedPresetButtons
 
         slider.Value = (int)Math.Round(ClampSpeed(speed) * 10.0, MidpointRounding.AwayFromZero);
     }
-
     public static string FormatSpeed(double speed)
     {
-        double roundedTenths = Math.Round(speed * 10.0) / 10.0;
-        string format = Math.Abs(speed - roundedTenths) < 0.0001 ? "0.0x" : "0.##x";
-        return speed.ToString(format, CultureInfo.InvariantCulture);
+        return speed.ToString("0.0x", CultureInfo.InvariantCulture);
     }
 
     private static double ClampSpeed(double speed) => Math.Clamp(speed, 0.1, 4.0);

@@ -36,6 +36,7 @@ public class MergerWorker : IDisposable
 
     public void Cancel()
     {
+        CoreLogger.Info("Merger", "Merge cancelled by user.");
         if (_currentProcess != null)
         {
             try { _currentProcess.Kill(entireProcessTree: true); } catch { }
@@ -58,14 +59,18 @@ public class MergerWorker : IDisposable
 
             try
             {
+                CoreLogger.Info("Merger", $"Merging {InputFiles.Count} file(s):");
                 double totalDuration = 0;
-                foreach (var file in InputFiles)
+                for (int fi = 0; fi < InputFiles.Count; fi++)
                 {
-                    var prober = new MediaProber(_ffprobePath, file);
-                    totalDuration += await prober.GetDurationAsync();
+                    var prober = new MediaProber(_ffprobePath, InputFiles[fi]);
+                    double dur = await prober.GetDurationAsync();
+                    CoreLogger.Info("Merger", $"  [{fi + 1}] {InputFiles[fi]} — {dur:F2}s");
+                    totalDuration += dur;
                 }
 
                 if (totalDuration == 0) totalDuration = 10.0; // Fallback
+                CoreLogger.Info("Merger", $"Total combined duration: {totalDuration:F2}s");
 
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
@@ -190,14 +195,17 @@ public class MergerWorker : IDisposable
                     }
                 }, cancellationToken);
 
-                // Drain stderr
+                // Capture stderr to log (diagnostic + error messages from FFmpeg)
                 _ = Task.Run(async () =>
                 {
                     using var reader = _currentProcess.StandardError;
-                    char[] buffer = new char[4096];
                     while (!reader.EndOfStream)
                     {
-                        await reader.ReadAsync(buffer, cancellationToken);
+                        string? line = await reader.ReadLineAsync(cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            CoreLogger.Append(line);
+                        }
                     }
                 }, cancellationToken);
 
@@ -227,8 +235,14 @@ public class MergerWorker : IDisposable
                 try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch { }
             }
         }
+        catch (OperationCanceledException)
+        {
+            CoreLogger.Info("Merger", "Merge pipeline canceled.");
+            EmitFinished(false, "Merge canceled.");
+        }
         catch (Exception ex)
         {
+            CoreLogger.Fail("Merger", $"Merge pipeline failed with exception: {ex}");
             EmitFinished(false, ex.Message);
         }
     }

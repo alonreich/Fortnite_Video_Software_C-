@@ -35,7 +35,8 @@ public sealed class RecoveryManager
             try
             {
                 string content = File.ReadAllText(_paths.AppSessionLockFile).Trim();
-                if (int.TryParse(content, out int oldPid))
+                string[] parts = content.Split(':');
+                if (parts.Length > 0 && int.TryParse(parts[0], out int oldPid))
                 {
                     if (oldPid != Environment.ProcessId)
                     {
@@ -44,7 +45,16 @@ public sealed class RecoveryManager
                             Process proc = Process.GetProcessById(oldPid);
                             if (!proc.HasExited)
                             {
-                                return false; // Process still running, no fault
+                                if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
+                                {
+                                    if (proc.StartTime.Ticks == oldTicks)
+                                        return false; // Process still running, same instance, no fault
+                                    // Otherwise it's a recycled PID, fault = true
+                                }
+                                else
+                                {
+                                    return false; // Process still running, legacy lock format, no fault
+                                }
                             }
                         }
                         catch (ArgumentException)
@@ -54,6 +64,10 @@ public sealed class RecoveryManager
                         catch (InvalidOperationException)
                         {
                             // Process is not running
+                        }
+                        catch (System.ComponentModel.Win32Exception)
+                        {
+                            // Access denied getting StartTime, assume running to be safe or crashed
                         }
                     }
                 }
@@ -107,7 +121,8 @@ public sealed class RecoveryManager
         try
         {
             _paths.EnsureWritableDirectories();
-            File.WriteAllText(_paths.AppSessionLockFile, Environment.ProcessId.ToString());
+            string lockData = $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}";
+            File.WriteAllText(_paths.AppSessionLockFile, lockData);
         }
         catch
         {

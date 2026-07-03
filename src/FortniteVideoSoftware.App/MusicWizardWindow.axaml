@@ -22,8 +22,8 @@
 
                     <!-- Step Progress Bar (Improvement 1) -->
                     <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*">
-                        <Border Grid.Column="0" VerticalAlignment="Top" Margin="50,15,-50,0" Height="2" Background="#334155"/>
-                        <Border Grid.Column="1" VerticalAlignment="Top" Margin="50,15,-50,0" Height="2" Background="#334155"/>
+                        <Border Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="#334155"/>
+                        <Border Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="#334155"/>
                         <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
                             <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="#3b82f6" HorizontalAlignment="Center">
                                 <TextBlock Name="Step1Icon" Text="1" Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -54,7 +54,9 @@
                                     <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" VerticalAlignment="Center"/>
                                     <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
-                                <ListBox Grid.Row="1" Name="MusicListBox" Background="#1e293b" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+                                <Grid Grid.Row="1">
+
+                                <ListBox Name="MusicListBox" Background="#1e293b" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
                                     <ListBox.Styles>
                                         <Style Selector="ListBoxItem">
                                             <Setter Property="Padding" Value="0"/>
@@ -72,7 +74,21 @@
                                             </Border>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
-                                </ListBox>
+                                </ListBox>
+
+                                    <TextBlock Name="EmptyMusicListText"
+                                               Text="No music files found. Change folder or drop an audio file here."
+                                               Foreground="#b6c2d0"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Margin="24"
+                                               IsHitTestVisible="False"
+                                               IsVisible="False"/>
+
+                                </Grid>
                             </Grid>
 
                             <!-- STEP 2: Waveform + Song Start -->
@@ -89,28 +105,38 @@
                                 <Border Grid.Row="2" Background="#1e293b" CornerRadius="4" BorderBrush="#334155" BorderThickness="1" Margin="0,5" Height="120">
                                     <Panel>
                                         <Image Name="WaveformImage" Stretch="Fill"/>
-                                        <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" ToolTip.Tip="Click the point in the song where the video should begin" />
+                                        <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
                                         <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
                                     </Panel>
                                 </Border>
-
-                                <StackPanel Grid.Row="3" Spacing="0" Margin="0,0,0,0">
-                                    <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
-                                        <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                        <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
-                                            <Border Height="4" CornerRadius="2" Background="#334155" VerticalAlignment="Center" IsHitTestVisible="False" />
-                                        </Grid>
-                                        <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" ToolTip.Tip="Click the point in the song where the video should begin" />
+
+                                <StackPanel Grid.Row="3" Spacing="0" Margin="0,0,0,0">
+                                    <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
+                                        <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
+                                        <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
+                                            <Border Height="4" CornerRadius="2" Background="#334155" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                        </Grid>
+                                        <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
                                     </Grid>
                                     <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,-15,0,5" IsVisible="True"/>
-
-                                    <StackPanel Spacing="10" Margin="0,10,0,0">
-                                        <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
-                                        <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="White" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Grid>
-
+
+                                    <StackPanel Spacing="10" Margin="0,10,0,0">
+                                        <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
+                                        <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="White" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
+                                    </StackPanel>
+
+                                    <!-- MULTI SONG HELPER (Video Merger Mode) -->
+                                    <StackPanel Name="MultiSongHelperPanel" IsVisible="False" Margin="0,15,0,0">
+                                        <Border Background="#331e293b" BorderBrush="#60a5fa" BorderThickness="1" CornerRadius="6" Padding="12">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Name="MultiSongWarningLabel" Text="The selected song is shorter than your combined videos!" Foreground="#facc15" FontWeight="Bold" FontSize="11" TextWrapping="Wrap"/>
+                                                <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+
                             <!-- STEP 3: Final Review Summary -->
                             <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto">
                                 <StackPanel Grid.Row="0" Margin="0,0,0,10" Spacing="3">
@@ -118,36 +144,62 @@
                                     <TextBlock Name="FinalPlacementLabel" Text="The video and music preview will end together at the video end." Foreground="#cbd5e1" FontSize="11"/>
                                     <TextBlock Name="Phase3StatusLabel" Text="" Foreground="#facc15" FontSize="10"/>
                                 </StackPanel>
-
-                                <Border Name="VideoHostBorder" Grid.Row="1" Background="Black" CornerRadius="6" ClipToBounds="True" Margin="0,0,0,10">
-                                </Border>
-
-                                <Grid Grid.Row="2" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
-                                    <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" HorizontalAlignment="Stretch" ClipToBounds="False"/>
-                                    <StackPanel Grid.Row="1" Spacing="0">
-                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
-                                            <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
-                                        </Border>
-                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60">
-                                            <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                                <Image Name="WaveformLaneImage" Stretch="Fill" Height="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
-                                            </Canvas>
-                                        </Border>
-                                    </StackPanel>
-                                    <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Background="Transparent" Cursor="Hand" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False"/>
-                                    <Canvas Grid.Row="1" Name="Phase3CaretCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                        <Border Name="Phase3Caret" Width="2" Height="120" Background="Red" IsVisible="False" RenderTransform="translateY(0px)"/>
-                                        <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="#AA000000" CornerRadius="2" Padding="4,2" Margin="4,2">
-                                            <TextBlock Name="Phase3CaretTimeText" Foreground="White" FontSize="10" FontWeight="Bold"/>
-                                        </Border>
-                                    </Canvas>
-                                </Grid>
-
-                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
-                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
-                                    </StackPanel>
+
+                                <Grid Grid.Row="1" Margin="0,0,0,10">
+                                    <Border Name="VideoHostBorder" Background="Black" CornerRadius="6" ClipToBounds="True">
+                                    </Border>
+                                    <Border Name="Phase3VideoLoadingOverlay" Background="#AA000000" CornerRadius="6" IsHitTestVisible="False" IsVisible="False">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                                            <ProgressBar IsIndeterminate="True" Width="100" Height="4" Foreground="#60a5fa" Background="#334155"/>
+                                            <TextBlock Text="Initializing Video Preview..." Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <Grid Grid.Row="2" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
+                                    <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" HorizontalAlignment="Stretch" ClipToBounds="False"/>
+                                    <StackPanel Grid.Row="1" Spacing="0">
+                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
+                                            <Panel>
+                                                <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                                <Border Name="Phase3ThumbLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#facc15" Background="#334155"/>
+                                                        <TextBlock Text="Generating Frames..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
+                                        </Border>
+                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60">
+                                            <Panel>
+                                                <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                    <Image Name="WaveformLaneImage" Stretch="Fill" Height="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                    <Canvas Name="WaveformOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                                </Canvas>
+                                                <Border Name="Phase3WaveLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#4ade80" Background="#334155"/>
+                                                        <TextBlock Text="Generating Waveform..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
+                                        </Border>
+                                    </StackPanel>
+                                    <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Final preview seek area" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False"/>
+                                    <Canvas Grid.Row="1" Name="Phase3CaretCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                        <Border Name="Phase3Caret" Width="2" Height="120" Background="Red" IsVisible="False" RenderTransform="translateY(0px)"/>
+                                        <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="#AA000000" CornerRadius="2" Padding="4,2" Margin="4,2">
+                                            <TextBlock Name="Phase3CaretTimeText" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                    </Canvas>
+                                </Grid>
+
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
+                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
+                                    </StackPanel>
                                     <StackPanel>
                                         <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
                                         <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>

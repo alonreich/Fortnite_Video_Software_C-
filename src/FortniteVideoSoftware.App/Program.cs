@@ -11,7 +11,8 @@ if (DeploymentLifecycle.ShouldHandle(args))
 
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.InfoAction = RuntimeLog.Info;
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.FailAction = RuntimeLog.Fail;
-        FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
+FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
+RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
 
 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
@@ -214,11 +215,25 @@ static async Task<int> RunUiAsync(string[] args)
     await BootstrapAsync(showDialog: false);
     
     RuntimeLog.Info("RUN UI", "Starting Avalonia App.");
-    return Avalonia.AppBuilder.Configure<FortniteVideoSoftware.App.AvaloniaApp>()
+
+    // In DEV MODE: Enable verbose Avalonia logging + DevTools.
+    // In PRODUCTION: Minimal logging (Warning level only).
+    var builder = Avalonia.AppBuilder.Configure<FortniteVideoSoftware.App.AvaloniaApp>()
         .UsePlatformDetect()
-        .WithInterFont()
-        .LogToTrace()
-        .StartWithClassicDesktopLifetime(args);
+        .WithInterFont();
+
+    if (RuntimeLog.IsDevMode)
+    {
+        // Verbose logging captures all Avalonia UI events, layout passes, and GL operations.
+        builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Verbose);
+        RuntimeLog.Info("RUN UI", "Dev mode: Avalonia verbose logging enabled.");
+    }
+    else
+    {
+        builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Warning);
+    }
+
+    return builder.StartWithClassicDesktopLifetime(args);
 }
 
 internal static class NativeHelpers

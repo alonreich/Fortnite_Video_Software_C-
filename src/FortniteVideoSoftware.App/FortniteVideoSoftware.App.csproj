@@ -60,6 +60,7 @@
     <IlcTrimMetadata>false</IlcTrimMetadata>
     <ApplicationIcon>..\..\assets\icons\Video_Icon_File.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <NoWarn>$(NoWarn);CS1998;CS0414</NoWarn>
   </PropertyGroup>
 
 </Project>

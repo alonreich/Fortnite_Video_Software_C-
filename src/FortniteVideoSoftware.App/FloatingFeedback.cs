@@ -18,31 +18,27 @@ internal static class FloatingFeedback
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
             popupText.Text = text;
-            popupBorder.Opacity = 0;
+            // Spawn completely non-transparent (opaque / blocking) at the initial point.
+            popupBorder.Opacity = 1;
             if (placementTarget != null)
             {
                 popup.PlacementTarget = placementTarget;
             }
 
             double videoHeight = placementTarget?.Bounds.Height ?? 600;
-            double startOffset = -80;
-            double endOffset = -(videoHeight / 3.0);
+            // Entire animation shifted 50px upward from the previous baseline
+            // (was: startOffset = -80, endOffset = -(videoHeight / 3.0)).
+            double startOffset = -130;
+            double endOffset = -(videoHeight / 3.0) - 50;
 
             popup.IsOpen = false;
             popup.VerticalOffset = startOffset;
             popup.IsOpen = true;
 
-            double fadeIn = 0;
-            while (fadeIn < 1.0)
-            {
-                fadeIn += 0.12;
-                popupBorder.Opacity = fadeIn;
-                await Task.Delay(16);
-            }
+            // Hold completely opaque for the first 0.3 seconds at the initial point.
+            await Task.Delay(300);
 
-            popupBorder.Opacity = 1;
-            await Task.Delay(400);
-
+            // Then gradually become more transparent while floating upwards until it vanishes.
             double progress = 0;
             while (progress < 1.0)
             {
