@@ -396,7 +396,7 @@ public class MpvVideoView : Control
                                 internal_format = (int)WglInterop.GL_RGBA8
                             };
 
-                            int flipY = 1;
+                            int flipY = 0;
 
                             // stackalloc guarantees the pointers do not drift during C-interop in NativeAOT.
                             LibMpvInterop.mpv_render_param* paramsArray = stackalloc LibMpvInterop.mpv_render_param[3];
