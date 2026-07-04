@@ -645,36 +645,35 @@ public partial class GranularSpeedEditorWindow : Window
 
         // ── IDEA 3: Gentle pulse timer — keeps buttons softly glowing until user picks one ──
         // Slow, gentle sine wave (~1.5s per cycle). Not fast or jarring.
-        _freezePulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        int stepperIndex = 0;
+        _freezePulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _freezePulseTimer.Tick += (_, _) =>
         {
-            _freezePulseOffset += 0.04; // slow increment = gentle
-            double pulse = 0.5 + 0.5 * Math.Sin(_freezePulseOffset); // 0..1 wave
+            stepperIndex = (stepperIndex + 1) % freezePresets.Length;
 
             for (int j = 0; j < freezePresets.Length; j++)
             {
                 var b = freezePresets[j];
                 if (b == null) continue;
 
-                // Only pulse buttons that are NOT selected (green) and NOT disabled
+                // Only stepper pulse buttons that are NOT selected (green) and NOT disabled
                 bool isSelected = (Math.Abs(_selectedFreezePresetS - presetValues[j]) < 0.01);
                 if (isSelected) continue;
 
-                // Gentle amber glow oscillation
-                byte r = (byte)(74 + (120 - 74) * pulse);  // #4a → #78
-                byte g = (byte)(55 + (90 - 55) * pulse);   // #37 → #5a
-                byte bl = (byte)(20 + (26 - 20) * pulse);   // #14 → #1a
-                b.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(r, g, bl));
-
-                byte br = (byte)(161 + (250 - 161) * pulse); // #a1 → #fa
-                byte bg2 = (byte)(98 + (197 - 98) * pulse);  // #62 → #c5
-                byte bb = (byte)(7 + (22 - 7) * pulse);      // #07 → #16
-                b.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(br, bg2, bb));
-
-                byte fr = (byte)(254 + (255 - 254) * pulse);
-                byte fg = (byte)(243 + (247 - 243) * pulse);
-                byte fb = (byte)(199 + (237 - 199) * pulse);
-                b.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(fr, fg, fb));
+                if (j == stepperIndex)
+                {
+                    // Stepper Highlight (Bright Amber)
+                    b.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(120, 90, 26));
+                    b.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(250, 197, 22));
+                    b.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(255, 247, 237));
+                }
+                else
+                {
+                    // Reset to default style so it doesn't stay highlighted
+                    b.ClearValue(Avalonia.Controls.Button.BackgroundProperty);
+                    b.ClearValue(Avalonia.Controls.Button.BorderBrushProperty);
+                    b.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
+                }
             }
         };
 
@@ -1657,6 +1656,9 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 }
+
+
+
 
 
 

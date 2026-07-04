@@ -465,7 +465,9 @@ public partial class MusicWizardWindow : Window
 
                         if (wizardVideoHost?.IpcClient != null)
 
-                            _ = wizardVideoHost.IpcClient.SetPropertyAsync("volume", videoVolSlider.Value.ToString("0"));
+                                                        _ = wizardVideoHost.IpcClient.SetPropertyAsync("volume", videoVolSlider.Value.ToString("0"));
+
+                        SaveWizardVolumes();
 
                     }
 
@@ -501,7 +503,9 @@ public partial class MusicWizardWindow : Window
 
                     {
 
-                        _ = _audioIpcClient.SetPropertyAsync("volume", musicVolSlider.Value.ToString("0"));
+                                                _ = _audioIpcClient.SetPropertyAsync("volume", musicVolSlider.Value.ToString("0"));
+                        
+                        SaveWizardVolumes();
 
                     }
 
@@ -1392,6 +1396,25 @@ public partial class MusicWizardWindow : Window
         }
         StopPreview();
         UpdatePlayhead();
+    }
+
+    private void SaveWizardVolumes()
+    {
+        try
+        {
+            var videoVolSlider = this.FindControl<Avalonia.Controls.Slider>("VideoVolSlider");
+            var musicVolSlider = this.FindControl<Avalonia.Controls.Slider>("MusicVolSlider");
+            
+            var state = System.IO.File.Exists(_paths.SessionStateFile)
+                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                : new System.Text.Json.Nodes.JsonObject();
+
+            if (videoVolSlider != null) state["WizardVideoVolume"] = videoVolSlider.Value;
+            if (musicVolSlider != null) state["WizardMusicVolume"] = musicVolSlider.Value;
+
+            System.IO.File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+        }
+        catch { }
     }
 
     private void UpdatePhase3WaveformLaneWidth()
@@ -2735,5 +2758,8 @@ public partial class MusicWizardWindow : Window
     }
 
 }
+
+
+
 
 

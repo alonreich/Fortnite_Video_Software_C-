@@ -40,22 +40,28 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
 3. FILE & FOLDER STRUCTURE MINIMAP
 ------------------------------------------------------------------------------
 |-- Build.cmd          : Production NativeAOT compile script (bundles payload.zip -> single .exe).
-|-- dev.cmd            : Developer hot-reload entrypoint. Uses `.dev_data` sandbox. Never writes logs to root.
+|-- dev.cmd            : Developer hot-reload entrypoint. Uses `%TMP%\Fortnite_Video_Software_DEV\.dev_data` sandbox. Never writes logs to root.
 |-- binaries\          : Hosts native backend binaries (ffmpeg.exe, mpv.exe, libmpv-2.dll).
 +-- src\
     +-- FortniteVideoSoftware.App\  : UI Layer (Avalonia, App Lifecycle, Interop)
     |   |-- MpvVideoView.cs         : The crucial WGL_NV_DX_interop2 composition surface.
-    |   |-- MainWindow.axaml        : Main App UI.
+    |   |-- MainWindow.axaml        : Main App UI (Timeline, PlayheadBadge, Markers).
+    |   |-- MusicWizardWindow.axaml : Audio sync, waveform rendering, volume memory.
+    |   |-- GranularSpeedEditorWindow.axaml: Speed segments and Freeze Image picker.
     |   |-- VideoMergerWindow.axaml : Merger UI.
     |   |-- CropToolWindow.axaml    : Crop configuration UI.
+    |   |-- Controls/SettingsWindow.axaml : Global settings and persistence manager.
     +-- FortniteVideoSoftware.Core\ : Business Logic Layer
+        |-- Media/TextOverlayGenerator.cs : SkiaSharp PNG text overlay with RTL/Hebrew wrap.
+        |-- Media/GranularSpeedBuilder.cs : FFmpeg setpts/atempo filter translation.
         |-- Media/                  : MpvIpcClient, HardwareScanner, FilterBuilder (FFmpeg math).
         |-- Ipc/                    : Atomic state transfer between the isolated processes.
 
 4. UI & DEV RULES
 ------------------------------------------------------------------------------
-- Crash Recovery: Managed via `app_session.lock` and JSON atomic writes to `%PROGRAMDATA%` (or `.dev_data` when using dev.cmd).
+- Crash Recovery: Managed via `app_session.lock` and JSON atomic writes to `%PROGRAMDATA%` (or `%TMP%\Fortnite_Video_Software_DEV\.dev_data` when using dev.cmd).
 - Logging: Use `RuntimeLog`. Dev runs write strictly to `%TMP%\Fortnite_Video_Software_DEV\`.
+- Temp / Staging: All video processing temp files are strictly isolated to `%TMP%\Fortnite_Video_Software\temp` for prod and `%TMP%\Fortnite_Video_Software_DEV\temp` for dev. Root folder and Program Files must remain pristine.
 - Shared Styles: Use globals in `AvaloniaApp.axaml` (e.g., standard `Button` height 32, `Slider` enlarged thumbs).
 - Z-Index: Always respect Avalonia native popups for overlays that need to float above standard elements. (Note: Video is now natively composited, so HWND airspace clipping is mostly resolved, but legacy popups are still used for timeline markers).
 
@@ -72,3 +78,26 @@ To fully understand the architecture (and the Keypoint 3 translation tax), this 
   ===> IDXGIKeyedMutex (VRAM sync lock, producer/consumer handshake)
   ===> Avalonia CompositionDrawingSurface (VRAM)
   ===> The End User's Display Monitor (GPU Swapchain)
+
+6. CURRENT CORE LOGIC & FEATURES
+------------------------------------------------------------------------------
+- Video Playback (MpvVideoView.cs & MpvIpcClient.cs): Uses libmpv via named pipes/IPC for robust frame-accurate seeking.
+- Timeline & Markers (MainWindow.axaml.cs): Custom UI Canvas drawing for playhead (PlayheadBadge), camera cuts (ThumbnailOverlayCanvas), and freeze-frames. Implements frame-by-frame 16.66ms finesse via arrow keys for pinpoint accuracy.
+- Music Wizard (MusicWizardWindow.axaml.cs): Audio waveform rendering, track synchronization, visual phase 3 preview, and persistent volume settings that remember user adjustments between sessions.
+- Granular Speed Editor (GranularSpeedEditorWindow.axaml.cs): Segmented timeline speed mapping. Features an exclusive "Freeze Image" UI flow with a cascading UI light wave that completely locks down all other controls and directs users to pick a preset duration.
+- Smart Text Overlays (TextOverlayGenerator.cs): SkiaSharp-based PNG generator for Mobile portrait videos. Dynamically calculates line wrapping, iteratively shrinks font sizes to fit within a strict 150px height, and includes an intelligent Bidirectional (BIDI) text tokenizer to correctly reverse Hebrew/RTL string blocks for LTR Skia rendering.
+- FFmpeg Rendering (FfmpegWorker.cs, ProcessWorker.cs): Translates all UI selections (crops, time segments, speeds, audio) into complex FFmpeg filter graphs (FilterBuilder.cs) and executes them.
+
+7. ACTIVE ARCHITECTURAL DECISIONS
+------------------------------------------------------------------------------
+- Decision: Pure Code-Behind UI State (vs MVVM). Rationale: Allows for rapid prototyping and absolute control over granular canvas rendering coordinates, marker bounding boxes, and dispatcher timer ticks. Tradeoffs: Results in very large .cs files (e.g., MainWindow.axaml.cs), tighter coupling between UI and logic.
+- Decision: FFmpeg + SkiaSharp for Overlays. Rationale: FFmpeg's built-in drawtext filter is highly limited for dynamic line-wrapping and BIDI/RTL text rendering. Generating a transparent PNG overlay via SkiaSharp in C# and feeding it to FFmpeg is vastly more robust. Tradeoffs: Minor disk I/O cost to save/load temporary PNGs to disk before muxing.
+
+8. KNOWN LIMITATIONS & TODOS FOR THE NEXT AI AGENT
+------------------------------------------------------------------------------
+- Refactoring MainWindow.axaml.cs: The main window code-behind is extremely large; separating Canvas drawing logic, marker tracking, and event handlers into dedicated controls/services would vastly improve maintainability.
+- Multi-Platform Support: Hardcoded Windows dependencies (such as ChildProcessTracker.cs Job Objects, win-x64 build targets, and OS-level window handles for mpv) prevent immediate macOS/Linux builds.
+- SkiaSharp Overlay Scaling: TextOverlayGenerator generates at exactly 1080px width; if the output resolution dynamically changes in the future, these dimensions must be proportionally scaled.
+
+[NVIDIA Highlights Probing]
+When the app is freshly installed and no config exists, the default upload video folder MUST probe and fallback to the NVIDIA Fortnite highlight folder (typically %USERPROFILE%\Videos\Fortnite) and then remember it. Ensure Videos\Fortnite is at the top of the probe priority list.

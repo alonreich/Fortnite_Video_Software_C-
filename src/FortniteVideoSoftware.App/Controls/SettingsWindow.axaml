@@ -18,23 +18,25 @@
                 </Border>
                 <Grid Grid.Row="1" Margin="15" RowDefinitions="*, Auto">
                     <TabControl Grid.Row="0" Background="Transparent">
-                        <TabItem Header="General">
-                            <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" MaxWidth="500" HorizontalAlignment="Left">
-                                <TextBlock Text="General Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
-                                
-                                <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>
-                                <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5">
-                                    <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="#0f172a" BorderBrush="#334155" Foreground="White"/>
-                                    <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand"/>
-                                </Grid>
-                            </StackPanel>
-                        </TabItem>
                         <TabItem Header="Defaults">
                             <ScrollViewer>
                                 <StackPanel Name="DefaultsPanel" Margin="10" Spacing="10" MaxWidth="500" HorizontalAlignment="Left">
                                     <TextBlock Text="Default values applied when the app opens." Foreground="#94a3b8" FontSize="12" Margin="0,0,0,5" />
                                 </StackPanel>
                             </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="Music">
+                            <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" HorizontalAlignment="Left">
+                                <TextBlock Text="Music Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
+                                
+                                <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="#94a3b8" Margin="0,0,0,10" />
+                                
+                                <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>
+                                <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" Width="700">
+                                    <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="#0f172a" BorderBrush="#334155" Foreground="White"/>
+                                    <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand"/>
+                                </Grid>
+                            </StackPanel>
                         </TabItem>
                         <TabItem Header="Key Binds">
                             <Grid RowDefinitions="*, Auto">
@@ -56,3 +58,5 @@
         </Border>
     </Grid>
 </Window>
+
+

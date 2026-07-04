@@ -1,4 +1,3 @@
-using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -861,11 +860,11 @@ public partial class MainWindow : Window
                     string myDocuments = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
                     string[] probes = new[]
                     {
-                        System.IO.Path.Combine(myVideos, "Fortnite"),
-                        System.IO.Path.Combine(myVideos, "Highlights", "Fortnite"),
                         System.IO.Path.Combine(localAppData, "Temp", "Highlights", "Fortnite"),
                         System.IO.Path.Combine(localAppData, "Temp", "Highlights"),
                         System.IO.Path.Combine(localAppData, "NVIDIA Corporation", "GeForce Experience", "Highlights"),
+                        System.IO.Path.Combine(myVideos, "Highlights", "Fortnite"),
+                        System.IO.Path.Combine(myVideos, "Fortnite"),
                         System.IO.Path.Combine(myVideos, "Highlights"),
                         System.IO.Path.Combine(myDocuments, "Highlights")
                     };
@@ -884,7 +883,7 @@ public partial class MainWindow : Window
                 if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
                 {
                     try { Environment.CurrentDirectory = startPath; } catch { }
-                    options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(startPath);
+                    options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
                 }
             }
             catch { }
@@ -1761,49 +1760,43 @@ public partial class MainWindow : Window
                 canvas.Children.Add(musicRect);
 
                 var startNoteText = new TextBlock { Text = "♫", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 40, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 } };
-                var startStick = new Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 40, Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
-                var startStack = new Avalonia.Controls.StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical, Children = { startNoteText, startStick } };
                 var musicStartBorder = new Avalonia.Controls.Border {
                     Background = Avalonia.Media.Brushes.Transparent,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
-                    Child = startStack
+                    Padding = new Avalonia.Thickness(4, 4),
+                    Child = startNoteText
                 };
                 
                 // Glowing hover effect
                 musicStartBorder.PointerEntered += (s, e) => {
                     startNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147)); // DeepPink (brighter)
-                    startStick.Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147));
                 };
                 musicStartBorder.PointerExited += (s, e) => {
                     startNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
-                    startStick.Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
                 };
                 
                 _musicStartPopupRef = musicStartBorder; // Keep ref as Control instead of Popup
-                Avalonia.Controls.Canvas.SetTop(musicStartBorder, -72);
+                Avalonia.Controls.Canvas.SetTop(musicStartBorder, -15);
                 Avalonia.Controls.Canvas.SetLeft(musicStartBorder, mStartX - 20);
                 canvas.Children.Add(musicStartBorder);
 
                 var endNoteText = new TextBlock { Text = "♫", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 40, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 } };
-                var endStick = new Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 40, Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
-                var endStack = new Avalonia.Controls.StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical, Children = { endNoteText, endStick } };
                 var musicEndBorder = new Avalonia.Controls.Border {
                     Background = Avalonia.Media.Brushes.Transparent,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
-                    Child = endStack
+                    Padding = new Avalonia.Thickness(4, 4),
+                    Child = endNoteText
                 };
                 
                 musicEndBorder.PointerEntered += (s, e) => {
                     endNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147));
-                    endStick.Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 20, 147));
                 };
                 musicEndBorder.PointerExited += (s, e) => {
                     endNoteText.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
-                    endStick.Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180));
                 };
 
                 _musicEndPopupRef = musicEndBorder;
-                Avalonia.Controls.Canvas.SetTop(musicEndBorder, -72);
+                Avalonia.Controls.Canvas.SetTop(musicEndBorder, -15);
                 Avalonia.Controls.Canvas.SetLeft(musicEndBorder, mEndX - 20);
                 canvas.Children.Add(musicEndBorder);
 
@@ -1830,9 +1823,8 @@ public partial class MainWindow : Window
                     if (draggingMusicStart) {
                         double currentX = e.GetPosition(canvas).X;
 
-                        // Magnetic Snap + HARD BRICK WALL to MARK START
+                        // Magnetic Snap to MARK START
                         double markStartX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
-                        if (currentX < markStartX) currentX = markStartX; // Brick wall
                         if (Math.Abs(currentX - markStartX) < 10) currentX = markStartX;
 
                         double newStart = (currentX / canvasWidth) * duration;
@@ -1862,9 +1854,8 @@ public partial class MainWindow : Window
                     if (draggingMusicEnd) {
                         double currentX = e.GetPosition(canvas).X;
 
-                        // Magnetic Snap + HARD BRICK WALL to MARK END
+                        // Magnetic Snap to MARK END
                         double markEndX = (_trimEndMs / 1000.0 / duration) * canvasWidth;
-                        if (currentX > markEndX) currentX = markEndX; // Brick wall
                         if (Math.Abs(currentX - markEndX) < 10) currentX = markEndX;
 
                         double newEnd = (currentX / canvasWidth) * duration;
@@ -1906,18 +1897,9 @@ public partial class MainWindow : Window
                         double rawNewStart = dragInitialStartSec + dxSeconds;
                         double rawNewEnd = dragInitialEndSec + dxSeconds;
 
-                        // Magnetic Snapping + BRICK WALL logic for the whole block
+                        // Magnetic Snapping logic for the whole block
                         double markStartSec = _trimStartMs / 1000.0;
                         double markEndSec = _trimEndMs / 1000.0;
-
-                        if (rawNewStart < markStartSec) {
-                            rawNewStart = markStartSec;
-                            rawNewEnd = rawNewStart + dur;
-                        }
-                        if (rawNewEnd > markEndSec) {
-                            rawNewEnd = markEndSec;
-                            rawNewStart = rawNewEnd - dur;
-                        }
 
                         double distStartToMarkStart = Math.Abs((rawNewStart / duration) * canvasWidth - (markStartSec / duration) * canvasWidth);
                         double distEndToMarkEnd = Math.Abs((rawNewEnd / duration) * canvasWidth - (markEndSec / duration) * canvasWidth);
@@ -3191,9 +3173,4 @@ public partial class MainWindow : Window
         }
     }
 }
-
-
-
-
-
 

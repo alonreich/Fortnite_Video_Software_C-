@@ -8,7 +8,7 @@ set "RUNTIME=win-x64"
 set "DOTNET_WATCH_SUPPRESS_EMOJIS=1"
 
 REM Sandbox the developer config to prevent corrupting the real installed app settings.
-set "FVS_PROGRAMDATA_ROOT=%~dp0.dev_data"
+set "FVS_PROGRAMDATA_ROOT=%TMP%\Fortnite_Video_Software_DEV\.dev_data"
 
 REM ──────────────────────────────────────────────────────────────────────
 REM DEV LOG DIRECTORY: All dev-mode logs go EXCLUSIVELY to
@@ -44,6 +44,10 @@ goto :EOF
 
 :WATCH
 echo Cleaning project to ensure watch mode doesn't get stuck...
+if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin"
+if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
+if exist "src\FortniteVideoSoftware.Core\bin" rd /s /q "src\FortniteVideoSoftware.Core\bin"
+if exist "src\FortniteVideoSoftware.Core\obj" rd /s /q "src\FortniteVideoSoftware.Core\obj"
 dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary >nul
 
 echo Starting HOT RELOAD watch mode...
@@ -80,9 +84,9 @@ REM Subroutine: Wipe all sandboxed dev config/state for a fresh-install feel.
 REM Deletes .dev_data\ entirely so the app re-creates defaults on next boot.
 REM ═══════════════════════════════════════════════════════════════════════
 :WIPE_DEV_CONFIG
-if exist "%~dp0.dev_data" (
-    echo [DEV] Wiping sandboxed config .dev_data\ for clean-slate boot...
-    rd /s /q "%~dp0.dev_data" 2>nul
+if exist "%TMP%\Fortnite_Video_Software_DEV\.dev_data" (
+    echo [DEV] Wiping sandboxed config %TMP%\Fortnite_Video_Software_DEV\.dev_data for clean-slate boot...
+    rd /s /q "%TMP%\Fortnite_Video_Software_DEV\.dev_data" 2>nul
 )
 REM Clear previous dev logs for a fresh debugging session
 if exist "%FVS_DEV_LOG_DIR%" (
@@ -90,3 +94,4 @@ if exist "%FVS_DEV_LOG_DIR%" (
     del /q "%FVS_DEV_LOG_DIR%\*" 2>nul
 )
 goto :EOF
+

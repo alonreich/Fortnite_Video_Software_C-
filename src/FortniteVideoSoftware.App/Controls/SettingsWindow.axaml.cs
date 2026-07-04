@@ -9,6 +9,9 @@ using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.App.Infrastructure;
 using System;
 using System.Collections.Generic;
+
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace FortniteVideoSoftware.App.Controls;
@@ -34,11 +37,17 @@ public partial class SettingsWindow : Window
         _pendingDefaults = new DefaultValues
         {
             DefaultSpeed = SettingsManager.Instance.Defaults.DefaultSpeed,
+            SpeedBehavior = SettingsManager.Instance.Defaults.SpeedBehavior,
             PortraitMode = SettingsManager.Instance.Defaults.PortraitMode,
+            PortraitBehavior = SettingsManager.Instance.Defaults.PortraitBehavior,
             BossHp = SettingsManager.Instance.Defaults.BossHp,
+            BossHpBehavior = SettingsManager.Instance.Defaults.BossHpBehavior,
             ShowTeammates = SettingsManager.Instance.Defaults.ShowTeammates,
+            ShowTeammatesBehavior = SettingsManager.Instance.Defaults.ShowTeammatesBehavior,
             NoFade = SettingsManager.Instance.Defaults.NoFade,
-            QualityIndex = SettingsManager.Instance.Defaults.QualityIndex
+            NoFadeBehavior = SettingsManager.Instance.Defaults.NoFadeBehavior,
+            QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
+            QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior
         };
 
         LoadCurrentKeybinds();
@@ -156,14 +165,12 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void BuildDefaultsUi()
+        private void BuildDefaultsUi()
     {
         var panel = this.FindControl<StackPanel>("DefaultsPanel");
         if (panel == null) return;
 
         // ── Default Speed (0.1 – 4.0) ──
-        var speedGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 100") };
-        var speedLabel = new TextBlock { Text = "Default Speed", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
         var speedNum = new NumericUpDown
         {
             Minimum = 0.1m, Maximum = 4.0m, Increment = 0.1m,
@@ -171,14 +178,10 @@ public partial class SettingsWindow : Window
             FormatString = "0.0",
             Width = 100, HorizontalAlignment = HorizontalAlignment.Right
         };
-        speedNum.ValueChanged += (_, _) => _pendingDefaults.DefaultSpeed = (double)speedNum.Value;
-        Grid.SetColumn(speedLabel, 0); Grid.SetColumn(speedNum, 1);
-        speedGrid.Children.Add(speedLabel); speedGrid.Children.Add(speedNum);
-        panel.Children.Add(speedGrid);
+        speedNum.ValueChanged += (_, _) => _pendingDefaults.DefaultSpeed = (double)(speedNum.Value ?? (decimal)1.1);
+        panel.Children.Add(MakeValueBehaviorRow("Default Speed", _pendingDefaults.SpeedBehavior, v => _pendingDefaults.SpeedBehavior = v, speedNum));
 
         // ── Default Output File Size (index 0-20) ──
-        var qGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 150") };
-        var qLabel = new TextBlock { Text = "Default Output File Size", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
         var qCombo = new ComboBox { Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
         var qItems = new List<string>();
         for (int i = 0; i < 20; i++) qItems.Add($"{5 + i * 5}MB");
@@ -186,17 +189,13 @@ public partial class SettingsWindow : Window
         qCombo.ItemsSource = qItems;
         qCombo.SelectedIndex = Math.Clamp(_pendingDefaults.QualityIndex, 0, 20);
         qCombo.SelectionChanged += (_, _) => _pendingDefaults.QualityIndex = qCombo.SelectedIndex;
-        Grid.SetColumn(qLabel, 0); Grid.SetColumn(qCombo, 1);
-        qGrid.Children.Add(qLabel); qGrid.Children.Add(qCombo);
-        panel.Children.Add(qGrid);
-
-
+        panel.Children.Add(MakeValueBehaviorRow("Default Output File Size", _pendingDefaults.QualityBehavior, v => _pendingDefaults.QualityBehavior = v, qCombo));
 
         // ── Checkbox Defaults ──
-        panel.Children.Add(MakeCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitMode, v => _pendingDefaults.PortraitMode = v));
-        panel.Children.Add(MakeCheckboxRow("Boss HP", _pendingDefaults.BossHp, v => _pendingDefaults.BossHp = v));
-        panel.Children.Add(MakeCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammates, v => _pendingDefaults.ShowTeammates = v));
-        panel.Children.Add(MakeCheckboxRow("Disable Fade-In/Out", _pendingDefaults.NoFade, v => _pendingDefaults.NoFade = v));
+        panel.Children.Add(MakeBehaviorCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitBehavior, v => _pendingDefaults.PortraitBehavior = v));
+        panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));
+        panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
+        panel.Children.Add(MakeBehaviorCheckboxRow("Disable Fade-In/Out", _pendingDefaults.NoFadeBehavior, v => _pendingDefaults.NoFadeBehavior = v));
 
         // ── Default Music Folder ──
         try
@@ -243,17 +242,39 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private CheckBox MakeCheckboxRow(string label, bool isChecked, Action<bool> onToggle)
+    private Grid MakeBehaviorCheckboxRow(string label, CheckboxDefaultBehavior initialBehavior, Action<CheckboxDefaultBehavior> onToggle)
     {
-        var cb = new CheckBox 
-        { 
-            Content = label, 
-            IsChecked = isChecked, 
-            Foreground = Brushes.White,
-            Margin = new Thickness(0, 0, 0, 5)
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 160"), Margin = new Thickness(0, 0, 0, 5) };
+        var text = new TextBlock { Text = label, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        var combo = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Right };
+        combo.ItemsSource = new List<string> { "Always Off", "Always On", "Remember Last Choice" };
+        combo.SelectedIndex = (int)initialBehavior;
+        combo.SelectionChanged += (_, _) => onToggle((CheckboxDefaultBehavior)combo.SelectedIndex);
+        
+        Grid.SetColumn(text, 0); Grid.SetColumn(combo, 1);
+        grid.Children.Add(text); grid.Children.Add(combo);
+        return grid;
+    }
+
+    private Grid MakeValueBehaviorRow(string label, ValueDefaultBehavior initialBehavior, Action<ValueDefaultBehavior> onToggle, Control valueControl)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 170, Auto"), Margin = new Thickness(0, 0, 0, 5) };
+        var text = new TextBlock { Text = label, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        var combo = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,0,10,0) };
+        combo.ItemsSource = new List<string> { "Fixed Value", "Remember Last Choice" };
+        combo.SelectedIndex = (int)initialBehavior;
+        
+        Grid.SetColumn(text, 0); Grid.SetColumn(combo, 1); Grid.SetColumn(valueControl, 2);
+        grid.Children.Add(text); grid.Children.Add(combo); grid.Children.Add(valueControl);
+        
+        Action updateEnable = () => valueControl.IsEnabled = combo.SelectedIndex == 0;
+        updateEnable();
+        
+        combo.SelectionChanged += (_, _) => {
+            onToggle((ValueDefaultBehavior)combo.SelectedIndex);
+            updateEnable();
         };
-        cb.IsCheckedChanged += (_, _) => onToggle(cb.IsChecked == true);
-        return cb;
+        return grid;
     }
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
@@ -358,3 +379,8 @@ public partial class SettingsWindow : Window
         }
     }
 }
+
+
+
+
+

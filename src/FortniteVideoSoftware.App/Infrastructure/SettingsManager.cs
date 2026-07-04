@@ -28,6 +28,19 @@ public class KeyBinds
     public Key AggressiveVolumeDown { get; set; } = Key.Down;
 }
 
+public enum CheckboxDefaultBehavior
+{
+    AlwaysOff,
+    AlwaysOn,
+    RememberLast
+}
+
+public enum ValueDefaultBehavior
+{
+    FixedValue,
+    RememberLast
+}
+
 /// <summary>
 /// Default initial values applied when the app freshly opens.
 /// Edited via the Settings window → "Defaults" tab.
@@ -36,22 +49,27 @@ public class DefaultValues
 {
     /// <summary>Default speed multiplier (e.g. 1.1 = 1.1x). Range 0.1–4.0</summary>
     public double DefaultSpeed { get; set; } = 1.1;
+    public ValueDefaultBehavior SpeedBehavior { get; set; } = ValueDefaultBehavior.FixedValue;
 
     /// <summary>Default Portrait Mode checkbox state</summary>
     public bool PortraitMode { get; set; } = true;
+    public CheckboxDefaultBehavior PortraitBehavior { get; set; } = CheckboxDefaultBehavior.RememberLast;
 
     /// <summary>Default Boss HP checkbox state</summary>
     public bool BossHp { get; set; } = false;
+    public CheckboxDefaultBehavior BossHpBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
 
     /// <summary>Default Show Teammates checkbox state</summary>
     public bool ShowTeammates { get; set; } = false;
+    public CheckboxDefaultBehavior ShowTeammatesBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
 
     /// <summary>Default Disable Fade checkbox state</summary>
     public bool NoFade { get; set; } = false;
+    public CheckboxDefaultBehavior NoFadeBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
 
     /// <summary>Default Output File Size slider index (0-20, where 7 = 40MB)</summary>
     public int QualityIndex { get; set; } = 7;
-
+    public ValueDefaultBehavior QualityBehavior { get; set; } = ValueDefaultBehavior.FixedValue;
 }
 
 public static class SettingsManager

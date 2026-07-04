@@ -89,7 +89,7 @@ public class ProcessWorker : IDisposable
 
             // Create temp working directory
             string jobId = Guid.NewGuid().ToString("N")[..8];
-            string tempJobDir = Path.Combine(Path.GetTempPath(), $"fvs_job_{jobId}");
+            string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_job_{jobId}");
             Directory.CreateDirectory(tempJobDir);
 
             CoreLogger.Info("Process", $"Input Path: {InputPath}");
@@ -486,7 +486,7 @@ public class ProcessWorker : IDisposable
 
                 if (ThumbnailPosMs > 0)
                 {
-                    string thumbnailOutput = Path.ChangeExtension(finalOutput, ".jpg");
+                    string thumbnailOutput = Path.Combine(tempJobDir, "thumbnail.jpg");
                     double ss = ThumbnailPosMs / 1000.0;
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {

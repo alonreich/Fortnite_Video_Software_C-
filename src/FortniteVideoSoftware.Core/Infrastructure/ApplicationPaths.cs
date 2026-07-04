@@ -25,7 +25,20 @@ public sealed class ApplicationPaths
 
     public string LogsDirectory => Path.Combine(ProgramDataRoot, "logs");
 
-    public string TempDirectory => Path.Combine(ProgramDataRoot, "temp");
+    public string TempDirectory
+    {
+        get
+        {
+            string? overrideRoot = Environment.GetEnvironmentVariable(ProgramDataRootOverrideEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(overrideRoot))
+            {
+                // In dev mode (dev.cmd), put temp in %TMP%\Fortnite_Video_Software_DEV\
+                return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software_DEV", "temp");
+            }
+            // In production, put temp in %TMP%\Fortnite_Video_Software\
+            return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software", "temp");
+        }
+    }
 
     public string AppSessionLockFile => Path.Combine(ProgramDataRoot, "app_session.lock");
 
@@ -75,3 +88,4 @@ public sealed class ApplicationPaths
         }
     }
 }
+
