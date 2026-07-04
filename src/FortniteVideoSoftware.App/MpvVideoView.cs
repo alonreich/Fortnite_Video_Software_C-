@@ -1,23 +1,68 @@
 using System;
 using System.Runtime.InteropServices;
-using Avalonia.OpenGL;
-using Avalonia.OpenGL.Controls;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.Rendering.Composition;
+using FortniteVideoSoftware.App.Interop;
 using FortniteVideoSoftware.Core.Media;
+using System.Runtime.CompilerServices;
+using Vortice.Direct3D;
+using Vortice.Direct3D11;
+using Vortice.DXGI;
 
 namespace FortniteVideoSoftware.App;
 
-public class MpvVideoView : OpenGlControlBase
+public class MpvVideoView : Control
 {
+    private const string MpvApiTypeOpenGL = "opengl";
+    private const string InteropLogStep = "MPV-Interop";
+
     private nint _mpvHandle;
     private nint _renderContext;
-    private LibMpvInterop.GetProcAddressCb? _getProcAddressCb;
-    private LibMpvInterop.MpvRenderUpdateFn? _renderUpdateCb;
+    private GCHandle _gcHandle;
 
-    // Cached unmanaged pointers for the render loop
-    private nint _fboPtr = nint.Zero;
-    private nint _flipYPtr = nint.Zero;
-    private LibMpvInterop.mpv_render_param[]? _renderParams;
+    private CompositionSurfaceVisual? _surfaceVisual;
+    private CompositionDrawingSurface? _drawingSurface;
+    private ICompositionGpuInterop? _gpuInterop;
+
+    private int _isUpdateQueued = 0;
+    private int _currentBufferIndex = 0;
+
+    private ID3D11Device? _d3d11Device;
+    private ID3D11DeviceContext? _d3d11Context;
+
+    private nint _dummyHwnd;
+    private nint _dummyHdc;
+    private nint _hglrc;
+    private nint _dxInteropDevice;
+
+    private const int SwapChainSize = 16;
+    private const ulong ProducerKey = 0;
+    private const ulong ConsumerKey = 1;
+    private const int KeyedMutexWaitMs = 1000;
+
+    private uint[] _glFramebuffers = new uint[SwapChainSize];
+    private uint[] _glTextures = new uint[SwapChainSize];
+
+    private ID3D11Texture2D?[] _sharedTextures = new ID3D11Texture2D?[SwapChainSize];
+    private readonly IDXGIKeyedMutex?[] _sharedTextureMutexes = new IDXGIKeyedMutex?[SwapChainSize];
+    private readonly nint[] _renderTexturePtrs = new nint[SwapChainSize];
+    private readonly nint[] _sharedTextureHandles = new nint[SwapChainSize];
+    private readonly nint[] _dxInteropObjects = new nint[SwapChainSize];
+    private readonly ICompositionImportedGpuImage?[] _importedImages = new ICompositionImportedGpuImage?[SwapChainSize];
+    private readonly nint[] _lockedInteropObjects = new nint[1];
+
+    private nint _openglLibrary;
+    private int _cachedWidth;
+    private int _cachedHeight;
+    private readonly object _renderLock = new object();
+
+
+
+    private int _renderTextureW;
+    private int _renderTextureH;
 
     public MpvIpcClient? IpcClient { get; private set; }
 
@@ -25,21 +70,13 @@ public class MpvVideoView : OpenGlControlBase
     {
         _mpvHandle = MpvWrapper.mpv_create();
 
-        // CRITICAL FIX 1: 'wid=0' strictly forbids the OS from ever spawning a detached window.
         MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", "0");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "libmpv");
-
-        // The embedded preview renders through libmpv's OpenGL FBO path. Letting mpv
-        // probe hwdec interop here produces noisy failed D3D/DXVA/CUDA/Vulkan attempts
-        // before falling back, so preview decode is kept explicit and deterministic.
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", "no");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "gpu-hwdec-interop", "no");
-        // CRITICAL FIX 2: Opaque background prevents Avalonia from discarding fully transparent FBOs.
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", "cuda,dxva2,auto-safe");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "background", "#FF000000");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "keep-open", "yes");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
 
-        // Dev mode verbose MPV logging
         if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
         {
             string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, "mpv_debug.log");
@@ -54,20 +91,131 @@ public class MpvVideoView : OpenGlControlBase
         }
 
         MpvWrapper.mpv_set_option_string(_mpvHandle, "force-window", "no");
-
-        // Disable MPV's built-in OSD seek/progress bar overlay. By default MPV shows a grey
-        // progress bar in the center of the video on every seek (click-to-seek, arrow keys,
-        // drag). This app renders its own custom Avalonia timeline/overlays, so MPV's native
-        // OSD bar is redundant and visually intrusive. Disabling it here covers ALL MPV video
-        // previews app-wide (Main, Granular, Crop Tool, Video Merger, Music Wizard).
         MpvWrapper.mpv_set_option_string(_mpvHandle, "osd-bar", "no");
 
         MpvWrapper.mpv_initialize(_mpvHandle);
         IpcClient = new MpvIpcClient(_mpvHandle);
 
-        // Render context will be created inside OnOpenGlRender where the GL
-        // context is actually current on the render thread.
-        RequestNextFrameRendering();
+        if (OperatingSystem.IsWindows())
+        {
+            InitializeWGLInteropContext();
+        }
+        else
+        {
+            throw new PlatformNotSupportedException();
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static unsafe nint NativeGetProcAddress(nint ctx, byte* namePtr)
+    {
+        if (ctx == nint.Zero || namePtr == null) return nint.Zero;
+        var handle = GCHandle.FromIntPtr(ctx);
+        if (handle.Target is MpvVideoView view)
+        {
+            string name = Marshal.PtrToStringUTF8((nint)namePtr) ?? string.Empty;
+            return view.GetProcAddressForMpvInternal(name);
+        }
+        return nint.Zero;
+    }
+
+    private nint GetProcAddressForMpvInternal(string name)
+    {
+        nint ptr = WglInterop.wglGetProcAddress(name);
+        if (ptr == nint.Zero || ptr == (nint)1 || ptr == (nint)2 || ptr == (nint)3 || ptr == (nint)(-1))
+        {
+            NativeLibrary.TryGetExport(_openglLibrary, name, out ptr);
+        }
+        return ptr;
+    }
+
+    private void InitializeWGLInteropContext()
+    {
+        _openglLibrary = NativeLibrary.Load("opengl32.dll");
+
+        _dummyHwnd = WglInterop.CreateWindowEx(
+            0, "STATIC", "dummy", 0,
+            0, 0, 1, 1, nint.Zero, nint.Zero, nint.Zero, nint.Zero);
+        
+        _dummyHdc = WglInterop.GetDC(_dummyHwnd);
+
+        var pfd = new WglInterop.PIXELFORMATDESCRIPTOR
+        {
+            nSize = (ushort)Marshal.SizeOf<WglInterop.PIXELFORMATDESCRIPTOR>(),
+            nVersion = 1,
+            dwFlags = WglInterop.PFD_DRAW_TO_WINDOW | WglInterop.PFD_SUPPORT_OPENGL | WglInterop.PFD_DOUBLEBUFFER,
+            iPixelType = WglInterop.PFD_TYPE_RGBA,
+            cColorBits = 32,
+            cDepthBits = 24,
+            cStencilBits = 8,
+            iLayerType = 0
+        };
+
+        int format = WglInterop.ChoosePixelFormat(_dummyHdc, ref pfd);
+        WglInterop.SetPixelFormat(_dummyHdc, format, ref pfd);
+
+        _hglrc = WglInterop.wglCreateContext(_dummyHdc);
+        WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+        
+        WglInterop.LoadExtensions();
+
+        var creationFlags = DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport;
+        _d3d11Device = D3D11.D3D11CreateDevice(
+            DriverType.Hardware,
+            creationFlags,
+            new[] { FeatureLevel.Level_11_0, FeatureLevel.Level_10_0 });
+        _d3d11Context = _d3d11Device.ImmediateContext;
+
+        if (WglInterop.wglDXOpenDeviceNV == null)
+            throw new Exception("WGL_NV_DX_interop not supported by the OpenGL driver.");
+
+        _dxInteropDevice = WglInterop.wglDXOpenDeviceNV(_d3d11Device.NativePointer);
+
+        if (!_gcHandle.IsAllocated)
+        {
+            _gcHandle = GCHandle.Alloc(this);
+        }
+
+        unsafe
+        {
+            var initParams = new LibMpvInterop.mpv_opengl_init_params
+            {
+                get_proc_address = (nint)(delegate* unmanaged[Cdecl]<nint, byte*, nint>)&NativeGetProcAddress,
+                get_proc_address_ctx = GCHandle.ToIntPtr(_gcHandle)
+            };
+
+        nint initParamsPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_init_params>());
+        Marshal.StructureToPtr(initParams, initParamsPtr, false);
+
+        nint apiTypePtr = Marshal.StringToHGlobalAnsi(MpvApiTypeOpenGL);
+        var ctxParams = new LibMpvInterop.mpv_render_param[]
+        {
+            new() { type = LibMpvInterop.MPV_RENDER_PARAM_API_TYPE, data = apiTypePtr },
+            new() { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data = initParamsPtr },
+            new() { type = 0, data = nint.Zero }
+        };
+
+        try
+        {
+            int err = LibMpvInterop.mpv_render_context_create(out _renderContext, _mpvHandle, ctxParams);
+            if (err < 0 || _renderContext == nint.Zero)
+            {
+                throw new InvalidOperationException($"mpv_render_context_create (opengl) failed with error code {err}.");
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(apiTypePtr);
+            Marshal.FreeHGlobal(initParamsPtr);
+        }
+        } // end unsafe
+
+
+        WglInterop.glGenTextures(SwapChainSize, _glTextures);
+
+        RegisterRenderUpdateCallback();
+        
+        WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
     }
 
     public Task StartMpvProcessAsync(string mpvPath)
@@ -76,173 +224,573 @@ public class MpvVideoView : OpenGlControlBase
         return Task.CompletedTask;
     }
 
-    public void DisposeMpv()
+    protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        if (_renderContext != nint.Zero)
+        base.OnAttachedToVisualTree(e);
+
+        var elementVisual = ElementComposition.GetElementVisual(this);
+        if (elementVisual == null) return;
+
+        var compositor = elementVisual.Compositor;
+
+        _surfaceVisual = compositor.CreateSurfaceVisual();
+        _drawingSurface = compositor.CreateDrawingSurface();
+        _surfaceVisual.Surface = _drawingSurface;
+
+        ElementComposition.SetElementChildVisual(this, _surfaceVisual);
+
+        UpdateCachedSize();
+
+        if (_gpuInterop == null)
         {
-            LibMpvInterop.mpv_render_context_free(_renderContext);
-            _renderContext = nint.Zero;
-        }
-        IpcClient?.Dispose();
-        IpcClient = null;
-        if (_mpvHandle != nint.Zero)
-        {
-            MpvWrapper.mpv_terminate_destroy(_mpvHandle);
-            _mpvHandle = nint.Zero;
+            try
+            {
+                _gpuInterop = await compositor.TryGetCompositionGpuInterop();
+            }
+            catch { }
         }
     }
 
-    protected override void OnOpenGlInit(GlInterface gl)
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        base.OnOpenGlInit(gl);
+        base.OnDetachedFromVisualTree(e);
+        ElementComposition.SetElementChildVisual(this, null);
+        _drawingSurface = null;
+        _surfaceVisual = null;
+        _gpuInterop = null;
     }
 
-    protected override void OnOpenGlRender(GlInterface gl, int fb)
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
-        // ════════════════════════════════════════════════════════════════
-        // CRITICAL: Render context MUST be created HERE, inside
-        // OnOpenGlRender, where the Avalonia OpenGL context is CURRENT
-        // on this thread.
-        // ════════════════════════════════════════════════════════════════
-        if (_renderContext == nint.Zero && _mpvHandle != nint.Zero)
+        base.OnSizeChanged(e);
+        UpdateCachedSize();
+    }
+
+    private void UpdateCachedSize()
+    {
+        if (VisualRoot != null)
         {
-            // CRITICAL FIX 3: Avalonia throws exceptions for missing GL extensions.
-            // If this bubbles into unmanaged libmpv C code, it instantly kills the render context.
-            _getProcAddressCb = (ctx, name) =>
+            double scale = VisualRoot.RenderScaling;
+            _cachedWidth = Math.Max(1, (int)(Bounds.Width * scale));
+            _cachedHeight = Math.Max(1, (int)(Bounds.Height * scale));
+        }
+        else
+        {
+            _cachedWidth = Math.Max(1, (int)Bounds.Width);
+            _cachedHeight = Math.Max(1, (int)Bounds.Height);
+        }
+
+        if (_surfaceVisual != null)
+        {
+            _surfaceVisual.Size = new Avalonia.Vector(Bounds.Width, Bounds.Height);
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void NativeRenderUpdateCb(nint ctx)
+    {
+        if (ctx == nint.Zero) return;
+        var handle = GCHandle.FromIntPtr(ctx);
+        if (handle.Target is MpvVideoView view)
+        {
+            view.OnRenderUpdate();
+        }
+    }
+
+    private void OnRenderUpdate()
+    {
+        try
+        {
+            if (_renderContext == nint.Zero) return;
+            ulong flags = LibMpvInterop.mpv_render_context_update(_renderContext);
+            if ((flags & LibMpvInterop.MPV_RENDER_UPDATE_FRAME) != 0)
+            {
+                if (Interlocked.Exchange(ref _isUpdateQueued, 1) == 0)
+                {
+                    Task.Run(UpdateSurface);
+                }
+            }
+        }
+        catch { }
+    }
+
+    private unsafe void RegisterRenderUpdateCallback()
+    {
+        if (_renderContext == nint.Zero) return;
+
+        LibMpvInterop.mpv_render_context_set_update_callback(_renderContext, &NativeRenderUpdateCb, GCHandle.ToIntPtr(_gcHandle));
+    }
+
+    private void UpdateSurface()
+    {
+        lock (_renderLock)
+        {
+            Interlocked.Exchange(ref _isUpdateQueued, 0);
+            bool glContextCurrent = false;
+            try
+            {
+                if (_renderContext == nint.Zero) return;
+
+                var compositor = _surfaceVisual?.Compositor;
+                var gpu = _gpuInterop;
+
+                int width = _cachedWidth;
+                int height = _cachedHeight;
+
+                if (_drawingSurface == null || _d3d11Device == null || _d3d11Context == null || gpu == null || width <= 1 || height <= 1)
+                {
+                    PumpEmptyRender();
+                    return;
+                }
+
+                EnsureRenderTexture(width, height);
+
+                _currentBufferIndex = (_currentBufferIndex + 1) % SwapChainSize;
+
+                if (_sharedTextures[_currentBufferIndex] == null || _dxInteropObjects[_currentBufferIndex] == nint.Zero)
+                {
+                    PumpEmptyRender();
+                    return;
+                }
+
+                var keyedMutex = _sharedTextureMutexes[_currentBufferIndex];
+                if (keyedMutex == null)
+                {
+                    RuntimeLog.Fail(InteropLogStep, $"No keyed mutex for shared texture buffer {_currentBufferIndex}.");
+                    PumpEmptyRender();
+                    return;
+                }
+
+                bool keyedMutexAcquired = false;
+                bool dxObjectLocked = false;
+                bool frameReady = false;
+                ICompositionImportedGpuImage? imageForAvalonia = null;
+                CompositionDrawingSurface? surfaceForAvalonia = null;
+
+                try
+                {
+                    keyedMutex.AcquireSync(ProducerKey, KeyedMutexWaitMs);
+                    keyedMutexAcquired = true;
+
+                    WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    glContextCurrent = true;
+
+                    _lockedInteropObjects[0] = _dxInteropObjects[_currentBufferIndex];
+
+                    if (WglInterop.wglDXLockObjectsNV!(_dxInteropDevice, 1, _lockedInteropObjects))
+                    {
+                        dxObjectLocked = true;
+                        WglInterop.glBindFramebuffer!(WglInterop.GL_FRAMEBUFFER, _glFramebuffers[_currentBufferIndex]);
+                        WglInterop.glFramebufferTexture2D!(WglInterop.GL_FRAMEBUFFER, WglInterop.GL_COLOR_ATTACHMENT0, WglInterop.GL_TEXTURE_2D, _glTextures[_currentBufferIndex], 0);
+
+                        unsafe
+                        {
+                            WglInterop.glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+                            WglInterop.glClear(WglInterop.GL_COLOR_BUFFER_BIT);
+
+                            LibMpvInterop.mpv_opengl_fbo fbo = new LibMpvInterop.mpv_opengl_fbo
+                            {
+                                fbo = (int)_glFramebuffers[_currentBufferIndex],
+                                w = _renderTextureW,
+                                h = _renderTextureH,
+                                internal_format = (int)WglInterop.GL_RGBA8
+                            };
+
+                            int flipY = 1;
+
+                            // stackalloc guarantees the pointers do not drift during C-interop in NativeAOT.
+                            LibMpvInterop.mpv_render_param* paramsArray = stackalloc LibMpvInterop.mpv_render_param[3];
+
+                            paramsArray[0].type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO;
+                            paramsArray[0].data = (nint)(&fbo);
+
+                            paramsArray[1].type = LibMpvInterop.MPV_RENDER_PARAM_FLIP_Y;
+                            paramsArray[1].data = (nint)(&flipY);
+
+                            paramsArray[2].type = 0;
+
+                            LibMpvInterop.mpv_render_context_render(_renderContext, (nint)paramsArray);
+                        }
+
+                        WglInterop.glFlush();
+                        WglInterop.wglDXUnlockObjectsNV?.Invoke(_dxInteropDevice, 1, _lockedInteropObjects);
+                        dxObjectLocked = false;
+
+                        // Keep the producing D3D11 device drained before Avalonia imports the shared texture.
+                        _d3d11Context?.Flush();
+
+                        imageForAvalonia = EnsureImportedImage(_currentBufferIndex);
+                        surfaceForAvalonia = _drawingSurface;
+                        frameReady = imageForAvalonia != null && surfaceForAvalonia != null;
+                    }
+                    else
+                    {
+                        RuntimeLog.Fail(InteropLogStep, $"wglDXLockObjectsNV failed for buffer {_currentBufferIndex}.");
+                    }
+                }
+                finally
+                {
+                    if (dxObjectLocked)
+                    {
+                        WglInterop.wglDXUnlockObjectsNV?.Invoke(_dxInteropDevice, 1, _lockedInteropObjects);
+                    }
+
+                    if (glContextCurrent)
+                    {
+                        WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+                        glContextCurrent = false;
+                    }
+
+                    if (keyedMutexAcquired)
+                    {
+                        keyedMutex.ReleaseSync(frameReady ? ConsumerKey : ProducerKey);
+                    }
+                }
+
+                if (frameReady && imageForAvalonia != null && surfaceForAvalonia != null)
+                {
+                    ImportAndPresentTexture(_currentBufferIndex, surfaceForAvalonia, imageForAvalonia);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (glContextCurrent)
+                {
+                    WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+                }
+
+                RuntimeLog.Fail(InteropLogStep, ex);
+            }
+        }
+    }
+
+    private void PumpEmptyRender()
+    {
+        if (_renderContext == nint.Zero) return;
+        WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+        try
+        {
+            var emptyParams = new LibMpvInterop.mpv_render_param[] { new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero } };
+            LibMpvInterop.mpv_render_context_render(_renderContext, emptyParams);
+        }
+        finally
+        {
+            WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+        }
+    }
+
+    private void EnsureRenderTexture(int width, int height)
+    {
+        if (_sharedTextures[0] != null && _renderTextureW == width && _renderTextureH == height)
+            return;
+
+        if (_gpuInterop != null)
+        {
+            var types = string.Join(", ", _gpuInterop.SupportedImageHandleTypes);
+            RuntimeLog.Info(InteropLogStep, "Supported image handle types: " + types);
+        }
+
+        ReleaseRenderTexture();
+
+        var sharedDesc = new Texture2DDescription(
+            format: Format.B8G8R8A8_UNorm,
+            width: (uint)width,
+            height: (uint)height,
+            arraySize: 1,
+            mipLevels: 1,
+            bindFlags: BindFlags.RenderTarget | BindFlags.ShaderResource,
+            usage: ResourceUsage.Default,
+            cpuAccessFlags: CpuAccessFlags.None,
+            sampleCount: 1,
+            sampleQuality: 0,
+            miscFlags: ResourceOptionFlags.SharedKeyedMutex);
+
+        WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+        try
+        {
+            for (int i = 0; i < SwapChainSize; i++)
+            {
+                _sharedTextures[i] = _d3d11Device!.CreateTexture2D(sharedDesc);
+                _renderTexturePtrs[i] = _sharedTextures[i]!.NativePointer;
+                _sharedTextureMutexes[i] = _sharedTextures[i]!.QueryInterface<IDXGIKeyedMutex>();
+
+                _dxInteropObjects[i] = WglInterop.wglDXRegisterObjectNV!(
+                    _dxInteropDevice,
+                    _renderTexturePtrs[i],
+                    _glTextures[i],
+                    WglInterop.GL_TEXTURE_2D,
+                    WglInterop.WGL_ACCESS_READ_WRITE_NV);
+
+                if (_dxInteropObjects[i] == nint.Zero)
+                {
+                    RuntimeLog.Fail(InteropLogStep, $"wglDXRegisterObjectNV failed for buffer {i}.");
+                }
+
+                _d3d11Context?.Flush();
+
+                WglInterop.glBindTexture(WglInterop.GL_TEXTURE_2D, _glTextures[i]);
+                WglInterop.glTexParameteri(WglInterop.GL_TEXTURE_2D, WglInterop.GL_TEXTURE_MIN_FILTER, WglInterop.GL_LINEAR);
+                WglInterop.glTexParameteri(WglInterop.GL_TEXTURE_2D, WglInterop.GL_TEXTURE_MAG_FILTER, WglInterop.GL_LINEAR);
+                WglInterop.glBindTexture(WglInterop.GL_TEXTURE_2D, 0);
+
+                uint[] fbo = new uint[1];
+                WglInterop.glGenFramebuffers!(1, fbo);
+                _glFramebuffers[i] = fbo[0];
+                WglInterop.glBindFramebuffer!(WglInterop.GL_FRAMEBUFFER, _glFramebuffers[i]);
+                WglInterop.glFramebufferTexture2D!(WglInterop.GL_FRAMEBUFFER, WglInterop.GL_COLOR_ATTACHMENT0, WglInterop.GL_TEXTURE_2D, _glTextures[i], 0);
+
+                using var dxgiResource = _sharedTextures[i]!.QueryInterface<IDXGIResource>();
+                _sharedTextureHandles[i] = dxgiResource.SharedHandle;
+            }
+
+            _renderTextureW = width;
+            _renderTextureH = height;
+        }
+        finally
+        {
+            WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+        }
+    }
+
+
+
+    private ICompositionImportedGpuImage? EnsureImportedImage(int index)
+    {
+        if (_importedImages[index] != null && _importedImages[index]!.IsLost)
+        {
+
+            _importedImages[index] = null;
+        }
+
+        if (_importedImages[index] == null)
+        {
+            _importedImages[index] = TryImportSharedTexture(index);
+        }
+
+        return _importedImages[index];
+    }
+
+    private void ImportAndPresentTexture(int index, CompositionDrawingSurface surface, ICompositionImportedGpuImage image)
+    {
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 try
                 {
-                    return gl.GetProcAddress(name);
+                    await surface.UpdateWithKeyedMutexAsync(image, (uint)ConsumerKey, (uint)ProducerKey);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    return nint.Zero;
+                    _importedImages[index] = null;
+                    RestoreProducerOwnership(index);
+                    RuntimeLog.Fail(InteropLogStep, ex);
                 }
-            };
-
-            // Pre-allocate render loop pointers
-            if (_fboPtr == nint.Zero)
-            {
-                _fboPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_fbo>());
-                _flipYPtr = Marshal.AllocHGlobal(sizeof(int));
-                Marshal.WriteInt32(_flipYPtr, 1); // Avalonia flipY is always 1
-
-                _renderParams = new LibMpvInterop.mpv_render_param[]
-                {
-                    new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO, data = _fboPtr },
-                    new LibMpvInterop.mpv_render_param { type = LibMpvInterop.MPV_RENDER_PARAM_FLIP_Y, data = _flipYPtr },
-                    new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero }
-                };
-            }
-
-            var initParams = new LibMpvInterop.mpv_opengl_init_params
-            {
-                get_proc_address = Marshal.GetFunctionPointerForDelegate(_getProcAddressCb),
-                get_proc_address_ctx = nint.Zero
-            };
-
-            nint initParamsPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LibMpvInterop.mpv_opengl_init_params>());
-            Marshal.StructureToPtr(initParams, initParamsPtr, false);
-            nint apiTypePtr = Marshal.StringToHGlobalAnsi("opengl");
-
-            var ctxParams = new LibMpvInterop.mpv_render_param[]
-            {
-                new() { type = LibMpvInterop.MPV_RENDER_PARAM_API_TYPE, data = apiTypePtr },
-                new() { type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data = initParamsPtr },
-                new() { type = 0, data = nint.Zero }
-            };
-
-            LibMpvInterop.mpv_render_context_create(out _renderContext, _mpvHandle, ctxParams);
-
-            Marshal.FreeHGlobal(initParamsPtr);
-            Marshal.FreeHGlobal(apiTypePtr);
-
-            if (_renderContext != nint.Zero)
-            {
-                _renderUpdateCb = (ctx) =>
-                {
-                    try
-                    {
-                        if (_renderContext != nint.Zero)
-                        {
-                            ulong flags = LibMpvInterop.mpv_render_context_update(_renderContext);
-                            if ((flags & LibMpvInterop.MPV_RENDER_UPDATE_FRAME) != 0)
-                                Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
-                        }
-                    }
-                    catch { }
-                };
-                LibMpvInterop.mpv_render_context_set_update_callback(_renderContext, _renderUpdateCb, nint.Zero);
-            }
+            }, Avalonia.Threading.DispatcherPriority.Render);
         }
-
-        if (_renderContext == nint.Zero)
+        catch (Exception ex)
         {
-            Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
-            return;
+            RestoreProducerOwnership(index);
+            RuntimeLog.Fail(InteropLogStep, ex);
         }
-
-        LibMpvInterop.mpv_render_context_update(_renderContext);
-
-        var scale = VisualRoot?.RenderScaling ?? 1.0;
-        int width = (int)(Bounds.Width * scale);
-        int height = (int)(Bounds.Height * scale);
-
-        if (width <= 0 || height <= 0)
-        {
-            // CRITICAL FIX: Pump the render context with an empty parameter array to prevent the fatal
-            // 'mpv_render_context_render() not being called or stuck' crash during Avalonia occlusion culling.
-            var emptyParams = new LibMpvInterop.mpv_render_param[] { new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero } };
-            LibMpvInterop.mpv_render_context_render(_renderContext, emptyParams);
-
-            Dispatcher.UIThread.Post(RequestNextFrameRendering, DispatcherPriority.Render);
-            return;
-        }
-
-        // CRITICAL FIX 4: Explicitly define GL_RGBA8. Passing 0 forces mpv to query the FBO,
-        // which silently fails on Windows ANGLE contexts and aborts the video draw pass.
-        var fbo = new LibMpvInterop.mpv_opengl_fbo
-        {
-            fbo = fb,
-            w = width,
-            h = height,
-            internal_format = 32856
-        };
-
-        // Overwrite the pre-allocated FBO memory block with the new dimensions
-        Marshal.StructureToPtr(fbo, _fboPtr, false);
-
-        // Command MPV to draw onto the Avalonia FBO layer using cached params
-        LibMpvInterop.mpv_render_context_render(_renderContext, _renderParams!);
     }
 
-    protected override void OnOpenGlDeinit(GlInterface gl)
+    private void RestoreProducerOwnership(int index)
     {
+        var keyedMutex = _sharedTextureMutexes[index];
+        if (keyedMutex == null)
+        {
+            return;
+        }
+
+        try
+        {
+            keyedMutex.AcquireSync(ConsumerKey, 0);
+            keyedMutex.ReleaseSync(ProducerKey);
+        }
+        catch
+        {
+            // Another device already owns the mutex, or the producer key is already available.
+        }
+    }
+
+    private ICompositionImportedGpuImage? TryImportSharedTexture(int index)
+    {
+        var gpu = _gpuInterop;
+        var texture = _sharedTextures[index];
+        if (gpu == null || texture == null || _renderTextureW <= 0 || _renderTextureH <= 0)
+        {
+            return null;
+        }
+
+        const string handleType = KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle;
+        if (!SupportsImageHandleType(gpu, handleType))
+        {
+            RuntimeLog.Fail(InteropLogStep, $"Avalonia compositor does not support {handleType}.");
+            return null;
+        }
+
+        nint sharedHandle = _sharedTextureHandles[index];
+        if (sharedHandle == nint.Zero)
+        {
+            using var dxgiResource = texture.QueryInterface<IDXGIResource>();
+            sharedHandle = dxgiResource.SharedHandle;
+            _sharedTextureHandles[index] = sharedHandle;
+        }
+
+        if (sharedHandle == nint.Zero)
+        {
+            RuntimeLog.Fail(InteropLogStep, $"IDXGIResource.GetSharedHandle returned null for buffer {index}.");
+            return null;
+        }
+
+        var platformHandle = new PlatformHandle(sharedHandle, handleType);
+        var props = new PlatformGraphicsExternalImageProperties
+        {
+            Width = _renderTextureW,
+            Height = _renderTextureH,
+            Format = PlatformGraphicsExternalImageFormat.B8G8R8A8UNorm,
+            TopLeftOrigin = true
+        };
+
+        return Dispatcher.UIThread.CheckAccess()
+            ? gpu.ImportImage(platformHandle, props)
+            : Dispatcher.UIThread.Invoke(() => gpu.ImportImage(platformHandle, props));
+    }
+
+    private static bool SupportsImageHandleType(ICompositionGpuInterop gpu, string handleType)
+    {
+        foreach (string supported in gpu.SupportedImageHandleTypes)
+        {
+            if (string.Equals(supported, handleType, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void ReleaseRenderTexture()
+    {
+        for (int i = 0; i < SwapChainSize; i++)
+        {
+            if (_dxInteropObjects[i] != nint.Zero)
+            {
+                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                WglInterop.wglDXUnregisterObjectNV!(_dxInteropDevice, _dxInteropObjects[i]);
+                _dxInteropObjects[i] = nint.Zero;
+            }
+
+            if (_sharedTextures[i] != null)
+            {
+                _sharedTextureMutexes[i]?.Dispose();
+                _sharedTextureMutexes[i] = null;
+
+                _sharedTextures[i]!.Dispose();
+                _sharedTextures[i] = null;
+            }
+            else if (_sharedTextureMutexes[i] != null)
+            {
+                _sharedTextureMutexes[i]!.Dispose();
+                _sharedTextureMutexes[i] = null;
+            }
+
+            if (_glFramebuffers[i] != 0)
+            {
+                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                uint[] framebuffer = { _glFramebuffers[i] };
+                WglInterop.glDeleteFramebuffers?.Invoke(1, framebuffer);
+                _glFramebuffers[i] = 0;
+            }
+
+            _renderTexturePtrs[i] = nint.Zero;
+            _sharedTextureHandles[i] = nint.Zero;
+            if (_importedImages[i] != null)
+            {
+                _importedImages[i] = null;
+            }
+        }
+
+
+    }
+
+    public void DisposeMpv()
+    {
+        ReleaseRenderTexture();
+
         if (_renderContext != nint.Zero)
         {
+            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
             LibMpvInterop.mpv_render_context_free(_renderContext);
             _renderContext = nint.Zero;
         }
+
+        if (_glFramebuffers[0] != 0)
+        {
+            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+            WglInterop.glDeleteFramebuffers!(SwapChainSize, _glFramebuffers);
+            Array.Clear(_glFramebuffers, 0, SwapChainSize);
+        }
+        
+        if (_glTextures[0] != 0 || _glTextures[1] != 0)
+        {
+            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+            WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
+            Array.Clear(_glTextures, 0, SwapChainSize);
+        }
+
+        if (_dxInteropDevice != nint.Zero)
+        {
+            WglInterop.wglDXCloseDeviceNV!(_dxInteropDevice);
+            _dxInteropDevice = nint.Zero;
+        }
+
+        if (_hglrc != nint.Zero)
+        {
+            WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+            WglInterop.wglDeleteContext(_hglrc);
+            _hglrc = nint.Zero;
+        }
+
+        if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
+        {
+            WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
+            _dummyHdc = nint.Zero;
+        }
+
+        if (_dummyHwnd != nint.Zero)
+        {
+            WglInterop.DestroyWindow(_dummyHwnd);
+            _dummyHwnd = nint.Zero;
+        }
+
+        if (_openglLibrary != nint.Zero)
+        {
+            NativeLibrary.Free(_openglLibrary);
+            _openglLibrary = nint.Zero;
+        }
+
+        _d3d11Context?.Dispose();
+        _d3d11Context = null;
+
+        _d3d11Device?.Dispose();
+        _d3d11Device = null;
+
+        _gpuInterop = null;
+
+        IpcClient?.Dispose();
+        IpcClient = null;
+
         if (_mpvHandle != nint.Zero)
         {
-            IpcClient?.Dispose();
-            IpcClient = null;
             MpvWrapper.mpv_terminate_destroy(_mpvHandle);
             _mpvHandle = nint.Zero;
         }
 
-        // Free cached unmanaged memory
-        if (_fboPtr != nint.Zero)
+        if (_gcHandle.IsAllocated)
         {
-            Marshal.FreeHGlobal(_fboPtr);
-            _fboPtr = nint.Zero;
+            _gcHandle.Free();
         }
-        if (_flipYPtr != nint.Zero)
-        {
-            Marshal.FreeHGlobal(_flipYPtr);
-            _flipYPtr = nint.Zero;
-        }
-
-        base.OnOpenGlDeinit(gl);
     }
 }

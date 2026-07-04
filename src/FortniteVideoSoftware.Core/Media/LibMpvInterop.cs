@@ -42,23 +42,25 @@ public static class LibMpvInterop
         public int internal_format;
     }
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate nint GetProcAddressCb(nint ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void MpvRenderUpdateFn(nint cb_ctx);
+    // Removed delegates to use function pointers for NativeAOT
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_render_context_create(out nint res, nint mpv, [In] mpv_render_param[] param);
 
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mpv_render_context_create")]
+    public static extern int mpv_render_context_create(out nint res, nint mpv, nint param);
+
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_render_context_render(nint ctx, [In] mpv_render_param[] param);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mpv_render_context_render")]
+    public static extern int mpv_render_context_render(nint ctx, nint param);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void mpv_render_context_free(nint ctx);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
-    public static extern void mpv_render_context_set_update_callback(nint ctx, MpvRenderUpdateFn callback, nint cb_ctx);
+    public unsafe static extern void mpv_render_context_set_update_callback(nint ctx, delegate* unmanaged[Cdecl]<nint, void> callback, nint cb_ctx);
 
     /// <summary>
     /// Signals a "wakeup" to the render context. This must be called from the

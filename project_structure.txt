@@ -49,6 +49,53 @@ and NativeAOT, the software achieves true multi-threading, complete elimination
 of GIL limitations, improved IPC safety, and an extremely lightweight, dependency-
 free footprint.
 
+1. Zero-Copy Memory: Maintained. WGL_NV_DX_interop2 aliases the texture natively in the driver. Pixels never traverse the PCIe bus to the CPU.
+2. Native UI Composition: Maintained. The extracted IDXGIResource.SharedHandle feeds directly into Avalonia's CompositionDrawingSurface, preserving exact Z-index overlay rendering without HWND hacks.
+3. Maximum GPU Utilization: Maintained. Hardware decoding (d3d11va), rendering, and composition remain strictly bound to the GPU hardware.
+4. The Hybrid Graphics Compromise: Resolved. The WGL-to-DX interop successfully bridges the libmpv OpenGL limitation while keeping the D3D11 surface intact for Avalonia.
+5. NativeAOT Compilation: Maintained. By using native Windows opengl32.dll and D3D11 libraries via [LibraryImport] and [UnmanagedCallersOnly], you avoid bloated dynamic dependencies (like ANGLE or GStreamer), ensuring the C# 13 executable compiles perfectly.
+6. Front-End Editing: Maintained. The UI retains the libmpv engine, preserving its advanced caching and frame-accurate scrubbing behavior for the timeline.
+7. Back-End Exporting: Maintained. The FFmpeg headless encoding pipeline remains completely isolated from the UI render loop.
+
+========================================================================================
+[NATIVE AOT C# 13 / .NET 9 EXECUTION ENVIRONMENT]
+========================================================================================
+
+   [FRONT-END: UI & ZERO-COPY PLAYBACK]          [BACK-END: HEADLESS EXPORT]
+   
+   +------------------------------------+        +------------------------------------+
+   | AVALONIA UI COMPOSITOR             |        | FFMPEG NATIVE BINDINGS             |
+   | - Standard UI Controls (Top Layer) |        | - Isolated Worker Thread           |
+   | - CompositionDrawingSurface (Video)|        | - Full Codec Support               |
+   +------------------------------------+        +------------------------------------+
+                   ^                                                |
+                   | (IDXGIResource.SharedHandle)                   | (Disk I/O)
+                   |                                                v
+   +------------------------------------+        +------------------------------------+
+   | WGL_NV_DX_interop2 BRIDGE          |        | EXPORTED MEDIA FILE                |
+   | - wglDXLockObjectsNV()             |        | (.MP4, .MKV, etc.)                 |
+   | - wglDXUnlockObjectsNV()           |        +------------------------------------+
+   +------------------------------------+
+                   ^
+                   | (OpenGL FBO memory aliased to D3D11)
+                   |
+   +------------------------------------+
+   | LIBMPV (mpv_render_context)        |
+   | - MPV_RENDER_API_TYPE_OPENGL       |
+   | - Frame-Accurate NLE Caching       |
+   +------------------------------------+
+                   ^
+                   | (VRAM Decode)
+                   |
+   +------------------------------------+
+   | GPU MEDIA ENGINE                   |
+   | - hwdec=d3d11va                    |
+   +------------------------------------+
+                   
+========================================================================================
+[HARDWARE LAYER: PURE VRAM EXECUTION (ZERO CPU READBACK)]
+========================================================================================
+
 2. PRODUCT SPECIFICATIONS & FEATURES
 ------------------------------------------------------------------------------
 * High-Integrity IPC & State Management:

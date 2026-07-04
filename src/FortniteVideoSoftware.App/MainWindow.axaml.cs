@@ -1154,11 +1154,6 @@ public partial class MainWindow : Window
         {
             if (isPortrait)
             {
-                // Left band: x=0, width = iw/2 - ih/3
-                // Right band: x = iw/2 + ih/3, width = iw/2 - ih/3
-                // (For 1920x1080: band_w = 960 - 360 = 600px, clear center = 720px)
-                var dimFilter = "lavfi=[drawbox=x=0:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill,drawbox=x=iw/2+ih/3:y=0:w=iw/2-ih/3:h=ih:color=black@0.4:t=fill]";
-                _ = _videoHost.IpcClient.SetPropertyAsync("vf", dimFilter);
             }
             else
             {

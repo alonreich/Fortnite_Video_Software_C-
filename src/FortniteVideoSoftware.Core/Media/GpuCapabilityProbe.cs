@@ -48,7 +48,7 @@ public static class GpuCapabilityProbe
     // D3D11 constants
     private const int D3D_DRIVER_TYPE_HARDWARE = 1;
     private const uint D3D11_SDK_VERSION = 7;
-    private static readonly int[] s_featureLevels = { 11_000, 10_100, 10_000, 9_300, 9_200, 9_100 };
+    private static readonly int[] s_featureLevels = { 0xb000, 0xa100, 0xa000, 0x9300, 0x9200, 0x9100 };
 
     /// <summary>
     /// Probes GPU/D3D11 capability. If D3D11 device creation fails, returns
@@ -96,14 +96,14 @@ public static class GpuCapabilityProbe
             if (context != IntPtr.Zero) Marshal.Release(context);
             if (device != IntPtr.Zero) Marshal.Release(device);
 
-            // 5. Check feature level — need at least 10_000 (D3D 10.0) for reasonable video decode
-            if (featureLevel < 10_000)
+            // 5. Check feature level — need at least 0xa000 (D3D 10.0) for reasonable video decode
+            if (featureLevel < 0xa000)
             {
-                CoreLogger.Info("GPU", $"D3D feature level {featureLevel} too low — using software mode");
-                return new Result(false, "N/A", "N/A", $"Feature level {featureLevel} below minimum (10000)");
+                CoreLogger.Info("GPU", $"D3D feature level 0x{featureLevel:X4} too low — using software mode");
+                return new Result(false, "N/A", "N/A", $"Feature level 0x{featureLevel:X4} below minimum (0xA000)");
             }
 
-            string renderer = $"D3D11 Feature Level {featureLevel}";
+            string renderer = $"D3D11 Feature Level 0x{featureLevel:X4}";
             CoreLogger.Info("GPU", $"GPU probe SUCCESS — {renderer}. Hardware acceleration enabled.");
             return new Result(true, renderer, "N/A", string.Empty);
         }
