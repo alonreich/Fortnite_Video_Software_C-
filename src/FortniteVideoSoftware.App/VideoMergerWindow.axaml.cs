@@ -114,10 +114,10 @@ public partial class VideoMergerWindow : Window
                 {
                     if (System.IO.File.Exists(paths.SessionStateFile))
                     {
-                        var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
-                        if (state != null && state["MergerUploadDirectory"] != null)
+                        var state = FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.ReadObject(paths.SessionStateFile);
+                        if (state != null && state.TryGetPropertyValue("MergerUploadDirectory", out var node) && node != null)
                         {
-                            string sp = state["MergerUploadDirectory"]!.GetValue<string>();
+                            string sp = node.ToString();
                             if (System.IO.Directory.Exists(sp))
                             {
                                 startPath = sp;
@@ -166,11 +166,15 @@ public partial class VideoMergerWindow : Window
                 {
                     try
                     {
-                        var state = System.IO.File.Exists(paths.SessionStateFile) 
-                            ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                            : new System.Text.Json.Nodes.JsonObject();
-                        state["MergerUploadDirectory"] = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
-                        System.IO.File.WriteAllText(paths.SessionStateFile, state.ToJsonString());
+                        string? directory = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
+                        if (!string.IsNullOrWhiteSpace(directory))
+                        {
+                            await new FortniteVideoSoftware.Core.Ipc.StateTransferStore(paths)
+                                .UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject
+                                {
+                                    ["MergerUploadDirectory"] = directory
+                                });
+                        }
                     }
                     catch { }
                 }
@@ -427,11 +431,18 @@ public partial class VideoMergerWindow : Window
         if (titleBar != null)
         {
             titleBar.IsHitTestVisible = true;
+            titleBar.DoubleTapped += (s, e) =>
+            {
+                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
+                    ? Avalonia.Controls.WindowState.Normal 
+                    : Avalonia.Controls.WindowState.Maximized;
+                e.Handled = true;
+            };
             titleBar.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    BeginMoveDrag(e);
+                    try { BeginMoveDrag(e); } catch { }
                 }
             };
         }

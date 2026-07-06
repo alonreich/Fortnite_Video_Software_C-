@@ -17,35 +17,46 @@ public static class WindowBoundsHelper
             if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                    double savedWidth = window.Width;
+                    double savedHeight = window.Height;
+                    if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
+                    {
+                        savedWidth = Math.Max(window.MinWidth > 0 ? window.MinWidth : 320, (double)w);
+                        savedHeight = Math.Max(window.MinHeight > 0 ? window.MinHeight : 240, (double)h);
+                    }
+
                     if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
                     {
                         int px = (int)x;
                         int py = (int)y;
-                        
-                        bool intersectsAny = false;
-                        foreach (var screen in window.Screens.All)
+
+                        var screens = window.Screens.All.ToList();
+                        var targetScreen = screens.FirstOrDefault(screen =>
+                            screen.Bounds.Intersects(new PixelRect(px, py, Math.Max(1, (int)savedWidth), Math.Max(1, (int)savedHeight))));
+
+                        if (targetScreen == null)
                         {
-                            if (screen.Bounds.Contains(new PixelPoint(px, py)))
+                            targetScreen = window.Screens.Primary ?? screens.FirstOrDefault();
+                            if (targetScreen != null)
                             {
-                                intersectsAny = true;
-                                break;
+                                px = targetScreen.Bounds.X + 50;
+                                py = targetScreen.Bounds.Y + 50;
                             }
                         }
-                        
-                        if (!intersectsAny && window.Screens.Primary != null)
+
+                        if (targetScreen != null)
                         {
-                            px = window.Screens.Primary.Bounds.X + 50;
-                            py = window.Screens.Primary.Bounds.Y + 50;
+                            savedWidth = Math.Min(savedWidth, targetScreen.Bounds.Width);
+                            savedHeight = Math.Min(savedHeight, targetScreen.Bounds.Height);
+                            px = Math.Max(targetScreen.Bounds.X, Math.Min(px, targetScreen.Bounds.X + Math.Max(0, targetScreen.Bounds.Width - (int)savedWidth)));
+                            py = Math.Max(targetScreen.Bounds.Y, Math.Min(py, targetScreen.Bounds.Y + Math.Max(0, targetScreen.Bounds.Height - (int)savedHeight)));
                         }
-                        
+
                         window.WindowStartupLocation = WindowStartupLocation.Manual;
                         window.Position = new PixelPoint(px, py);
                     }
-                    if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
-                    {
-                        window.Width = (double)w;
-                        window.Height = (double)h;
-                    }
+                    window.Width = savedWidth;
+                    window.Height = savedHeight;
                     if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
                     {
                         window.WindowState = (WindowState)(int)stateNode;

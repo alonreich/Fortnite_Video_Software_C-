@@ -3,7 +3,7 @@
         x:Class="FortniteVideoSoftware.App.Controls.FinishedDialogWindow"
         Title="Done! Video Processed Successfully!"
         Width="860" Height="500"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         SystemDecorations="None"
         Background="Transparent"
         TransparencyLevelHint="Transparent"
@@ -74,6 +74,7 @@
         </Grid>
     </Border>
 </Window>
+
 
 
 

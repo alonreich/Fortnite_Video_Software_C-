@@ -312,6 +312,7 @@ public class ProcessWorker : IDisposable
 
                 // Write filter script
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
+                CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
@@ -406,8 +407,9 @@ public class ProcessWorker : IDisposable
                                         {
                                             int percent = (int)Math.Clamp(currentSec / renderDurationSec * 100, 0, 100);
                                             int scaledPercent = percent;
-                                            if (targetMb.HasValue && attemptNum == 1) scaledPercent = percent / 2;
-                                            else if (targetMb.HasValue && attemptNum == 2) scaledPercent = 50 + (percent / 2);
+                                            if (targetMb.HasValue && attemptNum == 1) scaledPercent = percent / 3;
+                                            else if (targetMb.HasValue && attemptNum == 2) scaledPercent = 33 + (percent / 3);
+                                            else if (targetMb.HasValue && attemptNum == 3) scaledPercent = 66 + (percent / 3);
                                             ProgressUpdate?.Invoke(scaledPercent);
                                             PhaseUpdate?.Invoke(2, "Encoding Video", scaledPercent);
                                         }
@@ -441,7 +443,7 @@ public class ProcessWorker : IDisposable
                         // Encoder fallback
                         if (useCuda && !_isCanceled)
                         {
-                            var fallbacks = encoderMgr.GetFallbackList(currentEncoder, false);
+                            var fallbacks = encoderMgr.GetFallbackList(currentEncoder, true);
                             if (fallbacks.Count > 0)
                             {
                                 currentEncoder = fallbacks[0];
@@ -454,27 +456,42 @@ public class ProcessWorker : IDisposable
 
                 // File-size targeting loop
                 int? currentBitrate = videoBitrateKbps;
-                for (int attempt = 1; attempt <= 2; attempt++)
+                bool sizeTargetMet = !targetMb.HasValue;
+                long finalActualSize = 0;
+                long finalTargetSize = targetMb.HasValue ? (long)(targetMb.Value * 1024 * 1024) : 0;
+                for (int attempt = 1; attempt <= 3; attempt++)
                 {
                     if (File.Exists(corePath)) File.Delete(corePath);
                     success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
                     if (!success || !targetMb.HasValue) break;
 
-                    long actualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;
-                    long targetSize = (long)(targetMb.Value * 1024 * 1024);
-                    double variance = targetSize * 0.01;
+                    finalActualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;
+                    double variance = finalTargetSize * 0.01;
 
-                    if (Math.Abs(actualSize - targetSize) <= variance) break;
+                    if (Math.Abs(finalActualSize - finalTargetSize) <= variance)
+                    {
+                        sizeTargetMet = true;
+                        break;
+                    }
 
                     // Adjust bitrate proportionally
-                    if (actualSize > 0 && currentBitrate.HasValue)
+                    if (finalActualSize > 0 && currentBitrate.HasValue)
                     {
-                        currentBitrate = (int)(currentBitrate.Value * ((double)targetSize / actualSize));
+                        currentBitrate = (int)(currentBitrate.Value * ((double)finalTargetSize / finalActualSize));
                     }
                 }
 
                 if (!success)
                 {
+                    EmitFinished(false, lastError);
+                    return;
+                }
+
+                if (targetMb.HasValue && !sizeTargetMet)
+                {
+                    double actualMb = finalActualSize / 1024.0 / 1024.0;
+                    lastError = $"Export size target was not met. Target={targetMb.Value:F2} MB, actual={actualMb:F2} MB.";
+                    CoreLogger.Fail("FFmpeg", lastError);
                     EmitFinished(false, lastError);
                     return;
                 }

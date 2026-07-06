@@ -205,7 +205,7 @@ public partial class SettingsWindow : Window
                 var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile));
                 if (state != null && state.ContainsKey("CustomMusicDirectory"))
                 {
-                    _pendingMusicFolder = state["CustomMusicDirectory"]?.ToString() ?? "";
+                    _pendingMusicFolder = state["CustomMusicDirectory"]?.GetValue<string>() ?? "";
                 }
             }
         }
@@ -310,14 +310,11 @@ public partial class SettingsWindow : Window
         
         try
         {
-            System.Text.Json.Nodes.JsonObject state;
-            if (System.IO.File.Exists(_paths.SessionStateFile))
-                state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject();
-            else
-                state = new System.Text.Json.Nodes.JsonObject();
-
-            state["CustomMusicDirectory"] = _pendingMusicFolder;
-            System.IO.File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+            new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)
+                .UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["CustomMusicDirectory"] = _pendingMusicFolder
+                });
         }
         catch { }
 
@@ -369,9 +366,16 @@ public partial class SettingsWindow : Window
         if (titleBar != null)
         {
             titleBar.IsHitTestVisible = true;
+            titleBar.DoubleTapped += (s, e) =>
+            {
+                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
+                    ? Avalonia.Controls.WindowState.Normal 
+                    : Avalonia.Controls.WindowState.Maximized;
+                e.Handled = true;
+            };
             titleBar.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
                     try { BeginMoveDrag(e); } catch { }
                 }
@@ -379,7 +383,6 @@ public partial class SettingsWindow : Window
         }
     }
 }
-
 
 
 

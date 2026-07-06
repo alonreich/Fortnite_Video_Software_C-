@@ -14,7 +14,7 @@ public static class RuntimeLog
     private static string _appName = "[MAIN APP]";
     private const long MaxLogSize = 10 * 1024 * 1024; // 10 MB
     private static string? _cachedLogPath;
-    private static long _approximateBytes;
+    private static Mutex? _globalMutex;
     
     public static event Action<string>? LogAppended;
 
@@ -78,12 +78,8 @@ public static class RuntimeLog
             try
             {
                 string lp = LogPath;
-                if (File.Exists(lp))
-                    _approximateBytes = new FileInfo(lp).Length;
             }
             catch { /* ignore — counter starts at 0 */ }
-
-            TrimLogIfNeeded();
 
             string header = Environment.NewLine +
                 $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName})" + Environment.NewLine;
@@ -157,30 +153,31 @@ public static class RuntimeLog
 
     private static void SafeWrite(string text)
     {
-        int retries = 5;
-        while (retries > 0)
-        {
-            try
-            {
-                if (_approximateBytes >= MaxLogSize)
-                    TrimLogIfNeeded();
+        _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
 
-                using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                using var sw = new StreamWriter(fs, new UTF8Encoding(false));
-                sw.Write(text);
-                _approximateBytes += text.Length;
-                break;
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-            {
-                retries--;
-                if (retries == 0) break;
-                Thread.Sleep(50);
-            }
+        bool acquired = false;
+        try
+        {
+            try { acquired = _globalMutex.WaitOne(2000); } catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) return; // Fail safe
+
+            RotateLogIfNeeded();
+
+            using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+            using var sw = new StreamWriter(fs, new UTF8Encoding(false));
+            sw.Write(text);
+        }
+        catch (Exception)
+        {
+            // Ignore write errors to prevent crashing the app
+        }
+        finally
+        {
+            if (acquired) _globalMutex.ReleaseMutex();
         }
     }
 
-    private static void TrimLogIfNeeded()
+    private static void RotateLogIfNeeded()
     {
         try
         {
@@ -189,19 +186,14 @@ public static class RuntimeLog
             var fileInfo = new FileInfo(lp);
             if (fileInfo.Length < MaxLogSize) return;
 
-            // Log exceeds 10MB, keep the last half
-            string[] lines = File.ReadAllLines(lp);
-            int linesToKeep = lines.Length / 2;
-            var remainingLines = lines.Skip(lines.Length - linesToKeep).ToArray();
-            
-            File.WriteAllLines(lp, remainingLines, new UTF8Encoding(false));
-
-            // Reset byte counter to actual remaining size
-            _approximateBytes = File.Exists(lp) ? new FileInfo(lp).Length : 0;
+            // Log exceeds 10MB, rotate it to prevent memory spikes
+            string oldLog = lp + ".old";
+            if (File.Exists(oldLog)) File.Delete(oldLog);
+            File.Move(lp, oldLog);
         }
         catch
         {
-            // Ignore trim errors (e.g. file locked)
+            // Ignore rotation errors (e.g. file locked)
         }
     }
 }

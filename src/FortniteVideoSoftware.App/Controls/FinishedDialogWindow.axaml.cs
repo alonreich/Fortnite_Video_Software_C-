@@ -43,7 +43,7 @@ public partial class FinishedDialogWindow : Window
     
     private void OnUploadNewClicked(object? sender, RoutedEventArgs e)
     {
-        DialogResult = 0;
+        DialogResult = 2;
         Close();
     }
 

@@ -86,6 +86,9 @@ internal static class DeploymentFootprint
         yield return RoamingAppDataFolder;
         yield return LocalAppDataFolder;
         yield return TempAppFolder;
+
+        // Ensure old or hallucinated paths are wiped to satisfy legacy versions
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FortniteVideoSoftware");
     }
 
     public static IEnumerable<string> GetVerificationTargets()

@@ -128,7 +128,7 @@ public class EncoderManager
         // Strict GPU mode: no fallbacks
         if (!string.IsNullOrEmpty(HardwareStrategy) &&
             HardwareByStrategy.ContainsKey(HardwareStrategy.ToUpperInvariant()))
-            return [];
+            return allowCpu && failedEncoder != "libx264" ? ["libx264"] : [];
 
         int startIndex;
         int idx = Array.IndexOf(EncoderPreference, failedEncoder);
@@ -155,12 +155,6 @@ public class EncoderManager
         string fpsExpr = "60", int qualityLevel = 2, bool sizeLocked = true)
     {
         var fpsValue = FpsFraction(fpsExpr);
-        bool strictGpu = !string.IsNullOrEmpty(HardwareStrategy) &&
-                         HardwareByStrategy.ContainsKey(HardwareStrategy!.ToUpperInvariant());
-
-        if (encoderName == "libx264" && strictGpu && !ForcedCpu)
-            throw new InvalidOperationException("CPU encoder requested in strict GPU mode.");
-
         if (ForcedCpu)
         {
             string cpuPreset = qualityLevel <= 1 ? "fast" : "medium";

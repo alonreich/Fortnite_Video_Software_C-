@@ -318,10 +318,10 @@ public partial class CropToolWindow : Window
             string? startPath = null;
             if (System.IO.File.Exists(paths.SessionStateFile))
             {
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile));
-                if (state != null && state["CropToolUploadDirectory"] != null)
+                var state = FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.ReadObject(paths.SessionStateFile);
+                if (state != null && state.TryGetPropertyValue("CropToolUploadDirectory", out var node) && node != null)
                 {
-                    startPath = state["CropToolUploadDirectory"]!.GetValue<string>();
+                    startPath = node.ToString();
                 }
             }
 
@@ -369,11 +369,15 @@ public partial class CropToolWindow : Window
 
         try
         {
-            var state = System.IO.File.Exists(paths.SessionStateFile) 
-                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                : new System.Text.Json.Nodes.JsonObject();
-            state["CropToolUploadDirectory"] = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
-            System.IO.File.WriteAllText(paths.SessionStateFile, state.ToJsonString());
+            string? directory = System.IO.Path.GetDirectoryName(files[0].Path.LocalPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                await new StateTransferStore(paths)
+                    .UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["CropToolUploadDirectory"] = directory
+                    });
+            }
         }
         catch (Exception ex) { RuntimeLog.Info("CROP", $"Could not save upload directory preference: {ex.Message}"); }
 
@@ -2077,9 +2081,16 @@ public partial class CropToolWindow : Window
         if (titleBar != null)
         {
             titleBar.IsHitTestVisible = true;
+            titleBar.DoubleTapped += (s, e) =>
+            {
+                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
+                    ? Avalonia.Controls.WindowState.Normal 
+                    : Avalonia.Controls.WindowState.Maximized;
+                e.Handled = true;
+            };
             titleBar.PointerPressed += (_, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
                     try { BeginMoveDrag(e); } catch { }
                 }

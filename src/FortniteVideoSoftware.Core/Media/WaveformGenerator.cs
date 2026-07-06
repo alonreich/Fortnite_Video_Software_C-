@@ -31,7 +31,11 @@ public static class WaveformGenerator
             using var process = Process.Start(psi);
             if (process == null) return null;
 
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
+            _ = await outputTask;
+            _ = await errorTask;
 
             if (process.ExitCode == 0 && File.Exists(tempPng))
             {

@@ -7,7 +7,24 @@ namespace FortniteVideoSoftware.Core.Ipc;
 public sealed class StateTransferStore
 {
     public const string MutexName = @"Global\FvsStateTransferMutex";
+    public const int SchemaVersion = 1;
     public static readonly TimeSpan DefaultMutexTimeout = TimeSpan.FromSeconds(15);
+    private static readonly string[] BoundsKeys =
+    [
+        "MainWindowBounds",
+        "VideoMergerBounds",
+        "CropToolBounds",
+        "GranularBounds",
+        "MusicWizardBounds",
+        "SettingsBounds"
+    ];
+    private static readonly string[] DirectoryPreferenceKeys =
+    [
+        "UploadVideoDirectory",
+        "MergerUploadDirectory",
+        "CropToolUploadDirectory",
+        "CustomMusicDirectory"
+    ];
 
     public StateTransferStore(ApplicationPaths? paths = null)
     {
@@ -42,7 +59,10 @@ public sealed class StateTransferStore
                 DefaultMutexTimeout,
                 cancellationToken);
 
-            AtomicJsonFile.WriteObject(Paths.SessionStateFile, Clone(state));
+            JsonObject payload = Clone(state);
+            ValidateKnownProperties(payload);
+            payload["schema_version"] = SchemaVersion;
+            AtomicJsonFile.WriteObject(Paths.SessionStateFile, payload);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -60,9 +80,11 @@ public sealed class StateTransferStore
             JsonObject current = LoadUnlocked();
             foreach (KeyValuePair<string, JsonNode?> property in updates)
             {
+                ValidateKnownProperty(property.Key, property.Value);
                 current[property.Key] = property.Value?.DeepClone();
             }
 
+            current["schema_version"] = SchemaVersion;
             AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -84,9 +106,11 @@ public sealed class StateTransferStore
         JsonObject current = LoadUnlocked();
         foreach (KeyValuePair<string, JsonNode?> property in updates)
         {
+            ValidateKnownProperty(property.Key, property.Value);
             current[property.Key] = property.Value?.DeepClone();
         }
 
+        current["schema_version"] = SchemaVersion;
         AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
     }
 
@@ -109,9 +133,16 @@ public sealed class StateTransferStore
     {
         try
         {
-            return AtomicJsonFile.ReadObject(Paths.SessionStateFile) ?? new JsonObject();
+            JsonObject state = AtomicJsonFile.ReadObject(Paths.SessionStateFile) ?? new JsonObject();
+            ValidateKnownProperties(state);
+            return state;
         }
         catch (JsonException)
+        {
+            QuarantineCorruptedSessionFile();
+            return new JsonObject();
+        }
+        catch (InvalidDataException)
         {
             QuarantineCorruptedSessionFile();
             return new JsonObject();
@@ -152,5 +183,142 @@ public sealed class StateTransferStore
     private static JsonObject Clone(JsonObject source)
     {
         return source.DeepClone().AsObject();
+    }
+
+    private static void ValidateKnownProperties(JsonObject state)
+    {
+        foreach (KeyValuePair<string, JsonNode?> property in state)
+        {
+            ValidateKnownProperty(property.Key, property.Value);
+        }
+    }
+
+    private static void ValidateKnownProperty(string key, JsonNode? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        if (key == "schema_version")
+        {
+            if (!TryGetInt(value, out int schemaVersion) || schemaVersion < 1)
+                throw new InvalidDataException("Invalid session_state schema_version.");
+            return;
+        }
+
+        if (BoundsKeys.Contains(key))
+        {
+            if (value is not JsonObject bounds)
+                throw new InvalidDataException($"Invalid session_state bounds object for '{key}'.");
+            ValidateBoundsObject(key, bounds);
+            return;
+        }
+
+        if (DirectoryPreferenceKeys.Contains(key))
+        {
+            if (!TryGetString(value, out _))
+                throw new InvalidDataException($"Invalid session_state directory value for '{key}'.");
+            return;
+        }
+
+        if (key is "WizardVideoVolume" or "WizardMusicVolume" or "MainVolume")
+        {
+            if (!TryGetDouble(value, out _))
+                throw new InvalidDataException($"Invalid session_state volume value for '{key}'.");
+            return;
+        }
+
+        if (key == "returned_from_crop_tool")
+        {
+            if (!TryGetBool(value, out _))
+                throw new InvalidDataException("Invalid session_state returned_from_crop_tool value.");
+        }
+    }
+
+    private static void ValidateBoundsObject(string key, JsonObject bounds)
+    {
+        if (bounds.TryGetPropertyValue("X", out JsonNode? x) && x != null && !TryGetInt(x, out _))
+            throw new InvalidDataException($"Invalid session_state bounds X value for '{key}'.");
+        if (bounds.TryGetPropertyValue("Y", out JsonNode? y) && y != null && !TryGetInt(y, out _))
+            throw new InvalidDataException($"Invalid session_state bounds Y value for '{key}'.");
+        if (bounds.TryGetPropertyValue("Width", out JsonNode? width) && width != null && !TryGetDouble(width, out _))
+            throw new InvalidDataException($"Invalid session_state bounds Width value for '{key}'.");
+        if (bounds.TryGetPropertyValue("Height", out JsonNode? height) && height != null && !TryGetDouble(height, out _))
+            throw new InvalidDataException($"Invalid session_state bounds Height value for '{key}'.");
+        if (bounds.TryGetPropertyValue("WindowState", out JsonNode? windowState) && windowState != null && !TryGetInt(windowState, out _))
+            throw new InvalidDataException($"Invalid session_state bounds WindowState value for '{key}'.");
+    }
+
+    private static bool TryGetString(JsonNode node, out string value)
+    {
+        value = string.Empty;
+        try
+        {
+            value = node.GetValue<string>();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetDouble(JsonNode node, out double value)
+    {
+        value = 0;
+        try
+        {
+            value = node.GetValue<double>();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetInt(JsonNode node, out int value)
+    {
+        value = 0;
+        try
+        {
+            value = node.GetValue<int>();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetBool(JsonNode node, out bool value)
+    {
+        value = false;
+        try
+        {
+            value = node.GetValue<bool>();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

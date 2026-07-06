@@ -16,9 +16,19 @@
         <!-- Progress Bar Area -->
         <Border Grid.Row="0" Margin="0,0,0,20" Background="#780b141d" BorderBrush="#33ffffff" BorderThickness="1" CornerRadius="8" Padding="20">
             <StackPanel>
-                <TextBlock x:Name="PhaseTitleText" Text="Phase 1: Preparing..." Foreground="White" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="20" Foreground="#4ade80" Background="#33000000" CornerRadius="4"/>
-                <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="#4ade80" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" HorizontalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,0,0,10">
+                    <!-- Indeterminate Spinner -->
+                    <ProgressBar IsIndeterminate="True" Width="20" Height="20" Foreground="#facc15" Theme="{DynamicResource ProgressRing}" />
+                    <TextBlock x:Name="PhaseTitleText" Text="Phase 1: Preparing..." Foreground="White" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                </StackPanel>
+                <!-- Massive Glowing Progress Bar -->
+                <Border CornerRadius="4" Background="Transparent" BoxShadow="0 0 15 2 #4ade80">
+                    <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="30" Foreground="#4ade80" Background="#33000000" CornerRadius="4"/>
+                </Border>
+                <Grid Margin="0,5,0,0">
+                    <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="#4ade80" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Left"/>
+                    <TextBlock x:Name="TimeRemainingText" Text="Estimating time remaining..." Foreground="#94a3b8" FontSize="12" FontStyle="Italic" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
             </StackPanel>
         </Border>
 

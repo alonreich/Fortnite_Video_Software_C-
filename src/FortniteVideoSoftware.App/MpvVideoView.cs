@@ -580,6 +580,13 @@ public class MpvVideoView : Control
                 {
                     await surface.UpdateWithKeyedMutexAsync(image, (uint)ConsumerKey, (uint)ProducerKey);
                 }
+                catch (Avalonia.Platform.PlatformGraphicsContextLostException)
+                {
+                    // Safe to ignore: Context lost is normal during window resizes, minimizing, or hot reloads.
+                    // Avalonia will naturally request a new composition surface.
+                    _importedImages[index] = null;
+                    RestoreProducerOwnership(index);
+                }
                 catch (Exception ex)
                 {
                     _importedImages[index] = null;

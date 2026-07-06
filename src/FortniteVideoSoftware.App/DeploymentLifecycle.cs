@@ -99,25 +99,16 @@ internal static class DeploymentLifecycle
             await DeploymentReporter.ResetAsync("INSTALL/UPGRADE").ConfigureAwait(false);
             await DeploymentReporter.StepAsync("INIT", "Starting elevated install/upgrade worker.", 1).ConfigureAwait(false);
 
+            bool preserve = false;
             bool isUpgrade = await ReportExistingVersionAsync().ConfigureAwait(false);
             if (isUpgrade)
             {
-                bool preserve = NativeDialog.ShowQuestion(
+                preserve = NativeDialog.ShowQuestion(
                     "Previous Installation Detected!\r\nWould you like to preserve settings from the older installed app?",
                     "Fortnite Video Software Setup");
-                if (!preserve)
-                {
-                    try
-                    {
-                        var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
-                        if (File.Exists(paths.SessionStateFile))
-                            File.Delete(paths.SessionStateFile);
-                    }
-                    catch { }
-                }
             }
 
-            await PerformFullHostCleanupAsync("Pre-Install Cleanup", 5, 55, requireZeroFootprint: false, purgeUserArtifacts: false, includeProgramData: true).ConfigureAwait(false);
+            await PerformFullHostCleanupAsync("Pre-Install Cleanup", 5, 55, requireZeroFootprint: false, purgeUserArtifacts: false, includeProgramData: !preserve).ConfigureAwait(false);
             await InstallFreshAsync().ConfigureAwait(false);
             await DeploymentReporter.StepAsync("SUCCESS", "Install/upgrade finished. All files, registry entries, and Start Menu shortcut are in place.", 100).ConfigureAwait(false);
 

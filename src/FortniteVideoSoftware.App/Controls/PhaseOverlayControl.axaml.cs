@@ -66,6 +66,14 @@ public partial class PhaseOverlayControl : UserControl
         RuntimeLog.LogAppended -= AppendLog;
         _timer?.Stop();
     }
+    public void UpdateTimeRemaining(string timeRemaining)
+    {
+        Dispatcher.UIThread.Post(() => 
+        {
+            var trText = this.FindControl<TextBlock>("TimeRemainingText");
+            if (trText != null) trText.Text = timeRemaining;
+        });
+    }
     
     public void UpdatePhase(int phaseIndex, string title, int progress)
     {

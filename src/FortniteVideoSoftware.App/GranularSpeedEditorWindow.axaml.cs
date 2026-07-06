@@ -63,6 +63,7 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _isDraggingFreezeCamera = false;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
+    private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
     // Freeze preset gentle pulse timer — keeps the duration buttons gently glowing until the user picks one.
     private DispatcherTimer? _freezePulseTimer;
     private double _freezePulseOffset = 0;
@@ -147,9 +148,9 @@ public partial class GranularSpeedEditorWindow : Window
                 _freezeCameraIconAntsRef.StrokeDashOffset = _marchingAntsOffset;
                 _freezeCameraLineAntsRef.StrokeDashOffset = _marchingAntsOffset;
             }
-            else
+            if (_selectedSegmentBorderRef != null)
             {
-                RedrawTimeline();
+                _selectedSegmentBorderRef.StrokeDashOffset = _marchingAntsOffset;
             }
         };
         _marchingAntsTimer.Start();
@@ -646,10 +647,26 @@ public partial class GranularSpeedEditorWindow : Window
         // ── IDEA 3: Gentle pulse timer — keeps buttons softly glowing until user picks one ──
         // Slow, gentle sine wave (~1.5s per cycle). Not fast or jarring.
         int stepperIndex = 0;
+        int _freezePulseCount = 0;
         _freezePulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _freezePulseTimer.Tick += (_, _) =>
         {
             stepperIndex = (stepperIndex + 1) % freezePresets.Length;
+            _freezePulseCount++;
+
+            var hint1 = this.FindControl<TextBlock>("FreezeHintLabel");
+            var hint2 = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+            double newOpacity = (stepperIndex % 2 == 0) ? 1.0 : 0.0;
+            if (hint1 != null) hint1.Opacity = newOpacity;
+            if (hint2 != null) hint2.Opacity = newOpacity;
+
+            // Task 7: 10-iteration blink animation loop
+            if (_freezePulseCount >= 20)
+            {
+                _freezePulseTimer?.Stop();
+                if (hint1 != null) hint1.Opacity = 1.0;
+                if (hint2 != null) hint2.Opacity = 1.0;
+            }
 
             for (int j = 0; j < freezePresets.Length; j++)
             {
@@ -716,6 +733,8 @@ public partial class GranularSpeedEditorWindow : Window
                     // Hide the hint label (Idea 5)
                     var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                     if (hint != null) hint.IsVisible = false;
+                    var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+                    if (hintBottom != null) hintBottom.IsVisible = false;
 
                     // Un-grey all other controls (Idea 5)
                     SetControlsEnabledDuringFreezePrompt(true);
@@ -728,6 +747,7 @@ public partial class GranularSpeedEditorWindow : Window
                         _freezeDurationS = val;
                         RedrawTimeline();
                         FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked freeze preset button. Set freeze duration to {val}s.");
+                        ShowFeedback($"FREEZE CREATED: {val:0.0}s");
                     }
                 };
             }
@@ -743,12 +763,17 @@ public partial class GranularSpeedEditorWindow : Window
 
                     if (promptPreset)
                     {
+                        ShowFeedback("SELECT FREEZE DURATION");
+                        
                         // ── IDEA 3: Start gentle pulse ──
+                        _freezePulseCount = 0;
                         _freezePulseTimer?.Start();
 
                         // ── IDEA 5: Show hint label + grey out other controls ──
                         var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                         if (hint != null) hint.IsVisible = true;
+                        var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+                        if (hintBottom != null) hintBottom.IsVisible = true;
 
                         SetControlsEnabledDuringFreezePrompt(false);
 
@@ -781,6 +806,7 @@ public partial class GranularSpeedEditorWindow : Window
                     // show the selection immediately (no prompt needed)
                     if (!promptPreset)
                     {
+                        ShowFeedback($"FREEZE CREATED: {_freezeDurationS:0.0}s");
                         // Find the index matching the selected value and apply green
                         for (int k = 0; k < presetValues.Length; k++)
                         {
@@ -805,10 +831,14 @@ public partial class GranularSpeedEditorWindow : Window
                     freezeImageToggle.Classes.Remove("Danger");
                     freezeImageToggle.Classes.Add("Primary");
 
+                    ShowFeedback("FREEZE IMAGE REMOVED");
+
                     // Stop pulse and hide hint if still running
                     _freezePulseTimer?.Stop();
                     var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                     if (hint != null) hint.IsVisible = false;
+                    var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+                    if (hintBottom != null) hintBottom.IsVisible = false;
 
                     // Clear all preset styling back to default
                     foreach (var b in freezePresets)
@@ -1077,7 +1107,7 @@ public partial class GranularSpeedEditorWindow : Window
                 return;
             }
 
-            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
+            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: false);
             e.Handled = true;
         };
         marker.PointerReleased += (_, e) =>
@@ -1196,82 +1226,26 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     var antsBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047"));
                     double segW = Math.Max(2, x2 - x1);
-                    double dashLen = 4;
-                    double gapLen = 4;
-                    double cycle = dashLen + gapLen;
-                    double offset = _marchingAntsOffset;
-
-                    // Top line (horizontal dashes)
-                    for (double dx = -offset; dx < segW; dx += cycle)
+                    
+                    var borderRect = new Avalonia.Controls.Shapes.Rectangle
                     {
-                        double drawX = Math.Max(0, dx);
-                        double drawW = Math.Min(dashLen, segW - drawX);
-                        if (drawW <= 0) break;
-                        var dash = new Avalonia.Controls.Shapes.Rectangle
-                        {
-                            Width = drawW,
-                            Height = 1,
-                            Fill = antsBrush,
-                            IsHitTestVisible = false
-                        };
-                        Avalonia.Controls.Canvas.SetLeft(dash, x1 + drawX);
-                        Avalonia.Controls.Canvas.SetTop(dash, 0);
-                        canvas.Children.Add(dash);
-                    }
-
-                    // Bottom line (horizontal dashes)
-                    for (double dx = -offset; dx < segW; dx += cycle)
-                    {
-                        double drawX = Math.Max(0, dx);
-                        double drawW = Math.Min(dashLen, segW - drawX);
-                        if (drawW <= 0) break;
-                        var dash = new Avalonia.Controls.Shapes.Rectangle
-                        {
-                            Width = drawW,
-                            Height = 1,
-                            Fill = antsBrush,
-                            IsHitTestVisible = false
-                        };
-                        Avalonia.Controls.Canvas.SetLeft(dash, x1 + drawX);
-                        Avalonia.Controls.Canvas.SetTop(dash, h - 1);
-                        canvas.Children.Add(dash);
-                    }
-
-                    // Left line (vertical dashes)
-                    for (double dy = -offset; dy < h; dy += cycle)
-                    {
-                        double drawY = Math.Max(0, dy);
-                        double drawH = Math.Min(dashLen, h - drawY);
-                        if (drawH <= 0) break;
-                        var dash = new Avalonia.Controls.Shapes.Rectangle
-                        {
-                            Width = 1,
-                            Height = drawH,
-                            Fill = antsBrush,
-                            IsHitTestVisible = false
-                        };
-                        Avalonia.Controls.Canvas.SetLeft(dash, x1);
-                        Avalonia.Controls.Canvas.SetTop(dash, drawY);
-                        canvas.Children.Add(dash);
-                    }
-
-                    // Right line (vertical dashes)
-                    for (double dy = -offset; dy < h; dy += cycle)
-                    {
-                        double drawY = Math.Max(0, dy);
-                        double drawH = Math.Min(dashLen, h - drawY);
-                        if (drawH <= 0) break;
-                        var dash = new Avalonia.Controls.Shapes.Rectangle
-                        {
-                            Width = 1,
-                            Height = drawH,
-                            Fill = antsBrush,
-                            IsHitTestVisible = false
-                        };
-                        Avalonia.Controls.Canvas.SetLeft(dash, x1 + segW - 1);
-                        Avalonia.Controls.Canvas.SetTop(dash, drawY);
-                        canvas.Children.Add(dash);
-                    }
+                        Width = segW,
+                        Height = h,
+                        Stroke = antsBrush,
+                        StrokeThickness = 1,
+                        StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(4, 4),
+                        StrokeDashOffset = _marchingAntsOffset,
+                        IsHitTestVisible = false
+                    };
+                    Avalonia.Controls.Canvas.SetLeft(borderRect, x1);
+                    Avalonia.Controls.Canvas.SetTop(borderRect, 0);
+                    canvas.Children.Add(borderRect);
+                    _selectedSegmentBorderRef = borderRect;
+                }
+                else
+                {
+                    if (_selectedSegmentBorderRef != null && _selectedSegmentIndex == -1)
+                        _selectedSegmentBorderRef = null;
                 }
             }
 
@@ -1467,15 +1441,6 @@ public partial class GranularSpeedEditorWindow : Window
             _isSeeking = false;
         }
 
-        // Keep canvas updated as playhead moves (but not every tick to reduce flicker — marching ants timer handles selection redraw)
-        if (_selectedSegmentIndex >= 0 || _pendingStartMs >= 0 || _pendingEndMs >= 0)
-        {
-            // Redraw handled by marching ants timer
-        }
-        else
-        {
-            RedrawTimeline();
-        }
     }
 
     // ------------------------------------------------------------------ helpers
@@ -1562,10 +1527,28 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private Avalonia.Media.Color GetSegmentOverlayColor(SpeedSegment seg)
     {
-        if (seg.Speed < _baseSpeed - 0.0001)
-            return Avalonia.Media.Color.FromArgb(100, 239, 68, 68);   // red — slower than base
-
-        return Avalonia.Media.Color.FromArgb(100, 34, 197, 94);       // green — base speed or faster
+        double speed = seg.Speed;
+        double baseSpd = _baseSpeed;
+        
+        if (speed < 0.01)
+        {
+            // Freeze frame: extreme slow
+            return Avalonia.Media.Color.FromArgb(230, 96, 165, 250); // 90% blue
+        }
+        else if (speed < baseSpd - 0.0001)
+        {
+            // SLOW: BaseSpeed down to 0.1 maps to ~20% (51) -> 90% (230)
+            double factor = Math.Clamp((baseSpd - speed) / Math.Max(0.001, baseSpd - 0.1), 0.0, 1.0);
+            byte alpha = (byte)(51 + factor * (230 - 51));
+            return Avalonia.Media.Color.FromArgb(alpha, 239, 68, 68); // Red
+        }
+        else
+        {
+            // FAST: BaseSpeed up to 4.1 maps to ~20% (51) -> 90% (230)
+            double factor = Math.Clamp((speed - baseSpd) / Math.Max(0.001, 4.1 - baseSpd), 0.0, 1.0);
+            byte alpha = (byte)(51 + factor * (230 - 51));
+            return Avalonia.Media.Color.FromArgb(alpha, 34, 197, 94); // Green
+        }
     }
 
     private void ShowFeedback(string text)
@@ -1596,6 +1579,27 @@ public partial class GranularSpeedEditorWindow : Window
         // STOP the synchronous UI-blocking close
         e.Cancel = true;
         FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
+
+        // Save bounds BEFORE hiding the window, because hiding resets Position/Size on Windows
+        try
+        {
+            string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
+            string settingsDir = System.IO.Path.Combine(appData, "FortniteVideoSoftware", "Settings");
+            System.IO.Directory.CreateDirectory(settingsDir);
+            string boundsFile = System.IO.Path.Combine(settingsDir, "Bounds.json");
+            
+            var state = System.IO.File.Exists(boundsFile)
+                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(boundsFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                : new System.Text.Json.Nodes.JsonObject();
+
+            state["GranularWidth"] = this.Bounds.Width;
+            state["GranularHeight"] = this.Bounds.Height;
+            state["GranularX"] = this.Position.X;
+            state["GranularY"] = this.Position.Y;
+
+            System.IO.File.WriteAllText(boundsFile, state.ToJsonString());
+        }
+        catch { }
 
         // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
@@ -1629,12 +1633,69 @@ public partial class GranularSpeedEditorWindow : Window
     protected override async void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
+        
+        // Task 6: Granular Speed Editor State Persistence
+        try
+        {
+            string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
+            string settingsDir = System.IO.Path.Combine(appData, "FortniteVideoSoftware", "Settings");
+            string boundsFile = System.IO.Path.Combine(settingsDir, "Bounds.json");
+            
+            double targetW = 1600;
+            double targetH = 840;
+            double targetX = double.NaN;
+            double targetY = double.NaN;
+
+            if (System.IO.File.Exists(boundsFile))
+            {
+                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(boundsFile));
+                if (state != null)
+                {
+                    targetW = state["GranularWidth"]?.GetValue<double>() ?? targetW;
+                    targetH = state["GranularHeight"]?.GetValue<double>() ?? targetH;
+                    targetX = state["GranularX"]?.GetValue<double>() ?? double.NaN;
+                    targetY = state["GranularY"]?.GetValue<double>() ?? double.NaN;
+                }
+            }
+
+            var screens = this.Screens.All.ToList();
+            var screen = !double.IsNaN(targetX) && !double.IsNaN(targetY)
+                ? screens.FirstOrDefault(s => s.WorkingArea.Intersects(new Avalonia.PixelRect((int)targetX, (int)targetY, Math.Max(1, (int)Math.Ceiling(targetW)), Math.Max(1, (int)Math.Ceiling(targetH)))))
+                : null;
+            screen ??= this.Screens.ScreenFromVisual(this) ?? this.Screens.Primary ?? screens.FirstOrDefault();
+            if (screen != null)
+            {
+                double workW = screen.WorkingArea.Width;
+                double workH = screen.WorkingArea.Height;
+                targetW = System.Math.Min(System.Math.Max(320, targetW), System.Math.Max(1, workW - 40));
+                targetH = System.Math.Min(System.Math.Max(240, targetH), System.Math.Max(1, workH - 40));
+
+                this.Width = targetW;
+                this.Height = targetH;
+                
+                if (!double.IsNaN(targetX) && !double.IsNaN(targetY))
+                {
+                    int widthPx = Math.Max(1, (int)Math.Ceiling(targetW));
+                    int heightPx = Math.Max(1, (int)Math.Ceiling(targetH));
+                    int pxX = Math.Max(screen.WorkingArea.X, Math.Min((int)targetX, screen.WorkingArea.Right - widthPx));
+                    int pxY = Math.Max(screen.WorkingArea.Y, Math.Min((int)targetY, screen.WorkingArea.Bottom - heightPx));
+                    this.Position = new Avalonia.PixelPoint(pxX, pxY);
+                    this.WindowStartupLocation = WindowStartupLocation.Manual;
+                }
+                else
+                {
+                    this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                }
+            }
+        }
+        catch { }
 
     }
 
     protected override void OnClosed(EventArgs e)
     {
         RuntimeLog.Info("Granular", "Granular Speed Editor closed. Disposing resources.");
+
         _playbackTimer?.Stop();
         _marchingAntsTimer?.Stop();
         base.OnClosed(e);
@@ -1646,9 +1707,16 @@ public partial class GranularSpeedEditorWindow : Window
         if (titleBar != null)
         {
             titleBar.IsHitTestVisible = true;
+            titleBar.DoubleTapped += (s, e) =>
+            {
+                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
+                    ? Avalonia.Controls.WindowState.Normal 
+                    : Avalonia.Controls.WindowState.Maximized;
+                e.Handled = true;
+            };
             titleBar.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
                     try { BeginMoveDrag(e); } catch { }
                 }
@@ -1656,7 +1724,6 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 }
-
 
 
 

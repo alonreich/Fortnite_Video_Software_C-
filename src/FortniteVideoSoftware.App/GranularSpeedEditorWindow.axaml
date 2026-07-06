@@ -4,14 +4,27 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.GranularSpeedEditorWindow"
         Title="Granular Speed Editor"
-        Width="1050" Height="720"
+        Width="1600" Height="840"
         Background="#1e293b"
         MinWidth="900" MinHeight="600"
         CanResize="True"
-        WindowStartupLocation="CenterOwner"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
+    <Window.Styles>
+        <Style Selector="TextBlock.BlinkingText">
+            <Style.Animations>
+                <Animation Duration="0:0:1" IterationCount="Infinite" PlaybackDirection="Alternate">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </Window.Styles>
 
     <Grid>
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
@@ -61,7 +74,7 @@
                 </Grid>
 
                 <!-- Playback controls -->
-                <Grid Grid.Row="2" Margin="0,15,0,10">
+                <Grid Grid.Row="2" Margin="0,5,0,10">
                     <StackPanel Orientation="Vertical" Spacing="5" HorizontalAlignment="Left" VerticalAlignment="Center">
                         <Button Name="FreezeImageToggle" Classes="Primary" Width="140" ToolTip.Tip="Freeze frame at current playhead">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
@@ -69,7 +82,13 @@
                                 <TextBlock Name="FreezeImageToggleText" Text="FREEZE IMAGE" FontSize="9" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
-                        <TextBlock Name="FreezeHintLabel" Text="👇 PICK FREEZE TIME" Foreground="#facc15" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,2" IsVisible="False" />
+                        <TextBlock Name="FreezeHintLabel" Text="👇 PICK FREEZE TIME" Foreground="#facc15" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,2" IsVisible="False">
+                            <TextBlock.Transitions>
+                                <Transitions>
+                                    <DoubleTransition Property="Opacity" Duration="0:0:0.6"/>
+                                </Transitions>
+                            </TextBlock.Transitions>
+                        </TextBlock>
                         <StackPanel Name="FreezePresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" HorizontalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                                 <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s"/>
@@ -82,6 +101,13 @@
                                 <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s"/>
                             </StackPanel>
                         </StackPanel>
+                        <TextBlock Name="FreezeHintLabelBottom" Text="☝ PICK FREEZE TIME" Foreground="#facc15" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,2" IsVisible="False">
+                            <TextBlock.Transitions>
+                                <Transitions>
+                                    <DoubleTransition Property="Opacity" Duration="0:0:0.6"/>
+                                </Transitions>
+                            </TextBlock.Transitions>
+                        </TextBlock>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">

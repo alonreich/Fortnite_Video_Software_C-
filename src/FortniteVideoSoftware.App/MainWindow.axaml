@@ -13,12 +13,28 @@
 
     <Grid>
         <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
-            <Grid RowDefinitions="30, *">
+            <Grid RowDefinitions="30, Auto, *">
                 <!-- Issue #5: Title bar bound to shared resource tokens -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
-                <Grid Grid.Row="1" ColumnDefinitions="*, 170">
+                <Menu Grid.Row="1" Background="#0f172a" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
+                    <MenuItem Header="_File">
+                        <MenuItem Name="MenuUploadVideo" Header="Upload Video..." />
+                        <Separator />
+                        <MenuItem Name="MenuExportConfig" Header="Backup Settings..." />
+                        <MenuItem Name="MenuImportConfig" Header="Restore Settings..." />
+                        <Separator />
+                        <MenuItem Name="MenuSettingsBtn" Header="_Settings" />
+                        <Separator />
+                        <MenuItem Name="MenuExit" Header="E_xit" />
+                    </MenuItem>
+                    <MenuItem Header="_Edit">
+                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" />
+                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" />
+                    </MenuItem>
+                </Menu>
+                <Grid Grid.Row="2" ColumnDefinitions="*, 170">
         <!-- LEFT COLUMN: Player & Editing Controls -->
         <Grid Grid.Column="0" RowDefinitions="*, Auto" ClipToBounds="False">
 
@@ -32,36 +48,32 @@
                              so the native HWND does not cover the Avalonia timeline controls -->
                         <local:MpvVideoView Name="VideoHost" IsVisible="False" Margin="0,0,0,52" />
 
-                        <!-- Portrait Dimming Grid (kept for structure; actual dim rendered
-                             via MPV vf drawbox so it is visible above the native video surface) -->
-                        <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52">
+                        <!-- Portrait Dimming Grid (Avalonia native overlay) -->
+                        <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52" IsHitTestVisible="False">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="1*" />
-                                <ColumnDefinition Width="4*" />
-                                <ColumnDefinition Width="1*" />
+                                <ColumnDefinition Width="5*" />
+                                <ColumnDefinition Width="6*" />
+                                <ColumnDefinition Width="5*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="#66000000" />
-                            <Border Grid.Column="1" Background="Transparent" />
-                            <Border Grid.Column="2" Background="#66000000" />
+                            <Border Grid.Column="0" Background="#99000000" />
+                            <Border Grid.Column="1" Background="Transparent" ClipToBounds="True">
+                                <Image Name="PreviewPortraitImage" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,40,0,0" Stretch="Uniform" />
+                            </Border>
+                            <Border Grid.Column="2" Background="#99000000" />
                         </Grid>
 
                         <!-- Upload Video Overlay -->
-                        <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6" ClipToBounds="False">
+                        <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6" ClipToBounds="False" DragDrop.AllowDrop="True">
                             <Grid ClipToBounds="False">
-                                <Grid Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <Rectangle Stroke="#64748b" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="8" RadiusY="8" Fill="#1a2536" Opacity="0.8" />
-                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Margin="60,40">
-                                        <TextBlock Text="Drag &amp; Drop video file here" Foreground="#94a3b8" FontSize="14" HorizontalAlignment="Center" />
-                                        <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                <Grid Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center" DragDrop.AllowDrop="True">
+                                    <Rectangle Stroke="#64748b" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="8" RadiusY="8" Fill="#1a2536" Opacity="0.8" IsHitTestVisible="False" />
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Margin="60,40" DragDrop.AllowDrop="True">
+                                        <TextBlock Text="Drag &amp; Drop video file here" Foreground="#94a3b8" FontSize="14" HorizontalAlignment="Center" IsHitTestVisible="False" />
+                                        <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                         <Button Name="CenterUploadButton" Classes="Primary" Content="BROWSE VIDEO" Width="200" Cursor="Hand" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
-                                <!-- Settings Button -->
-                                <Button Name="SettingsOverlayBtn" Classes="Primary" CornerRadius="8" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="30" Cursor="Hand" ToolTip.Tip="Open Settings and Key Binds">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="SETTINGS" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Button>
+                                <!-- Settings Button removed to Menu Bar -->
                             </Grid>
                         </Border>
 
@@ -204,14 +216,28 @@
 
                 <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#00783C" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
 
-                <StackPanel Grid.Row="4" Margin="0,0,0,15" Spacing="5">
-                    <Viewbox Width="140" Height="50" HorizontalAlignment="Left" Stretch="Uniform" StretchDirection="DownOnly" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}">
-                        <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="50" FontSize="16" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" TextWrapping="Wrap" AcceptsReturn="True" />
-                    </Viewbox>
-                    <CheckBox Name="PortraitModeCheckbox" Content="Portrait (9:16)" IsChecked="True" IsEnabled="False" />
-                    <CheckBox Name="BossHpCheckbox" Content="Boss HP" IsEnabled="False" />
-                    <CheckBox Name="TeammatesCheckbox" Content="Show Teammates" IsEnabled="False" />
-                    <CheckBox Name="NoFadeCheckbox" Content="Disable Fade-In/Out" IsEnabled="False" />
+                <StackPanel Grid.Row="4" Spacing="10" Margin="0,0,0,15">
+                    <StackPanel Spacing="5">
+                        <Grid ColumnDefinitions="*, Auto">
+                            <TextBlock Text="Portrait (9:16)" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                        </Grid>
+                        <Viewbox Width="140" Height="40" HorizontalAlignment="Left" Stretch="Uniform" StretchDirection="DownOnly" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}">
+                            <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="40" FontSize="14" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" TextWrapping="Wrap" AcceptsReturn="True" />
+                        </Viewbox>
+                    </StackPanel>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <TextBlock Text="Boss HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ToggleSwitch Name="BossHpCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <TextBlock Text="Teammate HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <TextBlock Text="Disable Fade" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ToggleSwitch Name="NoFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                    </Grid>
                 </StackPanel>
 
                 <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>

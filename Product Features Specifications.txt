@@ -1,0 +1,169 @@
+# PRODUCT SPECIFICATION & FEATURE REQUIREMENTS: AVALONIA UI .NET 9 AOT VIDEO EDITOR
+
+## 1. Master Application Volume Control
+**Description:** A main vertical volume slider located on the right pane of the application's opening screen. This controls the Windows OS process (PID) volume for the application's preview playback ONLY.
+**Core Logic:** It must strictly isolate from and not affect the FFmpeg export pipeline. If the background music and video audio have different volume levels (set during Phase 3 of the Add Music Wizard), this master slider must act as a global multiplier, scaling both volumes proportionally to maintain their relative offset.
+**Edge Cases:**
+* **Edge Case A (Zero-Scaling Memory):** If the slider is dragged to 0% (mute), the application must cache the previous proportional values. Dragging it back above 0% must restore the exact offset, not default both tracks to equal volumes.
+**Examples:**
+* *Example 1:* Video is at 100% volume, Music is at 50%. User lowers master slider by half. Video preview sounds like 50%, Music preview sounds like 25%. FFmpeg output remains 100%/50%.
+* *Example 2:* User drags master slider to 0% to answer a phone call, then drags it back up. The 2:1 ratio between video and music is perfectly preserved.
+
+## 2. Marker Drag Event Triggers
+**Description:** Interactive timeline markers (`MARK START` and `MARK END`).
+**Core Logic:** Dragging the markers continuously along the X-axis must NOT continuously fire the state-change event. The logic must wait for the `MouseRelease` (drop) event. Upon release, the application triggers a single state update, identical to clicking the physical "Mark Start" or "Mark End" buttons at that specific coordinate.
+**Edge Cases:**
+* **Edge Case A (Lost Focus):** If the mouse drag loses window focus or goes out of bounds before releasing, the marker should revert to its last known valid position or trigger the release event at the boundary limit.
+**Examples:**
+* *Example 1:* User drags `MARK START` from 00:05 to 00:10. The UI semi-transparent gray area does not jump around wildly during the drag. Upon releasing the mouse at 00:10, the gray area and music synchronization update instantly.
+* *Example 2:* User clicks and holds the marker but doesn't move it, then releases. The state updates as a standard click.
+
+## 3. Marker Collision Physics
+**Description:** Hard boundaries for timeline markers.
+**Core Logic:** The `MARK START` and `MARK END` markers are strictly bound by each other's coordinates. The Start marker's X-axis value can never be greater than or equal to the End marker's value, and vice versa.
+**Edge Cases:**
+* **Edge Case A (Collision Handling):** Dragging one marker into another must act like hitting a "brick wall." The dragged marker stops exactly 1 minimum-unit (e.g., 1 frame or 1 millisecond) before the other marker, refusing to pass.
+**Examples:**
+* *Example 1:* `MARK END` is at 00:15. User drags `MARK START` to the right. The cursor may pass 00:15, but the marker stops dead at 00:14.999.
+* *Example 2:* User attempts to click and drag `MARK END` to the left of 00:00. It hits a brick wall at the `MARK START` position (e.g., 00:05).
+
+## 4. Audio Timeline Synchronization Accuracy
+**Description:** Music note vertical alignment markers.
+**Core Logic:** The vertical lines dropping from the music note icons to the timeline must sync with extreme precision to the exact millisecond of the audio track, bypassing standard video frame-rate snapping.
+**Edge Cases:**
+* **Edge Case A (Sub-Frame Rendering):** If a millisecond timestamp falls between two visual video frames on the UI timeline, the marker must render at the exact sub-pixel X-coordinate representing that millisecond, not jump to the nearest frame line.
+**Examples:**
+* *Example 1:* An audio beat drops at 01:05.123. The vertical line renders precisely at the X-coordinate representing .123, even if the nearest 60fps video frame is at .116 or .133.
+* *Example 2:* User zooms in maximum on the timeline. The music line maintains its absolute position relative to the audio waveform, rather than shifting to snap to the grid.
+
+## 5. Dynamic Time Badge Indicator
+**Description:** A floating, ephemeral timestamp badge attached to the X-axis playhead (carrot).
+**Core Logic:** While the playhead is being moved or dragged, a badge showing the exact current time follows the playhead. When movement ceases, a 1-second timer begins. After 1 second, the badge triggers a CSS/UI animation fading to 0% opacity.
+**Edge Cases:**
+* **Edge Case A (Micro-movements):** Any 1-pixel movement of the playhead resets the 1-second timer immediately and restores opacity to 100%.
+**Examples:**
+* *Example 1:* User drags the playhead rapidly. The badge reads "00:12:34" and updates in real-time, staying fully visible. User drops the playhead. One second passes. Badge fades out smoothly.
+* *Example 2:* User clicks the timeline once. The playhead jumps, the badge appears for exactly 1 second, then vanishes.
+
+## 6. Granular Speed Editor State Persistence
+**Description:** Window memory and responsive sizing for the secondary Granular Speed Editor.
+**Core Logic:** The window state (X/Y coordinates, width, height) must be serialized and saved locally. Default installation size is 1600x840. The application must run a "smart probe" on the user's current primary monitor resolution upon launching this window.
+**Edge Cases:**
+* **Edge Case A (Resolution Clamp):** If the smart probe detects a monitor resolution lower than 1920x1080 (e.g., 1366x768), it must override the saved/default 1600x840 settings and dynamically scale the window down to fit within the OS working area (excluding taskbar).
+**Examples:**
+* *Example 1:* User on a 4K monitor resizes the window to 2000x1000 and moves it to the top left. They close it. Upon reopening, it appears exactly at 2000x1000 in the top left.
+* *Example 2:* User moves the app to a laptop with a 1280x720 screen. The app detects the constraint, ignores the 1600x840 default, and opens the window clamped to ~1200x680 to remain visible and usable.
+
+## 7. Tactile UI Prompts (Freeze Time)
+**Description:** Visual guidance forcing the user to select a freeze duration.
+**Core Logic:** Clicking the freeze image camera icon spawns duplicate "PICK FREEZE TIME" text elements: one above the duration buttons, and one directly below accompanied by a "pointing-up hand" icon. Both elements must execute a slow fade-in/fade-out blinking loop.
+**Edge Cases:**
+* **Edge Case A (Memory Leak Prevention):** The blink animation loop must run on a finite timer or iteration count (e.g., stops after 15 seconds or 10 blinks) and settle at a solid state or disappear, preventing infinite background rendering threads from consuming RAM.
+**Examples:**
+* *Example 1:* User clicks the freeze icon. The UI immediately flashes the top and bottom prompts, drawing the user's eye to the preset buttons. User clicks a duration; the text instantly disappears.
+* *Example 2:* User clicks the freeze icon but gets distracted and walks away. The text blinks 10 times, then stops blinking and remains statically visible to avoid resource drain.
+
+## 8. Persistent Directory Memory
+**Description:** Smart probing and permanent caching of user file paths for NVIDIA Highlights and MP3s.
+**Core Logic:** 1. `Upload Video`: Probe for `LocalApplicationData\Temp\Highlights\Fortnite` (or equivalent NVIDIA save paths). If found, default there. If not, fallback to OS `Videos` folder.
+2. `Background Music`: Default to OS `Music` folder.
+3. Once the user manually navigates to and selects a new folder for either, that specific string path is written to a persistent config file.
+**Edge Cases:**
+* **Edge Case A (Aborted Selection):** If the user opens the file picker, changes the directory, but then clicks "Cancel" (aborting the Add Music Wizard), the new directory path MUST STILL be saved as the default for the next time the window is opened.
+**Examples:**
+* *Example 1:* Fresh install. User clicks Upload. App detects GeForce Experience highlights and opens that exact folder automatically. User picks a video.
+* *Example 2:* User clicks Add Music. They navigate from `C:\Music` to `D:\Downloads\TikTokAudio`. They realize they don't want to add music right now and hit Cancel. Next time they click Add Music, it opens directly to `D:\Downloads\TikTokAudio`.
+
+## 9. Timeline Overlay Jitter Rectification
+**Description:** Fixing Z-index and Cartesian coordinate math causing UI stuttering.
+**Core Logic:** The yellow camera icon overlay on the X-axis timeline currently enters an infinite layout cycle (jitter/shaking) upon instantiation and hover, failing to release mouse capture cleanly during drag. This must be resolved by decoupling the icon's render position from the playback loop timer.
+**Edge Cases:**
+* **Edge Case A (Static Frame Jitter):** The mouse tracking math must utilize absolute canvas coordinates rather than relative deltas to prevent micro-stutters when the underlying video playback is completely paused.
+**Examples:**
+* *Example 1:* Video is paused. User hovers over the yellow camera overlay. The icon remains perfectly still. User clicks and drags it left; it moves smoothly 1:1 with the mouse pointer.
+* *Example 2:* User drops the camera icon. The mouse releases immediately, allowing the user to interact with other elements without dragging the camera by mistake.
+
+## 10. Post-Processing State Reset (New File)
+**Description:** Behavior of the "New File" button displayed after rendering completes.
+**Core Logic:** Clicking "New File" must execute the exact same command block as the main screen's "Upload Video" button.
+**Edge Cases:**
+* **Edge Case A (Memory Purge):** Triggering this button must forcefully garbage collect all current timeline data, cached edits, temporary waveforms, and marker states, ensuring the UI is a clean slate before the system file picker dialog appears.
+**Examples:**
+* *Example 1:* App finishes rendering "final_video.mp4". A popup appears. User clicks "New File". The popup closes, the timeline clears instantly, and the Windows file explorer opens asking for a new video.
+* *Example 2:* If the user clicks "New File" but then cancels the file explorer, the app remains on a completely empty, reset main screen ready to begin a new project.
+
+## 11. Dynamic Processing Sliders
+**Description:** `Speed Slider` and `Output File Size Slider`.
+**Core Logic:** Two UI sliders. `Speed` sits to the right of the `PROCESS` button; `Output Size` sits to the left. They must be explicitly hidden (Collapsed/Display:None) upon application boot. The exact moment a valid video file is loaded into the timeline, their visibility toggles to true.
+**Edge Cases:**
+* **Edge Case A (Session Persistence):** Once unhidden, these sliders must remain visible for the entirety of the application's runtime. Deleting the video or clearing the timeline does not hide them again; only completely closing and restarting the application resets them to hidden.
+**Examples:**
+* *Example 1:* User opens the app. Looks at the bottom near the Process button. There are no sliders.
+* *Example 2:* User drags and drops a video into the app. Instantly, the Speed and Output Size sliders fade into view. User later removes the video to upload a different one; the sliders stay visible on screen.
+
+## 12. Click Priority and Hitbox Resolution
+**Description:** Resolving overlapping elements on the timeline via Z-index and root inheritance.
+**Core Logic:** The Granular Speed Editor's timeline must inherit directly from the main application's X-axis timeline object code to prevent duplicated, buggy logic. When multiple elements exist at the exact same X/Y coordinate, the mouse click event must respect a strict Z-index hierarchy, from highest to lowest:
+1. Music Note Symbols (Highest priority)
+2. Yellow Camera Overlays
+3. Slider Playhead (Carrot)
+4. MARK START / MARK END markers (Lowest priority)
+**Edge Cases:**
+* **Edge Case A (Marching Ants Recovery):** When an element (like the yellow camera) is clicked and wins the priority check, it must regain its "marching ants" highlight state, allowing it to be nudged frame-by-frame via keyboard arrows.
+**Examples:**
+* *Example 1:* A Music Note, the Playhead, and a Camera Overlay are all stacked perfectly on frame 300. User clicks that exact pixel. The Music Note is selected because it is highest in the hierarchy.
+* *Example 2:* User clicks slightly below the Music Note hitbox, successfully hitting the Camera Overlay. It gains a dashed marching ants border and responds to the Left/Right keyboard arrows.
+
+## 13. Portrait Mode Visual Dimming
+**Description:** Canvas visual aid for 9:16 aspect ratio conversion.
+**Core Logic:** When the `Portrait` checkbox is ticked, the UI video player must dynamically draw a semi-transparent dark overlay (dimming) on the left and right flanks of the landscape video.
+**Edge Cases:**
+* **Edge Case A (Smart FOV Representation):** The clear, un-dimmed center vertical slice must accurately represent the backend FFmpeg logic. It must show a width of exactly 1280 pixels relative to the source. Because the backend shrinks the height to create a 150px black void at the top (to write text), the resulting portrait video has a slightly wider Field of View (FOV) than native 1080p. The clear window must map this logic 1:1 visually.
+**Examples:**
+* *Example 1:* User checks the portrait box on a 1920x1080 gameplay video. The left and right edges instantly darken, showing the user exactly which UI elements (like minimaps or health bars) will be cut out of the final TikTok/Shorts render.
+* *Example 2:* User unchecks the box. The dimming instantly vanishes, restoring the full 16:9 view.
+
+## 14. Dynamic Text Wrapping Simulation
+**Description:** Frontend preview of backend FFmpeg text rendering.
+**Core Logic:** The UI must perfectly clone the backend's text-wrapping and scaling algorithms. As the user types into the text input, the preview text overlaid on the video canvas must dynamically shrink its font size or wrap to a new line exactly as the FFmpeg output will.
+**Edge Cases:**
+* **Edge Case A (Void Substitution):** Because the frontend preview does not physically render the 150px black void at the top of the canvas, the text must render in the top-center of the active video frame. It compromises on *position* to guarantee perfect accuracy of *scale and line-wrapping*.
+**Examples:**
+* *Example 1:* User types "Victory". It appears large and bold in the top center of the video. The user continues typing: "Victory Royale with 20 eliminations". The font dynamically scales down in real-time to fit the 1280px boundaries without breaking off-screen.
+* *Example 2:* User pastes a massive paragraph. The logic detects the boundary hit, scales the font to the minimum threshold, and then executes line breaks exactly matching the FFmpeg word-wrap array, showing the user that their text is too long and will look cluttered.
+
+## 15. Crash Recovery & State Serialization
+**Description:** Robust session state saving and restoration mechanism across application crashes.
+**Core Logic:** The application runs a background `RecoveryManager` that continuously serializes the current editing session state (including timeline edits, loaded paths, and marker locations) to a local recovery file. Upon a fresh application boot, the system checks for an existing unclosed recovery state and prompts the user to restore their previous session.
+**Edge Cases:**
+* **Edge Case A (Corrupt State Prevention):** If the recovery file is corrupted or partially written due to a hard system crash, the deserializer gracefully discards the invalid data and boots into a clean state without throwing a fatal exception.
+**Examples:**
+* *Example 1:* User is halfway through editing a complex video with music and markers. The power goes out. When the user reboots their PC and launches the application, their entire timeline, video, and audio sync are perfectly restored.
+* *Example 2:* User normally closes the application. The system gracefully cleans up the recovery state file so the next launch starts fresh.
+
+## 16. Advanced Audio Ducking & Sidechain Compression
+**Description:** Professional FFmpeg mastering pipeline for dynamic audio mixing.
+**Core Logic:** When background music is added alongside game audio, the FFmpeg rendering pipeline automatically applies an RMS sidechain compressor (`sidechaincompress=threshold=0.15:ratio=2.5`) and a 150Hz lowpass filter. This dynamically "ducks" (lowers) the game audio volume in real-time whenever the background music hits specific frequencies or thresholds.
+**Edge Cases:**
+* **Edge Case A (Silent Source Tracks):** If the game audio track is entirely silent or absent, the sidechain compressor must mathematically bypass the ducking logic, preventing the background music from improperly inflating or compressing against an empty signal.
+**Examples:**
+* *Example 1:* A loud sniper shot occurs in the game audio. The sidechain compressor reacts instantly, allowing the game audio to punch through clearly while momentarily dipping the background music.
+* *Example 2:* During quiet exploration gameplay, the background music maintains its steady, normalized volume without being unnecessarily suppressed.
+
+## 17. GPU Capability Probing (The Gatekeeper)
+**Description:** Startup diagnostic to determine hardware encoding capabilities and limits.
+**Core Logic:** The application executes a `GpuCapabilityProbe` upon startup before any rendering or FFmpeg operations are allowed. It queries the system for active hardware acceleration support (e.g., NVIDIA NVENC, AMD AMF).
+**Edge Cases:**
+* **Edge Case A (Seamless CPU Fallback):** If the user is on an unsupported GPU, virtual machine, or missing drivers, the probe intercepts the failure and forces a global fallback to software CPU encoding. The user experiences zero crash dialogs, just slower render times.
+**Examples:**
+* *Example 1:* User launches the app on an RTX 4090. The Gatekeeper detects NVENC, unlocking maximum hardware acceleration and the fastest possible render speeds.
+* *Example 2:* User launches the app on a generic corporate laptop without a dedicated GPU. The Gatekeeper silently defaults to CPU encoding, ensuring the app still runs perfectly.
+
+## 18. Deployment & Mutex Locks
+**Description:** Strict OS-level locking to prevent overlapping operations.
+**Core Logic:** `DeploymentLifecycle` implements a global system `MUTEX` that acts as a strict concurrency lock for installation and uninstallation processes. It ensures that only one instance of the installer/uninstaller or critical file-manipulation lifecycle can execute at any given time.
+**Edge Cases:**
+* **Edge Case A (Orphaned Mutex Recovery):** If a previous installation crashes mid-process and leaves an orphaned Mutex, the system must detect the dead owner process and forcefully claim the Mutex to unblock the user.
+**Examples:**
+* *Example 1:* User frantically double-clicks the installer five times. Only the first instance runs; the others detect the Mutex lock and gracefully exit, preventing file corruption.
+* *Example 2:* User tries to uninstall the software while it is currently installing an update. The Mutex intercepts the request and warns the user to wait for the current operation to finish.

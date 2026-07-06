@@ -9,16 +9,14 @@ using Avalonia.Input;
 using Avalonia.Threading;
 
 using FortniteVideoSoftware.Core.Infrastructure;
-
 using System;
-
 using System.Collections.ObjectModel;
-
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 
 
 namespace FortniteVideoSoftware.App;
@@ -99,6 +97,9 @@ public partial class MusicWizardWindow : Window
     private DateTime? _previewStartTime = null;
     private double _songStartSeconds = 0.0;
     private Avalonia.Threading.DispatcherTimer? _playheadTimer;
+    private Avalonia.Controls.Shapes.Line? _waveformOffsetLine;
+    private Avalonia.Controls.Shapes.Line? _waveformPlayheadLine;
+    private Avalonia.Controls.Shapes.Line? _timelinePlayheadLine;
 
     private string _videoPath = "";
     private double _trimStartMs = 0;
@@ -244,10 +245,10 @@ public partial class MusicWizardWindow : Window
                 {
                     if (File.Exists(_paths.SessionStateFile))
                     {
-                        var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile));
-                        if (state != null && state["CustomMusicDirectory"] != null)
+                        var state = FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.ReadObject(_paths.SessionStateFile);
+                        if (state != null && state.TryGetPropertyValue("CustomMusicDirectory", out var node) && node != null)
                         {
-                            string customPath = state["CustomMusicDirectory"]!.ToString();
+                            string customPath = node.ToString();
                             if (Directory.Exists(customPath))
                             {
                                 musicPath = customPath;
@@ -257,10 +258,13 @@ public partial class MusicWizardWindow : Window
                 }
                 catch { }
 
-                try { Environment.CurrentDirectory = musicPath; } catch { }
-                var musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(musicPath));
-
-
+                Avalonia.Platform.Storage.IStorageFolder? musicFolder = null;
+                try
+                {
+                    var uri = new Uri(musicPath);
+                    musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(uri);
+                }
+                catch { }
 
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
 
@@ -288,21 +292,11 @@ public partial class MusicWizardWindow : Window
 
                     {
 
-                        System.Text.Json.Nodes.JsonObject state;
-
-                        if (File.Exists(_paths.SessionStateFile))
-
-                            state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject();
-
-                        else
-
-                            state = new System.Text.Json.Nodes.JsonObject();
-
-
-
-                        state["CustomMusicDirectory"] = selectedFolderPath;
-
-                        File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+                        await new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)
+                            .UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject
+                            {
+                                ["CustomMusicDirectory"] = selectedFolderPath
+                            });
 
                     }
 
@@ -588,9 +582,8 @@ public partial class MusicWizardWindow : Window
 
         UpdateNextButtonState();
         UpdatePreviewControlsState();
+        AttachTitleBarDrag();
     }
-
-
     private void InitializeComponent()
 
     {
@@ -1404,15 +1397,10 @@ public partial class MusicWizardWindow : Window
         {
             var videoVolSlider = this.FindControl<Avalonia.Controls.Slider>("VideoVolSlider");
             var musicVolSlider = this.FindControl<Avalonia.Controls.Slider>("MusicVolSlider");
-            
-            var state = System.IO.File.Exists(_paths.SessionStateFile)
-                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                : new System.Text.Json.Nodes.JsonObject();
-
-            if (videoVolSlider != null) state["WizardVideoVolume"] = videoVolSlider.Value;
-            if (musicVolSlider != null) state["WizardMusicVolume"] = musicVolSlider.Value;
-
-            System.IO.File.WriteAllText(_paths.SessionStateFile, state.ToJsonString());
+            var updates = new System.Text.Json.Nodes.JsonObject();
+            if (videoVolSlider != null) updates["WizardVideoVolume"] = videoVolSlider.Value;
+            if (musicVolSlider != null) updates["WizardMusicVolume"] = musicVolSlider.Value;
+            new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(updates);
         }
         catch { }
     }
@@ -2025,6 +2013,34 @@ public partial class MusicWizardWindow : Window
 
 
 
+    private static void EnsurePlayheadLine(
+        Canvas canvas,
+        ref Avalonia.Controls.Shapes.Line? line,
+        Avalonia.Media.IBrush stroke,
+        bool dashed)
+    {
+        if (line == null)
+        {
+            line = new Avalonia.Controls.Shapes.Line
+            {
+                Stroke = stroke,
+                StrokeThickness = 2,
+                IsHitTestVisible = false
+            };
+
+            if (dashed)
+            {
+                line.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(new[] { 2.0, 2.0 });
+            }
+
+            canvas.Children.Add(line);
+        }
+        else if (!canvas.Children.Contains(line))
+        {
+            canvas.Children.Add(line);
+        }
+    }
+
     private void UpdatePlayhead()
 
     {
@@ -2057,53 +2073,21 @@ public partial class MusicWizardWindow : Window
 
 
 
-        canvas.Children.Clear();
+        EnsurePlayheadLine(
+            canvas,
+            ref _waveformOffsetLine,
+            Avalonia.Media.Brushes.Gray,
+            dashed: true);
+        _waveformOffsetLine!.StartPoint = new Avalonia.Point(offsetXPos, 0);
+        _waveformOffsetLine.EndPoint = new Avalonia.Point(offsetXPos, canvas.Bounds.Height);
 
-
-
-        // Draw static offset line
-
-        var offsetLine = new Avalonia.Controls.Shapes.Line
-
-        {
-
-            StartPoint = new Avalonia.Point(offsetXPos, 0),
-
-            EndPoint = new Avalonia.Point(offsetXPos, canvas.Bounds.Height),
-
-            Stroke = Avalonia.Media.Brushes.Gray,
-
-            StrokeThickness = 2,
-
-            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(new[] { 2.0, 2.0 }),
-
-            IsHitTestVisible = false
-
-        };
-
-        canvas.Children.Add(offsetLine);
-
-
-
-        // Draw moving playhead line
-
-        var playheadLine = new Avalonia.Controls.Shapes.Line
-
-        {
-
-            StartPoint = new Avalonia.Point(playheadXPos, 0),
-
-            EndPoint = new Avalonia.Point(playheadXPos, canvas.Bounds.Height),
-
-            Stroke = Avalonia.Media.Brushes.Red,
-
-            StrokeThickness = 2,
-
-            IsHitTestVisible = false
-
-        };
-
-        canvas.Children.Add(playheadLine);
+        EnsurePlayheadLine(
+            canvas,
+            ref _waveformPlayheadLine,
+            Avalonia.Media.Brushes.Red,
+            dashed: false);
+        _waveformPlayheadLine!.StartPoint = new Avalonia.Point(playheadXPos, 0);
+        _waveformPlayheadLine.EndPoint = new Avalonia.Point(playheadXPos, canvas.Bounds.Height);
 
 
 
@@ -2111,27 +2095,15 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            timelineCanvas.Children.Clear();
-
             double txPos = timelineCanvas.Bounds.Width * playheadFraction;
 
-            var tLine = new Avalonia.Controls.Shapes.Line
-
-            {
-
-                StartPoint = new Avalonia.Point(txPos, 0),
-
-                EndPoint = new Avalonia.Point(txPos, timelineCanvas.Bounds.Height),
-
-                Stroke = Avalonia.Media.Brushes.Red,
-
-                StrokeThickness = 2,
-
-                IsHitTestVisible = false
-
-            };
-
-            timelineCanvas.Children.Add(tLine);
+            EnsurePlayheadLine(
+                timelineCanvas,
+                ref _timelinePlayheadLine,
+                Avalonia.Media.Brushes.Red,
+                dashed: false);
+            _timelinePlayheadLine!.StartPoint = new Avalonia.Point(txPos, 0);
+            _timelinePlayheadLine.EndPoint = new Avalonia.Point(txPos, timelineCanvas.Bounds.Height);
 
         }
 
@@ -2429,15 +2401,12 @@ public partial class MusicWizardWindow : Window
         {
 
             if (File.Exists(_paths.SessionStateFile))
-
             {
-
-                string json = File.ReadAllText(_paths.SessionStateFile);
-
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(json);
-
-                targetDir = state?["CustomMusicDirectory"]?.ToString();
-
+                var state = FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.ReadObject(_paths.SessionStateFile);
+                if (state != null && state.TryGetPropertyValue("CustomMusicDirectory", out var node) && node != null)
+                {
+                    targetDir = node.ToString();
+                }
             }
 
         }
@@ -2754,9 +2723,30 @@ public partial class MusicWizardWindow : Window
             hostPanel.Children.Remove(toast);
 
         });
-
     }
 
+    private void AttachTitleBarDrag()
+    {
+        var titleBar = this.FindControl<Border>("TitleBarBorder");
+        if (titleBar != null)
+        {
+            titleBar.IsHitTestVisible = true;
+            titleBar.DoubleTapped += (s, e) =>
+            {
+                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
+                    ? Avalonia.Controls.WindowState.Normal 
+                    : Avalonia.Controls.WindowState.Maximized;
+                e.Handled = true;
+            };
+            titleBar.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
+                {
+                    try { BeginMoveDrag(e); } catch { }
+                }
+            };
+        }
+    }
 }
 
 
