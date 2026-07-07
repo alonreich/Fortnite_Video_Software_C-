@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -48,33 +48,28 @@ public sealed class RecoveryManager
                                 if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
                                 {
                                     if (proc.StartTime.Ticks == oldTicks)
-                                        return false; // Process still running, same instance, no fault
-                                    // Otherwise it's a recycled PID, fault = true
+                                        return false;
                                 }
                                 else
                                 {
-                                    return false; // Process still running, legacy lock format, no fault
+                                    return false;
                                 }
                             }
                         }
                         catch (ArgumentException)
                         {
-                            // Process is not running
                         }
                         catch (InvalidOperationException)
                         {
-                            // Process is not running
                         }
                         catch (System.ComponentModel.Win32Exception)
                         {
-                            // Access denied getting StartTime, assume running to be safe or crashed
                         }
                     }
                 }
             }
             catch (Exception)
             {
-                // Error reading lock file, ignore and assume crashed
             }
         }
 
@@ -97,7 +92,6 @@ public sealed class RecoveryManager
             }
             catch
             {
-                // Ignored
             }
         }
         return false;
@@ -112,7 +106,6 @@ public sealed class RecoveryManager
         }
         catch
         {
-            // Ignored
         }
     }
 
@@ -126,7 +119,6 @@ public sealed class RecoveryManager
         }
         catch
         {
-            // Ignored
         }
     }
 
@@ -153,7 +145,6 @@ public sealed class RecoveryManager
         }
         catch
         {
-            // Ignored
         }
     }
 
@@ -189,7 +180,6 @@ public sealed class RecoveryManager
             }
             catch
             {
-                // Ignored
             }
         }
     }
@@ -222,7 +212,6 @@ public sealed class RecoveryManager
         }
         catch
         {
-            // Ignored
         }
     }
 }

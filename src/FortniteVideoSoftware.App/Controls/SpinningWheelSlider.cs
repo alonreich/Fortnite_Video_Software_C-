@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -20,8 +20,6 @@ namespace FortniteVideoSoftware.App.Controls
         private double _lastMouseX = 0;
         private double _overscroll = 0.08;
 
-        // Issue #3: Tooltip suppression during active interaction.
-        // Stores the original tooltip so it can be restored after interaction ends.
         private object? _savedToolTip = null;
         private bool _isTooltipSuppressed = false;
         private CancellationTokenSource? _tooltipRestoreCts;
@@ -42,12 +40,10 @@ namespace FortniteVideoSoftware.App.Controls
         /// </summary>
         private void SuppressTooltipTemporarily()
         {
-            // Cancel any pending restore
             _tooltipRestoreCts?.Cancel();
             _tooltipRestoreCts = new CancellationTokenSource();
             var token = _tooltipRestoreCts.Token;
 
-            // Save and clear the tooltip only on the first interaction
             if (!_isTooltipSuppressed)
             {
                 _savedToolTip = ToolTip.GetTip(this);
@@ -55,7 +51,6 @@ namespace FortniteVideoSoftware.App.Controls
                 _isTooltipSuppressed = true;
             }
 
-            // Restore after 1.2s of no interaction
             _ = Task.Run(async () =>
             {
                 try
@@ -145,7 +140,7 @@ namespace FortniteVideoSoftware.App.Controls
             _lastMouseX = pt.Position.X;
             Cursor = new Cursor(StandardCursorType.Hand);
             Focus();
-            SuppressTooltipTemporarily(); // Issue #3
+            SuppressTooltipTemporarily();
             e.Handled = true;
             base.OnPointerPressed(e);
         }
@@ -158,7 +153,7 @@ namespace FortniteVideoSoftware.App.Controls
             _lastMouseX = pt.Position.X;
             double sensitivity = 0.011;
             Rotation = _rotation - (dx * sensitivity);
-            SuppressTooltipTemporarily(); // Issue #3
+            SuppressTooltipTemporarily();
             base.OnPointerMoved(e);
         }
         
@@ -181,7 +176,7 @@ namespace FortniteVideoSoftware.App.Controls
             int current = (int)Math.Round(_rotation);
             int target = current + (int)delta;
             SetValue(target);
-            SuppressTooltipTemporarily(); // Issue #3
+            SuppressTooltipTemporarily();
             e.Handled = true;
             base.OnPointerWheelChanged(e);
         }
@@ -250,7 +245,6 @@ namespace FortniteVideoSoftware.App.Controls
             
             var rect = new Rect(0, 0, w, h);
             
-            // ── Outer rim: dark blue-grey matching Python's #15202b → #3e5871 → #15202b ──
             var rimGrad = new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
@@ -268,8 +262,6 @@ namespace FortniteVideoSoftware.App.Controls
             
             var innerRect = rect.Deflate(3);
             
-            // ── Inner face: teal radial gradient matching Python's RadialGradient ──
-            // Python: center=#3a6b6b, 0.4=#1e313d, 0.8=#0f1a0f, 1.0=#080c08
             var faceGrad = new RadialGradientBrush
             {
                 Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
@@ -287,10 +279,8 @@ namespace FortniteVideoSoftware.App.Controls
             var innerPen = new Pen(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)), 1);
             context.DrawRectangle(faceGrad, innerPen, innerRect, 4, 4);
             
-            // Clip all inner drawing to the inner rectangle
             using (context.PushClip(innerRect))
             {
-                // ── Rib lines: matching Python's blue-green tinted ribs ──
                 for (int i = _range.min - 5; i <= _range.max + 5; i++)
                 {
                     double ribAngle = (i - _rotation) * (Math.PI / 5);
@@ -299,7 +289,6 @@ namespace FortniteVideoSoftware.App.Controls
                     double ribX = cx + Math.Sin(ribAngle) * (w * 0.85);
                     double ribW = Math.Max(1.0, 5.0 * Math.Pow(ribOpacity, 2.5));
                     
-                    // Python: rib colors (0,10,20,130*op) → (210,245,255,40*op) → (0,20,10,130*op)
                     var ribGrad = new LinearGradientBrush
                     {
                         StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
@@ -316,7 +305,6 @@ namespace FortniteVideoSoftware.App.Controls
                     context.DrawRectangle(ribGrad, null, ribRect);
                 }
                 
-                // ── Top/bottom shadow vignette ──
                 var shadowRect = innerRect.Deflate(1);
                 var shadowGrad = new LinearGradientBrush
                 {
@@ -332,7 +320,6 @@ namespace FortniteVideoSoftware.App.Controls
                 };
                 context.DrawRectangle(shadowGrad, null, shadowRect, 4, 4);
                 
-                // ── Text labels ──
                 for (int i = _range.min; i <= _range.max; i++)
                 {
                     double angle = (i - _rotation) * (Math.PI / 5);
@@ -344,12 +331,9 @@ namespace FortniteVideoSoftware.App.Controls
                     double scale = 0.50 + (0.60 * Math.Pow(opacity, 0.6));
                     double yBulge = (1.0 - Math.Pow(opacity, 0.3)) * 12;
                     
-                    // Fix: Offset label index by _range.min so labels align with actual values
-                    // (e.g. range 1-40 → label index 0-39, not 1-40)
                     int labelIndex = i - _range.min;
                     string txt = (labelIndex >= 0 && labelIndex < _labels.Count) ? _labels[labelIndex] : i.ToString();
                     
-                    // Python: selected=#50ffef (cyan), non-selected=#c5dcf2 (light blue)
                     Color baseColor = i == _value 
                         ? (IsEnabled ? Color.Parse("#50ffef") : Color.Parse("#95a5a6"))
                         : (IsEnabled ? Color.Parse("#c5dcf2") : Color.Parse("#7f8c8d"));
@@ -366,23 +350,17 @@ namespace FortniteVideoSoftware.App.Controls
                     double tw = formattedText.Width;
                     double th = formattedText.Height;
                     
-                    // Item #2: Lifted text upward — was cy - th/3, now cy - th/2 for proper centering
                     context.DrawText(shadowText, new Point(xPos - tw / 2 + 2, cy - th / 2 + yBulge + 2));
                     context.DrawText(formattedText, new Point(xPos - tw / 2, cy - th / 2 + yBulge));
                 }
             }
             
-            // ── Center indicator and glow (only when enabled) ──
             if (IsEnabled)
             {
-                // Python: red indicator tick marks at top and bottom center
                 var redPen = new Pen(new SolidColorBrush(Color.Parse("#ff4d4d")), 2);
-                // Top tick
                 context.DrawLine(redPen, new Point(cx, 3), new Point(cx, 11));
-                // Bottom tick
                 context.DrawLine(redPen, new Point(cx, h - 11), new Point(cx, h - 3));
                 
-                // Python: center glow ellipse (80,255,239,45) → transparent
                 var centerGlow = new RadialGradientBrush
                 {
                     Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),

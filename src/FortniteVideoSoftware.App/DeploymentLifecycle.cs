@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -122,7 +122,6 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.FailAsync("INSTALL FAILED", ex.ToString(), 100).ConfigureAwait(false);
-            // Re-throw so caller (AvaloniaApp) can catch and display in window
             throw;
         }
         finally

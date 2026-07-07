@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Threading.Channels;
 using System.Globalization;
 
@@ -19,8 +19,6 @@ public class MPVSafetyManager : IDisposable
     {
         _mpvHandle = mpvHandle;
         
-        // Channel with bounded capacity and drop oldest ensures debouncing implicitly if we pump fast,
-        // but we'll use a timer for strict 50ms throttling.
         _seekChannel = Channel.CreateBounded<double>(new BoundedChannelOptions(1)
         {
             FullMode = BoundedChannelFullMode.DropOldest
@@ -43,7 +41,6 @@ public class MPVSafetyManager : IDisposable
 
     private void WorkerLoop()
     {
-        // Thread for processing seeks
         Thread seekThread = new Thread(SeekProcessorLoop)
         {
             IsBackground = true,
@@ -70,7 +67,6 @@ public class MPVSafetyManager : IDisposable
 
                 if (isStuck)
                 {
-                    // Force reset internal seek state machine to unblock UI
                     lock (_stateLock)
                     {
                         _isSeeking = false;
@@ -79,7 +75,7 @@ public class MPVSafetyManager : IDisposable
                     Console.Error.WriteLine("MPV WATCHDOG TRIPPED: Seek took longer than 2.5s. Resetting state.");
                 }
 
-                Thread.Sleep(500); // Check every 500ms
+                Thread.Sleep(500);
             }
         }
         catch (ObjectDisposedException) { }
@@ -93,7 +89,6 @@ public class MPVSafetyManager : IDisposable
         {
             await foreach (double time in _seekChannel.Reader.ReadAllAsync(_cts.Token))
             {
-                // Throttle to 20fps (50ms)
                 long elapsedMs = debounceTimer.ElapsedMilliseconds;
                 if (elapsedMs < 50)
                 {
@@ -108,7 +103,6 @@ public class MPVSafetyManager : IDisposable
                     _seekStartTime = DateTime.UtcNow;
                 }
 
-                // Execute native seek
                 try
                 {
                     string pct = time.ToString("F1", CultureInfo.InvariantCulture);

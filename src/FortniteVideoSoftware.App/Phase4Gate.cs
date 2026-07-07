@@ -1,4 +1,4 @@
-using FortniteVideoSoftware.Core.Media;
+﻿using FortniteVideoSoftware.Core.Media;
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.App;
@@ -9,7 +9,6 @@ public static class Phase4Gate
     {
         Console.WriteLine("Testing Phase 4: FFmpeg Math and FilterBuilder");
 
-        // 1. Math +1px Drift
         JsonArray lootCrop = new JsonArray(100, 50, 0, 0);
         JsonArray protectedLoot = CanvasMath.ProtectCropDrift("loot", lootCrop);
         if (protectedLoot[0]!.GetValue<int>() != 99 || protectedLoot[2]!.GetValue<int>() != 0)
@@ -26,7 +25,6 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
-        // 2. Audio Ducking validation
         string duckFilter = FilterBuilder.BuildAudioDuckingFilter("v:0", "a:1");
         if (!duckFilter.Contains("lowpass=f=150") || !duckFilter.Contains("sidechaincompress=threshold=0.15:ratio=2.5"))
         {
@@ -34,7 +32,6 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
-        // 3. WhatsApp Intro validation
         string introFilter = FilterBuilder.BuildWhatsAppIntroFilter("0:v");
         if (!introFilter.Contains("trim=duration=0.1"))
         {
@@ -42,9 +39,7 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
-        // 4. Time Sync Engine Validation
         double duration = TimeSyncEngine.CalculateTotalDuration(10.0, new List<(double, double, double)> { (2.0, 4.0, 2.0) }, new List<(double, double)> { (5.0, 2.0) });
-        // original=10, freeze=+2 => 12. Segment 2s length / 2.0 speed = 1s. Total = 12 - 2 + 1 = 11.
         if (Math.Abs(duration - 11.0) > 0.001)
         {
             Console.WriteLine($"Time Sync Error: Expected 11.0, got {duration}");

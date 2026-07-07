@@ -1,8 +1,4 @@
-// ==============================================================================
-// VideoConfig.cs — Exact port of Python processing/config_data.py VideoConfig
-// Quality settings, text overlay config, mobile coordinate loading.
-// ==============================================================================
-
+﻿
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;

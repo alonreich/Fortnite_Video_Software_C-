@@ -1,4 +1,4 @@
-using FortniteVideoSoftware.Core.Ipc;
+﻿using FortniteVideoSoftware.Core.Ipc;
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -9,20 +9,16 @@ namespace FortniteVideoSoftware.Core.Media;
 /// </summary>
 public static class CanvasMath
 {
-    // Final portrait output dimensions
-    public const int FinalWidth = CoordinateConstants.PortraitW;   // 1080
-    public const int FinalHeight = CoordinateConstants.PortraitH;  // 1920
+    public const int FinalWidth = CoordinateConstants.PortraitW;
+    public const int FinalHeight = CoordinateConstants.PortraitH;
     
-    // Content area (below the 150px text strip)
-    public const int ContentWidth = CoordinateConstants.ContentW;   // 1080
-    public const int ContentHeight = CoordinateConstants.ContentH; // 1620
-    public const int ContentOffsetY = CoordinateConstants.PaddingTop; // 150
+    public const int ContentWidth = CoordinateConstants.ContentW;
+    public const int ContentHeight = CoordinateConstants.ContentH;
+    public const int ContentOffsetY = CoordinateConstants.PaddingTop;
     
-    // Internal backend compose space
-    public const int BackendWidth = CoordinateConstants.InternalW;  // 1280
-    public const int BackendHeight = CoordinateConstants.InternalH; // 1920
+    public const int BackendWidth = CoordinateConstants.InternalW;
+    public const int BackendHeight = CoordinateConstants.InternalH;
 
-    // Scale factor: 1280/1080 as a Frac for exact arithmetic
     public static Frac BackendScale => CoordinateConstants.BackendScale;
     public static double BackendScaleDouble => (double)CoordinateConstants.InternalW / CoordinateConstants.PortraitW;
 

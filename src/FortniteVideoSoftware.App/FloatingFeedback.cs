@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -18,7 +18,6 @@ internal static class FloatingFeedback
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
             popupText.Text = text;
-            // Spawn completely non-transparent (opaque / blocking) at the initial point.
             popupBorder.Opacity = 1;
             if (placementTarget != null)
             {
@@ -26,8 +25,6 @@ internal static class FloatingFeedback
             }
 
             double videoHeight = placementTarget?.Bounds.Height ?? 600;
-            // Entire animation shifted 50px upward from the previous baseline
-            // (was: startOffset = -80, endOffset = -(videoHeight / 3.0)).
             double startOffset = -130;
             double endOffset = -(videoHeight / 3.0) - 50;
 
@@ -35,10 +32,8 @@ internal static class FloatingFeedback
             popup.VerticalOffset = startOffset;
             popup.IsOpen = true;
 
-            // Hold completely opaque for the first 0.3 seconds at the initial point.
             await Task.Delay(300);
 
-            // Then gradually become more transparent while floating upwards until it vanishes.
             double progress = 0;
             while (progress < 1.0)
             {

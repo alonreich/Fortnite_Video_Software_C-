@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -54,12 +54,10 @@ public static class TextOverlayGenerator
 
         bool hasHebrew = text.Any(c => c >= 0x0590 && c <= 0x05FF);
 
-        // Calculate background height
         float lineHeight = currentFontSize * 1.2f;
         float totalTextHeight = finalLines.Count * lineHeight;
         float bgHeight = totalTextHeight + (padding * 2);
 
-        // Find max width among all lines
         float maxLineWidth = 0;
         List<string> displayLines = new();
         foreach (var line in finalLines)
@@ -75,7 +73,6 @@ public static class TextOverlayGenerator
         float bgWidth = maxLineWidth + (padding * 4);
         float xOffset = (width - bgWidth) / 2f;
         
-        // Push up as we get more lines, but remain within the height
         float yOffset = height - bgHeight - padding;
         if (yOffset < 0) yOffset = 0; 
 
@@ -89,14 +86,13 @@ public static class TextOverlayGenerator
         var rect = new SKRect(xOffset, yOffset, xOffset + bgWidth, yOffset + bgHeight);
         canvas.DrawRoundRect(rect, 12, 12, bgPaint);
 
-        float textY = yOffset + padding + currentFontSize; // initial baseline
+        float textY = yOffset + padding + currentFontSize;
 
         foreach (var displayLine in displayLines)
         {
             var bounds = new SKRect();
             paint.MeasureText(displayLine, ref bounds);
             
-            // Center the text in the background rect
             float textX = xOffset + (bgWidth - bounds.Width) / 2f;
             
             canvas.DrawText(displayLine, textX, textY, paint);

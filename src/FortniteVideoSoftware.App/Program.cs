@@ -38,7 +38,6 @@ string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath)
 NativeHelpers.SetDllDirectory(Path.Combine(baseDir, "frontend"));
 
 
-
 int exitCode = await RunAsync(args);
 RuntimeLog.Info("PROCESS EXIT", $"exitCode={exitCode}");
 return exitCode;
@@ -205,7 +204,7 @@ static async Task<int> RunUiAsync(string[] args)
                                   a.Equals("--cleanup-worker", StringComparison.OrdinalIgnoreCase));
     if (isWorker)
     {
-        string uiTempFolder = Path.Combine(Path.GetTempPath(), "FortniteVideoSoftware_SetupUI_" + Environment.ProcessId);
+        string uiTempFolder = Path.Combine(ApplicationPaths.CreateDefault().TempDirectory, "FortniteVideoSoftware_SetupUI_" + Environment.ProcessId);
         Directory.CreateDirectory(uiTempFolder);
         DeploymentLifecycle.ExtractAvaloniaDependencies(uiTempFolder);
         NativeHelpers.SetDllDirectory(uiTempFolder);
@@ -216,15 +215,12 @@ static async Task<int> RunUiAsync(string[] args)
     
     RuntimeLog.Info("RUN UI", "Starting Avalonia App.");
 
-    // In DEV MODE: Enable verbose Avalonia logging + DevTools.
-    // In PRODUCTION: Minimal logging (Warning level only).
     var builder = Avalonia.AppBuilder.Configure<FortniteVideoSoftware.App.AvaloniaApp>()
         .UsePlatformDetect()
         .WithInterFont();
 
     if (RuntimeLog.IsDevMode)
     {
-        // Verbose logging captures all Avalonia UI events, layout passes, and GL operations.
         builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Verbose);
         RuntimeLog.Info("RUN UI", "Dev mode: Avalonia verbose logging enabled.");
     }

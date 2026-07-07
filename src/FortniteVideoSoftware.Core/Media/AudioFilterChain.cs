@@ -1,8 +1,4 @@
-// ==============================================================================
-// AudioFilterChain.cs — Exact port of Python filter_builder.py AudioFilterMixin
-// Audio ducking (150Hz split), music track normalization, fades, sidechain.
-// ==============================================================================
-
+﻿
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -45,7 +41,6 @@ public class AudioFilterChain
         musicConfig ??= new JsonObject();
         int targetSampleRate = sampleRate > 0 ? sampleRate : 48000;
 
-        // Build main audio filter from raw parts
         var rawParts = new List<string>();
         if (audioFilterCmd != null) rawParts.AddRange(audioFilterCmd);
         if (vfadeInD > 0) rawParts.Add($"afade=t=in:st=0:d={vfadeInD:F3}");
@@ -62,7 +57,6 @@ public class AudioFilterChain
         double mainDuration = totalProjectDuration ?? 
             (speedFactor > 0 ? (videoEndTime - videoStartTime) / speedFactor : videoEndTime - videoStartTime);
 
-        // Process main audio
         if (!string.IsNullOrEmpty(mainAudioLabel))
         {
             chain.Add($"{mainAudioLabel}{mainAudioFilter}[a_main_raw]");
@@ -74,7 +68,6 @@ public class AudioFilterChain
                       $"asetpts=PTS-STARTPTS[a_main_raw]");
         }
 
-        // Normalize music tracks
         var tracks = new List<MusicTrack>();
         double fallbackMusicDuration = totalProjectDuration ?? mainDuration;
 
@@ -89,7 +82,6 @@ public class AudioFilterChain
             tracks.Add(new MusicTrack(path, offset, dur));
         }
 
-        // Clip tracks to music window
         double? musicWindowSec = null;
         if (musicConfig != null)
         {
@@ -119,7 +111,6 @@ public class AudioFilterChain
             tracks = clippedTracks;
         }
 
-        // No music tracks: simple output
         if (tracks.Count == 0)
         {
             double vVol = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
@@ -130,7 +121,6 @@ public class AudioFilterChain
             return (chain, "[a_main_prepared]");
         }
 
-        // Calculate initial delay
         double initialDelaySec = 0;
         if (musicConfig != null)
         {
@@ -138,7 +128,6 @@ public class AudioFilterChain
             catch { }
         }
 
-        // Process each music track
         var preparedMusicLabels = new List<string>();
         double accumProjectSec = initialDelaySec;
 
@@ -158,7 +147,6 @@ public class AudioFilterChain
                 "asetpts=PTS-STARTPTS"
             };
 
-            // Fades
             if (!disableFades && track.Duration > 0.5)
             {
                 double fadeDur = Math.Min(1.5, track.Duration / 2.0);
@@ -184,7 +172,6 @@ public class AudioFilterChain
             accumProjectSec += track.Duration;
         }
 
-        // Mix multiple music tracks if needed
         string bgMusicLabel;
         if (preparedMusicLabels.Count > 1)
         {
@@ -199,7 +186,6 @@ public class AudioFilterChain
             bgMusicLabel = preparedMusicLabels[0];
         }
 
-        // Carving (EQ Dip)
         bool carvingEnabled = musicConfig != null && (musicConfig["carving_enabled"]?.GetValue<bool>() ?? true);
         if (carvingEnabled)
         {
@@ -208,33 +194,27 @@ public class AudioFilterChain
             bgMusicLabel = "[a_bg_music]";
         }
 
-        // Ducking pipeline
         double vVolGame = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
         if (volumeNormalizeDb != 0)
             vVolGame *= Math.Pow(10, volumeNormalizeDb / 20.0);
 
         chain.Add($"[a_main_raw]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_scaled]");
         chain.Add("[game_scaled]asplit=2[game_out_pre][game_trig]");
-        // Trigger cleaning: highpass→lowpass→agate→equalizer for detection
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");
 
-        // Music split at 150Hz
         chain.Add($"{bgMusicLabel}asplit=2[mus_base][mus_to_filter]");
         chain.Add("[mus_base]lowpass=f=150[mus_low]");
         chain.Add("[mus_to_filter]highpass=f=150[mus_high]");
 
-        // Sidechain compression
         double dThresh = GetDouble(musicConfig, "ducking_threshold", 0.15);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", 2.5);
         string duckParams = $"threshold={dThresh.ToString(System.Globalization.CultureInfo.InvariantCulture)}:ratio={dRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}:attack=1:release=400:detection=rms";
         chain.Add($"[mus_high][trig_final]sidechaincompress={duckParams}[mus_high_ducked]");
 
-        // Reconstruct music
         chain.Add("[mus_low][mus_high_ducked]amix=inputs=2:weights='1 1':normalize=0[a_music_reconstructed]");
 
-        // Final mix: game + reconstructed music
         chain.Add($"[game_out_pre][a_music_reconstructed]amix=inputs=2:" +
                   $"duration=first:dropout_transition=3:weights='1 1':normalize=0," +
                   $"alimiter=limit=0.95:attack=5:release=50," +

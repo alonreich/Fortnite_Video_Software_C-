@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -14,9 +14,6 @@ public static partial class MpvWrapper
 {
     private const string LibraryName = "libmpv-2.dll";
 
-    // ==================================================================
-    // Core lifecycle — [LibraryImport] source-generated (NativeAOT-friendly)
-    // ==================================================================
 
     [LibraryImport(LibraryName)]
     public static partial nint mpv_create();
@@ -27,9 +24,6 @@ public static partial class MpvWrapper
     [LibraryImport(LibraryName)]
     public static partial void mpv_terminate_destroy(nint ctx);
 
-    // ==================================================================
-    // Commands & properties (string-based) — [LibraryImport]
-    // ==================================================================
 
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int mpv_command_string(nint ctx, string args);
@@ -49,11 +43,6 @@ public static partial class MpvWrapper
     [LibraryImport(LibraryName)]
     public static partial void mpv_free(nint data);
 
-    // ==================================================================
-    // Property observation & native event loop — classic [DllImport]
-    // (source generator crashes on non-blittable params; classic DllImport
-    //  is fully NativeAOT-compatible for these signatures)
-    // ==================================================================
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_observe_property(nint ctx, ulong reply_userdata,
@@ -68,9 +57,6 @@ public static partial class MpvWrapper
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void mpv_wakeup(nint ctx);
 
-    // ==================================================================
-    // Enums
-    // ==================================================================
 
     /// <summary>mpv event IDs (partial — only the ones we handle).</summary>
     public enum MpvEventId : int
@@ -89,9 +75,6 @@ public static partial class MpvWrapper
         Double = 5,
     }
 
-    // ==================================================================
-    // Native structs (must match libmpv C ABI layout)
-    // ==================================================================
 
     /// <summary>
     /// Layout: { int event_id; int error; uint64_t reply_userdata; void* data; }
@@ -103,7 +86,7 @@ public static partial class MpvWrapper
         public MpvEventId EventId;
         public int Error;
         public ulong ReplyUserdata;
-        public nint Data; // points to MpvEventProperty or other event-specific data
+        public nint Data;
     }
 
     /// <summary>
@@ -113,16 +96,11 @@ public static partial class MpvWrapper
     [StructLayout(LayoutKind.Sequential)]
     public struct MpvEventProperty
     {
-        public nint Name;       // const char* — marshal via PtrToStringUTF8
+        public nint Name;
         public MpvFormat Format;
-        public nint Data;       // double* / char** depending on Format
+        public nint Data;
     }
 
-    // ==================================================================
-    // Safe synchronous wrappers
-    // ==================================================================
-
-    // --- Lifecycle ---
 
     /// <summary>Creates and initializes an mpv handle, or returns nint.Zero on failure.</summary>
     public static nint CreateAndInitialize()
@@ -145,7 +123,6 @@ public static partial class MpvWrapper
         handle = nint.Zero;
     }
 
-    // --- Pause ---
 
     /// <summary>Sets the 'pause' property.</summary>
     public static void SetPause(nint handle, bool pause)
@@ -160,7 +137,6 @@ public static partial class MpvWrapper
         return GetPropertyString(handle, "pause") == "yes";
     }
 
-    // --- Speed ---
 
     /// <summary>Sets the 'speed' property (InvariantCulture).</summary>
     public static void SetSpeed(nint handle, double speed)
@@ -169,7 +145,6 @@ public static partial class MpvWrapper
             mpv_set_property_string(handle, "speed", speed.ToString(CultureInfo.InvariantCulture));
     }
 
-    // --- Volume ---
 
     /// <summary>Sets the 'volume' property (integer 0–100+).</summary>
     public static void SetVolume(nint handle, int volume)
@@ -185,7 +160,6 @@ public static partial class MpvWrapper
             mpv_set_property_string(handle, "volume", volume.ToString(CultureInfo.InvariantCulture));
     }
 
-    // --- Seek ---
 
     /// <summary>Absolute seek (seconds, InvariantCulture).</summary>
     public static void SeekAbsolute(nint handle, double seconds)
@@ -201,7 +175,6 @@ public static partial class MpvWrapper
             mpv_command_string(handle, $"seek {deltaSeconds.ToString(CultureInfo.InvariantCulture)} relative");
     }
 
-    // --- Frame stepping ---
 
     /// <summary>Advance one frame forward.</summary>
     public static void FrameStep(nint handle)
@@ -217,7 +190,6 @@ public static partial class MpvWrapper
             mpv_command_string(handle, "frame-back-step");
     }
 
-    // --- Stop ---
 
     /// <summary>Stops playback and clears the playlist.</summary>
     public static void Stop(nint handle)
@@ -226,7 +198,6 @@ public static partial class MpvWrapper
             mpv_command_string(handle, "stop");
     }
 
-    // --- File loading ---
 
     /// <summary>
     /// Loads a file into mpv. The path is automatically escaped for the mpv
@@ -250,7 +221,6 @@ public static partial class MpvWrapper
                 seconds > 0 ? seconds.ToString(CultureInfo.InvariantCulture) : "0");
     }
 
-    // --- Property getters (string-based) ---
 
     /// <summary>
     /// Reads a property as a string. The returned nint is automatically freed.
@@ -286,7 +256,6 @@ public static partial class MpvWrapper
         return GetPropertyString(handle, "eof-reached") == "yes";
     }
 
-    // --- Property observation ---
 
     /// <summary>
     /// Registers interest in a property. When it changes, MPV_EVENT_PROPERTY_CHANGE
@@ -306,7 +275,6 @@ public static partial class MpvWrapper
             mpv_unobserve_property(handle, id);
     }
 
-    // --- Event loop ---
 
     /// <summary>
     /// Waits for the next mpv event (up to <paramref name="timeoutSeconds"/>).

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -255,7 +255,6 @@ public class HardwareGraphControl : Control
         
         int curVal = data.Count > 0 ? data[data.Count - 1] : 0;
         
-        // Draw label
         var typeFace = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
         var fmtLabel = new FormattedText(label, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeFace, 12, textBrush);
         var fmtVal = new FormattedText($"{curVal}%", System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeFace, 12, barBrush);
@@ -278,16 +277,13 @@ public class HardwareGraphControl : Control
                 if (x < startX) continue;
             }
             
-            // Background bar
             ctx.FillRectangle(bgBarBrush, new Rect(x, yOffset, stickW, maxH));
             
-            // Foreground bar
             double val = data[i];
             double fillH = Math.Max(1, (val / 100.0) * maxH);
             ctx.FillRectangle(barBrush, new Rect(x, yOffset + maxH - fillH, stickW, fillH));
         }
         
-        // Draw separator
         var sepPen = new Pen(new SolidColorBrush(Color.Parse("#3C10B981")), 2);
         ctx.DrawLine(sepPen, new Point(0, yOffset + 55), new Point(width, yOffset + 55));
     }

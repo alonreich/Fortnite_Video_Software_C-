@@ -1,8 +1,4 @@
-// ==============================================================================
-// MobileFilterBuilder.cs — Exact port of Python filter_mobile.py MobileFilterMixin
-// The portrait canvas trick: scale→crop→overlay→compose→pad pipeline
-// ==============================================================================
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -44,7 +40,6 @@ public class MobileFilterBuilder
         string hpKey = isBossHp ? "boss_hp" : "normal_hp";
         var activeLayers = new List<LayerSpec>();
 
-        // Register layers in z-order
         activeLayers.RegisterLayer(mobileCoords, "hp", hpKey, hpKey, hpKey);
         activeLayers.RegisterLayer(mobileCoords, "loot", "loot", "loot", "loot");
         activeLayers.RegisterLayer(mobileCoords, "stats", "stats", "stats", "stats");
@@ -61,25 +56,21 @@ public class MobileFilterBuilder
         {
             int splitCount = 1 + activeLayers.Count;
 
-            // Build split outputs: [v_base_in][v_layer_in_0][v_layer_in_1]...
             var splitLabels = new StringBuilder();
             for (int i = 0; i < activeLayers.Count; i++)
                 splitLabels.Append($"[v_layer_in_{i}]");
 
             parts.Add($"{inputPad}split={splitCount}[v_base_in]{splitLabels}");
 
-            // Scale base to internal compose space (1280x1920) with center crop
             parts.Add($"[v_base_in]scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
             currV = "[main_base]";
 
-            // Process each HUD layer
             for (int i = 0; i < activeLayers.Count; i++)
             {
                 var layer = activeLayers[i];
 
-                // Inverse transform: content-area rect → source coordinates
                 var sourceRect = CoordinateMath.InverseTransformFromContentAreaInt(
                     (layer.UiRect[2], layer.UiRect[3], layer.UiRect[0], layer.UiRect[1]),
                     originalResolution,
@@ -87,7 +78,6 @@ public class MobileFilterBuilder
 
                 int sx = sourceRect.x, sy = sourceRect.y, sw = sourceRect.w, sh = sourceRect.h;
 
-                // Scale output dimensions (in internal space)
                 Frac scaleFrac = Frac.FromDouble(layer.Scale);
                 Frac backendScale = CoordinateConstants.BackendScale;
                 int rw = Math.Max(2, CanvasMath.EvenCeil(
@@ -95,12 +85,10 @@ public class MobileFilterBuilder
                 int rh = Math.Max(2, CanvasMath.EvenCeil(
                     new Frac(layer.UiRect[1], 1) * scaleFrac * backendScale));
 
-                // Overlay position: transform from UI space to internal space
                 var pos = layer.Pos;
                 Frac lxRaw = Frac.FromDouble(pos.x) * backendScale;
                 Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
 
-                // Clamp positions
                 Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
                 Frac maxLyBase = new(CoordinateConstants.TargetH - rh, 1);
                 Frac uiPadBottomScaled = new Frac(CoordinateConstants.UIPaddingBottom, 1) * backendScale;
@@ -113,11 +101,9 @@ public class MobileFilterBuilder
                     Frac.FromDouble(0) > lyRaw ? Frac.FromDouble(0) :
                     (lyRaw > maxLy ? maxLy : lyRaw));
 
-                // Crop from source, scale to target size
                 parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
                           $"scale=w={rw}:h={rh}:flags=lanczos[v_layer_out_{i}]");
 
-                // Overlay onto current composition
                 string nextV = $"[v_comp_{i}]";
                 parts.Add($"{currV}[v_layer_out_{i}]overlay=x={lx}:y={ly}:eof_action=pass{nextV}");
                 currV = nextV;
@@ -125,28 +111,24 @@ public class MobileFilterBuilder
         }
         else
         {
-            // No layers: simple scale+crop to internal space
             parts.Add($"{inputPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
             currV = "[main_base]";
         }
 
-        // Scale from 1280x1920 → 1080x1620, then pad onto 1080x1920 with top 150px
         parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
                   $"flags=lanczos," +
                   $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
                   $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
         currV = "[v_padded]";
 
-        // Overlay text PNG (the top 150px strip)
         if (!string.IsNullOrEmpty(txtInputLabel))
         {
             parts.Add($"{currV}{txtInputLabel}overlay=0:0:shortest=1:eof_action=repeat:format=auto[v_final_raw]");
             currV = "[v_final_raw]";
         }
 
-        // Force pixel format
         parts.Add($"{currV}format=yuv420p[v_final]");
 
         return (string.Join(";", parts), "[v_final]");
@@ -164,7 +146,7 @@ public class MobileFilterBuilder
 
     public record LayerSpec(
         string Name, string ConfKey,
-        int[] UiRect,  // [w, h, x, y] in 1080x1620 content coords
+        int[] UiRect,
         double Scale,
         (double x, double y) Pos,
         int Z);
@@ -203,7 +185,6 @@ public class MobileFilterBuilder
         }
     }
 
-    // Wrapper for the static method to match Python's build_mobile_filter alias
     public static (string filterChain, string outputLabel) BuildMobileFilter(
         JsonObject mobileCoords,
         string originalResolution,
@@ -216,7 +197,6 @@ public class MobileFilterBuilder
     }
 }
 
-// Extension to make List registration cleaner
 internal static class MobileFilterBuilderExtensions
 {
     internal static void RegisterLayer(
@@ -224,7 +204,6 @@ internal static class MobileFilterBuilderExtensions
         JsonObject coords,
         string name, string confKey, string cropKey1080, string ovKey)
     {
-        // Delegate to the static helper via reflection-free approach
         int[] rect = GetRectHelper(coords, "crops_1080p", cropKey1080);
         var scalesObj = coords["scales"]?.AsObject();
         double scale = 1.0;

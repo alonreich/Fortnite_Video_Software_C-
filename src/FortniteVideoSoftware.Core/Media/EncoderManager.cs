@@ -1,8 +1,4 @@
-// ==============================================================================
-// EncoderManager.cs — Exact port of Python encoders.py EncoderManager
-// All encoder flags, bitrate calculation, quality presets, fallback chains.
-// ==============================================================================
-
+﻿
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
@@ -31,7 +27,6 @@ public class EncoderManager
 
     public EncoderManager(string? hardwareStrategy = null, string? ffmpegPath = null, string? videoHwEncoderEnv = null, bool forceCpuEnv = false)
     {
-        // Resolve ffmpeg path
         string localFfmpeg = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
         FFmpegPath = !string.IsNullOrEmpty(ffmpegPath) ? ffmpegPath :
                      File.Exists(localFfmpeg) ? localFfmpeg : "ffmpeg.exe";
@@ -125,7 +120,6 @@ public class EncoderManager
     {
         AttemptedEncoders.Add(failedEncoder);
 
-        // Strict GPU mode: no fallbacks
         if (!string.IsNullOrEmpty(HardwareStrategy) &&
             HardwareByStrategy.ContainsKey(HardwareStrategy.ToUpperInvariant()))
             return allowCpu && failedEncoder != "libx264" ? ["libx264"] : [];

@@ -1,10 +1,4 @@
-// ==============================================================================
-// ProcessWorker.cs — Full port of Python processing/worker.py ProcessThread
-// Orchestrates the complete FFmpeg rendering pipeline with all features:
-// granular speed, mobile portrait conversion, audio ducking, WhatsApp intro,
-// text overlay, encoder fallback, file-size targeting.
-// ==============================================================================
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -25,7 +19,6 @@ public class ProcessWorker : IDisposable
     public event Action<int, string, int>? PhaseUpdate;
     public event Action<bool, string>? Finished;
 
-    // Processing parameters
     public string InputPath { get; set; } = "";
     public double StartTimeMs { get; set; }
     public double EndTimeMs { get; set; }
@@ -79,7 +72,6 @@ public class ProcessWorker : IDisposable
     {
         try
         {
-            // Encoder preflight
             var encoderMgr = new EncoderManager(HardwareStrategy, _ffmpegPath);
             if (encoderMgr.EncoderPreflightError != null)
             {
@@ -87,7 +79,6 @@ public class ProcessWorker : IDisposable
                 return;
             }
 
-            // Create temp working directory
             string jobId = Guid.NewGuid().ToString("N")[..8];
             string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_job_{jobId}");
             Directory.CreateDirectory(tempJobDir);
@@ -121,7 +112,6 @@ public class ProcessWorker : IDisposable
 
             try
             {
-                // Probe source
                 var prober = new MediaProber(_ffprobePath, InputPath);
                 bool sourceHasAudio = await prober.HasAudioAsync();
                 int sourceAudioKbps = await prober.GetAudioBitrateAsync();
@@ -132,7 +122,6 @@ public class ProcessWorker : IDisposable
 
                 string targetFps = "60";
 
-                // Generate portrait text PNG overlay
                 string? textPngPath = null;
                 if (!string.IsNullOrEmpty(PortraitText))
                 {
@@ -148,7 +137,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // Build granular speed chain
                 string granularFilters = "";
                 string gV = "", gA = "";
                 double gDur = (EndTimeMs - StartTimeMs) / 1000.0 / SpeedFactor;
@@ -173,7 +161,7 @@ public class ProcessWorker : IDisposable
                 int? videoBitrateKbps;
                 if (keepHighestRes && qualityLevel >= 20 && !targetMb.HasValue)
                 {
-                    videoBitrateKbps = null; // CQ mode
+                    videoBitrateKbps = null;
                 }
                 else
                 {
@@ -182,7 +170,6 @@ public class ProcessWorker : IDisposable
                         gDur, audioKbps, targetMb, keepHighestRes, qualityLevel, outputRes, targetFps);
                 }
 
-                // Music tracks setup
                 var musicTracks = MusicTracks ?? new List<MusicTrack>();
                 if (musicTracks.Count == 0 && MusicConfig != null)
                 {
@@ -194,7 +181,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // Intro setup
                 double introDurationSec = Math.Max(0, IntroStillSec);
                 int? introInputIndex = introDurationSec > 0.001 ? 1 + musicTracks.Count : null;
                 string? textInputLabel = textPngPath != null
@@ -203,7 +189,6 @@ public class ProcessWorker : IDisposable
 
                 double renderDurationSec = gDur + introDurationSec;
 
-                // Execute loudnorm pass if requested and no VolumeNormalizeDb is pre-set
                 if (VolumeNormalizeDb == 0.0 && sourceHasAudio)
                 {
                     PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", 0);
@@ -212,7 +197,6 @@ public class ProcessWorker : IDisposable
 
                 PhaseUpdate?.Invoke(2, "Encoding Video Pipeline", 0);
 
-                // Build audio chain
                 var (audioChains, finalALabel) = AudioFilterChain.Build(
                     MusicConfig,
                     StartTimeMs / 1000.0,
@@ -228,10 +212,8 @@ public class ProcessWorker : IDisposable
                     sourceHasAudio ? "[0:a]" : "",
                     VolumeNormalizeDb);
 
-                // Build mobile filter chain
                 JsonObject mobileCoords = await VideoConfig.GetMobileCoordinatesAsync(_paths);
 
-                // Build complete filter script
                 var coreFilters = new List<string>();
                 string vOutputPad, vStabilizedPad, aPreparedPad;
 
@@ -243,7 +225,6 @@ public class ProcessWorker : IDisposable
                 }
                 else
                 {
-                    // Simple speed (no segments)
                     string cfrFilter = $"fps={targetFps}:round=near";
                     coreFilters.Add($"[0:v]setpts='(PTS-STARTPTS)/{SpeedFactor:F4}',{cfrFilter}[v_stabilized]");
                     vStabilizedPad = "[v_stabilized]";
@@ -261,7 +242,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // WhatsApp intro
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
                     int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
@@ -276,7 +256,6 @@ public class ProcessWorker : IDisposable
                     vStabilizedPad = "[v_with_intro]";
                 }
 
-                // Mobile portrait conversion
                 if (IsMobileFormat)
                 {
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
@@ -290,14 +269,12 @@ public class ProcessWorker : IDisposable
                     vOutputPad = vStabilizedPad;
                 }
 
-                // Audio chains
                 string currentALabel = finalALabel;
                 foreach (var part in audioChains)
                 {
                     coreFilters.Add(part.Replace("[0:a]", aPreparedPad));
                 }
 
-                // Intro silence + audio concat
                 if (introDurationSec > 0)
                 {
                     coreFilters.Add($"anullsrc=r=48000:cl=stereo," +
@@ -306,20 +283,16 @@ public class ProcessWorker : IDisposable
                     currentALabel = "[a_with_intro]";
                 }
 
-                // Final FPS enforcement
                 coreFilters.Add($"{vOutputPad}fps={targetFps}:round=near," +
                                $"setpts=N/({targetFps})/TB[v_render_out]");
 
-                // Write filter script
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
                 CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
-                // Build ffmpeg command
                 string corePath = Path.Combine(tempJobDir, "core.mp4");
 
-                // Execute with encoder retry for file size targeting
                 bool success = false;
                 string lastError = "Render failed.";
 
@@ -341,11 +314,9 @@ public class ProcessWorker : IDisposable
                             "-i", InputPath,
                         };
 
-                        // Music inputs
                         foreach (var track in musicTracks)
                             ffmpegArgs.AddRange(["-i", track.Path]);
 
-                        // Intro input
                         if (introInputIndex.HasValue)
                         {
                             double introAbsSec = IntroAbsTimeMs.HasValue
@@ -356,11 +327,9 @@ public class ProcessWorker : IDisposable
                             ffmpegArgs.AddRange(["-ss", introAbsSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-t", Math.Max(0.2, introDurationSec + 0.1).ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", InputPath]);
                         }
 
-                        // Text PNG input
                         if (textPngPath != null)
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
-                        // Filter and mapping
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         ffmpegArgs.AddRange(["-map", "[v_render_out]", "-map", currentALabel]);
                         ffmpegArgs.AddRange(codecArgs);
@@ -391,7 +360,6 @@ public class ProcessWorker : IDisposable
                             try { _currentProcess.Kill(entireProcessTree: true); } catch { }
                         });
 
-                        // Parse progress from stdout
                         _ = Task.Run(async () =>
                         {
                             using var reader = _currentProcess.StandardOutput;
@@ -418,7 +386,6 @@ public class ProcessWorker : IDisposable
                             }
                         }, cancellationToken);
 
-                        // Async stderr reading to capture ffmpeg log
                         _ = Task.Run(async () =>
                         {
                             using var reader = _currentProcess.StandardError;
@@ -440,7 +407,6 @@ public class ProcessWorker : IDisposable
                         lastError = $"FFmpeg exited with code {_currentProcess.ExitCode}";
                         CoreLogger.Fail("FFmpeg", lastError);
 
-                        // Encoder fallback
                         if (useCuda && !_isCanceled)
                         {
                             var fallbacks = encoderMgr.GetFallbackList(currentEncoder, true);
@@ -454,7 +420,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // File-size targeting loop
                 int? currentBitrate = videoBitrateKbps;
                 bool sizeTargetMet = !targetMb.HasValue;
                 long finalActualSize = 0;
@@ -474,7 +439,6 @@ public class ProcessWorker : IDisposable
                         break;
                     }
 
-                    // Adjust bitrate proportionally
                     if (finalActualSize > 0 && currentBitrate.HasValue)
                     {
                         currentBitrate = (int)(currentBitrate.Value * ((double)finalTargetSize / finalActualSize));
@@ -496,7 +460,6 @@ public class ProcessWorker : IDisposable
                     return;
                 }
 
-                // Move to output
                 string outputDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
                 string finalOutput = ResolveOutputPath(outputDir);
                 File.Move(corePath, finalOutput);
@@ -584,7 +547,6 @@ public class ProcessWorker : IDisposable
             string stdErr = await process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
 
-            // Extract input_i from JSON at end of stderr
             int jsonStart = stdErr.LastIndexOf("{");
             int jsonEnd = stdErr.LastIndexOf("}");
             if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)

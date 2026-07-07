@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -12,7 +12,7 @@ public static class RuntimeLog
     private static bool _initialized;
     private static bool _exitRegistered;
     private static string _appName = "[MAIN APP]";
-    private const long MaxLogSize = 10 * 1024 * 1024; // 10 MB
+    private const long MaxLogSize = 10 * 1024 * 1024;
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
     
@@ -24,9 +24,6 @@ public static class RuntimeLog
         {
             if (_cachedLogPath != null) return _cachedLogPath;
 
-            // DEV MODE: If FVS_DEV_LOG_DIR is set (by dev.cmd), route ALL logs
-            // exclusively to the dev log directory. Never write to %TMP%,
-            // %PROGRAMDATA%, or the project root in dev mode.
             string? devLogDir = Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR");
             if (!string.IsNullOrWhiteSpace(devLogDir))
             {
@@ -74,7 +71,6 @@ public static class RuntimeLog
     {
         lock (Sync)
         {
-            // Seed the byte counter from the current file size
             try
             {
                 string lp = LogPath;
@@ -159,7 +155,7 @@ public static class RuntimeLog
         try
         {
             try { acquired = _globalMutex.WaitOne(2000); } catch (AbandonedMutexException) { acquired = true; }
-            if (!acquired) return; // Fail safe
+            if (!acquired) return;
 
             RotateLogIfNeeded();
 
@@ -169,7 +165,6 @@ public static class RuntimeLog
         }
         catch (Exception)
         {
-            // Ignore write errors to prevent crashing the app
         }
         finally
         {
@@ -186,14 +181,12 @@ public static class RuntimeLog
             var fileInfo = new FileInfo(lp);
             if (fileInfo.Length < MaxLogSize) return;
 
-            // Log exceeds 10MB, rotate it to prevent memory spikes
             string oldLog = lp + ".old";
             if (File.Exists(oldLog)) File.Delete(oldLog);
             File.Move(lp, oldLog);
         }
         catch
         {
-            // Ignore rotation errors (e.g. file locked)
         }
     }
 }

@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -143,7 +143,7 @@ public partial class VideoMergerWindow : Window
                         System.IO.Path.Combine(myDocuments, "Highlights")
                     };
 
-                    startPath = myVideos; // fallback
+                    startPath = myVideos;
                     foreach (var probe in probes)
                     {
                         if (System.IO.Directory.Exists(probe))
@@ -514,7 +514,6 @@ public partial class VideoMergerWindow : Window
         var slider = this.FindControl<Slider>("TimelineSlider");
         if (slider != null && dur > 0)
         {
-            // Simple slider update
             slider.Value = (time / dur) * 100.0;
         }
     }
@@ -585,23 +584,19 @@ public partial class VideoMergerWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        // If the background work is done, allow the window to close normally
         if (_isSafeToClose)
         {
             base.OnClosing(e);
             return;
         }
 
-        // STOP the synchronous UI-blocking close
         e.Cancel = true;
         FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
-        // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
 
         try
         {
-            // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
 
 
             if (_videoHost?.IpcClient != null)
@@ -615,7 +610,6 @@ public partial class VideoMergerWindow : Window
         }
         finally
         {
-            // Mark as safe and programmatically re-trigger the close
             _isSafeToClose = true;
             this.Close();
         }

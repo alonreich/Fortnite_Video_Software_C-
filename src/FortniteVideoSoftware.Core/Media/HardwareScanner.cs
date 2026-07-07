@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -18,7 +18,7 @@ public static class HardwareScanner
     public static async Task<string> ScanAsync(string ffmpegPath, CancellationToken cancellationToken = default)
     {
         using CancellationTokenSource watchdog = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        watchdog.CancelAfter(TimeSpan.FromSeconds(15)); // 15-second watchdog
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
 
         try
         {
@@ -56,12 +56,12 @@ public static class HardwareScanner
 
     public static string GetPixelFormat()
     {
-        return "yuv420p"; // Encoder Contract
+        return "yuv420p";
     }
 
     public static string GetLevel()
     {
-        return "4.2"; // Encoder Contract
+        return "4.2";
     }
 
     private static async Task<List<string>> GetAvailableHwaccelsAsync(string ffmpegPath, CancellationToken cancellationToken)
@@ -98,9 +98,6 @@ public static class HardwareScanner
 
     private static async Task<bool> CheckEncoderCapabilityAsync(string ffmpegPath, string encoder, CancellationToken cancellationToken)
     {
-        // To verify the encoder, run one real frame through it.
-        // 256x256 is intentionally used because current NVENC drivers reject 128x128
-        // with "Frame Dimension less than the minimum supported value."
         ProcessStartInfo psi = new ProcessStartInfo
         {
             FileName = ffmpegPath,

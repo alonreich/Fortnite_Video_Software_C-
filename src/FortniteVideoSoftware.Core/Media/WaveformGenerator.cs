@@ -12,7 +12,7 @@ public static class WaveformGenerator
     {
         try
         {
-            string tempPng = Path.Combine(Path.GetTempPath(), $"fvs_wave_{Guid.NewGuid():N}.png");
+            string tempPng = Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory, $"fvs_wave_{Guid.NewGuid():N}.png");
             
             string timeArgs = "";
             if (startSec.HasValue) timeArgs += $"-ss {startSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
@@ -46,7 +46,6 @@ public static class WaveformGenerator
         }
         catch (Exception)
         {
-            // Ignore
         }
         return null;
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -42,7 +42,6 @@ public static class LibMpvInterop
         public int internal_format;
     }
 
-    // Removed delegates to use function pointers for NativeAOT
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_render_context_create(out nint res, nint mpv, [In] mpv_render_param[] param);

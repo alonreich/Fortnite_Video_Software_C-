@@ -1,9 +1,4 @@
-// ==============================================================================
-// GranularSpeedBuilder.cs — Exact port of Python filter_builder.py build_granular_speed_chain
-// Implements: variable speed segments, freeze frames, solid-object collision,
-// audio atempo chaining, concat of chunks.
-// ==============================================================================
-
+﻿
 using System.Globalization;
 using System.Text;
 
@@ -43,14 +38,12 @@ public class GranularSpeedBuilder
         double timelineOriginSec = sourceCutStartMs / 1000.0;
         var preChainParts = new List<string>();
 
-        // Convert relative time: absolute → clip-relative
         double ToClipRelative(double absSec)
         {
             double rel = absSec - timelineOriginSec;
             return Math.Max(0, Math.Min(rel, totalDurationSec));
         }
 
-        // Normalize segments
         var normalizedSegments = new List<(double start, double end, double speed)>();
         if (segments != null)
         {
@@ -65,7 +58,6 @@ public class GranularSpeedBuilder
         }
         normalizedSegments.Sort((a, b) => a.start.CompareTo(b.start));
 
-        // Build source chunks (fill gaps with base speed)
         var sourceChunks = new List<(double start, double end, double speed)>();
         double currentSec = 0;
 
@@ -82,11 +74,9 @@ public class GranularSpeedBuilder
         if (currentSec < totalDurationSec - 0.001)
             sourceChunks.Add((currentSec, totalDurationSec, baseSpeed));
 
-        // Process freeze segments (speed ≈ 0)
         var freezes = normalizedSegments.Where(s => Math.Abs(s.speed) < 0.001)
             .OrderBy(f => f.start).ToList();
 
-        // Build final chunks list with freezes inserted
         var chunks = new List<ChunkSpec>();
         double sourceCursor = 0;
 
@@ -117,7 +107,6 @@ public class GranularSpeedBuilder
         if (totalDurationSec > sourceCursor + 0.001)
             AppendSourceRange(sourceCursor, totalDurationSec);
 
-        // Time mapper function
         double TimeMapper(double timelineSec)
         {
             double target = ToClipRelative(timelineSec);
@@ -138,7 +127,6 @@ public class GranularSpeedBuilder
 
         int nChunks = chunks.Count;
 
-        // Empty chunk fallback
         if (nChunks == 0)
         {
             string vChain = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_speed_out]";
@@ -150,17 +138,14 @@ public class GranularSpeedBuilder
                 totalDurationSec / baseSpeed, TimeMapper);
         }
 
-        // Build full chain with splits and chunks
         var fullParts = new List<string>(preChainParts);
         var vAPads = new List<string>();
         double finalDuration = 0;
 
-        // Video splits
         string vSplits = "";
         for (int i = 0; i < nChunks; i++) vSplits += $"[v_split_{i}]";
         fullParts.Add($"{inputVideoLabel}split={nChunks}{vSplits}");
 
-        // Audio splits
         string? aSplits = null;
         if (!string.IsNullOrEmpty(inputAudioLabel))
         {
@@ -169,10 +154,8 @@ public class GranularSpeedBuilder
             fullParts.Add($"{inputAudioLabel}asplit={nChunks}{aSplits}");
         }
 
-        // Parse FPS
         double fpsValue = ParseFps(targetFps);
 
-        // Build each chunk
         for (int i = 0; i < chunks.Count; i++)
         {
             var chunk = chunks[i];
@@ -183,7 +166,6 @@ public class GranularSpeedBuilder
 
             if (Math.Abs(chunk.Speed) < 0.001)
             {
-                // Freeze frame chunk
                 double dur = chunk.FreezeDur;
                 int targetFrameCount = Math.Max(1, (int)Math.Round(dur * fpsValue));
                 int loopFrames = Math.Max(0, targetFrameCount - 1);
@@ -214,7 +196,6 @@ public class GranularSpeedBuilder
             }
             else
             {
-                // Normal speed chunk
                 double outDur = (chunk.End - chunk.Start) / chunk.Speed;
                 fullParts.Add(
                     $"{vSrc}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
@@ -244,7 +225,6 @@ public class GranularSpeedBuilder
             vAPads.Add($"{vChunkLabel}{aChunkLabel}");
         }
 
-        // Concat all chunks
         fullParts.Add($"{string.Join("", vAPads)}concat=n={nChunks}:v=1:a=1[v_speed_concat][a_speed_concat]");
         fullParts.Add("[v_speed_concat]setpts=PTS-STARTPTS[v_speed_out]");
         fullParts.Add("[a_speed_concat]aresample=48000:async=1:min_comp=0.01," +

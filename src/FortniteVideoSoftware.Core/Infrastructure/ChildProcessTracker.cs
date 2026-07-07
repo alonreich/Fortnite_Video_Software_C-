@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -26,7 +26,7 @@ public static class ChildProcessTracker
             _jobHandle = CreateJobObject(IntPtr.Zero, null);
             var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
             {
-                LimitFlags = 0x2000 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                LimitFlags = 0x2000
             };
             var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
             {
@@ -52,7 +52,6 @@ public static class ChildProcessTracker
             }
             catch
             {
-                // Ignore if process has exited or access denied
             }
         }
     }

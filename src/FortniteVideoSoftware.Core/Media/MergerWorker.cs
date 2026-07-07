@@ -1,7 +1,3 @@
-// ==============================================================================
-// MergerWorker.cs — Port of merger engine logic
-// Handles concatenation of multiple videos and optional music ducking overlay.
-// ==============================================================================
 
 using System.Diagnostics;
 using System.Text.Json.Nodes;
@@ -20,7 +16,6 @@ public class MergerWorker : IDisposable
     public event Action<int>? ProgressUpdate;
     public event Action<bool, string>? Finished;
 
-    // Merger inputs
     public List<string> InputFiles { get; set; } = new();
     public MusicTrack? MusicTrack { get; set; }
     public JsonObject? MusicConfig { get; set; }
@@ -54,7 +49,7 @@ public class MergerWorker : IDisposable
             }
 
             string jobId = Guid.NewGuid().ToString("N")[..8];
-            string tempJobDir = Path.Combine(Path.GetTempPath(), $"fvs_merger_{jobId}");
+            string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_merger_{jobId}");
             Directory.CreateDirectory(tempJobDir);
 
             try
@@ -69,19 +64,17 @@ public class MergerWorker : IDisposable
                     totalDuration += dur;
                 }
 
-                if (totalDuration == 0) totalDuration = 10.0; // Fallback
+                if (totalDuration == 0) totalDuration = 10.0;
                 CoreLogger.Info("Merger", $"Total combined duration: {totalDuration:F2}s");
 
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
 
-                // Add inputs
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
                     cmdArgs.AddRange(["-i", InputFiles[i]]);
                 }
 
-                // Add music input if present
                 int musicInputIndex = InputFiles.Count;
                 if (MusicTrack != null)
                 {
@@ -91,12 +84,10 @@ public class MergerWorker : IDisposable
                 string vOutputLabel = "[v_concat]";
                 string aOutputLabel = "[a_concat]";
 
-                // Build concat filter ensuring scale and sample rates match
                 string vInputs = "";
                 string aInputs = "";
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
-                    // For robust concatenation, we should scale them to a common resolution (1920x1080) and sample rate (48000)
                     filters.Add($"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]");
                     filters.Add($"[{i}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[a{i}]");
                     vInputs += $"[v{i}]";
@@ -107,7 +98,6 @@ public class MergerWorker : IDisposable
 
                 string finalAudioLabel = aOutputLabel;
 
-                // Build Ducking Filter if Music Track is present
                 if (MusicTrack != null)
                 {
                     var (duckChains, finalDuckingLabel) = AudioFilterChain.Build(
@@ -137,7 +127,6 @@ public class MergerWorker : IDisposable
                 cmdArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                 cmdArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                 
-                // Encoder
                 var encoderMgr = new EncoderManager("GPU", _ffmpegPath);
                 var (codecArgs, _) = encoderMgr.GetCodecFlags(encoderMgr.GetInitialEncoder(true), null, totalDuration, "60", 3, false);
                 cmdArgs.AddRange(codecArgs);
@@ -173,7 +162,6 @@ public class MergerWorker : IDisposable
                     try { _currentProcess.Kill(entireProcessTree: true); } catch { }
                 });
 
-                // Parse progress
                 _ = Task.Run(async () =>
                 {
                     using var reader = _currentProcess.StandardOutput;
@@ -195,7 +183,6 @@ public class MergerWorker : IDisposable
                     }
                 }, cancellationToken);
 
-                // Capture stderr to log (diagnostic + error messages from FFmpeg)
                 _ = Task.Run(async () =>
                 {
                     using var reader = _currentProcess.StandardError;

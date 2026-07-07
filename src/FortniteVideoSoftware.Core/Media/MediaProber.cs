@@ -1,8 +1,4 @@
-// ==============================================================================
-// MediaProber.cs — Port of Python processing/media_utils.py MediaProber
-// Uses ffprobe to extract video metadata: duration, resolution, fps, audio bitrate.
-// ==============================================================================
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -93,7 +89,6 @@ public class MediaProber
             if (double.TryParse(format["duration"]!.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double dur))
                 return dur;
         }
-        // Try from streams
         var streams = data["streams"]?.AsArray();
         if (streams != null)
         {
@@ -164,7 +159,6 @@ public class MediaProber
                 }
             }
         }
-        // Try format level
         var format = data["format"]?.AsObject();
         if (format != null)
         {
@@ -224,7 +218,6 @@ public class MediaProber
         double videoBudgetBytes = targetBytes - audioTotalBytes;
         double videoKbps = (videoBudgetBytes * 8 / 1024) / durationSec;
 
-        // Quality multiplier
         double qualityMult = qualityLevel switch
         {
             <= 0 => 0.5,
@@ -234,7 +227,6 @@ public class MediaProber
 
         videoKbps *= qualityMult;
 
-        // Resolution cap
         var (outW, outH) = CoordinateMath.GetResolutionInts(outputResolution);
         int maxPixels = outW * outH;
         int refPixels = 1920 * 1080;

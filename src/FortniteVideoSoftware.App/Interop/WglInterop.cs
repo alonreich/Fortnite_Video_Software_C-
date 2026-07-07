@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 
 namespace FortniteVideoSoftware.App.Interop;
@@ -99,7 +99,6 @@ public static unsafe class WglInterop
     public const uint PFD_DOUBLEBUFFER = 1;
     public const byte PFD_TYPE_RGBA = 0;
 
-    // GL Constants
     public const uint GL_TEXTURE_2D = 0x0DE1;
     public const uint GL_FRAMEBUFFER = 0x8D40;
     public const uint GL_COLOR_ATTACHMENT0 = 0x8CE0;
@@ -109,7 +108,6 @@ public static unsafe class WglInterop
     public const uint GL_TEXTURE_MAG_FILTER = 0x2800;
     public const int GL_LINEAR = 0x2601;
 
-    // WGL_NV_DX_interop constants
     public const uint WGL_ACCESS_READ_ONLY_NV = 0x0000;
     public const uint WGL_ACCESS_READ_WRITE_NV = 0x0001;
     public const uint WGL_ACCESS_WRITE_DISCARD_NV = 0x0002;

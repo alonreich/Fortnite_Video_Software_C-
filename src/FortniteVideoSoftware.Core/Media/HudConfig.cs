@@ -1,8 +1,4 @@
-// ==============================================================================
-// HudConfig.cs — Exact port of Python hud_config.py
-// Sanitization, validation, drift types, defaults — all preserved.
-// ==============================================================================
-
+﻿
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
 
@@ -121,14 +117,12 @@ public static class HudConfig
         JsonObject clean = config.DeepClone().AsObject();
         bool currentSpace = IsCurrentSpace(clean);
 
-        // Ensure all required sections exist
         foreach (string section in RequiredSections)
         {
             if (clean[section] is not JsonObject)
                 clean[section] = new JsonObject();
         }
 
-        // Collect all keys
         var keys = new HashSet<string>(HudKeys);
         foreach (string section in RequiredSections)
         {
@@ -150,7 +144,6 @@ public static class HudConfig
 
         foreach (string key in keys)
         {
-            // Validate crop rect
             var rectNode = cropsObj[key];
             int[] rect;
             if (rectNode is JsonArray arr && arr.Count >= 4)
@@ -171,7 +164,6 @@ public static class HudConfig
             int x = ToInt(JsonValue.Create(rect[2]), 0);
             int y = ToInt(JsonValue.Create(rect[3]), 0);
 
-            // Legacy migration
             if (migrateLegacy && !currentSpace && h > 0)
             {
                 y -= CoordinateConstants.UIPaddingTop;
@@ -180,7 +172,6 @@ public static class HudConfig
             var clamped = CoordinateMath.ClampContentCrop((w, h, x, y));
             cropsObj[key] = new JsonArray(clamped.w, clamped.h, clamped.x, clamped.y);
 
-            // Validate scale
             double scale = ToScale(scalesObj[key] ?? defaultScales[key] ?? JsonValue.Create(1.0), 1.0);
             scalesObj[key] = scale;
         }
@@ -191,7 +182,6 @@ public static class HudConfig
 
         foreach (string key in keys)
         {
-            // Overlay position
             var overlayNode = overlaysObj[key];
             int ox, oy;
             if (overlayNode is JsonObject ov)
@@ -220,7 +210,6 @@ public static class HudConfig
             var (cx, cy) = CoordinateMath.ClampOverlayPosition(ox, oy, width, height);
             overlaysObj[key] = new JsonObject { ["x"] = cx, ["y"] = cy };
 
-            // Z-order
             int zDef = ZDefaults.GetValueOrDefault(key, 10);
             zOrdersObj[key] = ToInt(zOrdersObj[key] ?? JsonValue.Create(zDef), zDef);
         }

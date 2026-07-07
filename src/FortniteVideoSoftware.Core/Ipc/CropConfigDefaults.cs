@@ -1,10 +1,10 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.Core.Ipc;
 
 public static class CropConfigDefaults
 {
-    public const int SchemaVersion = 3; // Bumped from 2 → invalidates all-zero-crop configs
+    public const int SchemaVersion = 3;
     public const string CoordinateSpace = "content_1080x1620";
 
     public static readonly string[] RequiredSections =
@@ -31,7 +31,6 @@ public static class CropConfigDefaults
             ["coordinate_space"] = CoordinateSpace,
             ["crops_1080p"] = new JsonObject
             {
-                // [width, height, x, y] — content-space 1080x1620
                 ["loot"] = Rect(511, 103, 1420, 1462),
                 ["stats"] = Rect(326, 233, 1620, 30),
                 ["normal_hp"] = Rect(465, 71, -839, 1470),

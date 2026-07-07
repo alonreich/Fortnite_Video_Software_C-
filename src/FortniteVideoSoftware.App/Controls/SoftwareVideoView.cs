@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
@@ -52,8 +52,6 @@ public class SoftwareVideoView : UserControl
     /// </summary>
     public void ConnectToFrameBuffer(string mapName)
     {
-        // MmapFrameBridge was removed — this path is unused.
-        // All rendering goes through MpvVideoView (OpenGL/libmpv).
         RuntimeLog.Info("SW-Video", "ConnectToFrameBuffer called but MmapFrameBridge is not implemented. Software fallback is disabled.");
     }
 

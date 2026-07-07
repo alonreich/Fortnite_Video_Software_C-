@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -341,7 +341,7 @@ public partial class CropToolWindow : Window
                     System.IO.Path.Combine(myDocuments, "Highlights")
                 };
 
-                startPath = myVideos; // fallback
+                startPath = myVideos;
                 foreach (var probe in probes)
                 {
                     if (System.IO.Directory.Exists(probe))

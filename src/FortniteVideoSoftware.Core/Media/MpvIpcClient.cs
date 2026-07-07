@@ -28,20 +28,22 @@ public class MpvIpcClient : IDisposable
     private bool _ownsHandle;
     private bool _disposed;
 
-    // Boolean properties are marked volatile for cross-thread visibility
-    // (written by event-loop thread, read by UI thread).
     private volatile bool _isPaused;
     private volatile bool _isEof;
 
-    // Observed property IDs (for cleanup on dispose)
     private ulong _timePosObsId;
     private ulong _pauseObsId;
     private ulong _durationObsId;
     private ulong _eofObsId;
 
-    // ==================================================================
-    // Public state properties (updated by the event-loop thread)
-    // ==================================================================
+
+    public static int GlobalMasterVolume { get; private set; } = 100;
+    public static event Action<int>? GlobalMasterVolumeChanged;
+    public static void SetGlobalMasterVolume(int volume)
+    {
+        GlobalMasterVolume = volume;
+        GlobalMasterVolumeChanged?.Invoke(volume);
+    }
 
     public double CurrentTime { get; private set; }
     public double Duration { get; private set; }
@@ -69,9 +71,6 @@ public class MpvIpcClient : IDisposable
     /// </summary>
     public event Action<bool>? PauseChanged;
 
-    // ==================================================================
-    // Constructors
-    // ==================================================================
 
     /// <summary>
     /// Wraps an existing mpv handle (created by MpvVideoView / OpenGL path).
@@ -95,9 +94,6 @@ public class MpvIpcClient : IDisposable
         _ownsHandle = false;
     }
 
-    // ==================================================================
-    // Audio-only initialization (Music Wizard)
-    // ==================================================================
 
     /// <summary>
     /// Creates a headless audio-only mpv instance using the native libmpv C API.
@@ -112,22 +108,15 @@ public class MpvIpcClient : IDisposable
                 "Failed to create mpv handle for audio-only mode. " +
                 "Ensure libmpv-2.dll is available on the search path.");
 
-        // CRITICAL: Set audio-only options BEFORE mpv_initialize().
-        // These are pre-init options — setting them after initialize has no effect.
 
-        // Disable all video output — route to null sink (no window, no render).
         MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "null");
 
-        // Disable video decode entirely (audio-only mode for Music Wizard).
         MpvWrapper.mpv_set_option_string(_mpvHandle, "vid", "no");
 
-        // Suppress terminal output.
         MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
 
-        // Keep idle so we can load/unload files without quitting.
         MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
 
-        // Now initialize with the correct options baked in.
         int err = MpvWrapper.mpv_initialize(_mpvHandle);
         if (err < 0)
             throw new InvalidOperationException(
@@ -138,9 +127,6 @@ public class MpvIpcClient : IDisposable
         return Task.CompletedTask;
     }
 
-    // ==================================================================
-    // Native event loop (replaces polling timer)
-    // ==================================================================
 
     private void StartEventLoop()
     {
@@ -148,15 +134,11 @@ public class MpvIpcClient : IDisposable
 
         _cts = new CancellationTokenSource();
 
-        // Observe key properties — mpv will push MPV_EVENT_PROPERTY_CHANGE
-        // events onto the queue whenever they change.
         _timePosObsId = MpvWrapper.ObserveProperty(_mpvHandle, "time-pos", MpvWrapper.MpvFormat.Double);
         _pauseObsId   = MpvWrapper.ObserveProperty(_mpvHandle, "pause",     MpvWrapper.MpvFormat.Double);
         _durationObsId = MpvWrapper.ObserveProperty(_mpvHandle, "duration",  MpvWrapper.MpvFormat.Double);
         _eofObsId     = MpvWrapper.ObserveProperty(_mpvHandle, "eof-reached", MpvWrapper.MpvFormat.Double);
 
-        // Dimension properties don't change during playback; read them lazily
-        // from GetPropertyString in the event loop occasionally.
 
         _eventLoopThread = new Thread(EventLoopWorker)
         {
@@ -180,7 +162,6 @@ public class MpvIpcClient : IDisposable
         {
             try
             {
-                // Block up to 200ms so we can check cancellation periodically.
                 MpvWrapper.MpvEvent ev = MpvWrapper.WaitEvent(_mpvHandle, 0.2);
 
                 if (token.IsCancellationRequested) break;
@@ -192,11 +173,9 @@ public class MpvIpcClient : IDisposable
                         break;
 
                     case MpvWrapper.MpvEventId.Shutdown:
-                        return; // mpv is shutting down — exit thread
+                        return;
                 }
 
-                // Poll video dimensions every ~20 iterations (4 seconds).
-                // These rarely change and aren't worth a separate observation.
                 if (++widthCounter >= 20)
                 {
                     widthCounter = 0;
@@ -205,7 +184,6 @@ public class MpvIpcClient : IDisposable
             }
             catch (Exception)
             {
-                // Swallow — transient marshalling errors during video swap.
             }
         }
     }
@@ -225,7 +203,6 @@ public class MpvIpcClient : IDisposable
         switch (name)
         {
             case "time-pos":
-                // mpv reports -1 for "no value" (e.g., stopped). Clamp to 0.
                 double time = value >= 0 ? value : 0;
                 if (Math.Abs(time - CurrentTime) > 0.001)
                 {
@@ -269,9 +246,6 @@ public class MpvIpcClient : IDisposable
             VideoHeight = h;
     }
 
-    // ==================================================================
-    // Property access — direct mpv_get_property_string C API
-    // ==================================================================
 
     /// <summary>
     /// Reads an mpv property as a UTF-8 string via
@@ -289,9 +263,6 @@ public class MpvIpcClient : IDisposable
         return result;
     }
 
-    // ==================================================================
-    // Command dispatch — direct mpv_command_string C API
-    // ==================================================================
 
     /// <summary>
     /// Sends a command to mpv via <c>mpv_command_string</c>.
@@ -318,9 +289,6 @@ public class MpvIpcClient : IDisposable
                 _        => args[i].ToString() ?? string.Empty
             };
 
-            // The first token is the command name — never quote it.
-            // Subsequent tokens that look like file paths (contain backslash
-            // or space) are quoted with escaped backslashes for mpv.
             if (i > 0 && (str.Contains(' ') || str.Contains('\\')))
             {
                 sb.Append('"')
@@ -335,16 +303,12 @@ public class MpvIpcClient : IDisposable
 
         MpvWrapper.mpv_command_string(_mpvHandle, sb.ToString());
 
-        // Fire seek-completed notification for seek commands.
         if (args[0].ToString() == "seek")
             SeekCompleted?.Invoke();
 
         return Task.CompletedTask;
     }
 
-    // ==================================================================
-    // Property setters — direct mpv_set_property_string C API
-    // ==================================================================
 
     /// <summary>
     /// Sets an mpv string property via <c>mpv_set_property_string</c>.
@@ -355,8 +319,6 @@ public class MpvIpcClient : IDisposable
         {
             MpvWrapper.mpv_set_property_string(_mpvHandle, name, value);
 
-            // Optimistically update local cache for immediate UI responsiveness.
-            // The native event loop confirms the actual state shortly.
             if (name == "pause")
                 IsPaused = value == "yes";
         }
@@ -376,9 +338,6 @@ public class MpvIpcClient : IDisposable
         return Task.CompletedTask;
     }
 
-    // ==================================================================
-    // File loading — loadfile via mpv_command_string
-    // ==================================================================
 
     /// <summary>
     /// Loads a media file into the mpv player.
@@ -390,13 +349,10 @@ public class MpvIpcClient : IDisposable
         if (_mpvHandle == nint.Zero)
             return Task.CompletedTask;
 
-        // Per project mandate: set 'start' independently before loadfile.
         MpvWrapper.SetStartPosition(_mpvHandle, startTime ?? 0);
 
-        // Load the file (path is escaped inside MpvWrapper.LoadFile).
         MpvWrapper.LoadFile(_mpvHandle, path);
 
-        // Default to playing immediately.
         MpvWrapper.SetPause(_mpvHandle, false);
 
         return Task.CompletedTask;
@@ -427,31 +383,24 @@ public class MpvIpcClient : IDisposable
         return Task.CompletedTask;
     }
 
-    // ==================================================================
-    // Dispose / cleanup — guarantees all unmanaged resources are freed
-    // ==================================================================
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
-        // Signal the event-loop thread to stop and wait for it.
         if (_cts != null)
         {
             _cts.Cancel();
 
-            // Wake the thread if it's blocked inside mpv_wait_event.
             if (_mpvHandle != nint.Zero)
                 MpvWrapper.mpv_wakeup(_mpvHandle);
 
-            // Give the thread a moment to exit cleanly.
             _eventLoopThread?.Join(TimeSpan.FromMilliseconds(500));
             _cts.Dispose();
             _cts = null;
         }
 
-        // Unobserve properties (best-effort — handle may be invalid after this).
         if (_mpvHandle != nint.Zero)
         {
             MpvWrapper.UnobserveProperty(_mpvHandle, _timePosObsId);
@@ -460,9 +409,6 @@ public class MpvIpcClient : IDisposable
             MpvWrapper.UnobserveProperty(_mpvHandle, _eofObsId);
         }
 
-        // Only terminate the handle if we created it (audio-only mode).
-        // For the video-view case, MpvVideoView.OnOpenGlDeinit/DisposeMpv
-        // owns the lifecycle.
         if (_ownsHandle && _mpvHandle != nint.Zero)
         {
             MpvWrapper.SafeDestroy(ref _mpvHandle);

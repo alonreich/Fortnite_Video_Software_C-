@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -23,7 +23,6 @@ public partial class SettingsWindow : Window
     private string? _waitingForKeyAction;
     private bool _isSafeToClose = false;
 
-    // Pending default values (edited in the Defaults tab, applied on SAVE)
     private DefaultValues _pendingDefaults = new();
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
     private string _pendingMusicFolder = "";
@@ -33,7 +32,6 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
 
-        // Snapshot current defaults so CANCEL discards changes
         _pendingDefaults = new DefaultValues
         {
             DefaultSpeed = SettingsManager.Instance.Defaults.DefaultSpeed,
@@ -170,7 +168,6 @@ public partial class SettingsWindow : Window
         var panel = this.FindControl<StackPanel>("DefaultsPanel");
         if (panel == null) return;
 
-        // ── Default Speed (0.1 – 4.0) ──
         var speedNum = new NumericUpDown
         {
             Minimum = 0.1m, Maximum = 4.0m, Increment = 0.1m,
@@ -181,7 +178,6 @@ public partial class SettingsWindow : Window
         speedNum.ValueChanged += (_, _) => _pendingDefaults.DefaultSpeed = (double)(speedNum.Value ?? (decimal)1.1);
         panel.Children.Add(MakeValueBehaviorRow("Default Speed", _pendingDefaults.SpeedBehavior, v => _pendingDefaults.SpeedBehavior = v, speedNum));
 
-        // ── Default Output File Size (index 0-20) ──
         var qCombo = new ComboBox { Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
         var qItems = new List<string>();
         for (int i = 0; i < 20; i++) qItems.Add($"{5 + i * 5}MB");
@@ -191,13 +187,11 @@ public partial class SettingsWindow : Window
         qCombo.SelectionChanged += (_, _) => _pendingDefaults.QualityIndex = qCombo.SelectedIndex;
         panel.Children.Add(MakeValueBehaviorRow("Default Output File Size", _pendingDefaults.QualityBehavior, v => _pendingDefaults.QualityBehavior = v, qCombo));
 
-        // ── Checkbox Defaults ──
         panel.Children.Add(MakeBehaviorCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitBehavior, v => _pendingDefaults.PortraitBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Disable Fade-In/Out", _pendingDefaults.NoFadeBehavior, v => _pendingDefaults.NoFadeBehavior = v));
 
-        // ── Default Music Folder ──
         try
         {
             if (System.IO.File.Exists(_paths.SessionStateFile))
@@ -303,7 +297,6 @@ public partial class SettingsWindow : Window
         kb.AggressiveVolumeUp = _pendingKeys["AggressiveVolumeUp"];
         kb.AggressiveVolumeDown = _pendingKeys["AggressiveVolumeDown"];
 
-        // Apply default values
         SettingsManager.Instance.Defaults = _pendingDefaults;
 
         SettingsManager.Save();
@@ -318,7 +311,7 @@ public partial class SettingsWindow : Window
         }
         catch { }
 
-        Close(true); // Return true to indicate settings were changed
+        Close(true);
     }
 
     protected override void OnOpened(EventArgs e)
@@ -329,23 +322,19 @@ public partial class SettingsWindow : Window
 
     protected override async void OnClosing(WindowClosingEventArgs e)
     {
-        // If the background work is done, allow the window to close normally
         if (_isSafeToClose)
         {
             base.OnClosing(e);
             return;
         }
 
-        // STOP the synchronous UI-blocking close
         e.Cancel = true;
         FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
-        // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
 
         try
         {
-            // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
 
         }
         catch (Exception ex)
@@ -354,7 +343,6 @@ public partial class SettingsWindow : Window
         }
         finally
         {
-            // Mark as safe and programmatically re-trigger the close
             _isSafeToClose = true;
             this.Close();
         }
@@ -383,7 +371,5 @@ public partial class SettingsWindow : Window
         }
     }
 }
-
-
 
 

@@ -37,7 +37,7 @@ internal static class DeploymentFootprint
     public static readonly string DeploymentTempRoot = Path.Combine(TempAppFolder, "Lifecycle");
     public static readonly string InstallReportPath = Path.Combine(TempRoot, "Fortnite_Video_Software.log");
 
-    public static string TempRoot => Environment.GetEnvironmentVariable("TMP") ?? Path.GetTempPath();
+    public static string TempRoot => FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory;
 
     public static readonly string[] ProcessNames =
     [
@@ -87,7 +87,6 @@ internal static class DeploymentFootprint
         yield return LocalAppDataFolder;
         yield return TempAppFolder;
 
-        // Ensure old or hallucinated paths are wiped to satisfy legacy versions
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FortniteVideoSoftware");
     }
 

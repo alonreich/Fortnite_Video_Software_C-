@@ -233,7 +233,15 @@ public sealed class StateTransferStore
         {
             if (!TryGetBool(value, out _))
                 throw new InvalidDataException("Invalid session_state returned_from_crop_tool value.");
+            return;
         }
+
+        if (key is "source" or "pid" or "written_utc")
+        {
+            return;
+        }
+
+        throw new InvalidDataException($"Unknown or unvalidated session_state property: '{key}'.");
     }
 
     private static void ValidateBoundsObject(string key, JsonObject bounds)

@@ -32,11 +32,9 @@ public sealed class ApplicationPaths
             string? overrideRoot = Environment.GetEnvironmentVariable(ProgramDataRootOverrideEnvironmentVariable);
             if (!string.IsNullOrWhiteSpace(overrideRoot))
             {
-                // In dev mode (dev.cmd), put temp in %TMP%\Fortnite_Video_Software_DEV\
-                return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software_DEV", "temp");
+                return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software_DEV");
             }
-            // In production, put temp in %TMP%\Fortnite_Video_Software\
-            return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software", "temp");
+            return Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software");
         }
     }
 
@@ -46,7 +44,7 @@ public sealed class ApplicationPaths
 
     public string RecoveryStateFile => Path.Combine(ProgramDataRoot, "recovery_v2.json");
 
-    public string InstallerReportFile => Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software_Install_Report.txt");
+    public string InstallerReportFile => Path.Combine(TempDirectory, "Fortnite_Video_Software_Install_Report.txt");
 
     public static ApplicationPaths CreateDefault()
     {

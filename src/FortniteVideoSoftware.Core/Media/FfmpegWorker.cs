@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -14,7 +14,6 @@ public class FfmpegWorker
     
     public FfmpegWorker(ApplicationPaths paths)
     {
-        // Default to system PATH if not found in binaries folder
         string binariesPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "libmpv-2.dll");
         string localFfmpeg = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
         _ffmpegPath = File.Exists(localFfmpeg) ? localFfmpeg : "ffmpeg.exe";
@@ -32,7 +31,6 @@ public class FfmpegWorker
         var psi = new ProcessStartInfo
         {
             FileName = _ffmpegPath,
-            // Basic ffmpeg command with progress output
             Arguments = $"-y -i \"{inputPath}\" -filter_complex \"{filterGraph}\" -c:v {encoder} -c:a aac -progress pipe:1 \"{outputPath}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -43,13 +41,11 @@ public class FfmpegWorker
         using var process = Process.Start(psi);
         if (process == null) return false;
 
-        // Register cancellation to kill the process tree if user cancels
         using var reg = cancellationToken.Register(() => 
         {
             try { process.Kill(entireProcessTree: true); } catch { }
         });
 
-        // Parse stdout for progress=out_time_us
         _ = Task.Run(async () =>
         {
             using var reader = process.StandardOutput;
@@ -73,7 +69,6 @@ public class FfmpegWorker
 
         await process.WaitForExitAsync(cancellationToken);
         
-        // Ensure success
         return process.ExitCode == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
     }
 }

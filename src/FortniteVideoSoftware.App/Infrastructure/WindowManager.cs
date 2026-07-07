@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using System;
 using System.Linq;
 using Avalonia.Platform;
@@ -24,7 +24,6 @@ namespace FortniteVideoSoftware.App.Infrastructure
                 var windowName = window.GetType().Name;
                 var stateFile = GetStateFilePath(windowName);
 
-                // If window is minimized or closed, Bounds might be zero
                 if (window.Bounds.Width <= 0 || window.Bounds.Height <= 0) return;
 
                 var state = new JsonObject();

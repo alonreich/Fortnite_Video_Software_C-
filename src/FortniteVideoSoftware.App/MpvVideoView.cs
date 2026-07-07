@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -58,7 +58,6 @@ public class MpvVideoView : Control
     private int _cachedWidth;
     private int _cachedHeight;
     private readonly object _renderLock = new object();
-
 
 
     private int _renderTextureW;
@@ -208,7 +207,7 @@ public class MpvVideoView : Control
             Marshal.FreeHGlobal(apiTypePtr);
             Marshal.FreeHGlobal(initParamsPtr);
         }
-        } // end unsafe
+        }
 
 
         WglInterop.glGenTextures(SwapChainSize, _glTextures);
@@ -398,7 +397,6 @@ public class MpvVideoView : Control
 
                             int flipY = 0;
 
-                            // stackalloc guarantees the pointers do not drift during C-interop in NativeAOT.
                             LibMpvInterop.mpv_render_param* paramsArray = stackalloc LibMpvInterop.mpv_render_param[3];
 
                             paramsArray[0].type = LibMpvInterop.MPV_RENDER_PARAM_OPENGL_FBO;
@@ -416,7 +414,6 @@ public class MpvVideoView : Control
                         WglInterop.wglDXUnlockObjectsNV?.Invoke(_dxInteropDevice, 1, _lockedInteropObjects);
                         dxObjectLocked = false;
 
-                        // Keep the producing D3D11 device drained before Avalonia imports the shared texture.
                         _d3d11Context?.Flush();
 
                         imageForAvalonia = EnsureImportedImage(_currentBufferIndex);
@@ -553,7 +550,6 @@ public class MpvVideoView : Control
     }
 
 
-
     private ICompositionImportedGpuImage? EnsureImportedImage(int index)
     {
         if (_importedImages[index] != null && _importedImages[index]!.IsLost)
@@ -582,8 +578,6 @@ public class MpvVideoView : Control
                 }
                 catch (Avalonia.Platform.PlatformGraphicsContextLostException)
                 {
-                    // Safe to ignore: Context lost is normal during window resizes, minimizing, or hot reloads.
-                    // Avalonia will naturally request a new composition surface.
                     _importedImages[index] = null;
                     RestoreProducerOwnership(index);
                 }
@@ -617,7 +611,6 @@ public class MpvVideoView : Control
         }
         catch
         {
-            // Another device already owns the mutex, or the producer key is already available.
         }
     }
 

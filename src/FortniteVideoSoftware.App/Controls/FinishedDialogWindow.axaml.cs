@@ -12,7 +12,6 @@ public partial class FinishedDialogWindow : Window
 {
     private string _outputPath = "";
     
-    // Result: 0 = Close/Upload New, 1 = Exit
     public int DialogResult { get; private set; } = 0;
 
     public FinishedDialogWindow()
@@ -54,6 +53,53 @@ public partial class FinishedDialogWindow : Window
             Process.Start(new ProcessStartInfo
             {
                 FileName = "https://web.whatsapp.com",
+                UseShellExecute = true
+            });
+            OpenOutputFolder();
+            DialogResult = 1;
+            Close();
+        }
+        catch { }
+    }
+    private void OnInstagramClicked(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://www.instagram.com/",
+                UseShellExecute = true
+            });
+            OpenOutputFolder();
+            DialogResult = 1;
+            Close();
+        }
+        catch { }
+    }
+
+    private void OnYouTubeClicked(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://studio.youtube.com/",
+                UseShellExecute = true
+            });
+            OpenOutputFolder();
+            DialogResult = 1;
+            Close();
+        }
+        catch { }
+    }
+
+    private void OnTikTokClicked(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://www.tiktok.com/creator-center/upload",
                 UseShellExecute = true
             });
             OpenOutputFolder();

@@ -1,9 +1,4 @@
-// ==============================================================================
-// CoordinateMath.cs — Exact port of Python coordinate_math.py
-// Portrait Canvas Trick: 1280x1920 internal → 1080x1620 content → 1080x1920 final
-// All Fraction-based math preserved for pixel-perfect rounding behavior.
-// ==============================================================================
-
+﻿
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -40,7 +35,6 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
     public static Frac FromDouble(double d)
     {
         if (double.IsNaN(d) || double.IsInfinity(d)) return Zero;
-        // Use continued fractions for clean rational approximation
         double eps = 1e-10;
         long maxDen = 100_000_000;
         double val = Math.Abs(d);
@@ -97,9 +91,6 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
     public override string ToString() => Den == 1 ? Num.ToString() : $"{Num}/{Den}";
 }
 
-// ==============================================================================
-// Constants — exact mirror of coordinate_math.py module-level constants
-// ==============================================================================
 
 public static class CoordinateConstants
 {
@@ -111,36 +102,28 @@ public static class CoordinateConstants
     public const int UIPaddingBottom = 150;
     public const int UIContentH = 1620;
 
-    // TARGET_W/TARGET_H = internal compose space
     public const int TargetW = InternalW;
     public const int TargetH = InternalH;
 
-    // CONTENT_W/CONTENT_H = final portrait content area
     public const int ContentW = PortraitW;
     public const int ContentH = UIContentH;
 
     public const int PaddingTop = UIPaddingTop;
 
-    // BACKEND_SCALE = 1280 / 1080
     public static readonly Frac BackendScale = new(InternalW, PortraitW);
     public static readonly Frac UIToInternalScale = BackendScale;
 }
 
-// ==============================================================================
-// CoordinateMath — exact port of all transform/clamp/scale functions
-// ==============================================================================
 
 public static class CoordinateMath
 {
-    // --- Floor / Ceil for Frac (Python floor/ceil behavior) ---
 
-    public static int FracFloor(Frac v) => (int)(v.Num / v.Den); // Python floor division for positive den
+    public static int FracFloor(Frac v) => (int)(v.Num / v.Den);
     public static int FracCeil(Frac v) => -((int)(-v.Num / v.Den));
 
     public static int EvenDown(int v) => v % 2 == 0 ? v : v - 1;
     public static int EvenUp(int v) => v % 2 == 0 ? v : v + 1;
 
-    // --- scale_round (matches Python's scale_round) ---
 
     public static int ScaleRound(Frac val)
     {
@@ -151,7 +134,6 @@ public static class CoordinateMath
 
     public static int ScaleRound(double d) => ScaleRound(Frac.FromDouble(d));
 
-    // --- outward_round_rect ---
 
     public static (int x, int y, int w, int h) OutwardRoundRect(Frac x, Frac y, Frac w, Frac h)
     {
@@ -162,7 +144,6 @@ public static class CoordinateMath
         return (ix, iy, Math.Max(1, iw), Math.Max(1, ih));
     }
 
-    // --- get_resolution_ints ---
 
     public static (int w, int h) GetResolutionInts(string? resStr)
     {
@@ -177,7 +158,6 @@ public static class CoordinateMath
         return (1920, 1080);
     }
 
-    // --- _scale_plan (internal but exposed for inverse transform) ---
 
     public static (int scaledW, int scaledH, int cropX, int cropY, Frac scale) ScalePlan(string originalResolution)
     {
@@ -193,7 +173,6 @@ public static class CoordinateMath
         return (scaledW, scaledH, cropX, cropY, scale);
     }
 
-    // --- transform_to_content_area (returns Fractions) ---
 
     public static (Frac x, Frac y, Frac w, Frac h) TransformToContentArea(
         (double x, double y, double w, double h) rect, string originalResolution)
@@ -214,7 +193,6 @@ public static class CoordinateMath
         return (internalX / uiScale, internalY / uiScale, internalW / uiScale, internalH / uiScale);
     }
 
-    // --- inverse_transform_from_content_area (returns Fractions) ---
 
     public static (Frac x, Frac y, Frac w, Frac h) InverseTransformFromContentArea(
         (double x, double y, double w, double h) rect, string originalResolution, string? driftType = null)
@@ -238,7 +216,6 @@ public static class CoordinateMath
         var origW = internalW / scale;
         var origH = internalH / scale;
 
-        // Drift protection: +1px correction
         if (driftType == "left")
         {
             origX -= Frac.One;
@@ -257,7 +234,6 @@ public static class CoordinateMath
         return (finalX, finalY, finalW, finalH);
     }
 
-    // --- inverse_transform_from_content_area_int (returns ints, even-aligned) ---
 
     public static (int x, int y, int w, int h) InverseTransformFromContentAreaInt(
         (int x, int y, int w, int h) rect, string originalResolution, string? driftType = null)
@@ -279,7 +255,6 @@ public static class CoordinateMath
         return (ix, iy, Math.Max(2, ex - ix), Math.Max(2, ey - iy));
     }
 
-    // --- transform_to_content_area_int ---
 
     public static (int x, int y, int w, int h) TransformToContentAreaInt(
         (int x, int y, int w, int h) rect, string originalResolution)
@@ -288,7 +263,6 @@ public static class CoordinateMath
         return OutwardRoundRect(fx, fy, fw, fh);
     }
 
-    // --- clamp_overlay_position ---
 
     public static (int x, int y) ClampOverlayPosition(
         double x, double y, double width, double height,
@@ -307,7 +281,6 @@ public static class CoordinateMath
         return (ScaleRound(Max(Frac.Zero, Min(fx, maxX))), ScaleRound(Max(minY, Min(fy, maxY))));
     }
 
-    // --- clamp_content_crop ---
 
     public static (int w, int h, int x, int y) ClampContentCrop((int w, int h, int x, int y) rect)
     {
@@ -318,7 +291,6 @@ public static class CoordinateMath
         return (w, h, x, y);
     }
 
-    // --- scale_rect / scale_rect_int ---
 
     public static (Frac x, Frac y, Frac w, Frac h) ScaleRect(
         (double x, double y, double w, double h) rect, double scaleFactor)
@@ -338,7 +310,6 @@ public static class CoordinateMath
         return (ScaleRound(x), ScaleRound(y), Math.Max(1, FracCeil(w)), Math.Max(1, FracCeil(h)));
     }
 
-    // --- Min/Max helpers for Frac ---
 
     private static Frac Max(Frac a, Frac b) => a > b ? a : b;
     private static Frac Min(Frac a, Frac b) => a < b ? a : b;

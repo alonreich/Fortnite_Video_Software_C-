@@ -1,4 +1,4 @@
-using FortniteVideoSoftware.Core.Media;
+﻿using FortniteVideoSoftware.Core.Media;
 using System.Diagnostics;
 
 namespace FortniteVideoSoftware.App;
@@ -28,12 +28,11 @@ public static class Phase3Gate
         {
             safetyManager.RequestSeek(i % 2 == 0 ? 10.0 : 20.0);
             scrubs++;
-            await Task.Delay(10); // 10ms between requests, much faster than the 50ms throttle
+            await Task.Delay(10);
         }
 
         Console.WriteLine($"Sent {scrubs} seeks in {sw.ElapsedMilliseconds}ms. Testing if watchdog is still responsive...");
         
-        // Let debounce settle
         await Task.Delay(500);
 
         Console.WriteLine("Scrubbing did not freeze the main thread.");

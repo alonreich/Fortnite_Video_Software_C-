@@ -17,7 +17,6 @@ namespace FortniteVideoSoftware.App;
 /// </summary>
 public partial class GranularSpeedEditorWindow : Window
 {
-    // ------------------------------------------------------------------ state
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
     private double? _nextSeekTarget = null;
@@ -34,16 +33,14 @@ public partial class GranularSpeedEditorWindow : Window
 
     private bool _isSafeToClose = false;
 
-    // Issue #4: Selected segment for inline editing
     private int _selectedSegmentIndex = -1;
     private DispatcherTimer? _marchingAntsTimer;
     private double _marchingAntsOffset = 0;
 
     private DispatcherTimer? _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
     private bool _isTimelineDrawn = false;
-    private double _lastAppliedSpeed = 1.0;  // Tracks last speed sent to MPV to avoid redundant IPC
+    private double _lastAppliedSpeed = 1.0;
 
-    // The result the caller reads after the dialog closes
     public bool Accepted { get; private set; }
     public IReadOnlyList<SpeedSegment> ResultSegments => _segments
         .Select(s => new SpeedSegment(s.StartMs + (int)_trimStartMs, s.EndMs + (int)_trimStartMs, s.Speed))
@@ -64,11 +61,9 @@ public partial class GranularSpeedEditorWindow : Window
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
-    // Freeze preset gentle pulse timer — keeps the duration buttons gently glowing until the user picks one.
     private DispatcherTimer? _freezePulseTimer;
     private double _freezePulseOffset = 0;
 
-    // ------------------------------------------------------------------ ctor
     /// <summary>
     /// Parameterless ctor required by Avalonia's XAML runtime loader.
     /// Do not call directly — use the overload that accepts a video path.
@@ -92,6 +87,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         InitializeComponent();
         FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
         _pendingSpeed = baseSpeed;
         _lastAppliedSpeed = baseSpeed;
@@ -103,12 +99,10 @@ public partial class GranularSpeedEditorWindow : Window
         
         if (existingSegments != null)
         {
-            // Convert incoming segments from absolute → relative to trim region
             foreach (var seg in existingSegments)
             {
                 int relStart = (int)(seg.StartMs - _trimStartMs);
                 int relEnd = (int)(seg.EndMs - _trimStartMs);
-                // Only include segments that fall within the trim region
                 if (relEnd > 0 && relStart < (int)(_trimEndMs - _trimStartMs))
                 {
                     relStart = Math.Max(0, relStart);
@@ -139,7 +133,6 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        // Issue #4: Marching ants animation timer for selected segment
         _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         _marchingAntsTimer.Tick += (_, _) => {
             _marchingAntsOffset = (_marchingAntsOffset + 1) % 8;
@@ -165,7 +158,6 @@ public partial class GranularSpeedEditorWindow : Window
         if (gfPopup != null && targetBorder != null) gfPopup.PlacementTarget = targetBorder;
     }
 
-    // ------------------------------------------------------------------ init
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private async void InitializeMpv()
@@ -237,12 +229,12 @@ public partial class GranularSpeedEditorWindow : Window
 
         if (_isFreezeCameraSelected && _freezeTimeMs >= 0 && e.Key is Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
         {
-            MoveFreezeCameraByPixels(e.Key == Avalonia.Input.Key.Left ? -1 : 1);
+            int frames = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Control) || e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? 10 : 1;
+            MoveFreezeCameraByFrames(e.Key == Avalonia.Input.Key.Left ? -frames : frames);
             e.Handled = true;
             return;
         }
 
-        // Issue #4: Delete key removes the selected segment
         if (e.Key == Avalonia.Input.Key.Delete || e.Key == Avalonia.Input.Key.Back)
         {
             if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
@@ -298,7 +290,6 @@ public partial class GranularSpeedEditorWindow : Window
         }
         else if (seekFwd.Matches(e))
         {
-            // Seek forward but clamp to trim region end
             double currentAbs = _videoHost?.IpcClient?.CurrentTime ?? 0;
             double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : double.MaxValue;
             double target = Math.Min(currentAbs + 5, trimEndSec);
@@ -307,7 +298,6 @@ public partial class GranularSpeedEditorWindow : Window
         }
         else if (seekBack.Matches(e))
         {
-            // Seek backward but clamp to trim region start
             double currentAbs = _videoHost?.IpcClient?.CurrentTime ?? 0;
             double target = Math.Max(currentAbs - 5, _trimStartMs / 1000.0);
             _ = SeekInternal(target - (_trimStartMs / 1000.0));
@@ -318,7 +308,6 @@ public partial class GranularSpeedEditorWindow : Window
     private async Task SeekInternal(double time) {
         if (_isSeeking) { _nextSeekTarget = time; return; }
         _isSeeking = true;
-        // `time` is relative to the trim region; convert to absolute video position
         double absTime = (_trimStartMs / 1000.0) + time;
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : double.MaxValue;
         absTime = Math.Min(absTime, trimEndSec);
@@ -332,20 +321,17 @@ public partial class GranularSpeedEditorWindow : Window
 
         double startSec = _trimStartMs / 1000.0;
         
-        // LoadFileAsync accepts startTime and sets 'start' property before loading.
         _ = _videoHost.IpcClient.LoadFileAsync(_videoPath, startSec);
         _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
     }
 
     private void WireUpControls()
     {
-        // ---- Timeline slider ----
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
         if (canvas != null)
         {
             canvas.SizeChanged += (s, e) => RedrawTimeline();
 
-            // Issue #4: Click-to-select on timeline segments
             canvas.IsHitTestVisible = true;
             canvas.PointerPressed += (s, e) =>
             {
@@ -357,7 +343,6 @@ public partial class GranularSpeedEditorWindow : Window
                 double clickSec = (clickX / w) * dur;
                 int clickMs = (int)(clickSec * 1000);
 
-                // Find segment at click position
                 int foundIdx = -1;
                 for (int i = 0; i < _segments.Count; i++)
                 {
@@ -374,7 +359,6 @@ public partial class GranularSpeedEditorWindow : Window
                     var seg = _segments[foundIdx];
                     _pendingSpeed = seg.Speed;
 
-                    // Sync slider to selected segment's speed
                     var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                     var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
                     if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
@@ -387,7 +371,6 @@ public partial class GranularSpeedEditorWindow : Window
                 }
                 else
                 {
-                    // Click on empty area deselects
                     if (_isFreezeCameraSelected)
                     {
                         _isFreezeCameraSelected = false;
@@ -422,15 +405,12 @@ public partial class GranularSpeedEditorWindow : Window
             };
         }
 
-        // ---- Play/Pause ----
         var playPause = this.FindControl<Button>("GranularPlayPause");
         playPause?.AddHandler(Button.ClickEvent, (_, _) =>
         {
             RuntimeLog.Info("UI", "User toggled Play/Pause in Granular Speed Editor.");
             if (_isCurrentlyFrozen)
             {
-                // User clicked "Pause" while the timeline is faking playback during a freeze.
-                // Cancel the freeze tracking and leave MPV paused natively.
                 _isCurrentlyFrozen = false;
                 return;
             }
@@ -438,7 +418,6 @@ public partial class GranularSpeedEditorWindow : Window
         });
 
 
-        // ---- Mark Start / End ----
         var markStart = this.FindControl<Button>("MarkStartBtn");
         markStart?.AddHandler(Button.ClickEvent, (_, _) =>
         {
@@ -446,7 +425,6 @@ public partial class GranularSpeedEditorWindow : Window
 
             int currentMs = (int)(GetCurrentTime() * 1000);
 
-            // Prevent marking inside an existing segment (no overlaps allowed)
             int? overlapIdx = FindSegmentAtPosition(currentMs);
             if (overlapIdx.HasValue)
             {
@@ -456,7 +434,6 @@ public partial class GranularSpeedEditorWindow : Window
                 return;
             }
 
-            // Issue #4: Starting new marking deselects any selected segment
             _selectedSegmentIndex = -1;
             UpdateDeleteButtonVisibility();
 
@@ -472,8 +449,6 @@ public partial class GranularSpeedEditorWindow : Window
 
             int currentMs = (int)(GetCurrentTime() * 1000);
 
-            // Prevent marking END inside an existing segment (unless we're just setting end
-            // with a valid start that doesn't overlap)
             if (_pendingStartMs < 0)
             {
                 int? overlapIdx = FindSegmentAtPosition(currentMs);
@@ -488,10 +463,8 @@ public partial class GranularSpeedEditorWindow : Window
 
             _pendingEndMs = currentMs;
             
-            // Issue #4: Starting new marking deselects any selected segment
             _selectedSegmentIndex = -1;
 
-            // Logic for auto-calculating start:
             if (_pendingStartMs < 0)
             {
                 if (_segments.Count == 0)
@@ -515,10 +488,8 @@ public partial class GranularSpeedEditorWindow : Window
 
             ShowFeedback($"SEGMENT ADDED: {FormatMs(_pendingEndMs)}");
             
-            // Automatically add segment
             AddPendingSegment();
 
-            // Issue #4: Auto-select the newly created segment (last one added)
             if (_segments.Count > 0)
             {
                 _selectedSegmentIndex = _segments.Count - 1;
@@ -527,7 +498,6 @@ public partial class GranularSpeedEditorWindow : Window
             RedrawTimeline();
         });
 
-        // ---- Pending speed slider ----
         var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
         if (speedSlider != null)
         {
@@ -537,7 +507,6 @@ public partial class GranularSpeedEditorWindow : Window
                 var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
                 if (lbl != null) lbl.Text = $"{_pendingSpeed:0.0}x";
 
-                // Issue #4: If a segment is selected, update its speed live
                 if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
                 {
                     var seg = _segments[_selectedSegmentIndex];
@@ -548,13 +517,10 @@ public partial class GranularSpeedEditorWindow : Window
             };
         }
 
-        // Issue #7: Speed preset buttons
         WireUpSpeedPresets(speedSlider);
 
-        // Freeze Image logic
         WireUpFreezeImage();
 
-        // ---- Delete single segment (Issue #6) ----
         var deleteSegBtn = this.FindControl<Button>("DeleteSegmentBtn");
         deleteSegBtn?.AddHandler(Button.ClickEvent, (_, _) =>
         {
@@ -569,7 +535,6 @@ public partial class GranularSpeedEditorWindow : Window
             }
         });
 
-        // ---- Clear all ----
         var clearBtn = this.FindControl<Button>("ClearAllSegmentsBtn");
         clearBtn?.AddHandler(Button.ClickEvent, (_, _) =>
         {
@@ -584,7 +549,6 @@ public partial class GranularSpeedEditorWindow : Window
             SetStatus("All segments and pending selections cleared.");
         });
 
-        // ---- Accept / Cancel ----
         var acceptBtn = this.FindControl<Button>("AcceptGranularBtn");
         if (acceptBtn != null) acceptBtn.Click += (s, e) => {
             RuntimeLog.Info("UI", "User clicked Accept in Granular Speed Editor.");
@@ -613,8 +577,6 @@ public partial class GranularSpeedEditorWindow : Window
         };
         double[] presetValues = { 0.5, 1.0, 1.5, 2.0, 2.5, 3.0 };
 
-        // ── IDEA 1: Selected preset turns GREEN (matching BaseSpeedPreset theme) ──
-        // Green palette: bg=#14532d, border=#22c55e, fg=#86efac (same as the main app base speed button)
         var selectedBg = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#14532d"));
         var selectedBorder = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#22c55e"));
         var selectedFg = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#86efac"));
@@ -628,7 +590,6 @@ public partial class GranularSpeedEditorWindow : Window
 
                 if (j == selectedIndex)
                 {
-                    // Selected button = GREEN (Idea 1)
                     preset.Classes.Remove("Primary");
                     preset.Background = selectedBg;
                     preset.BorderBrush = selectedBorder;
@@ -636,7 +597,6 @@ public partial class GranularSpeedEditorWindow : Window
                 }
                 else
                 {
-                    // Non-selected = clear overrides, back to default SpeedPreset style
                     preset.ClearValue(Avalonia.Controls.Button.BackgroundProperty);
                     preset.ClearValue(Avalonia.Controls.Button.BorderBrushProperty);
                     preset.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
@@ -644,8 +604,6 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        // ── IDEA 3: Gentle pulse timer — keeps buttons softly glowing until user picks one ──
-        // Slow, gentle sine wave (~1.5s per cycle). Not fast or jarring.
         int stepperIndex = 0;
         int _freezePulseCount = 0;
         _freezePulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
@@ -660,7 +618,6 @@ public partial class GranularSpeedEditorWindow : Window
             if (hint1 != null) hint1.Opacity = newOpacity;
             if (hint2 != null) hint2.Opacity = newOpacity;
 
-            // Task 7: 10-iteration blink animation loop
             if (_freezePulseCount >= 20)
             {
                 _freezePulseTimer?.Stop();
@@ -673,20 +630,17 @@ public partial class GranularSpeedEditorWindow : Window
                 var b = freezePresets[j];
                 if (b == null) continue;
 
-                // Only stepper pulse buttons that are NOT selected (green) and NOT disabled
                 bool isSelected = (Math.Abs(_selectedFreezePresetS - presetValues[j]) < 0.01);
                 if (isSelected) continue;
 
                 if (j == stepperIndex)
                 {
-                    // Stepper Highlight (Bright Amber)
                     b.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(120, 90, 26));
                     b.BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(250, 197, 22));
                     b.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(255, 247, 237));
                 }
                 else
                 {
-                    // Reset to default style so it doesn't stay highlighted
                     b.ClearValue(Avalonia.Controls.Button.BackgroundProperty);
                     b.ClearValue(Avalonia.Controls.Button.BorderBrushProperty);
                     b.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
@@ -694,10 +648,8 @@ public partial class GranularSpeedEditorWindow : Window
             }
         };
 
-        // ── Helper: Grey out (disable) all other buttons until a duration is picked (Idea 5) ──
         void SetControlsEnabledDuringFreezePrompt(bool enabled)
         {
-            // Grey out: MARK START, MARK END, PLAY/PAUSE, speed slider, speed presets, delete/clear
             var controlsToToggle = new Control?[] {
                 this.FindControl<Button>("MarkStartBtn"),
                 this.FindControl<Button>("MarkEndBtn"),
@@ -724,19 +676,15 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     _selectedFreezePresetS = val;
 
-                    // Stop the gentle pulse (Idea 3)
                     _freezePulseTimer?.Stop();
 
-                    // Apply GREEN selection (Idea 1)
                     SetFreezePresetSelection(presetIndex);
 
-                    // Hide the hint label (Idea 5)
                     var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                     if (hint != null) hint.IsVisible = false;
                     var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
                     if (hintBottom != null) hintBottom.IsVisible = false;
 
-                    // Un-grey all other controls (Idea 5)
                     SetControlsEnabledDuringFreezePrompt(true);
 
                     var popup = this.FindControl<Avalonia.Controls.Primitives.Popup>("FreezeValidationPopup");
@@ -765,11 +713,9 @@ public partial class GranularSpeedEditorWindow : Window
                     {
                         ShowFeedback("SELECT FREEZE DURATION");
                         
-                        // ── IDEA 3: Start gentle pulse ──
                         _freezePulseCount = 0;
                         _freezePulseTimer?.Start();
 
-                        // ── IDEA 5: Show hint label + grey out other controls ──
                         var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                         if (hint != null) hint.IsVisible = true;
                         var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
@@ -780,7 +726,6 @@ public partial class GranularSpeedEditorWindow : Window
                         FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", "State Change: User clicked 'Freeze Image' toggle but no preset was selected. Showing hint + gentle pulse + greying out other controls.");
                     }
 
-                    // Place freeze at current ABSOLUTE playback time
                     double currentAbsMs = (_videoHost?.IpcClient?.CurrentTime ?? 0) * 1000.0;
                     if (_videoHost != null && _videoHost.IpcClient != null) {
                         _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
@@ -789,7 +734,6 @@ public partial class GranularSpeedEditorWindow : Window
                     if (_trimEndMs > 0 && currentAbsMs > _trimEndMs) currentAbsMs = _trimEndMs;
                     _freezeTimeMs = currentAbsMs;
 
-                    // If no preset was selected, default duration to 1.0s (will be overridden when they click)
                     _freezeDurationS = promptPreset ? 1.0 : _selectedFreezePresetS;
 
                     var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
@@ -802,12 +746,9 @@ public partial class GranularSpeedEditorWindow : Window
                     RedrawTimeline();
                     FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked 'Freeze Image' toggle. Button set to State 2 (Active/Red - UNFREEZE IMAGE).");
 
-                    // If the user had ALREADY picked a preset before clicking FREEZE IMAGE,
-                    // show the selection immediately (no prompt needed)
                     if (!promptPreset)
                     {
                         ShowFeedback($"FREEZE CREATED: {_freezeDurationS:0.0}s");
-                        // Find the index matching the selected value and apply green
                         for (int k = 0; k < presetValues.Length; k++)
                         {
                             if (Math.Abs(presetValues[k] - _selectedFreezePresetS) < 0.01)
@@ -833,14 +774,12 @@ public partial class GranularSpeedEditorWindow : Window
 
                     ShowFeedback("FREEZE IMAGE REMOVED");
 
-                    // Stop pulse and hide hint if still running
                     _freezePulseTimer?.Stop();
                     var hint = this.FindControl<TextBlock>("FreezeHintLabel");
                     if (hint != null) hint.IsVisible = false;
                     var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
                     if (hintBottom != null) hintBottom.IsVisible = false;
 
-                    // Clear all preset styling back to default
                     foreach (var b in freezePresets)
                     {
                         if (b == null) continue;
@@ -849,7 +788,6 @@ public partial class GranularSpeedEditorWindow : Window
                         b.ClearValue(Avalonia.Controls.Button.ForegroundProperty);
                     }
 
-                    // Ensure controls are re-enabled
                     SetControlsEnabledDuringFreezePrompt(true);
 
                     RedrawTimeline();
@@ -906,7 +844,6 @@ public partial class GranularSpeedEditorWindow : Window
             clearAllBtn.IsVisible = _segments.Count > 0;
     }
 
-    // ------------------------------------------------------------------ segment management
     private void AddPendingSegment()
     {
         if (_pendingStartMs < 0 || _pendingEndMs < 0)
@@ -918,13 +855,12 @@ public partial class GranularSpeedEditorWindow : Window
         int start = Math.Min(_pendingStartMs, _pendingEndMs);
         int end   = Math.Max(_pendingStartMs, _pendingEndMs);
 
-        if (end - start < 10) // 10 ms minimum per spec
+        if (end - start < 10)
         {
             SetStatus("Segment must be at least 10 ms long.");
             return;
         }
 
-        // Collision check: no overlaps allowed (spec §3.1)
         foreach (var seg in _segments)
         {
             if (start < seg.EndMs && end > seg.StartMs)
@@ -938,7 +874,6 @@ public partial class GranularSpeedEditorWindow : Window
         _segments.Add(new SpeedSegment(start, end, speed));
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
-        // Reset pending markers
         _pendingStartMs = -1;
         _pendingEndMs   = -1;
         RefreshSegmentList();
@@ -961,7 +896,6 @@ public partial class GranularSpeedEditorWindow : Window
             var seg = _segments[i];
             bool isSelected = idx == _selectedSegmentIndex;
 
-            // Row border — highlight if selected
             var border = new Border
             {
                 Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse(isSelected ? "#3d4f63" : "#1e293b")),
@@ -979,7 +913,6 @@ public partial class GranularSpeedEditorWindow : Window
             grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
             grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
 
-            // Info text
             var info = new TextBlock
             {
                 Text = $"#{idx + 1}  {FormatMs(seg.StartMs)} → {FormatMs(seg.EndMs)}\n{seg.Speed:0.0}x speed",
@@ -989,7 +922,6 @@ public partial class GranularSpeedEditorWindow : Window
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
 
-            // Delete button
             var delBtn = new Button
             {
                 Content = "✕",
@@ -1017,7 +949,6 @@ public partial class GranularSpeedEditorWindow : Window
                 SetStatus("Segment removed.");
             };
 
-            // Issue #4: Click border to select this segment
             void SelectThisSegment()
             {
                 _selectedSegmentIndex = idx;
@@ -1147,17 +1078,16 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 
-    private void MoveFreezeCameraByPixels(int pixelDelta)
+    private void MoveFreezeCameraByFrames(int frameDelta)
     {
-        var canvas = this.FindControl<Canvas>("GranularTimelineCanvas");
         double duration = GetDuration();
-        double width = canvas?.Bounds.Width ?? 0.0;
-        if (_freezeTimeMs < 0 || canvas == null || duration <= 0 || width <= 0)
+        if (_freezeTimeMs < 0 || duration <= 0)
         {
             return;
         }
 
-        double deltaMs = (duration * 1000.0 / width) * pixelDelta;
+        double fps = 60.0;
+        double deltaMs = (1000.0 / fps) * frameDelta;
         double minMs = _trimStartMs;
         double maxMs = _trimStartMs + duration * 1000.0;
         _freezeTimeMs = Math.Clamp(_freezeTimeMs + deltaMs, minMs, maxMs);
@@ -1182,7 +1112,6 @@ public partial class GranularSpeedEditorWindow : Window
             "absolute");
     }
 
-    // ------------------------------------------------------------------ timeline overlay
     private void RedrawTimeline()
     {
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
@@ -1198,10 +1127,7 @@ public partial class GranularSpeedEditorWindow : Window
             double h = Math.Max(canvas.Bounds.Height, 28);
             if (dur <= 0 || w <= 0) return;
 
-            // ── DRAW ORDER: segments FIRST (bottom z-order), ticks LAST (top z-order) ──
-            // This ensures the X-axis tick marks/labels are always visible on top.
 
-            // --- Phase 1: Draw each segment as a colored bar (bottom layer) ---
             for (int i = 0; i < _segments.Count; i++)
             {
                 var seg = _segments[i];
@@ -1209,7 +1135,6 @@ public partial class GranularSpeedEditorWindow : Window
                 double x2 = (seg.EndMs   / 1000.0 / dur) * w;
                 bool isSelected = i == _selectedSegmentIndex;
 
-                // Background bar — color based on speed relative to base speed (NOT selection state)
                 var rect = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width  = Math.Max(2, x2 - x1),
@@ -1221,7 +1146,6 @@ public partial class GranularSpeedEditorWindow : Window
                 Avalonia.Controls.Canvas.SetTop(rect, 0);
                 canvas.Children.Add(rect);
 
-                // Issue #4: Marching ants border for selected segment (1px yellow, animated)
                 if (isSelected)
                 {
                     var antsBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047"));
@@ -1249,7 +1173,6 @@ public partial class GranularSpeedEditorWindow : Window
                 }
             }
 
-            // --- Phase 2: Draw ticks/labels ON TOP of segments (top layer) ---
             double tickInterval = 5;
             if (dur > 3600) tickInterval = 300;
             else if (dur > 1800) tickInterval = 60;
@@ -1272,7 +1195,6 @@ public partial class GranularSpeedEditorWindow : Window
                 if (scaleCanvas != null) scaleCanvas.Children.Add(tickLine);
                 else canvas.Children.Add(tickLine);
 
-                // Tick label with dark background for readability over segments
                 var tickText = new TextBlock
                 {
                     Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"),
@@ -1288,7 +1210,6 @@ public partial class GranularSpeedEditorWindow : Window
                 else canvas.Children.Add(tickText);
             }
 
-            // Draw pending start marker
             if (_pendingStartMs >= 0)
             {
                 double px = (_pendingStartMs / 1000.0 / dur) * w;
@@ -1302,7 +1223,6 @@ public partial class GranularSpeedEditorWindow : Window
                 canvas.Children.Add(line);
             }
 
-            // Draw pending end marker
             if (_pendingEndMs >= 0)
             {
                 double px = (_pendingEndMs / 1000.0 / dur) * w;
@@ -1316,7 +1236,6 @@ public partial class GranularSpeedEditorWindow : Window
                 canvas.Children.Add(line);
             }
 
-            // ── Phase 4: Draw Freeze Frame Camera (top-most layer) ──
             if (_freezeTimeMs >= 0)
             {
                 double freezeRelMs = Math.Clamp(_freezeTimeMs - _trimStartMs, 0, dur * 1000.0);
@@ -1339,11 +1258,9 @@ public partial class GranularSpeedEditorWindow : Window
                 _freezeCameraIconAntsRef = null;
                 _freezeCameraLineAntsRef = null;
             }
-            // ── End of Phase 4 ──
         });
     }
 
-    // ------------------------------------------------------------------ playback timer
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
@@ -1351,8 +1268,6 @@ public partial class GranularSpeedEditorWindow : Window
         double t = _videoHost.IpcClient.CurrentTime;
         double fullDur = _videoHost.IpcClient.Duration;
 
-        // ── Trim Region Constraint ──
-        // Auto-pause when playback reaches trimEnd so user never sees content beyond their clip
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : fullDur;
         if (t >= trimEndSec && !_videoHost.IpcClient.IsPaused)
         {
@@ -1360,7 +1275,6 @@ public partial class GranularSpeedEditorWindow : Window
             _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", trimEndSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
-        // Clamp current time to trim region for display purposes
         double trimStartSec = _trimStartMs / 1000.0;
         double relTime = Math.Max(0, t - trimStartSec);
         double trimDurSec = Math.Max(0.1, trimEndSec - trimStartSec);
@@ -1374,13 +1288,9 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        // ── Apply granular speed segments in real-time during preview ──
-        // Segments are stored relative to trim start, and relTime is also relative.
-        // So we check if the current relative position falls within any segment.
         double currentRelMs = relTime * 1000.0;
         double currentAbsMs = currentRelMs + _trimStartMs;
 
-        // Single instance Freeze Frame playback logic
         if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
         {
             if (currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150 && Math.Abs(currentAbsMs - _lastFreezeTriggerAbsMs) > 1000)
@@ -1402,7 +1312,7 @@ public partial class GranularSpeedEditorWindow : Window
             }
             else
             {
-                return; // UI global timecode stops counting
+                return;
             }
         }
 
@@ -1417,22 +1327,19 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        // Update play/pause button label
         var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
         var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
         {
             bool isPaused = _videoHost.IpcClient.IsPaused;
-            if (_isCurrentlyFrozen) isPaused = false; // Spoof playing state during artificial freeze hold
+            if (_isCurrentlyFrozen) isPaused = false;
             playIcon.IsVisible = isPaused;
             pauseIcon.IsVisible = !isPaused;
         }
 
-        // Show time relative to the trim region (0:00 = MARK START)
         var elapsed = this.FindControl<TextBlock>("GranularTimeElapsed");
         if (elapsed != null) elapsed.Text = FormatSec(relTime);
 
-        // Slider maps to the trim region, not the full video
         var slider = this.FindControl<Slider>("GranularTimeline");
         if (slider != null && trimDurSec > 0 && !slider.IsPointerOver)
         {
@@ -1443,7 +1350,6 @@ public partial class GranularSpeedEditorWindow : Window
 
     }
 
-    // ------------------------------------------------------------------ helpers
     /// <summary>
     /// Returns the current playback position relative to the trim region.
     /// 0.0 = MARK START position.
@@ -1454,7 +1360,6 @@ public partial class GranularSpeedEditorWindow : Window
         double absTime = _videoHost.IpcClient.CurrentTime;
         double relTime = absTime - (_trimStartMs / 1000.0);
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : double.MaxValue;
-        // Clamp to valid trim range
         if (relTime < 0) relTime = 0;
         if (relTime > trimEndSec - (_trimStartMs / 1000.0)) relTime = trimEndSec - (_trimStartMs / 1000.0);
         return relTime;
@@ -1471,7 +1376,7 @@ public partial class GranularSpeedEditorWindow : Window
         {
             if (relPosMs >= seg.StartMs && relPosMs < seg.EndMs)
             {
-                return seg.Speed; // 0 = freeze frame
+                return seg.Speed;
             }
         }
         return _baseSpeed;
@@ -1497,7 +1402,6 @@ public partial class GranularSpeedEditorWindow : Window
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : fullDur;
         double trimDur = Math.Max(0.1, trimEndSec - (_trimStartMs / 1000.0));
 
-        // Update duration label to show trim-relative duration
         var durLbl = this.FindControl<TextBlock>("GranularDuration");
         if (durLbl != null && durLbl.Text != FormatSec(trimDur))
             Dispatcher.UIThread.Post(() => durLbl.Text = FormatSec(trimDur));
@@ -1532,22 +1436,19 @@ public partial class GranularSpeedEditorWindow : Window
         
         if (speed < 0.01)
         {
-            // Freeze frame: extreme slow
-            return Avalonia.Media.Color.FromArgb(230, 96, 165, 250); // 90% blue
+            return Avalonia.Media.Color.FromArgb(230, 96, 165, 250);
         }
         else if (speed < baseSpd - 0.0001)
         {
-            // SLOW: BaseSpeed down to 0.1 maps to ~20% (51) -> 90% (230)
             double factor = Math.Clamp((baseSpd - speed) / Math.Max(0.001, baseSpd - 0.1), 0.0, 1.0);
             byte alpha = (byte)(51 + factor * (230 - 51));
-            return Avalonia.Media.Color.FromArgb(alpha, 239, 68, 68); // Red
+            return Avalonia.Media.Color.FromArgb(alpha, 239, 68, 68);
         }
         else
         {
-            // FAST: BaseSpeed up to 4.1 maps to ~20% (51) -> 90% (230)
             double factor = Math.Clamp((speed - baseSpd) / Math.Max(0.001, 4.1 - baseSpd), 0.0, 1.0);
             byte alpha = (byte)(51 + factor * (230 - 51));
-            return Avalonia.Media.Color.FromArgb(alpha, 34, 197, 94); // Green
+            return Avalonia.Media.Color.FromArgb(alpha, 34, 197, 94);
         }
     }
 
@@ -1566,21 +1467,17 @@ public partial class GranularSpeedEditorWindow : Window
         if (lbl != null) lbl.Text = msg;
     }
 
-    // ------------------------------------------------------------------ cleanup
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        // If the background work is done, allow the window to close normally
         if (_isSafeToClose)
         {
             base.OnClosing(e);
             return;
         }
 
-        // STOP the synchronous UI-blocking close
         e.Cancel = true;
         FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
-        // Save bounds BEFORE hiding the window, because hiding resets Position/Size on Windows
         try
         {
             string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
@@ -1601,7 +1498,6 @@ public partial class GranularSpeedEditorWindow : Window
         }
         catch { }
 
-        // Hide the window instantly so the app feels incredibly fast and responsive
         this.Hide();
 
         RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds async.");
@@ -1610,7 +1506,6 @@ public partial class GranularSpeedEditorWindow : Window
 
         try
         {
-            // Perform the heavy Mutex locking and file I/O ASYNCHRONOUSLY
 
 
             if (_videoHost?.IpcClient != null)
@@ -1624,9 +1519,18 @@ public partial class GranularSpeedEditorWindow : Window
         }
         finally
         {
-            // Mark as safe and programmatically re-trigger the close
             _isSafeToClose = true;
             this.Close();
+        }
+    }
+
+    
+
+    private void OnGlobalMasterVolumeChanged(int volume)
+    {
+        if (_videoHost?.IpcClient != null)
+        {
+            _ = _videoHost.IpcClient.SetPropertyAsync("volume", volume.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
     }
 
@@ -1634,7 +1538,6 @@ public partial class GranularSpeedEditorWindow : Window
     {
         base.OnOpened(e);
         
-        // Task 6: Granular Speed Editor State Persistence
         try
         {
             string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
@@ -1694,6 +1597,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
         RuntimeLog.Info("Granular", "Granular Speed Editor closed. Disposing resources.");
 
         _playbackTimer?.Stop();
@@ -1724,11 +1628,5 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 }
-
-
-
-
-
-
 
 
