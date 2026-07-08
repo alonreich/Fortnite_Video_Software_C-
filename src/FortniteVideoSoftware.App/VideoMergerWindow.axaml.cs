@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -83,16 +83,20 @@ public partial class VideoMergerWindow : Window
             };
         }
 
-        OverlayLayer.CancelRequested += (_, _) =>
+        var overlayLayer = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
+        if (overlayLayer != null)
         {
-            if (_mergeCts != null && !_mergeCts.IsCancellationRequested)
+            overlayLayer.CancelRequested += (_, _) =>
             {
-                RuntimeLog.Info("MERGER", "User requested merge cancellation from shared phase overlay.");
-                SetQueueStatus("Canceling merge...", false);
-                _mergeCts.Cancel();
-                _activeMergerWorker?.Cancel();
-            }
-        };
+                if (_mergeCts != null && !_mergeCts.IsCancellationRequested)
+                {
+                    RuntimeLog.Info("MERGER", "User requested merge cancellation from shared phase overlay.");
+                    SetQueueStatus("Canceling merge...", false);
+                    _mergeCts.Cancel();
+                    _activeMergerWorker?.Cancel();
+                }
+            };
+        }
 
         var addBtn = this.FindControl<Button>("AddVideoButton");
         if (addBtn != null)
@@ -302,7 +306,7 @@ public partial class VideoMergerWindow : Window
                         }
                     }
                     
-                    OverlayLayer.StartOverlay();
+                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
 
                     worker.ProgressUpdate += percent =>
                     {
@@ -316,7 +320,7 @@ public partial class VideoMergerWindow : Window
                     {
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                         {
-                            OverlayLayer.StopOverlay();
+                            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
                             mergeBtn.IsEnabled = true;
                             mergeBtn.Content = "MERGE VIDEOS";
                             UpdateQueueState();
@@ -345,7 +349,7 @@ public partial class VideoMergerWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    OverlayLayer.StopOverlay();
+                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
                     RuntimeLog.Fail("MERGER", "Merge error: " + ex.Message);
                     mergeBtn.IsEnabled = true;
                     mergeBtn.Content = "MERGE VIDEOS";

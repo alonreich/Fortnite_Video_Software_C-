@@ -22,6 +22,17 @@ namespace FortniteVideoSoftware.App;
 public partial class MainWindow : Window
 {
     private MpvVideoView? _videoHost;
+
+    private PreviewMonitorWindow? _detachedPreviewWindow = null;
+    public bool IsPreviewDetached => _detachedPreviewWindow != null;
+
+    public MpvVideoView? ActiveVideoHost
+    {
+        get
+        {
+            return _videoHost;
+        }
+    }
     private bool _isSeeking = false;
     private double? _nextSeekTarget = null;
 
@@ -41,7 +52,7 @@ public partial class MainWindow : Window
 
     private string FormatTime(TimeSpan time, bool includeMilliseconds = false)
     {
-        double dur = _videoHost?.IpcClient?.Duration ?? 0;
+        double dur = ActiveVideoHost?.IpcClient?.Duration ?? 0;
         bool showHours = dur >= 3600 || time.TotalHours >= 1;
 
         if (showHours)
@@ -162,6 +173,38 @@ public partial class MainWindow : Window
 
         var menuUploadVideo = this.FindControl<MenuItem>("MenuUploadVideo");
         if (menuUploadVideo != null) menuUploadVideo.Click += OnUploadVideoClicked;
+
+        var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
+        if (menuTogglePreview != null) menuTogglePreview.Click += async (s, e) => 
+        {
+            if (_detachedPreviewWindow == null)
+            {
+                await DetachPreviewMonitor();
+                menuTogglePreview.Header = "Attach Preview Monitor";
+            }
+            else
+            {
+                await AttachPreviewMonitor();
+                menuTogglePreview.Header = "Detach Preview Monitor";
+            }
+        };
+
+        var detachOverlayBtn = this.FindControl<Button>("DetachOverlayButton");
+        if (detachOverlayBtn != null) detachOverlayBtn.Click += async (s, e) => 
+        {
+            if (_detachedPreviewWindow == null)
+            {
+                await DetachPreviewMonitor();
+                menuTogglePreview!.Header = "Attach Preview Monitor";
+                detachOverlayBtn.Content = "◱ Attach Monitor";
+            }
+            else
+            {
+                await AttachPreviewMonitor();
+                menuTogglePreview!.Header = "Detach Preview Monitor";
+                detachOverlayBtn.Content = "◳ Detach Monitor";
+            }
+        };
 
         var menuExportConfig = this.FindControl<MenuItem>("MenuExportConfig");
         if (menuExportConfig != null) menuExportConfig.Click += OnExportConfigClicked;
@@ -285,8 +328,8 @@ public partial class MainWindow : Window
                     _freezeTimeMs = -1;
                     SetGranularButtonActive(false);
                     _lastAppliedSpeed = _baseSpeed;
-                    if (_videoHost?.IpcClient != null)
-                        _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+                    if (ActiveVideoHost?.IpcClient != null)
+                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
                             _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     UpdateEstimatedQuality();
                     ShowTacticalFeedback("Speed segments removed");
@@ -302,8 +345,8 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (_videoHost?.IpcClient != null)
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+                if (ActiveVideoHost?.IpcClient != null)
+                    _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
                 EnsureTrimPointsSet();
 
@@ -312,7 +355,7 @@ public partial class MainWindow : Window
                 var editor = new GranularSpeedEditorWindow(
                     _loadedVideoPath,
                     _trimStartMs,
-                    _trimEndMs > 0 ? _trimEndMs : (_videoHost?.IpcClient?.Duration ?? 0) * 1000,
+                    _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
                     _speedSegments,
                     _baseSpeed,
                     _freezeTimeMs,
@@ -414,15 +457,15 @@ public partial class MainWindow : Window
             playPauseButton.Click += (s, e) =>
             {
                 RuntimeLog.Info("UI", "User toggled Play/Pause state.");
-                if (_videoHost?.IpcClient != null) 
+                if (ActiveVideoHost?.IpcClient != null) 
                 {
                     if (_isCurrentlyFrozen)
                     {
                         _isCurrentlyFrozen = false;
-                        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
                         return;
                     }
-                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
+                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", ActiveVideoHost.IpcClient.IsPaused ? "no" : "yes");
                 }
             };
         }
@@ -496,9 +539,9 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                if (_videoHost?.IpcClient != null)
+                if (ActiveVideoHost?.IpcClient != null)
                 {
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+                    _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
                 }
 
                 PlayUiSound();
@@ -517,7 +560,7 @@ public partial class MainWindow : Window
             {
                 if (!_isTimerUpdatingSlider)
                 {
-                    double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+                    double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
                     if (duration > 0)
                     {
                         double targetTime = (e.NewValue / 100.0) * duration;
@@ -547,8 +590,8 @@ public partial class MainWindow : Window
             mainSpeedSlider.ValueChanged += (s, e) =>
             {
                 _baseSpeed = e / 10.0;
-                if (_videoHost?.IpcClient != null)
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                if (ActiveVideoHost?.IpcClient != null)
+                    _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                 UpdateEstimatedQuality();
                 UpdateSpeedLabel();
                 SaveRecoveryState();
@@ -651,11 +694,11 @@ public partial class MainWindow : Window
 
                 EnsureTrimPointsSet();
 
-                if (_videoHost?.IpcClient != null)
-                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                if (ActiveVideoHost?.IpcClient != null)
+                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
                 SetTimelinePopupsVisible(false);
-                var wizard = new MusicWizardWindow(_loadedVideoPath, _trimStartMs, _trimEndMs > 0 ? _trimEndMs : (_videoHost?.IpcClient?.Duration ?? 0) * 1000);
+                var wizard = new MusicWizardWindow(_loadedVideoPath, _trimStartMs, _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000);
                 await wizard.ShowDialog(this);
                 SetTimelinePopupsVisible(true);
 
@@ -787,7 +830,7 @@ public partial class MainWindow : Window
         if (e.Handled) return;
         if (_draggingStartMarker || _draggingEndMarker) return;
 
-        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
         double width = timelineCanvas.Bounds.Width;
         if (duration <= 0 || width <= 0) return;
 
@@ -1099,10 +1142,10 @@ public partial class MainWindow : Window
     private void ResetProjectStateToUpload()
     {
         _loadedVideoPath = string.Empty;
-        if (_videoHost?.IpcClient != null)
+        if (ActiveVideoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-            _videoHost.IsVisible = false;
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            ActiveVideoHost.IsVisible = false;
         }
 
         ResetEditingStateForNewVideo();
@@ -1160,11 +1203,11 @@ public partial class MainWindow : Window
 
     private async Task<bool> WaitForVideoMetadataAsync(double previousDuration)
     {
-        if (_videoHost?.IpcClient == null) return false;
+        if (ActiveVideoHost?.IpcClient == null) return false;
 
         for (int i = 0; i < 30; i++)
         {
-            double duration = _videoHost.IpcClient.Duration;
+            double duration = ActiveVideoHost.IpcClient.Duration;
             if (duration > 0 && (previousDuration <= 0 || Math.Abs(duration - previousDuration) > 0.01 || i >= 10))
             {
                 return true;
@@ -1173,7 +1216,7 @@ public partial class MainWindow : Window
             await Task.Delay(100);
         }
 
-        return _videoHost.IpcClient.Duration > 0;
+        return ActiveVideoHost.IpcClient.Duration > 0;
     }
 
     /// <summary>
@@ -1185,8 +1228,8 @@ public partial class MainWindow : Window
         _baseSpeed = d.DefaultSpeed;
         var speedSliderReset = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
         if (speedSliderReset != null) speedSliderReset.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
-        if (_videoHost?.IpcClient != null)
-            _ = _videoHost.IpcClient.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+        if (ActiveVideoHost?.IpcClient != null)
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
 
         var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
         if (qs != null) qs.Value = d.QualityIndex;
@@ -1298,12 +1341,6 @@ public partial class MainWindow : Window
         if (portraitTextInput != null)
             portraitTextInput.IsVisible = isPortrait;
 
-        var portraitDimmingGrid = this.FindControl<Grid>("PortraitDimmingGrid");
-        if (portraitDimmingGrid != null)
-        {
-            portraitDimmingGrid.IsVisible = isPortrait;
-        }
-
         var previewPortraitImage = this.FindControl<Avalonia.Controls.Image>("PreviewPortraitImage");
         if (previewPortraitImage != null && portraitTextInput != null && isPortrait)
         {
@@ -1326,10 +1363,36 @@ public partial class MainWindow : Window
                 RuntimeLog.Fail("UI", ex);
             }
         }
+        
+        ApplyPortraitModeToActiveHost();
+    }
 
-        if (_videoHost?.IpcClient != null)
+    private void ApplyPortraitModeToActiveHost()
+    {
+        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)this.FindControl<CheckBox>("MobileCheckbox") ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+        bool isPortrait = mobileCheckbox?.IsChecked == true;
+        RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}");
+
+        var portraitDimmingGrid = this.FindControl<Grid>("PortraitDimmingGrid");
+        if (portraitDimmingGrid != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("vf", "");
+            portraitDimmingGrid.IsVisible = isPortrait && (_detachedPreviewWindow == null);
+        }
+        
+        if (_detachedPreviewWindow != null)
+        {
+            _detachedPreviewWindow.TogglePortraitOverlay(isPortrait);
+            
+            var previewPortraitImage = this.FindControl<Avalonia.Controls.Image>("PreviewPortraitImage");
+            if (isPortrait && previewPortraitImage != null)
+            {
+                _detachedPreviewWindow.SetSkiaTextPlaceholder(previewPortraitImage.Source as Avalonia.Media.Imaging.Bitmap);
+            }
+        }
+        
+        if (ActiveVideoHost?.IpcClient != null)
+        {
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("vf", "");
         }
 
         UpdateEstimatedQuality();
@@ -1368,9 +1431,9 @@ public partial class MainWindow : Window
     private void ShowTimelineGlow(double timeMs, Avalonia.Media.IBrush color)
     {
         var canvas = this.FindControl<Canvas>("TimelineMarkersCanvas");
-        if (canvas == null || _videoHost?.IpcClient == null) return;
+        if (canvas == null || ActiveVideoHost?.IpcClient == null) return;
 
-        double duration = _videoHost.IpcClient.Duration;
+        double duration = ActiveVideoHost.IpcClient.Duration;
         if (duration <= 0) return;
 
         double canvasWidth = canvas.Bounds.Width;
@@ -1484,7 +1547,7 @@ public partial class MainWindow : Window
 
     private void MoveThumbnailMarkerByFrames(int frameDelta)
     {
-        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
         if (!_thumbnailSet || duration <= 0)
         {
             return;
@@ -1501,17 +1564,107 @@ public partial class MainWindow : Window
 
     private void SeekMainPreviewToMarkerMs(double markerMs)
     {
-        if (_videoHost?.IpcClient == null)
+        if (ActiveVideoHost?.IpcClient == null)
         {
             return;
         }
 
         _isCurrentlyFrozen = false;
-        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-        _ = _videoHost.IpcClient.SendCommandAsync(
-            "seek",
-            (markerMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "absolute");
+        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        _ = SeekInternal(markerMs / 1000.0);
+    }
+
+    public async Task AttachPreviewMonitor()
+    {
+        if (_detachedPreviewWindow == null) return;
+        
+        RuntimeLog.Info("UI", "Attaching Preview Monitor to main window.");
+        
+        var w = _detachedPreviewWindow;
+        _detachedPreviewWindow = null;
+        
+        if (_videoHost != null)
+        {
+            w.VideoContainerControl.Child = null; // Remove from detached window
+
+            var mainGrid = this.FindControl<Grid>("MainVideoGrid");
+            if (mainGrid != null && !mainGrid.Children.Contains(_videoHost))
+            {
+                _videoHost.Margin = new Avalonia.Thickness(0, 0, 0, 52); // Restore original margin
+                mainGrid.Children.Insert(0, _videoHost); // Re-add at bottom layer
+            }
+        }
+
+        w.Close();
+        
+        var detachOverlayBtn = this.FindControl<Button>("DetachOverlayButton");
+        if (detachOverlayBtn != null) detachOverlayBtn.Content = "◳ Detach Monitor";
+
+        if (_videoHost != null)
+        {
+            _videoHost.IsVisible = true;
+            var watermark = this.FindControl<Border>("PreviewDetachedWatermark");
+            if (watermark != null) watermark.IsVisible = false;
+
+            ApplyPortraitModeToActiveHost();
+        }
+    }
+
+    private async Task DetachPreviewMonitor()
+    {
+        if (_detachedPreviewWindow != null || string.IsNullOrEmpty(_loadedVideoPath)) return;
+
+        RuntimeLog.Info("UI", "Detaching Preview Monitor to floating window.");
+        
+        if (_videoHost != null)
+        {
+            var mainGrid = this.FindControl<Grid>("MainVideoGrid");
+            if (mainGrid != null)
+            {
+                mainGrid.Children.Remove(_videoHost);
+            }
+        }
+
+        var watermark = this.FindControl<Border>("PreviewDetachedWatermark");
+        if (watermark != null) watermark.IsVisible = true;
+
+        var detachOverlayBtn = this.FindControl<Button>("DetachOverlayButton");
+        if (detachOverlayBtn != null) detachOverlayBtn.Content = "◱ Attach Monitor";
+
+        _detachedPreviewWindow = new PreviewMonitorWindow();
+        
+        if (_videoHost != null)
+        {
+            _videoHost.Margin = new Avalonia.Thickness(0); // Full screen in detached mode
+            _detachedPreviewWindow.VideoContainerControl.Child = _videoHost;
+        }
+
+        _detachedPreviewWindow.ParentMainWindow = this;
+        _detachedPreviewWindow.Show(this);
+
+        ApplyPortraitModeToActiveHost();
+    }
+
+    private async Task InitializeMpvInstanceAsync(MpvVideoView view)
+    {
+        string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "frontend", "mpv.exe");
+        if (!System.IO.File.Exists(mpvPath)) mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "mpv.exe");
+        if (!System.IO.File.Exists(mpvPath)) mpvPath = "mpv.exe";
+        
+        await view.StartMpvProcessAsync(mpvPath);
+        if (view.IpcClient != null)
+        {
+            view.IpcClient.SeekCompleted += () => {
+                Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
+                    _isSeeking = false;
+                    if (_nextSeekTarget.HasValue) {
+                        double target = _nextSeekTarget.Value;
+                        _nextSeekTarget = null;
+                        await SeekInternal(target);
+                    }
+                });
+            };
+        }
     }
 
     private double CalculateEffectiveDurationMs(double trimStartMs, double trimEndMs, double baseSpeed)
@@ -1578,9 +1731,9 @@ public partial class MainWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() => {
             var label = this.FindControl<TextBlock>("QualityLabel");
             var slider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
-            if (label == null || slider == null || _videoHost?.IpcClient == null) return;
+            if (label == null || slider == null || ActiveVideoHost?.IpcClient == null) return;
 
-            double duration = _videoHost.IpcClient.Duration * 1000.0;
+            double duration = ActiveVideoHost.IpcClient.Duration * 1000.0;
             if (duration <= 0) { label.Text = ""; return; }
 
             int idx = slider.Value;
@@ -1679,9 +1832,9 @@ public partial class MainWindow : Window
         SpeedPresetButtons.SetSpinningWheelValue(speedSlider, speed);
 
         _baseSpeed = Math.Clamp(speed, 0.1, 4.0);
-        if (_videoHost?.IpcClient != null)
+        if (ActiveVideoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync(
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync(
                 "speed",
                 _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
         }
@@ -1713,9 +1866,9 @@ public partial class MainWindow : Window
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
         var bottomCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineBottomCanvas");
         var scaleCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineScaleCanvas");
-        if (canvas == null || _videoHost?.IpcClient == null) return;
+        if (canvas == null || ActiveVideoHost?.IpcClient == null) return;
 
-        double duration = _videoHost.IpcClient.Duration;
+        double duration = ActiveVideoHost.IpcClient.Duration;
 
         if (duration <= 0) return;
 
@@ -2472,10 +2625,10 @@ public partial class MainWindow : Window
         double videoStartSec = _trimStartSet ? _trimStartMs / 1000.0 : 0.0;
         double videoEndSec = _trimEndMs > _trimStartMs
             ? _trimEndMs / 1000.0
-            : (_videoHost?.IpcClient?.Duration ?? 0.0);
+            : (ActiveVideoHost?.IpcClient?.Duration ?? 0.0);
 
         if (videoEndSec <= videoStartSec)
-            videoEndSec = videoStartSec + Math.Max(1.0, _videoHost?.IpcClient?.Duration ?? 1.0);
+            videoEndSec = videoStartSec + Math.Max(1.0, ActiveVideoHost?.IpcClient?.Duration ?? 1.0);
 
         if (result.TimelineEndSeconds <= result.TimelineStartSeconds)
         {
@@ -2548,9 +2701,9 @@ public partial class MainWindow : Window
         double effectiveVideoVol = masterVolumePercentage * videoBase;
         double effectiveMusicVol = masterVolumePercentage * musicBase;
 
-        if (_videoHost?.IpcClient != null)
+        if (ActiveVideoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("volume", ((int)effectiveVideoVol).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("volume", ((int)effectiveVideoVol).ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         if (_musicPreviewIpcClient != null)
@@ -2561,9 +2714,9 @@ public partial class MainWindow : Window
 
     private void EnsureTrimPointsSet()
     {
-        if (!_trimStartSet && _videoHost?.IpcClient != null)
+        if (!_trimStartSet && ActiveVideoHost?.IpcClient != null)
         {
-            double dur = _videoHost.IpcClient.Duration;
+            double dur = ActiveVideoHost.IpcClient.Duration;
             if (dur > 0)
             {
                 _trimStartSet = true;
@@ -2582,7 +2735,7 @@ public partial class MainWindow : Window
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
-        if (_videoHost?.IpcClient == null) return;
+        if (ActiveVideoHost?.IpcClient == null) return;
 
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
         if (canvas != null && canvas.Children.Count == 0)
@@ -2594,19 +2747,19 @@ public partial class MainWindow : Window
         var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
         {
-            bool isPaused = _videoHost.IpcClient.IsPaused;
+            bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
             if (_isCurrentlyFrozen) isPaused = false;
             playIcon.IsVisible = isPaused;
             pauseIcon.IsVisible = !isPaused;
         }
 
-        double time = _videoHost.IpcClient.CurrentTime;
-        double dur = _videoHost.IpcClient.Duration;
+        double time = ActiveVideoHost.IpcClient.CurrentTime;
+        double dur = ActiveVideoHost.IpcClient.Duration;
         double displayTime = dur > 0 ? Math.Clamp(time, 0, dur) : Math.Max(0, time);
 
         if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
         {
-            bool isPaused = _videoHost.IpcClient.IsPaused;
+            bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
             if (_isCurrentlyFrozen) isPaused = false;
             double songTime = _musicWizardResult.OffsetSeconds + (time - _musicWizardResult.TimelineStartSeconds);
             bool songHasAudio = _musicWizardResult.MusicDurationSeconds <= 0 || songTime < _musicWizardResult.MusicDurationSeconds;
@@ -2635,13 +2788,13 @@ public partial class MainWindow : Window
 
         double currentAbsMs = time * 1000.0;
 
-        if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
+        if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !ActiveVideoHost.IpcClient.IsPaused)
         {
             if (currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150)
             {
                 _isCurrentlyFrozen = true;
                 _freezeStartTime = DateTime.UtcNow;
-                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 return;
             }
         }
@@ -2650,7 +2803,7 @@ public partial class MainWindow : Window
             if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= _freezeDurationS)
             {
                 _isCurrentlyFrozen = false;
-                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
+                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "no");
             }
             else
             {
@@ -2658,13 +2811,13 @@ public partial class MainWindow : Window
             }
         }
 
-        if (!_videoHost.IpcClient.IsPaused && _speedSegments.Count > 0)
+        if (!ActiveVideoHost.IpcClient.IsPaused && _speedSegments.Count > 0)
         {
             double targetSpeed = GetSpeedForPosition(currentAbsMs);
             if (Math.Abs(targetSpeed - _lastAppliedSpeed) > 0.001)
             {
                 _lastAppliedSpeed = targetSpeed;
-                _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
                     targetSpeed.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
             }
         }
@@ -2688,9 +2841,9 @@ public partial class MainWindow : Window
             if (timeRemaining != null) timeRemaining.Text = "-" + FormatTime(TimeSpan.FromSeconds(Math.Max(0, dur - displayTime)));
         }
 
-        if (_videoHost.IpcClient.IsEof)
+        if (ActiveVideoHost.IpcClient.IsEof)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
         }
     }
 
@@ -2736,7 +2889,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private double GetCurrentMpvTime() { return _videoHost?.IpcClient?.CurrentTime ?? 0.0; }
+    private double GetCurrentMpvTime() { return ActiveVideoHost?.IpcClient?.CurrentTime ?? 0.0; }
 
     /// <summary>
     /// Looks up the playback speed for a given absolute position (in ms).
@@ -2800,16 +2953,16 @@ public partial class MainWindow : Window
                 _isMusicBlockFocused = false;
                 UpdateTimelineMarkers();
             }
-            if (_videoHost?.IpcClient != null)
+            if (ActiveVideoHost?.IpcClient != null)
             {
-                bool isPaused = _videoHost.IpcClient.IsPaused;
-                _ = _videoHost.IpcClient.SetPropertyAsync("pause", isPaused ? "no" : "yes");
+                bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
+                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", isPaused ? "no" : "yes");
                 e.Handled = true;
             }
         }
         else if (_isMusicBlockFocused && _musicWizardResult != null && (e.Key == Key.Left || e.Key == Key.Right))
         {
-            double duration = _videoHost?.IpcClient?.Duration ?? 0;
+            double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0;
             if (duration > 0)
             {
                 double dur = _musicWizardResult.TimelineEndSeconds - _musicWizardResult.TimelineStartSeconds;
@@ -2836,42 +2989,42 @@ public partial class MainWindow : Window
         }
         else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-step");
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("frame-step");
             e.Handled = true;
         }
         else if (fineSeekBackCtrl.Matches(e) || fineSeekBackShift.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-back-step");
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("frame-back-step");
             e.Handled = true;
         }
         else if (seekFwd.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("seek", 5);
             e.Handled = true;
         }
         else if (seekBack.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("seek", -5);
             e.Handled = true;
         }
         else if (aggVolUpCtrl.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", 10);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("add", "volume", 10);
             e.Handled = true;
         }
         else if (aggVolDownCtrl.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", -10);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("add", "volume", -10);
             e.Handled = true;
         }
         else if (volUp.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", 2);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("add", "volume", 2);
             e.Handled = true;
         }
         else if (volDown.Matches(e))
         {
-            _ = _videoHost?.IpcClient?.SendCommandAsync("add", "volume", -2);
+            _ = ActiveVideoHost?.IpcClient?.SendCommandAsync("add", "volume", -2);
             e.Handled = true;
         }
         else if (markStart.Matches(e))
@@ -2890,9 +3043,9 @@ public partial class MainWindow : Window
 
     private async Task ProcessVideoAsync(Button processButton)
     {
-        if (_videoHost?.IpcClient != null)
+        if (ActiveVideoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
         }
 
         if (string.IsNullOrEmpty(_loadedVideoPath) || !File.Exists(_loadedVideoPath))
@@ -2916,7 +3069,7 @@ public partial class MainWindow : Window
             var paths = ApplicationPaths.CreateDefault();
             var worker = new ProcessWorker(paths);
 
-            if (_videoHost != null) _videoHost.IsVisible = false;
+            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
             this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
 
             var markersCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
@@ -2950,7 +3103,7 @@ public partial class MainWindow : Window
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                 {
                     this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
-                    if (_videoHost != null) _videoHost.IsVisible = true;
+                    if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
                     if (success)
                     {
                         RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
@@ -2986,7 +3139,7 @@ public partial class MainWindow : Window
             worker.StartTimeMs = _trimStartMs;
 
             double duration = GetCurrentMpvTime();
-            duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+            duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
 
             worker.EndTimeMs = _trimEndMs > 0 ? _trimEndMs : duration * 1000;
             var allSegments = BuildExportSpeedSegments();
@@ -3083,8 +3236,8 @@ public partial class MainWindow : Window
             return;
         }
         _isSeeking = true;
-        if (_videoHost?.IpcClient != null) {
-            await _videoHost.IpcClient.SendCommandAsync("seek", time, "absolute");
+        if (ActiveVideoHost?.IpcClient != null) {
+            await ActiveVideoHost.IpcClient.SendCommandAsync("seek", time, "absolute");
         }
     }
 
@@ -3174,10 +3327,10 @@ public partial class MainWindow : Window
 
             _recovery.CleanupLock();
 
-            if (_videoHost?.IpcClient != null)
+            if (ActiveVideoHost?.IpcClient != null)
             {
-                await _videoHost.IpcClient.SendCommandAsync("stop");
-                _videoHost.IpcClient.Dispose();
+                await ActiveVideoHost.IpcClient.SendCommandAsync("stop");
+                ActiveVideoHost.IpcClient.Dispose();
             }
         }
         catch (Exception ex)
@@ -3489,17 +3642,17 @@ public partial class MainWindow : Window
 
                 for (int i = 0; i < 50; i++)
                 {
-                    if (_videoHost?.IpcClient != null) break;
+                    if (ActiveVideoHost?.IpcClient != null) break;
                     await Task.Delay(100);
                 }
 
-                if (_videoHost?.IpcClient != null)
+                if (ActiveVideoHost?.IpcClient != null)
                 {
-                    _ = _videoHost.IpcClient.LoadFileAsync(videoPath);
-                    _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+                    _ = ActiveVideoHost.IpcClient.LoadFileAsync(videoPath);
+                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
                         _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                 }
-            if (_videoHost != null) _videoHost.IsVisible = true;
+            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             UpdatePortraitOverlay();
 
             var uploadOverlay = this.FindControl<Border>("UploadOverlay");

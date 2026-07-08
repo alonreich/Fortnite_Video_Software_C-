@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software"
-        Width="1200" Height="800"
+        Width="1500" Height="900"
         Background="#1e293b"
         MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"
@@ -33,6 +33,9 @@
                         <MenuItem Name="MenuCropSettings" Header="Crop Settings" />
                         <MenuItem Name="MenuVideoMerger" Header="Video Merger" />
                     </MenuItem>
+                    <MenuItem Header="_View">
+                        <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" />
+                    </MenuItem>
                 </Menu>
                 <Grid Grid.Row="2" ColumnDefinitions="*, 170">
         <!-- LEFT COLUMN: Player & Editing Controls -->
@@ -42,24 +45,33 @@
                  Right margin removed so the volume frame sits flush against the right pane (no gap). -->
             <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,0,10" ClipToBounds="False">
                 <!-- Video Border contains the video, overlays, and the floating timeline -->
-                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True">
-                    <Grid ClipToBounds="False">
+                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True" MinWidth="1280">
+                    <Grid ClipToBounds="True" Name="MainVideoGrid">
                         <!-- MpvVideoView: bottom margin leaves room for the overlaid timeline
                              so the native HWND does not cover the Avalonia timeline controls -->
                         <local:MpvVideoView Name="VideoHost" IsVisible="False" Margin="0,0,0,52" />
 
-                        <!-- Portrait Dimming Grid (Avalonia native overlay) -->
+                        <Border Name="PreviewDetachedWatermark" IsVisible="False" Background="Black" Margin="0,0,0,52">
+                            <TextBlock Text="Preview Detached" Foreground="#334155" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+
                         <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52" IsHitTestVisible="False">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="5*" />
-                                <ColumnDefinition Width="6*" />
-                                <ColumnDefinition Width="5*" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="#99000000" />
-                            <Border Grid.Column="1" Background="Transparent" ClipToBounds="True">
-                                <Image Name="PreviewPortraitImage" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,40,0,0" Stretch="Uniform" />
-                            </Border>
-                            <Border Grid.Column="2" Background="#99000000" />
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="1920" Height="1080">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="656.25" />
+                                        <ColumnDefinition Width="607.5" />
+                                        <ColumnDefinition Width="656.25" />
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <Border Grid.Column="0" Background="#99000000" />
+                                    
+                                    <Border Grid.Column="1" Background="Transparent" />
+                                    <Image Grid.Column="1" Name="PreviewPortraitImage" Height="150" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" />
+                                    
+                                    <Border Grid.Column="2" Background="#99000000" />
+                                </Grid>
+                            </Viewbox>
                         </Grid>
 
                         <!-- Upload Video Overlay -->
@@ -116,6 +128,22 @@
                                 <TextBlock Name="FeedbackPopupText" Text="" Foreground="#facc15" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
+
+                        <Button Name="DetachOverlayButton" 
+                                Classes="PrimaryAction"
+                                Content="◳ Detach Monitor" 
+                                HorizontalAlignment="Left" 
+                                VerticalAlignment="Top" 
+                                Margin="10,10,0,0"
+                                Padding="8,4"
+                                FontSize="12"
+                                FontWeight="Bold"
+                                Background="#B20f172a"
+                                Foreground="White"
+                                BorderBrush="#33ffffff"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                ZIndex="9999" />
                     </Grid>
                 </Border>
                 <!-- Rebuilt vertical volume slider: plain default track (matches Granular Speed slider style),
