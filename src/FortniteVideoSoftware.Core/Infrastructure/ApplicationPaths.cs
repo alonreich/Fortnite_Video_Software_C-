@@ -74,13 +74,14 @@ public sealed class ApplicationPaths
         {
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "icacls.exe",
                     Arguments = $"\"{ProgramDataRoot}\" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q",
                     CreateNoWindow = true,
                     UseShellExecute = false
-                })?.WaitForExit();
+                });
+                System.Threading.Tasks.Task.Run(async () => { if (proc != null) await proc.WaitForExitAsync(); });
             }
             catch { }
         }

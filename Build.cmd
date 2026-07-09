@@ -177,5 +177,9 @@ dotnet build-server shutdown 2>nul
 exit /b 0
 
 :CLEAN_ALL
-for /d /r . %%d in (bin obj) do @if exist "%%d" rd /s /q "%%d" 2>nul
+if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin" 2>nul
+if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj" 2>nul
+if exist "src\FortniteVideoSoftware.Core\bin" rd /s /q "src\FortniteVideoSoftware.Core\bin" 2>nul
+if exist "src\FortniteVideoSoftware.Core\obj" rd /s /q "src\FortniteVideoSoftware.Core\obj" 2>nul
+dotnet clean src\FortniteVideoSoftware.App\FortniteVideoSoftware.App.csproj -c Release -r win-x64 --nologo -v q >nul 2>&1
 exit /b 0

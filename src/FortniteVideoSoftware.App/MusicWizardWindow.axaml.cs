@@ -1142,7 +1142,7 @@ public partial class MusicWizardWindow : Window
             {
                 if (border.Child is FortniteVideoSoftware.App.MpvVideoView oldHost)
                 {
-                    oldHost.DisposeMpv();
+                    oldHost.Dispose();
                     border.Child = null;
                 }
 
@@ -1270,7 +1270,7 @@ public partial class MusicWizardWindow : Window
         var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
         if (border?.Child is FortniteVideoSoftware.App.MpvVideoView wizardVideoHost)
         {
-            wizardVideoHost.DisposeMpv();
+            wizardVideoHost.Dispose();
             border.Child = null;
         }
     }

@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 using System;
 using System.Linq;
 using Avalonia.Platform;
@@ -9,6 +9,7 @@ namespace FortniteVideoSoftware.App.Infrastructure
 {
     public static class WindowManager
     {
+        private static readonly object _lock = new();
         private static System.Collections.Generic.List<Window> _activeWindows = new();
 
         private static string GetStateFilePath(string windowName)
@@ -48,14 +49,21 @@ namespace FortniteVideoSoftware.App.Infrastructure
                 }
                 
                 Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
-                File.WriteAllText(stateFile, state.ToJsonString());
+                string tempFile = stateFile + ".tmp";
+                File.WriteAllText(tempFile, state.ToJsonString());
+                File.Move(tempFile, stateFile, overwrite: true);
             }
             catch { }
         }
 
         public static void SaveAll()
         {
-            foreach (var w in _activeWindows.ToList())
+            List<Window> toSave;
+            lock (_lock)
+            {
+                toSave = _activeWindows.ToList();
+            }
+            foreach (var w in toSave)
             {
                 SaveWindowState(w);
             }
@@ -63,7 +71,10 @@ namespace FortniteVideoSoftware.App.Infrastructure
 
         public static void RegisterWindow(Window window)
         {
-            if (!_activeWindows.Contains(window)) _activeWindows.Add(window);
+            lock (_lock)
+            {
+                if (!_activeWindows.Contains(window)) _activeWindows.Add(window);
+            }
 
             var windowName = window.GetType().Name;
             var stateFile = GetStateFilePath(windowName);
@@ -152,7 +163,10 @@ namespace FortniteVideoSoftware.App.Infrastructure
             window.Closing += (s, e) =>
             {
                 SaveWindowState(window);
-                _activeWindows.Remove(window);
+                lock (_lock)
+                {
+                    _activeWindows.Remove(window);
+                }
             };
         }
     }

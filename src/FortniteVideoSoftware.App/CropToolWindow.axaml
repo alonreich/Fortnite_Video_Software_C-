@@ -1,18 +1,18 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
-        x:CompileBindings="False"
+        x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
         Title="Portrait 1080x1920 (Crop Tool)"
         Width="1800" Height="930"
         MinWidth="1500" MinHeight="760"
-        Background="#1e293b"
+        Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
     <Border Name="MainBorder"
-            Background="#1e293b"
+            Background="{DynamicResource AppSurfaceBrush}"
             BorderBrush="{DynamicResource WindowTitleBorder}"
             BorderThickness="5">
         <Grid RowDefinitions="30,*">
@@ -59,6 +59,9 @@
                                     <local:MpvVideoView Name="VideoHost"
                                                         Width="1280"
                                                         Height="720" />
+                                    <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Running in Software Compatibility Mode. Nvidia GPU hardware bridge unavailable. Preview framerate may be lower.">
+                                        <TextBlock Text="⚠️" FontSize="16" Foreground="Yellow" />
+                                    </Border>
                                 </Grid>
                             </Viewbox>
                             <Border Name="UploadHint"
@@ -286,6 +289,27 @@
                                                Height="1920"
                                                Fill="#1e1e1e"
                                                ZIndex="-100" />
+                                    
+                                    <Grid Name="RuleOfThirdsGrid" Width="1080" Height="1920" Opacity="0" IsHitTestVisible="False" ZIndex="800" Canvas.Top="0" Canvas.Left="0">
+                                        <Grid.Transitions>
+                                            <Transitions>
+                                                <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
+                                            </Transitions>
+                                        </Grid.Transitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.RowSpan="3" Grid.Column="1" BorderBrush="#66ffffff" BorderThickness="2,0,2,0" />
+                                        <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="#66ffffff" BorderThickness="0,2,0,2" />
+                                    </Grid>
+
                                     <Rectangle Width="1080"
                                                Height="150"
                                                Fill="Black"

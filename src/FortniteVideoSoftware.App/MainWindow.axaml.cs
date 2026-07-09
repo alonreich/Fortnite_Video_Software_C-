@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -151,6 +151,16 @@ public partial class MainWindow : Window
                 if (_processCts != null && !_processCts.IsCancellationRequested)
                 {
                     _processCts.Cancel();
+                    overlay.StopOverlay();
+                    if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+                    var btn = this.FindControl<Button>("ProcessButton");
+                    if (btn != null)
+                    {
+                        btn.IsEnabled = true;
+                        btn.Content = "PROCESS";
+                    }
+                    ShowTacticalFeedback("Processing Cancelled");
+                    PlayUiSound();
                 }
             };
         }
@@ -222,7 +232,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => Close()); });
+            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } Environment.Exit(0); });
         };
 
         var menuVideoMerger = this.FindControl<MenuItem>("MenuVideoMerger");
@@ -232,7 +242,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => Close()); });
+            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } Environment.Exit(0); });
         };
 
         UpdateTooltips();
@@ -417,12 +427,12 @@ public partial class MainWindow : Window
                     Task.Run(async () =>
                     {
                         try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                        Avalonia.Threading.Dispatcher.UIThread.Post(() => this.Close());
+                        Environment.Exit(0);
                     });
                 }
                 else
                 {
-                    this.Close();
+                    Environment.Exit(0);
                 }
             };
         }
@@ -441,12 +451,12 @@ public partial class MainWindow : Window
                     Task.Run(async () =>
                     {
                         try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                        Avalonia.Threading.Dispatcher.UIThread.Post(() => this.Close());
+                        Environment.Exit(0);
                     });
                 }
                 else
                 {
-                    this.Close();
+                    Environment.Exit(0);
                 }
             };
         }
@@ -1371,20 +1381,26 @@ public partial class MainWindow : Window
     {
         var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)this.FindControl<CheckBox>("MobileCheckbox") ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
         bool isPortrait = mobileCheckbox?.IsChecked == true;
-        RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}");
+        bool isVideoLoaded = !string.IsNullOrEmpty(_loadedVideoPath);
+        RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}, isVideoLoaded={isVideoLoaded}");
 
         var portraitDimmingGrid = this.FindControl<Grid>("PortraitDimmingGrid");
         if (portraitDimmingGrid != null)
         {
-            portraitDimmingGrid.IsVisible = isPortrait && (_detachedPreviewWindow == null);
+            portraitDimmingGrid.IsVisible = isPortrait && (_detachedPreviewWindow == null) && isVideoLoaded;
+        }
+
+        if (_videoHost != null)
+        {
+            _videoHost.RenderTransform = null;
         }
         
         if (_detachedPreviewWindow != null)
         {
-            _detachedPreviewWindow.TogglePortraitOverlay(isPortrait);
+            _detachedPreviewWindow.TogglePortraitOverlay(isPortrait && isVideoLoaded);
             
             var previewPortraitImage = this.FindControl<Avalonia.Controls.Image>("PreviewPortraitImage");
-            if (isPortrait && previewPortraitImage != null)
+            if (isPortrait && isVideoLoaded && previewPortraitImage != null)
             {
                 _detachedPreviewWindow.SetSkiaTextPlaceholder(previewPortraitImage.Source as Avalonia.Media.Imaging.Bitmap);
             }
@@ -1585,13 +1601,13 @@ public partial class MainWindow : Window
         
         if (_videoHost != null)
         {
-            w.VideoContainerControl.Child = null; // Remove from detached window
+            w.VideoContainerControl.Child = null;
 
-            var mainGrid = this.FindControl<Grid>("MainVideoGrid");
-            if (mainGrid != null && !mainGrid.Children.Contains(_videoHost))
+            var parentGrid = this.FindControl<Grid>("VideoHostParentGrid");
+            if (parentGrid != null)
             {
-                _videoHost.Margin = new Avalonia.Thickness(0, 0, 0, 52); // Restore original margin
-                mainGrid.Children.Insert(0, _videoHost); // Re-add at bottom layer
+                _videoHost.Margin = new Avalonia.Thickness(0, 0, 0, 52);
+                parentGrid.Children.Insert(0, _videoHost);
             }
         }
 
@@ -1618,10 +1634,13 @@ public partial class MainWindow : Window
         
         if (_videoHost != null)
         {
-            var mainGrid = this.FindControl<Grid>("MainVideoGrid");
-            if (mainGrid != null)
+            if (_videoHost.Parent is Avalonia.Controls.Panel parentPanel)
             {
-                mainGrid.Children.Remove(_videoHost);
+                parentPanel.Children.Remove(_videoHost);
+            }
+            else if (_videoHost.Parent is Avalonia.Controls.Decorator decorator)
+            {
+                decorator.Child = null;
             }
         }
 
@@ -1635,7 +1654,7 @@ public partial class MainWindow : Window
         
         if (_videoHost != null)
         {
-            _videoHost.Margin = new Avalonia.Thickness(0); // Full screen in detached mode
+            _videoHost.Margin = new Avalonia.Thickness(0);
             _detachedPreviewWindow.VideoContainerControl.Child = _videoHost;
         }
 
@@ -3102,6 +3121,13 @@ public partial class MainWindow : Window
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                 {
+                    if (_processCts != null && _processCts.IsCancellationRequested && !success)
+                    {
+                        RuntimeLog.Info("Process", "Worker cleaned up after cancellation.");
+                        worker.Dispose();
+                        return;
+                    }
+
                     this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
                     if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
                     if (success)
@@ -3130,6 +3156,7 @@ public partial class MainWindow : Window
                     }
                     processButton.IsEnabled = true;
                     processButton.Content = "PROCESS";
+                    worker.Dispose();
                 });
             };
 

@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
@@ -96,8 +96,13 @@ public class EncoderManager
             };
             using var proc = Process.Start(psi);
             if (proc == null) return [];
-            string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(5000);
+            var readTask = proc.StandardOutput.ReadToEndAsync();
+            if (!proc.WaitForExit(5000))
+            {
+                try { proc.Kill(); } catch { }
+                return [];
+            }
+            string output = readTask.Result;
             var found = new HashSet<string>();
             foreach (string line in output.Split('\n'))
             {

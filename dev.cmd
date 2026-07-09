@@ -7,6 +7,13 @@ set "CONFIG=Debug"
 set "RUNTIME=win-x64"
 set "DOTNET_WATCH_SUPPRESS_EMOJIS=1"
 
+REM ──────────────────────────────────────────────────────────────────────
+REM AGGRESSIVE PROCESS CLEANUP: Ensure no previous dev session is locking bin/obj
+REM ──────────────────────────────────────────────────────────────────────
+taskkill /F /IM FortniteVideoSoftware.exe /T 2>nul
+taskkill /F /IM FortniteVideoSoftware.App.exe /T 2>nul
+dotnet build-server shutdown 2>nul
+
 REM Sandbox the developer config to prevent corrupting the real installed app settings.
 set "FVS_PROGRAMDATA_ROOT=%TMP%\Fortnite_Video_Software_DEV\.dev_data"
 
@@ -59,11 +66,13 @@ goto :EOF
 
 :RUN
 echo Running Debug single launch (Incremental)...
+if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
 dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -- run-ui
 goto :EOF
 
 :BUILD
 echo Building Debug no run (Incremental)...
+if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
 dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary
 goto :EOF
 

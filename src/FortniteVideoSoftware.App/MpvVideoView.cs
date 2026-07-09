@@ -14,8 +14,17 @@ using Vortice.DXGI;
 
 namespace FortniteVideoSoftware.App;
 
-public class MpvVideoView : Control
+public class MpvVideoView : Control, IDisposable
 {
+    public static readonly StyledProperty<bool> IsSoftwareFallbackActiveProperty =
+        AvaloniaProperty.Register<MpvVideoView, bool>(nameof(IsSoftwareFallbackActive), false);
+
+    public bool IsSoftwareFallbackActive
+    {
+        get => GetValue(IsSoftwareFallbackActiveProperty);
+        private set => SetValue(IsSoftwareFallbackActiveProperty, value);
+    }
+
     private const string MpvApiTypeOpenGL = "opengl";
     private const string InteropLogStep = "MPV-Interop";
 
@@ -352,24 +361,31 @@ public class MpvVideoView : Control
                     return;
                 }
 
-                var keyedMutex = _sharedTextureMutexes[_currentBufferIndex];
-                if (keyedMutex == null)
-                {
-                    RuntimeLog.Fail(InteropLogStep, $"No keyed mutex for shared texture buffer {_currentBufferIndex}.");
-                    PumpEmptyRender();
-                    return;
-                }
-
                 bool keyedMutexAcquired = false;
                 bool dxObjectLocked = false;
                 bool frameReady = false;
                 ICompositionImportedGpuImage? imageForAvalonia = null;
                 CompositionDrawingSurface? surfaceForAvalonia = null;
 
+                var keyedMutex = _sharedTextureMutexes[_currentBufferIndex];
+
                 try
                 {
-                    keyedMutex.AcquireSync(ProducerKey, KeyedMutexWaitMs);
-                    keyedMutexAcquired = true;
+                    if (keyedMutex != null)
+                    {
+                        unsafe
+                        {
+                            void** vtbl = *(void***)keyedMutex.NativePointer;
+                            delegate* unmanaged[Stdcall]<nint, ulong, int, int> acquireSync = (delegate* unmanaged[Stdcall]<nint, ulong, int, int>)vtbl[8];
+                            int hresult = acquireSync(keyedMutex.NativePointer, ProducerKey, KeyedMutexWaitMs);
+                            if (hresult != 0)
+                            {
+                                PumpEmptyRender();
+                                return;
+                            }
+                        }
+                        keyedMutexAcquired = true;
+                    }
 
                     WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
                     glContextCurrent = true;
@@ -440,7 +456,7 @@ public class MpvVideoView : Control
 
                     if (keyedMutexAcquired)
                     {
-                        keyedMutex.ReleaseSync(frameReady ? ConsumerKey : ProducerKey);
+                        keyedMutex!.ReleaseSync(frameReady ? ConsumerKey : ProducerKey);
                     }
                 }
 
@@ -554,7 +570,12 @@ public class MpvVideoView : Control
     {
         if (_importedImages[index] != null && _importedImages[index]!.IsLost)
         {
-
+            var image = _importedImages[index];
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+            {
+                if (image is IAsyncDisposable ad) _ = ad.DisposeAsync();
+                else if (image is IDisposable d) d.Dispose();
+            });
             _importedImages[index] = null;
         }
 
@@ -578,41 +599,25 @@ public class MpvVideoView : Control
                 }
                 catch (Avalonia.Platform.PlatformGraphicsContextLostException)
                 {
+                    if (_importedImages[index] is IAsyncDisposable ad) _ = ad.DisposeAsync();
+                    else if (_importedImages[index] is IDisposable d) d.Dispose();
                     _importedImages[index] = null;
-                    RestoreProducerOwnership(index);
                 }
                 catch (Exception ex)
                 {
+                    if (_importedImages[index] is IAsyncDisposable ad) _ = ad.DisposeAsync();
+                    else if (_importedImages[index] is IDisposable d) d.Dispose();
                     _importedImages[index] = null;
-                    RestoreProducerOwnership(index);
                     RuntimeLog.Fail(InteropLogStep, ex);
                 }
             }, Avalonia.Threading.DispatcherPriority.Render);
         }
         catch (Exception ex)
         {
-            RestoreProducerOwnership(index);
             RuntimeLog.Fail(InteropLogStep, ex);
         }
     }
 
-    private void RestoreProducerOwnership(int index)
-    {
-        var keyedMutex = _sharedTextureMutexes[index];
-        if (keyedMutex == null)
-        {
-            return;
-        }
-
-        try
-        {
-            keyedMutex.AcquireSync(ConsumerKey, 0);
-            keyedMutex.ReleaseSync(ProducerKey);
-        }
-        catch
-        {
-        }
-    }
 
     private ICompositionImportedGpuImage? TryImportSharedTexture(int index)
     {
@@ -715,7 +720,7 @@ public class MpvVideoView : Control
 
     }
 
-    public void DisposeMpv()
+    public void Dispose()
     {
         ReleaseRenderTexture();
 

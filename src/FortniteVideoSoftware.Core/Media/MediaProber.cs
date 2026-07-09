@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -13,7 +13,7 @@ public class MediaProber
     private readonly string _ffprobePath;
     private readonly string _videoPath;
     private JsonObject? _probeData;
-    private static readonly SemaphoreSlim _probeLock = new(1, 1);
+    private readonly SemaphoreSlim _probeLock = new(1, 1);
 
     public MediaProber(string ffprobePath, string videoPath)
     {

@@ -4,12 +4,13 @@
         Title="Fortnite Video Software Setup"
         Width="720" Height="480"
         WindowStartupLocation="CenterScreen"
-        SystemDecorations="None"
-        Background="#0f172a"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="0"
+        Background="{DynamicResource AppSurfaceBrush}"
         Topmost="True"
         ShowInTaskbar="True"
-        CanResize="False">
-    <Border Background="#1e293b" CornerRadius="8" BorderBrush="#38bdf8" BorderThickness="2" Margin="8">
+        CanResize="True">
+    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="#38bdf8" BorderThickness="2" Margin="8">
         <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto">
             <TextBlock Name="TitleText"
                        Grid.Row="0"

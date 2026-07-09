@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -1525,7 +1525,6 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     
-
     private void OnGlobalMasterVolumeChanged(int volume)
     {
         if (_videoHost?.IpcClient != null)

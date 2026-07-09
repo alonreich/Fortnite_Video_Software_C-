@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -19,6 +19,7 @@ namespace FortniteVideoSoftware.App
         public DeploymentProgressWindow()
         {
             InitializeComponent();
+            Infrastructure.WindowManager.RegisterWindow(this);
         }
 
         public DeploymentProgressWindow(string title) : this(title, null)

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -807,7 +807,8 @@ internal static class DeploymentLifecycle
         {
             try
             {
-                using RegistryKey? key = RegistryKey.OpenBaseKey(hive, view).OpenSubKey(path);
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using RegistryKey? key = baseKey.OpenSubKey(path);
                 if (key is not null)
                 {
                     clean = false;
@@ -828,7 +829,8 @@ internal static class DeploymentLifecycle
         {
             try
             {
-                using RegistryKey? key = RegistryKey.OpenBaseKey(hive, view).OpenSubKey(path);
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using RegistryKey? key = baseKey.OpenSubKey(path);
                 string? version = key?.GetValue("DisplayVersion")?.ToString();
                 if (!string.IsNullOrWhiteSpace(version))
                 {

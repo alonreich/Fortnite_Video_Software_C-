@@ -71,6 +71,12 @@ public partial class PreviewMonitorWindow : Window
             overlay.IsVisible = isPortrait;
             overlay.ZIndex = 9999;
         }
+
+        var videoContainer = this.FindControl<Border>("VideoContainer");
+        if (videoContainer != null)
+        {
+            videoContainer.RenderTransform = null;
+        }
     }
 
     public void SetSkiaTextPlaceholder(Avalonia.Media.Imaging.Bitmap? bitmap)

@@ -5,14 +5,14 @@
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software"
         Width="1500" Height="900"
-        Background="#1e293b"
+        Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
         DragDrop.AllowDrop="True">
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, Auto, *">
                 <!-- Issue #5: Title bar bound to shared resource tokens -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
@@ -57,19 +57,78 @@
 
                         <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52" IsHitTestVisible="False">
                             <Viewbox Stretch="Uniform">
-                                <Grid Width="1920" Height="1080">
+                                <Grid Width="1920" Height="1080" ClipToBounds="False">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="656.25" />
-                                        <ColumnDefinition Width="607.5" />
-                                        <ColumnDefinition Width="656.25" />
+                                        <ColumnDefinition Width="600" />
+                                        <ColumnDefinition Width="720" />
+                                        <ColumnDefinition Width="600" />
                                     </Grid.ColumnDefinitions>
                                     
+                                    <!-- Dim the sides -->
                                     <Border Grid.Column="0" Background="#99000000" />
-                                    
-                                    <Border Grid.Column="1" Background="Transparent" />
-                                    <Image Grid.Column="1" Name="PreviewPortraitImage" Height="150" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" />
-                                    
                                     <Border Grid.Column="2" Background="#99000000" />
+                                    
+                                    <!-- The Fake Phone Frame (720x1080) -->
+                                    <Grid Grid.Column="1" Width="720" Height="1080" VerticalAlignment="Center" ClipToBounds="False">
+                                        <!-- Phone Physical Border -->
+                                        <Border BorderBrush="#1AFFFFFF" BorderThickness="4" CornerRadius="40" Margin="-4"/>
+                                        <Border BorderBrush="Black" BorderThickness="6" CornerRadius="38" Margin="-2"/>
+
+                                        <!-- Phone Internal Screen Content -->
+                                        <Border CornerRadius="32" ClipToBounds="True">
+                                            <Grid>
+                                                <!-- Exact 150px padding on top and bottom -->
+                                                <Border Height="150" Background="Black" VerticalAlignment="Top" />
+                                                <Border Height="150" Background="Black" VerticalAlignment="Bottom" />
+
+                                                <Image Name="PreviewPortraitImage" Height="105" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,42,0,0" />
+                                                
+                                                <!-- Top Status Bar -->
+                                                <Grid Height="150" VerticalAlignment="Top" Margin="30,12,30,0">
+                                                    <TextBlock Text="9:41" Foreground="White" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                                                    
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="24" Margin="0,5,0,0">
+                                                        <!-- 5G Signal -->
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                                                            <Border Background="White" Width="3.5" Height="7" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                                            <Border Background="White" Width="3.5" Height="10" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                                            <Border Background="White" Width="3.5" Height="14" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                                            <Border Background="#66FFFFFF" Width="3.5" Height="18" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                                            <TextBlock Text="5G" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
+                                                        </StackPanel>
+                                                        
+                                                        <!-- Wi-Fi -->
+                                                        <Grid Width="22" Height="18" VerticalAlignment="Bottom" Margin="0,0,0,2">
+                                                            <Path Data="M 1,4 C 7,-1 15,-1 21,4" Stroke="#66FFFFFF" StrokeThickness="3" StrokeLineCap="Round" />
+                                                            <Path Data="M 5,8 C 9,5 13,5 17,8" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
+                                                            <Path Data="M 9,12 C 10.5,10.5 11.5,10.5 13,12" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
+                                                            <Ellipse Fill="White" Width="4.5" Height="4.5" Margin="0,15,0,0" HorizontalAlignment="Center" VerticalAlignment="Top" />
+                                                        </Grid>
+
+                                                        <!-- Battery (<50%) -->
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="1" Margin="0,0,0,2">
+                                                            <Border BorderBrush="#99FFFFFF" BorderThickness="2" CornerRadius="6" Width="46" Height="22" Padding="2">
+                                                                <Border Background="White" CornerRadius="2.5" Width="18" HorizontalAlignment="Left" />
+                                                            </Border>
+                                                            <Border Background="#99FFFFFF" Width="4" Height="9" CornerRadius="0,4,4,0" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Grid>
+                                                
+                                                <!-- Bottom Navigation Bar -->
+                                                <Grid Height="150" VerticalAlignment="Bottom" Background="Black">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="90">
+                                                        <Path Data="M 18,0 L 0,11 L 18,22 Z" Fill="White" Width="24" Height="22" Stretch="Uniform" />
+                                                        <Grid Width="20" Height="20">
+                                                            <Ellipse Stroke="White" StrokeThickness="2" Width="20" Height="20" />
+                                                            <Ellipse Fill="White" Width="8" Height="8" />
+                                                        </Grid>
+                                                        <Rectangle Fill="Transparent" Stroke="White" StrokeThickness="2" Width="20" Height="20" RadiusX="3" RadiusY="3" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
+                                    </Grid>
                                 </Grid>
                             </Viewbox>
                         </Grid>

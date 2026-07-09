@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <Watch Include="**\*.axaml" />
+    <UpToDateCheckInput Include="**\*.axaml" />
   </ItemGroup>
 
   <!-- DEV ONLY: Copy native binaries (mpv, ffmpeg) to the output folder after every

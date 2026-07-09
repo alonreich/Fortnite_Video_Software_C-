@@ -100,7 +100,9 @@ public static class SettingsManager
         try
         {
             var json = JsonSerializer.Serialize(Instance, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SettingsPath, json);
+            string tempFile = SettingsPath + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, SettingsPath, overwrite: true);
         }
         catch (Exception ex)
         {

@@ -17,6 +17,7 @@ public partial class FinishedDialogWindow : Window
     public FinishedDialogWindow()
     {
         InitializeComponent();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
     }
 
     private void InitializeComponent()

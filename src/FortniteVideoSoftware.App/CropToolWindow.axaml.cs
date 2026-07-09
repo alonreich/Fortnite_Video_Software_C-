@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -921,6 +921,9 @@ public partial class CropToolWindow : Window
             _composerEditMode = ComposerEditMode.Drag;
         }
 
+        if (this.FindControl<Grid>("RuleOfThirdsGrid") is Grid grid)
+            grid.Opacity = 1;
+
         e.Pointer.Capture(root);
         e.Handled = true;
     }
@@ -969,6 +972,9 @@ public partial class CropToolWindow : Window
 
         e.Pointer.Capture(null);
         ClearGuides();
+
+        if (this.FindControl<Grid>("RuleOfThirdsGrid") is Grid grid)
+            grid.Opacity = 0;
 
         EditorSnapshot current = CaptureSnapshot();
         if (_editStartSnapshot != null && !SnapshotsEqual(_editStartSnapshot, current))
@@ -1423,12 +1429,12 @@ public partial class CropToolWindow : Window
                 _ = Task.Run(() =>
                 {
                     try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
+                    Environment.Exit(0);
                 });
             }
             else
             {
-                Close();
+                Environment.Exit(0);
             }
         }
         catch (Exception ex)

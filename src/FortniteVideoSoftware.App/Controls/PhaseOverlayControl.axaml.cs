@@ -175,17 +175,15 @@ public partial class PhaseOverlayControl : UserControl
     {
         try
         {
-            var p = new Process
+            var psi = new ProcessStartInfo
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "nvidia-smi",
-                    Arguments = "--query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -i 0",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
+                FileName = "nvidia-smi",
+                Arguments = "--query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -i 0",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
+            using var p = new Process { StartInfo = psi };
             p.Start();
             string output = p.StandardOutput.ReadToEnd();
             p.WaitForExit(1000);
@@ -272,8 +270,6 @@ public class HardwareGraphControl : Control
             double x = startX + i * (stickW + gap);
             if (x + stickW > width)
             {
-                double offset = (i * (stickW + gap)) - (width - startX - stickW);
-                x = startX + i * (stickW + gap) - offset;
                 if (x < startX) continue;
             }
             

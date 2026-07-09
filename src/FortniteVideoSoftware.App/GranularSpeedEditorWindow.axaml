@@ -5,7 +5,7 @@
         x:Class="FortniteVideoSoftware.App.GranularSpeedEditorWindow"
         Title="Granular Speed Editor"
         Width="1600" Height="840"
-        Background="#1e293b"
+        Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="900" MinHeight="600"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
@@ -27,7 +27,7 @@
     </Window.Styles>
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />

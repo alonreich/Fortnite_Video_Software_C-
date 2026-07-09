@@ -90,9 +90,6 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
-        <Style Selector="Button /template/ ContentPresenter#PART_ContentPresenter">
-            
-        </Style>
 
         <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="RenderTransform" Value="translateY(2px)"/>

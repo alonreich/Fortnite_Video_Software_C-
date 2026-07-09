@@ -563,12 +563,12 @@ public partial class VideoMergerWindow : Window
             Task.Run(() =>
             {
                 try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
+                Environment.Exit(0);
             });
         }
         else
         {
-            Close();
+            Environment.Exit(0);
         }
     }
 

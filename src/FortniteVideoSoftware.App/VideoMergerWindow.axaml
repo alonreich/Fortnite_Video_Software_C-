@@ -5,7 +5,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         Title="Fortnite Video Software - Merger"
         Width="1200" Height="800"
-        Background="#1e293b"
+        Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="1200" MinHeight="800"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
@@ -13,7 +13,7 @@
 
 
     <Grid>
-        <Border Name="MainBorder" Background="#1e293b" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />

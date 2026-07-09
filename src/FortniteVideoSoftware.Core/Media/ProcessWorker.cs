@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -10,8 +10,8 @@ public class ProcessWorker : IDisposable
 {
     private readonly ApplicationPaths _paths;
     private Process? _currentProcess;
-    private bool _isCanceled;
-    private bool _finishEmitted;
+    private volatile bool _isCanceled;
+    private volatile bool _finishEmitted;
     private string _ffmpegPath;
     private string _ffprobePath;
 
@@ -460,9 +460,11 @@ public class ProcessWorker : IDisposable
                     return;
                 }
 
-                string outputDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                string outputDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                outputDir = Path.Combine(outputDir, "Downloads");
                 string finalOutput = ResolveOutputPath(outputDir);
-                File.Move(corePath, finalOutput);
+                File.Copy(corePath, finalOutput, true);
+                try { File.Delete(corePath); } catch { }
 
                 if (ThumbnailPosMs > 0)
                 {
@@ -476,7 +478,7 @@ public class ProcessWorker : IDisposable
                         CreateNoWindow = true
                     };
                     using var p = System.Diagnostics.Process.Start(psi);
-                    p?.WaitForExit();
+                    if (p != null) await p.WaitForExitAsync(cancellationToken);
                 }
 
                 ProgressUpdate?.Invoke(100);
@@ -494,8 +496,19 @@ public class ProcessWorker : IDisposable
         }
     }
 
-    private static string ResolveOutputPath(string outputDir)
+    private static string ResolveOutputPath(string defaultDir)
     {
+        string outputDir = defaultDir;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders");
+                if (key?.GetValue("{374DE290-123F-4565-9164-39C4925E467B}") is string path && Directory.Exists(path))
+                    outputDir = path;
+            }
+        }
+        catch { }
         Directory.CreateDirectory(outputDir);
         int idx = 1;
         while (true)

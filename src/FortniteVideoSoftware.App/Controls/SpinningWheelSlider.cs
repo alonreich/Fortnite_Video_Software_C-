@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -235,6 +235,15 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnPointerExited(e);
         }
         
+        private static readonly SolidColorBrush _rimGradientStop0 = new SolidColorBrush(Color.Parse("#15202b"));
+        private static readonly SolidColorBrush _rimGradientStop1 = new SolidColorBrush(Color.Parse("#3e5871"));
+        private static readonly SolidColorBrush _rimGradientStop2 = new SolidColorBrush(Color.Parse("#15202b"));
+        
+        private static readonly Pen _rimPen = new Pen(new SolidColorBrush(Color.Parse("#0d1217")), 1);
+        private static readonly Pen _innerPen = new Pen(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)), 1);
+        private static readonly Pen _redPen = new Pen(new SolidColorBrush(Color.Parse("#ff4d4d")), 2);
+        private static readonly Pen _focusPen = new Pen(new SolidColorBrush(Color.Parse("#38bdf8")), 2);
+
         public override void Render(DrawingContext context)
         {
             base.Render(context);
@@ -251,14 +260,13 @@ namespace FortniteVideoSoftware.App.Controls
                 EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
                 GradientStops = new GradientStops
                 {
-                    new GradientStop(Color.Parse("#15202b"), 0.0),
-                    new GradientStop(Color.Parse("#3e5871"), 0.5),
-                    new GradientStop(Color.Parse("#15202b"), 1.0)
+                    new GradientStop(_rimGradientStop0.Color, 0.0),
+                    new GradientStop(_rimGradientStop1.Color, 0.5),
+                    new GradientStop(_rimGradientStop2.Color, 1.0)
                 }
             };
             
-            var rimPen = new Pen(new SolidColorBrush(Color.Parse("#0d1217")), 1);
-            context.DrawRectangle(rimGrad, rimPen, rect, 6, 6);
+            context.DrawRectangle(rimGrad, _rimPen, rect, 6, 6);
             
             var innerRect = rect.Deflate(3);
             
@@ -276,8 +284,7 @@ namespace FortniteVideoSoftware.App.Controls
                 }
             };
             
-            var innerPen = new Pen(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)), 1);
-            context.DrawRectangle(faceGrad, innerPen, innerRect, 4, 4);
+            context.DrawRectangle(faceGrad, _innerPen, innerRect, 4, 4);
             
             using (context.PushClip(innerRect))
             {
@@ -357,9 +364,8 @@ namespace FortniteVideoSoftware.App.Controls
             
             if (IsEnabled)
             {
-                var redPen = new Pen(new SolidColorBrush(Color.Parse("#ff4d4d")), 2);
-                context.DrawLine(redPen, new Point(cx, 3), new Point(cx, 11));
-                context.DrawLine(redPen, new Point(cx, h - 11), new Point(cx, h - 3));
+                context.DrawLine(_redPen, new Point(cx, 3), new Point(cx, 11));
+                context.DrawLine(_redPen, new Point(cx, h - 11), new Point(cx, h - 3));
                 
                 var centerGlow = new RadialGradientBrush
                 {
@@ -377,8 +383,7 @@ namespace FortniteVideoSoftware.App.Controls
 
             if (IsFocused)
             {
-                var focusPen = new Pen(new SolidColorBrush(Color.Parse("#38bdf8")), 2);
-                context.DrawRectangle(null, focusPen, rect.Deflate(1), 6, 6);
+                context.DrawRectangle(null, _focusPen, rect.Deflate(1), 6, 6);
             }
         }
     }
