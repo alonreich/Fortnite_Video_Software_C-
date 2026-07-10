@@ -55,25 +55,25 @@ if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware
 if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
 if exist "src\FortniteVideoSoftware.Core\bin" rd /s /q "src\FortniteVideoSoftware.Core\bin"
 if exist "src\FortniteVideoSoftware.Core\obj" rd /s /q "src\FortniteVideoSoftware.Core\obj"
-dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary >nul
+dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summary >nul
 
 echo Starting HOT RELOAD watch mode...
 echo Edit any axaml or cs file and SAVE to see live UI updates.
 echo Press Ctrl+C to stop.
 echo.
-dotnet watch run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -- run-ui
+dotnet watch run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% -- run-ui
 goto :EOF
 
 :RUN
 echo Running Debug single launch (Incremental)...
 if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
-dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -- run-ui
+dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% -- run-ui
 goto :EOF
 
 :BUILD
 echo Building Debug no run (Incremental)...
 if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
-dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary
+dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summary
 goto :EOF
 
 :RESTORE
@@ -85,7 +85,7 @@ goto :EOF
 echo Cleaning Debug output...
 if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin"
 if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
-dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% --no-self-contained -consoleLoggerParameters:Summary
+dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summary
 goto :EOF
 
 REM ═══════════════════════════════════════════════════════════════════════
@@ -103,4 +103,3 @@ if exist "%FVS_DEV_LOG_DIR%" (
     del /q "%FVS_DEV_LOG_DIR%\*" 2>nul
 )
 goto :EOF
-

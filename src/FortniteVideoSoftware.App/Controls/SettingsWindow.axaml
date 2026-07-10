@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="FortniteVideoSoftware.App.Controls.SettingsWindow"
         Title="Settings"
@@ -32,7 +32,7 @@
                                 
                                 <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>
                                 <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" Width="700">
-                                    <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="#0f172a" BorderBrush="#334155" Foreground="White"/>
+                                    <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="White"/>
                                     <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand"/>
                                 </Grid>
                             </StackPanel>

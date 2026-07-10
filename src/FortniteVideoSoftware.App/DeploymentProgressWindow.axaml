@@ -1,9 +1,8 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.DeploymentProgressWindow"
         Title="Fortnite Video Software Setup"
         Width="720" Height="480"
-        WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="0"
         Background="{DynamicResource AppSurfaceBrush}"
@@ -11,7 +10,7 @@
         ShowInTaskbar="True"
         CanResize="True">
     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="#38bdf8" BorderThickness="2" Margin="8">
-        <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto">
+        <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
             <TextBlock Name="TitleText"
                        Grid.Row="0"
                        Text="Installing Fortnite Video Software"
@@ -29,7 +28,7 @@
                        Margin="0,0,0,8"/>
             <TextBox Name="LogTextBox"
                      Grid.Row="2"
-                     Background="#0f172a"
+                     Background="{DynamicResource AppSurfaceBrush}"
                      BorderThickness="0"
                      Foreground="#cbd5e1"
                      FontFamily="Consolas,Courier New,monospace"
@@ -60,10 +59,10 @@
                          Maximum="100"
                          Value="0"
                          Foreground="#38bdf8"
-                         Background="#334155"
+                         Background="{DynamicResource AppPanelBrush}"
                          Margin="0,0,0,12"/>
             <Button Name="FinishButton"
-                    Grid.Row="4"
+                    Grid.Row="5"
                     Classes="Success"
                     Content="Finish"
                     HorizontalAlignment="Center"

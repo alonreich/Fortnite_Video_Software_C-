@@ -1,108 +1,94 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
-        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
-        x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
-        Title="Background Music Selection Wizard"
-        Width="900" Height="700"
-        WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource AppSurfaceBrush}"
-        CanResize="True"
-        MinWidth="800" MinHeight="600"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="30"
-        DragDrop.AllowDrop="True">
-
-    <Grid>
-        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
-            <Grid RowDefinitions="30, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
-                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
-                </Border>
-                <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" Margin="20">
-
-                    <!-- Step Progress Bar (Improvement 1) -->
-                    <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*">
-                        <Border Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="#334155"/>
-                        <Border Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="#334155"/>
-                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
-                            <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="#3b82f6" HorizontalAlignment="Center">
-                                <TextBlock Name="Step1Icon" Text="1" Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock Name="Step1Label" Text="Select Music" Foreground="#60a5fa" FontSize="9" HorizontalAlignment="Center" FontWeight="Bold"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
-                            <Border Name="Step2Dot" Width="32" Height="32" CornerRadius="16" Background="#334155" HorizontalAlignment="Center">
-                                <TextBlock Name="Step2Icon" Text="2" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock Name="Step2Label" Text="Mix and Preview" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
-                            <Border Name="Step3Dot" Width="32" Height="32" CornerRadius="16" Background="#334155" HorizontalAlignment="Center">
-                                <TextBlock Name="Step3Icon" Text="3" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock Name="Step3Label" Text="Confirm" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- Step Container -->
-                    <Border Grid.Row="1" Background="#1e293b" CornerRadius="8" BorderBrush="#334155" BorderThickness="1" Padding="20">
-                        <Panel>
-
-                            <!-- STEP 1: Track Selection -->
-                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,*">
-                                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,10">
-                                    <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
-                                </Grid>
-                                <Grid Grid.Row="1">
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
+        Title="Background Music Selection Wizard"
+        Width="900" Height="700"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="True"
+        MinWidth="800" MinHeight="600"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30"
+        DragDrop.AllowDrop="True">
 
-                                <ListBox Name="MusicListBox" Background="#1e293b" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
-                                    <ListBox.Styles>
-                                        <Style Selector="ListBoxItem">
-                                            <Setter Property="Padding" Value="0"/>
-                                            <Setter Property="MinHeight" Value="24"/>
-                                            <Setter Property="Margin" Value="0,0,0,1"/>
-                                        </Style>
-                                    </ListBox.Styles>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate x:DataType="local:MusicTrackItem">
-                                            <Border Padding="5,2" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
-                                                <Grid ColumnDefinitions="*, Auto">
-                                                    <TextBlock Grid.Column="0" Text="{CompiledBinding Name}" Foreground="White" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="1" Text="{CompiledBinding DurationText}" Foreground="#94a3b8" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,60,0"/>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
+    <Grid>
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+                <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" Margin="20">
 
-                                    <TextBlock Name="EmptyMusicListText"
-                                               Text="No music files found. Change folder or drop an audio file here."
-                                               Foreground="#b6c2d0"
-                                               FontSize="12"
-                                               TextWrapping="Wrap"
-                                               TextAlignment="Center"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"
-                                               Margin="24"
-                                               IsHitTestVisible="False"
-                                               IsVisible="False"/>
+                    <!-- Step Progress Bar -->
+                    <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*">
+                        <Border Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
+                        <Border Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
+                            <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="#3b82f6" HorizontalAlignment="Center">
+                                <TextBlock Name="Step1Icon" Text="1" Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step1Label" Text="Select Music" Foreground="#60a5fa" FontSize="9" HorizontalAlignment="Center" FontWeight="Bold"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
+                            <Border Name="Step2Dot" Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center">
+                                <TextBlock Name="Step2Icon" Text="2" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step2Label" Text="Mix and Preview" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
+                            <Border Name="Step3Dot" Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center">
+                                <TextBlock Name="Step3Icon" Text="3" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Name="Step3Label" Text="Confirm" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
 
+                    <!-- Step Container -->
+                    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Padding="20">
+                        <Panel>
+
+                            <!-- STEP 1: Track Selection -->
+                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,10">
+                                    <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
-                            </Grid>
-
+                                <Grid Grid.Row="1">
+                                    <ListBox Name="MusicListBox" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+                                        <ListBox.Styles>
+                                            <Style Selector="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="MinHeight" Value="24"/>
+                                                <Setter Property="Margin" Value="0,0,0,1"/>
+                                            </Style>
+                                        </ListBox.Styles>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="local:MusicTrackItem">
+                                                <Border Padding="5,2" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
+                                                    <Grid ColumnDefinitions="*, Auto">
+                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding Name}" Foreground="White" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding DurationText}" Foreground="#94a3b8" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,60,0"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <TextBlock Name="EmptyMusicListText" Text="No music files found. Change folder or drop an audio file here." Foreground="#b6c2d0" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" IsHitTestVisible="False" IsVisible="False"/>
+                                </Grid>
+                            </Grid>
+
                             <!-- STEP 2: Waveform + Song Start -->
                             <Grid Name="Step2Panel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,Auto,*">
-                                <Border Grid.Row="0" Background="#0f172a" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="Selected:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
-                                        <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Border>
-
+                                <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Selected:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
                                 <TextBlock Grid.Row="1" Text="CHOOSE WHERE THE SONG BEGINS" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,5"/>
 
-                                <Border Grid.Row="2" Background="#1e293b" CornerRadius="4" BorderBrush="#334155" BorderThickness="1" Margin="0,5" Height="120">
+                                <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" Height="120">
                                     <Panel>
                                         <Image Name="WaveformImage" Stretch="Fill"/>
                                         <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
@@ -110,11 +96,11 @@
                                     </Panel>
                                 </Border>
 
-                                <StackPanel Grid.Row="3" Spacing="0" Margin="0,0,0,0">
+                                <StackPanel Grid.Row="3" Spacing="0">
                                     <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
                                         <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
                                         <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
-                                            <Border Height="4" CornerRadius="2" Background="#334155" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                            <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
                                         </Grid>
                                         <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
                                     </Grid>
@@ -128,9 +114,31 @@
                                     <!-- MULTI SONG HELPER (Video Merger Mode) -->
                                     <StackPanel Name="MultiSongHelperPanel" IsVisible="False" Margin="0,15,0,0">
                                         <Border Background="#331e293b" BorderBrush="#60a5fa" BorderThickness="1" CornerRadius="6" Padding="12">
-                                            <StackPanel Spacing="8">
-                                                <TextBlock Name="MultiSongWarningLabel" Text="The selected song is shorter than your combined videos!" Foreground="#facc15" FontWeight="Bold" FontSize="11" TextWrapping="Wrap"/>
-                                                <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left"/>
+                                            <StackPanel Spacing="10">
+                                                <!-- Coverage Bar -->
+                                                <StackPanel Spacing="4">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Grid.Column="0" Text="MUSIC COVERAGE" Foreground="#60a5fa" FontWeight="Bold" FontSize="10"/>
+                                                        <TextBlock Grid.Column="1" Name="CoveragePercentText" Text="0%" Foreground="#facc15" FontWeight="Bold" FontSize="10"/>
+                                                    </Grid>
+                                                    <Border Height="20" CornerRadius="4" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" ClipToBounds="True">
+                                                        <Grid>
+                                                            <Border Name="CoverageBarFill" Background="#22c55e" CornerRadius="3" HorizontalAlignment="Left" Width="0" MinWidth="0"/>
+                                                            <TextBlock Name="CoverageBarText" Text="" Foreground="White" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </StackPanel>
+
+                                                <!-- Warning Banner -->
+                                                <Border Name="CoverageWarningBanner" Background="#33facc15" BorderBrush="#facc15" BorderThickness="1" CornerRadius="4" Padding="8,4" IsVisible="False">
+                                                    <TextBlock Name="CoverageWarningText" Text="" Foreground="#facc15" FontWeight="Bold" FontSize="10" TextWrapping="Wrap"/>
+                                                </Border>
+
+                                                <!-- Loop Toggle -->
+                                                <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" IsChecked="False" Foreground="White" FontSize="10" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
+
+                                                <!-- Auto-Fill Button -->
+                                                <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left" FontSize="10"/>
                                             </StackPanel>
                                         </Border>
                                     </StackPanel>
@@ -150,7 +158,7 @@
                                     </Border>
                                     <Border Name="Phase3VideoLoadingOverlay" Background="#AA000000" CornerRadius="6" IsHitTestVisible="False" IsVisible="False">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                                            <ProgressBar IsIndeterminate="True" Width="100" Height="4" Foreground="#60a5fa" Background="#334155"/>
+                                            <ProgressBar IsIndeterminate="True" Width="100" Height="4" Foreground="#60a5fa" Background="{DynamicResource AppPanelBrush}"/>
                                             <TextBlock Text="Initializing Video Preview..." Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center"/>
                                         </StackPanel>
                                     </Border>
@@ -159,19 +167,19 @@
                                 <Grid Grid.Row="2" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
                                     <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" HorizontalAlignment="Stretch" ClipToBounds="False"/>
                                     <StackPanel Grid.Row="1" Spacing="0">
-                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
+                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
                                             <Panel>
                                                 <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
                                                 <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 <Border Name="Phase3ThumbLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#facc15" Background="#334155"/>
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#facc15" Background="{DynamicResource AppPanelBrush}"/>
                                                         <TextBlock Text="Generating Frames..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                             </Panel>
                                         </Border>
-                                        <Border BorderBrush="#334155" BorderThickness="2" CornerRadius="2" Height="60">
+                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60">
                                             <Panel>
                                                 <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                                     <Image Name="WaveformLaneImage" Stretch="Fill" Height="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
@@ -179,7 +187,7 @@
                                                 </Canvas>
                                                 <Border Name="Phase3WaveLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#4ade80" Background="#334155"/>
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#4ade80" Background="{DynamicResource AppPanelBrush}"/>
                                                         <TextBlock Text="Generating Waveform..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
@@ -200,50 +208,48 @@
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
                                         <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
                                     </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
-                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Grid>
-
-                        </Panel>
-                    </Border>
-
-                    <!-- Navigation -->
-                    <Grid Grid.Row="2" Margin="0,15,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
-                            <Button Name="SkipBackBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
-                                <TextBlock Text="-30s" FontWeight="Bold" FontSize="11" Foreground="White" />
-                            </Button>
-                            <Button Name="PlayBtn" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
-                                <Panel Width="16" Height="16">
-                                    <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
-                                    <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <Rectangle Width="4" Height="14" Fill="White"/>
-                                        <Rectangle Width="4" Height="14" Fill="White"/>
-                                    </StackPanel>
-                                </Panel>
-                            </Button>
-                            <Button Name="SkipForwardBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
-                                <TextBlock Text="+30s" FontWeight="Bold" FontSize="11" Foreground="White" />
-                            </Button>
-                        </StackPanel>
-                        <Button Grid.Column="2" Name="BackBtn" Content="BACK" Classes="Primary" Width="90" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" IsVisible="True" ToolTip.Tip="Go back to the previous step"/>
-                        <Button Grid.Column="3" Name="NextBtn" Content="NEXT" Classes="Success" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
-                    </Grid>
-
-                </Grid>
-            </Grid>
-        </Border>
-    </Grid>
-</Window>
+                                    <StackPanel>
+                                        <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
+                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
 
+                        </Panel>
+                    </Border>
 
+                    <!-- Navigation -->
+                    <Grid Grid.Row="2" Margin="0,15,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
+                            <Button Name="SkipBackBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
+                                <TextBlock Text="-30s" FontWeight="Bold" FontSize="11" Foreground="White" />
+                            </Button>
+                            <Button Name="PlayBtn" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
+                                <Panel Width="16" Height="16">
+                                    <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                                    <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Rectangle Width="4" Height="14" Fill="White"/>
+                                        <Rectangle Width="4" Height="14" Fill="White"/>
+                                    </StackPanel>
+                                </Panel>
+                            </Button>
+                            <Button Name="SkipForwardBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
+                                <TextBlock Text="+30s" FontWeight="Bold" FontSize="11" Foreground="White" />
+                            </Button>
+                        </StackPanel>
+                        <Button Grid.Column="2" Name="BackBtn" Content="BACK" Classes="Primary" Width="90" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" IsVisible="True" ToolTip.Tip="Go back to the previous step"/>
+                        <Button Grid.Column="3" Name="NextBtn" Content="NEXT" Classes="Success" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
+                    </Grid>
+
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

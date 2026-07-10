@@ -1,5 +1,5 @@
-
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -18,7 +18,11 @@ public class MergerWorker : IDisposable
 
     public List<string> InputFiles { get; set; } = new();
     public MusicTrack? MusicTrack { get; set; }
+    public List<MusicTrack> MusicTracks { get; set; } = new();
     public JsonObject? MusicConfig { get; set; }
+    public string? OutputDirectory { get; set; }
+    public double SpeedFactor { get; set; } = 1.0;
+    public int QualityPercent { get; set; } = 100;
 
     public MergerWorker(ApplicationPaths? paths = null)
     {
@@ -56,11 +60,16 @@ public class MergerWorker : IDisposable
             {
                 CoreLogger.Info("Merger", $"Merging {InputFiles.Count} file(s):");
                 double totalDuration = 0;
+                var fileDurations = new double[InputFiles.Count];
+                var fileHasAudio = new bool[InputFiles.Count];
                 for (int fi = 0; fi < InputFiles.Count; fi++)
                 {
                     var prober = new MediaProber(_ffprobePath, InputFiles[fi]);
                     double dur = await prober.GetDurationAsync();
-                    CoreLogger.Info("Merger", $"  [{fi + 1}] {InputFiles[fi]} — {dur:F2}s");
+                    bool hasAudio = await prober.HasAudioAsync();
+                    fileDurations[fi] = dur;
+                    fileHasAudio[fi] = hasAudio;
+                    CoreLogger.Info("Merger", $"  [{fi + 1}] {InputFiles[fi]} — {dur:F2}s, audio={hasAudio}");
                     totalDuration += dur;
                 }
 
@@ -69,6 +78,7 @@ public class MergerWorker : IDisposable
 
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
+                var effectiveMusicTracks = await BuildEffectiveMusicTracksAsync(totalDuration);
 
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
@@ -76,9 +86,9 @@ public class MergerWorker : IDisposable
                 }
 
                 int musicInputIndex = InputFiles.Count;
-                if (MusicTrack != null)
+                foreach (var musicTrack in effectiveMusicTracks)
                 {
-                    cmdArgs.AddRange(["-i", MusicTrack.Path]);
+                    cmdArgs.AddRange(["-i", musicTrack.Path]);
                 }
 
                 string vOutputLabel = "[v_concat]";
@@ -88,8 +98,22 @@ public class MergerWorker : IDisposable
                 string aInputs = "";
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
-                    filters.Add($"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]");
-                    filters.Add($"[{i}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000[a{i}]");
+                    double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
+                    filters.Add($"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)}[v{i}]");
+                    double clipDur = fileDurations[i] > 0 ? fileDurations[i] : totalDuration;
+                    if (fileHasAudio[i])
+                    {
+                        double atempoSpeed = speedFactor;
+                        var atempoFilters = new List<string>();
+                        while (atempoSpeed > 2.0) { atempoFilters.Add("atempo=2.0"); atempoSpeed /= 2.0; }
+                        while (atempoSpeed < 0.5) { atempoFilters.Add("atempo=0.5"); atempoSpeed /= 0.5; }
+                        atempoFilters.Add($"atempo={atempoSpeed.ToString("F4", CultureInfo.InvariantCulture)}");
+                        filters.Add($"[{i}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}[a{i}]");
+                    }
+                    else
+                    {
+                        filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={clipDur.ToString("F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}]");
+                    }
                     vInputs += $"[v{i}]";
                     aInputs += $"[a{i}]";
                 }
@@ -98,8 +122,16 @@ public class MergerWorker : IDisposable
 
                 string finalAudioLabel = aOutputLabel;
 
-                if (MusicTrack != null)
+                if (effectiveMusicTracks.Count > 0)
                 {
+                    MusicConfig ??= new JsonObject();
+
+                    if (MusicConfig != null && !MusicConfig.ContainsKey("timeline_start_sec"))
+                    {
+                        MusicConfig["timeline_start_sec"] = 0.0;
+                        MusicConfig["timeline_end_sec"] = totalDuration;
+                    }
+
                     var (duckChains, finalDuckingLabel) = AudioFilterChain.Build(
                         musicConfig: MusicConfig,
                         videoStartTime: 0,
@@ -109,7 +141,7 @@ public class MergerWorker : IDisposable
                         vfadeInD: 0,
                         audioFilterCmd: null,
                         sampleRate: 48000,
-                        musicTracks: new List<MusicTrack> { MusicTrack },
+                        musicTracks: effectiveMusicTracks,
                         musicStartIndex: musicInputIndex,
                         totalProjectDuration: totalDuration,
                         mainAudioLabel: aOutputLabel,
@@ -124,82 +156,76 @@ public class MergerWorker : IDisposable
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
-                cmdArgs.AddRange(["-filter_complex_script", filterScriptPath]);
-                cmdArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
-                
                 var encoderMgr = new EncoderManager("GPU", _ffmpegPath);
-                var (codecArgs, _) = encoderMgr.GetCodecFlags(encoderMgr.GetInitialEncoder(true), null, totalDuration, "60", 3, false);
-                cmdArgs.AddRange(codecArgs);
+                string currentEncoder = encoderMgr.GetInitialEncoder(true);
 
-                cmdArgs.AddRange(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+                int cqValue = QualityPercent >= 100 ? 15 : Math.Max(15, 35 - (int)((QualityPercent - 5) * 20.0 / 95.0));
+                int qualityLevel = QualityPercent >= 100 ? 3 : (QualityPercent >= 50 ? 2 : 1);
 
-                string outputDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-                Directory.CreateDirectory(outputDir);
                 string corePath = Path.Combine(tempJobDir, "merged_output.mp4");
-                cmdArgs.Add(corePath);
+                string? successOutputPath = null;
+                string lastErrorMsg = "FFmpeg render failed.";
 
-                var psi = new ProcessStartInfo
+                while (true)
                 {
-                    FileName = _ffmpegPath,
-                    Arguments = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
+                    var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, null, totalDuration / Math.Max(0.1, SpeedFactor), "60", qualityLevel, false);
 
-                CoreLogger.Info("FFmpeg", $"Executing Final Pipeline Command: {psi.FileName} {psi.Arguments}");
-
-                _currentProcess = Process.Start(psi);
-                if (_currentProcess == null)
-                {
-                    EmitFinished(false, "Failed to start FFmpeg process.");
-                    return;
-                }
-
-                using var reg = cancellationToken.Register(() =>
-                {
-                    try { _currentProcess.Kill(entireProcessTree: true); } catch { }
-                });
-
-                _ = Task.Run(async () =>
-                {
-                    using var reader = _currentProcess.StandardOutput;
-                    while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+                    if (QualityPercent < 100)
                     {
-                        var line = await reader.ReadLineAsync(cancellationToken);
-                        if (line != null && line.StartsWith("out_time_us="))
+                        for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
-                            if (long.TryParse(line.AsSpan(12), out long outTimeUs))
+                            if (codecArgs[ci] == "-cq")
                             {
-                                double currentSec = outTimeUs / 1_000_000.0;
-                                if (totalDuration > 0)
-                                {
-                                    int percent = (int)Math.Clamp(currentSec / totalDuration * 100, 0, 100);
-                                    ProgressUpdate?.Invoke(percent);
-                                }
+                                codecArgs[ci + 1] = cqValue.ToString();
+                                break;
                             }
                         }
                     }
-                }, cancellationToken);
 
-                _ = Task.Run(async () =>
-                {
-                    using var reader = _currentProcess.StandardError;
-                    while (!reader.EndOfStream)
+                    var attemptArgs = new List<string>(cmdArgs);
+                    attemptArgs.AddRange(["-filter_complex_script", filterScriptPath]);
+                    attemptArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
+                    attemptArgs.AddRange(codecArgs);
+                    attemptArgs.AddRange(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+                    attemptArgs.Add(corePath);
+
+                    CoreLogger.Info("FFmpeg", $"Executing merge with encoder {currentEncoder} ({rcLabel}).");
+                    CoreLogger.Info("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
+
+                    bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, totalDuration, cancellationToken);
+
+                    if (attemptSuccess && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                     {
-                        string? line = await reader.ReadLineAsync(cancellationToken);
-                        if (!string.IsNullOrWhiteSpace(line))
-                        {
-                            CoreLogger.Append(line);
-                        }
+                        successOutputPath = corePath;
+                        break;
                     }
-                }, cancellationToken);
 
-                await _currentProcess.WaitForExitAsync(cancellationToken);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        lastErrorMsg = "Merge canceled.";
+                        break;
+                    }
 
-                if (_currentProcess.ExitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
+                    var fallbacks = encoderMgr.GetFallbackList(currentEncoder, allowCpu: true);
+                    if (fallbacks.Count == 0)
+                    {
+                        lastErrorMsg = $"FFmpeg exited with encoder {currentEncoder}. Render failed.";
+                        break;
+                    }
+
+                    string failedEncoder = currentEncoder;
+                    currentEncoder = fallbacks[0];
+                    CoreLogger.Info("Merger", $"Encoder {failedEncoder} failed, retrying with fallback: {currentEncoder}");
+
+                    try { if (File.Exists(corePath)) File.Delete(corePath); } catch { }
+                }
+
+                if (successOutputPath != null)
                 {
+                    string outputDir = !string.IsNullOrEmpty(OutputDirectory) && Directory.Exists(OutputDirectory)
+                        ? OutputDirectory
+                        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                    Directory.CreateDirectory(outputDir);
                     int idx = 1;
                     string finalOutput;
                     while (true)
@@ -208,13 +234,13 @@ public class MergerWorker : IDisposable
                         if (!File.Exists(finalOutput)) break;
                         idx++;
                     }
-                    File.Move(corePath, finalOutput);
+                    File.Move(successOutputPath, finalOutput);
                     ProgressUpdate?.Invoke(100);
                     EmitFinished(true, finalOutput);
                 }
                 else
                 {
-                    EmitFinished(false, $"FFmpeg exited with code {_currentProcess.ExitCode}. Render failed.");
+                    EmitFinished(false, lastErrorMsg);
                 }
             }
             finally
@@ -234,6 +260,167 @@ public class MergerWorker : IDisposable
         }
     }
 
+    private async Task<List<MusicTrack>> BuildEffectiveMusicTracksAsync(double totalDuration)
+    {
+        var sourceTracks = MusicTracks.Count > 0
+            ? MusicTracks.Where(t => !string.IsNullOrWhiteSpace(t.Path)).ToList()
+            : MusicTrack != null && !string.IsNullOrWhiteSpace(MusicTrack.Path)
+                ? new List<MusicTrack> { MusicTrack }
+                : new List<MusicTrack>();
+
+        if (sourceTracks.Count == 0)
+            return sourceTracks;
+
+        double musicWindowDuration = totalDuration;
+        if (MusicConfig != null)
+        {
+            try
+            {
+                double start = MusicConfig["timeline_start_sec"]?.GetValue<double>() ?? 0.0;
+                double end = MusicConfig["timeline_end_sec"]?.GetValue<double>() ?? 0.0;
+                if (end > start)
+                    musicWindowDuration = Math.Max(0.01, end - start);
+            }
+            catch { }
+        }
+
+        var normalized = new List<MusicTrack>();
+        foreach (var track in sourceTracks)
+        {
+            double duration = track.Duration;
+            bool durationFromSourceProbe = duration <= 0 || duration >= 9999.0 || duration > musicWindowDuration;
+            if (durationFromSourceProbe)
+            {
+                try
+                {
+                    var prober = new MediaProber(_ffprobePath, track.Path);
+                    double probedDuration = await prober.GetDurationAsync();
+                    if (probedDuration > 0)
+                        duration = probedDuration;
+                }
+                catch { }
+            }
+
+            if (durationFromSourceProbe && track.Offset > 0 && duration > track.Offset)
+                duration -= track.Offset;
+
+            if (duration <= 0)
+                duration = musicWindowDuration;
+
+            normalized.Add(new MusicTrack(track.Path, track.Offset, duration, track.TimelineStartDelay, track.ApplyFadeOut));
+        }
+
+        bool loopMusic = false;
+        try { loopMusic = MusicConfig?["loop_music"]?.GetValue<bool>() ?? false; } catch { }
+        if (!loopMusic)
+            return normalized;
+
+        var looped = new List<MusicTrack>();
+        double remaining = musicWindowDuration;
+        int guard = 0;
+        while (remaining > 0.001 && guard++ < 1000)
+        {
+            foreach (var track in normalized)
+            {
+                if (remaining <= 0.001)
+                    break;
+
+                double take = Math.Min(track.Duration, remaining);
+                if (take <= 0.001)
+                    continue;
+
+                bool firstTrack = looped.Count == 0;
+                looped.Add(new MusicTrack(
+                    track.Path,
+                    firstTrack ? track.Offset : 0.0,
+                    take,
+                    firstTrack ? track.TimelineStartDelay : 0.0,
+                    track.ApplyFadeOut));
+                remaining -= take;
+            }
+        }
+
+        return looped.Count > 0 ? looped : normalized;
+    }
+
+    private async Task<bool> ExecuteFFmpegAsync(List<string> cmdArgs, double totalDuration, CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = _ffmpegPath,
+            Arguments = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        _currentProcess = Process.Start(psi);
+        if (_currentProcess == null)
+            return false;
+
+        using var reg = cancellationToken.Register(() =>
+        {
+            try { _currentProcess.Kill(entireProcessTree: true); } catch { }
+        });
+
+        var progressTask = Task.Run(async () =>
+        {
+            using var reader = _currentProcess.StandardOutput;
+            while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line != null && line.StartsWith("out_time_us="))
+                {
+                    if (long.TryParse(line.AsSpan(12), out long outTimeUs))
+                    {
+                        double currentSec = outTimeUs / 1_000_000.0;
+                        if (totalDuration > 0)
+                        {
+                            int percent = (int)Math.Clamp(currentSec / totalDuration * 100, 0, 100);
+                            ProgressUpdate?.Invoke(percent);
+                        }
+                    }
+                }
+            }
+        }, cancellationToken);
+
+        var stderrTask = Task.Run(async () =>
+        {
+            using var reader = _currentProcess.StandardError;
+            while (!reader.EndOfStream)
+            {
+                string? line = await reader.ReadLineAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    CoreLogger.Append(line);
+                }
+            }
+        }, cancellationToken);
+
+        try
+        {
+            await _currentProcess.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        try
+        {
+            await Task.WhenAll(progressTask, stderrTask);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("Merger", $"Reader task error: {ex.Message}");
+        }
+
+        return _currentProcess.ExitCode == 0;
+    }
+
     private void EmitFinished(bool success, string message)
     {
         if (_finishEmitted) return;
@@ -246,4 +433,3 @@ public class MergerWorker : IDisposable
         _currentProcess?.Dispose();
     }
 }
-

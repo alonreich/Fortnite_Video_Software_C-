@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        x:Class="FortniteVideoSoftware.App.Controls.ConfirmDialogWindow"
+        Title="Confirm"
+        Width="560" Height="380"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, *, Auto">
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="DialogTitle" Text="Confirm" Classes="WindowTitleText" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <Border Grid.Row="1" Padding="25,20">
+                    <TextBlock Name="MessageText" Text="" Foreground="#cbd5e1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center"/>
+                </Border>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,0,0,25">
+                    <Button Name="YesBtn" Classes="Danger" Content="YES, ADD IT" Width="150" Height="38" Cursor="Hand"/>
+                    <Button Name="NoBtn" Classes="Primary" Content="NO, SKIP IT" Width="150" Height="38" Cursor="Hand"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

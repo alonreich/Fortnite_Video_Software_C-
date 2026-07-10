@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -18,7 +18,7 @@
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
-                <Menu Grid.Row="1" Background="#0f172a" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
+                <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
                     <MenuItem Header="_File">
                         <MenuItem Name="MenuUploadVideo" Header="Upload Video..." />
                         <Separator />
@@ -45,7 +45,7 @@
                  Right margin removed so the volume frame sits flush against the right pane (no gap). -->
             <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,0,10" ClipToBounds="False">
                 <!-- Video Border contains the video, overlays, and the floating timeline -->
-                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True" MinWidth="1280">
+                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True">
                     <Grid ClipToBounds="True" Name="MainVideoGrid">
                         <!-- MpvVideoView: bottom margin leaves room for the overlaid timeline
                              so the native HWND does not cover the Avalonia timeline controls -->
@@ -56,81 +56,7 @@
                         </Border>
 
                         <Grid Name="PortraitDimmingGrid" IsVisible="False" Margin="0,0,0,52" IsHitTestVisible="False">
-                            <Viewbox Stretch="Uniform">
-                                <Grid Width="1920" Height="1080" ClipToBounds="False">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="600" />
-                                        <ColumnDefinition Width="720" />
-                                        <ColumnDefinition Width="600" />
-                                    </Grid.ColumnDefinitions>
-                                    
-                                    <!-- Dim the sides -->
-                                    <Border Grid.Column="0" Background="#99000000" />
-                                    <Border Grid.Column="2" Background="#99000000" />
-                                    
-                                    <!-- The Fake Phone Frame (720x1080) -->
-                                    <Grid Grid.Column="1" Width="720" Height="1080" VerticalAlignment="Center" ClipToBounds="False">
-                                        <!-- Phone Physical Border -->
-                                        <Border BorderBrush="#1AFFFFFF" BorderThickness="4" CornerRadius="40" Margin="-4"/>
-                                        <Border BorderBrush="Black" BorderThickness="6" CornerRadius="38" Margin="-2"/>
-
-                                        <!-- Phone Internal Screen Content -->
-                                        <Border CornerRadius="32" ClipToBounds="True">
-                                            <Grid>
-                                                <!-- Exact 150px padding on top and bottom -->
-                                                <Border Height="150" Background="Black" VerticalAlignment="Top" />
-                                                <Border Height="150" Background="Black" VerticalAlignment="Bottom" />
-
-                                                <Image Name="PreviewPortraitImage" Height="105" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,42,0,0" />
-                                                
-                                                <!-- Top Status Bar -->
-                                                <Grid Height="150" VerticalAlignment="Top" Margin="30,12,30,0">
-                                                    <TextBlock Text="9:41" Foreground="White" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
-                                                    
-                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="24" Margin="0,5,0,0">
-                                                        <!-- 5G Signal -->
-                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
-                                                            <Border Background="White" Width="3.5" Height="7" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                                            <Border Background="White" Width="3.5" Height="10" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                                            <Border Background="White" Width="3.5" Height="14" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                                            <Border Background="#66FFFFFF" Width="3.5" Height="18" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                                            <TextBlock Text="5G" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
-                                                        </StackPanel>
-                                                        
-                                                        <!-- Wi-Fi -->
-                                                        <Grid Width="22" Height="18" VerticalAlignment="Bottom" Margin="0,0,0,2">
-                                                            <Path Data="M 1,4 C 7,-1 15,-1 21,4" Stroke="#66FFFFFF" StrokeThickness="3" StrokeLineCap="Round" />
-                                                            <Path Data="M 5,8 C 9,5 13,5 17,8" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
-                                                            <Path Data="M 9,12 C 10.5,10.5 11.5,10.5 13,12" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
-                                                            <Ellipse Fill="White" Width="4.5" Height="4.5" Margin="0,15,0,0" HorizontalAlignment="Center" VerticalAlignment="Top" />
-                                                        </Grid>
-
-                                                        <!-- Battery (<50%) -->
-                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="1" Margin="0,0,0,2">
-                                                            <Border BorderBrush="#99FFFFFF" BorderThickness="2" CornerRadius="6" Width="46" Height="22" Padding="2">
-                                                                <Border Background="White" CornerRadius="2.5" Width="18" HorizontalAlignment="Left" />
-                                                            </Border>
-                                                            <Border Background="#99FFFFFF" Width="4" Height="9" CornerRadius="0,4,4,0" />
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                </Grid>
-                                                
-                                                <!-- Bottom Navigation Bar -->
-                                                <Grid Height="150" VerticalAlignment="Bottom" Background="Black">
-                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="90">
-                                                        <Path Data="M 18,0 L 0,11 L 18,22 Z" Fill="White" Width="24" Height="22" Stretch="Uniform" />
-                                                        <Grid Width="20" Height="20">
-                                                            <Ellipse Stroke="White" StrokeThickness="2" Width="20" Height="20" />
-                                                            <Ellipse Fill="White" Width="8" Height="8" />
-                                                        </Grid>
-                                                        <Rectangle Fill="Transparent" Stroke="White" StrokeThickness="2" Width="20" Height="20" RadiusX="3" RadiusY="3" />
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Grid>
-                                        </Border>
-                                    </Grid>
-                                </Grid>
-                            </Viewbox>
+                            <controls:PhoneFrameMockup Name="PhoneFrame" />
                         </Grid>
 
                         <!-- Upload Video Overlay -->
@@ -158,7 +84,7 @@
                                     <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
                                         <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
                                         <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
-                                            <Slider Name="TimelineSlider" Classes="TimelineSlider CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
+                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
                                                                                         <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003">
                                                 <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
                                                     <Border.Transitions>
@@ -189,8 +115,7 @@
                         </Popup>
 
                         <Button Name="DetachOverlayButton" 
-                                Classes="PrimaryAction"
-                                Content="◳ Detach Monitor" 
+                                Content="◳ Detach Monitor"
                                 HorizontalAlignment="Left" 
                                 VerticalAlignment="Top" 
                                 Margin="10,10,0,0"
@@ -208,7 +133,7 @@
                 <!-- Rebuilt vertical volume slider: plain default track (matches Granular Speed slider style),
                      enlarged + elongated, inside a slim clear frame (<=60px). Flush against the video border
                      (left) and the right pane (right) with no horizontal gaps. Stretches to the video height. -->
-                <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="#475569" BorderThickness="1" Padding="0,8" Width="40" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
+                <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="0,8" Width="40" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Left" Margin="-6,0,0,0">
                         <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,-5,6" Opacity="1" />
                         <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
@@ -229,7 +154,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
                         <Button Name="SetThumbnailButton" Classes="Primary" Width="160" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
                             <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="📸" FontSize="16" VerticalAlignment="Center" />
+                                <Path Fill="White" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
                                 <TextBlock Name="SetThumbnailText" Text="SET THUMBNAIL" FontSize="9" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
@@ -296,7 +221,7 @@
         </Grid>
 
         <!-- RIGHT PANEL: Utility & Plugins -->
-        <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
+        <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
             <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto">
                 <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
                 <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video"/>
@@ -307,7 +232,7 @@
                     <StackPanel Spacing="5">
                         <Grid ColumnDefinitions="*, Auto">
                             <TextBlock Text="Portrait (9:16)" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" />
                         </Grid>
                         <Viewbox Width="140" Height="40" HorizontalAlignment="Left" Stretch="Uniform" StretchDirection="DownOnly" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}">
                             <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="40" FontSize="14" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" TextWrapping="Wrap" AcceptsReturn="True" />
@@ -315,15 +240,15 @@
                     </StackPanel>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Boss HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="BossHpCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                        <ToggleSwitch Name="BossHpCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" />
                     </Grid>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Teammate HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                        <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" />
                     </Grid>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Disable Fade" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="NoFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" />
+                        <ToggleSwitch Name="NoFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Disable fade" />
                     </Grid>
                 </StackPanel>
 

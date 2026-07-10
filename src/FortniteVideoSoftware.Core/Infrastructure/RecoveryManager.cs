@@ -153,6 +153,26 @@ public sealed class RecoveryManager
         _skipCleanup = skip;
     }
 
+    /// <summary>
+    /// Deletes only the session lock file without clearing recovery state.
+    /// Use during intentional process handoffs (Main → Merger/CropTool) so
+    /// CheckFault() returns false on restart, but recovery state is preserved
+    /// for genuine crash detection.
+    /// </summary>
+    public void ReleaseLockOnly()
+    {
+        try
+        {
+            if (File.Exists(_paths.AppSessionLockFile))
+            {
+                File.Delete(_paths.AppSessionLockFile);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     public void SaveStateAsync(JsonObject state)
     {
         int sequence = Interlocked.Increment(ref _saveSequence);

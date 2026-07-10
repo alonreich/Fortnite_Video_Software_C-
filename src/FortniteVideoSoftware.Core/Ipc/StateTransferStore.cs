@@ -22,6 +22,7 @@ public sealed class StateTransferStore
     [
         "UploadVideoDirectory",
         "MergerUploadDirectory",
+        "MergerOutputDirectory",
         "CropToolUploadDirectory",
         "CustomMusicDirectory"
     ];

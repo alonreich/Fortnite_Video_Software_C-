@@ -18,7 +18,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,0,0,10">
                     <!-- Indeterminate Spinner -->
-                    <ProgressBar IsIndeterminate="True" Width="20" Height="20" Foreground="#facc15" Theme="{DynamicResource ProgressRing}" />
+                    <ProgressBar IsIndeterminate="True" Width="20" Height="20" Foreground="#facc15" />
                     <TextBlock x:Name="PhaseTitleText" Text="Phase 1: Preparing..." Foreground="White" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
                 </StackPanel>
                 <!-- Massive Glowing Progress Bar -->

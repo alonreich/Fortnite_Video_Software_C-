@@ -229,6 +229,7 @@ public partial class MainWindow : Window
         if (menuCropSettings != null) menuCropSettings.Click += (s, e) =>
         {
             SaveRecoveryState();
+            _recovery.ReleaseLockOnly();
             RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
@@ -239,6 +240,7 @@ public partial class MainWindow : Window
         if (menuVideoMerger != null) menuVideoMerger.Click += (s, e) =>
         {
             SaveRecoveryState();
+            _recovery.ReleaseLockOnly();
             RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
@@ -419,6 +421,7 @@ public partial class MainWindow : Window
             videoMergerButton.Click += (s, e) =>
             {
                 SaveRecoveryState();
+                _recovery.ReleaseLockOnly();
                 RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
                 var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
@@ -443,6 +446,7 @@ public partial class MainWindow : Window
             cropSettingsButton.Click += (s, e) =>
             {
                 SaveRecoveryState();
+                _recovery.ReleaseLockOnly();
                 RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
                 var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
@@ -1351,7 +1355,7 @@ public partial class MainWindow : Window
         if (portraitTextInput != null)
             portraitTextInput.IsVisible = isPortrait;
 
-        var previewPortraitImage = this.FindControl<Avalonia.Controls.Image>("PreviewPortraitImage");
+        var previewPortraitImage = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame")?.PortraitImageControl;
         if (previewPortraitImage != null && portraitTextInput != null && isPortrait)
         {
             try
@@ -1399,7 +1403,7 @@ public partial class MainWindow : Window
         {
             _detachedPreviewWindow.TogglePortraitOverlay(isPortrait && isVideoLoaded);
             
-            var previewPortraitImage = this.FindControl<Avalonia.Controls.Image>("PreviewPortraitImage");
+            var previewPortraitImage = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame")?.PortraitImageControl;
             if (isPortrait && isVideoLoaded && previewPortraitImage != null)
             {
                 _detachedPreviewWindow.SetSkiaTextPlaceholder(previewPortraitImage.Source as Avalonia.Media.Imaging.Bitmap);

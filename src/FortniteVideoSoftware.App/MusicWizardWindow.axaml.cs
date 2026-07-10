@@ -61,6 +61,8 @@ public class MusicWizardResult
 
     public double MusicDurationSeconds { get; set; } = 0.0;
 
+    public bool LoopMusic { get; set; } = false;
+
 }
 
 
@@ -740,6 +742,7 @@ public partial class MusicWizardWindow : Window
         UpdateNextButtonState();
         UpdateFinalPlacementSummary();
         UpdatePreviewControlsState();
+        UpdateCoverageBar();
     }
 
     private void HandleSongOffsetKeyDown(KeyEventArgs e)
@@ -983,7 +986,8 @@ public partial class MusicWizardWindow : Window
                 EnableCarving = carvingCheck?.IsChecked ?? true,
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
                 MusicVolume = (musicVolSlider?.Value ?? 100.0) / 100.0,
-                MusicDurationSeconds = _trackDuration
+                MusicDurationSeconds = _trackDuration,
+                LoopMusic = this.FindControl<CheckBox>("LoopMusicCheckBox")?.IsChecked ?? false
             };
 
             RuntimeLog.Success("MUSIC_WIZARD", $"Wizard completed. Track: {Result.MusicFilePath}, SongStart: {Result.OffsetSeconds:F2}s, Timeline: {Result.TimelineStartSeconds:F2}-{Result.TimelineEndSeconds:F2}s, Ducking: {Result.EnableDucking}, Carving: {Result.EnableCarving}, VideoVol: {Result.VideoVolume}, MusicVol: {Result.MusicVolume}");
@@ -1370,6 +1374,64 @@ public partial class MusicWizardWindow : Window
             : $"Only {FormatSeconds(audibleMusic)} of music remains after this song point.";
 
         label.Text = $"Song starts at {FormatSeconds(_songStartSeconds)}. Video range is {FormatSeconds(trimStartSec)} to {FormatSeconds(trimEndSec)}. {endText}";
+    }
+
+    private void UpdateCoverageBar()
+    {
+        if (!_isMergerMode) return;
+
+        double videoDuration = GetPhase3VideoDurationSeconds();
+        double audibleMusic = GetAudibleMusicDurationSeconds();
+
+        var loopCheck = this.FindControl<CheckBox>("LoopMusicCheckBox");
+        bool loopEnabled = loopCheck?.IsChecked ?? false;
+
+        double coveragePercent = loopEnabled ? 100.0 : Math.Min(100.0, (audibleMusic / videoDuration) * 100.0);
+
+        var fill = this.FindControl<Border>("CoverageBarFill");
+        if (fill != null)
+        {
+            double panelWidth = this.FindControl<Border>("MultiSongHelperPanel")?.Bounds.Width ?? 200;
+            fill.Width = Math.Max(0, panelWidth * (coveragePercent / 100.0) - 24);
+            fill.Background = coveragePercent >= 99.9
+                ? Avalonia.Media.Brush.Parse("#22c55e")
+                : coveragePercent >= 50
+                    ? Avalonia.Media.Brush.Parse("#facc15")
+                    : Avalonia.Media.Brush.Parse("#ef4444");
+        }
+
+        var pctText = this.FindControl<TextBlock>("CoveragePercentText");
+        if (pctText != null)
+        {
+            pctText.Text = $"{coveragePercent:0}%";
+            pctText.Foreground = coveragePercent >= 99.9
+                ? Avalonia.Media.Brush.Parse("#22c55e")
+                : Avalonia.Media.Brush.Parse("#facc15");
+        }
+
+        var barText = this.FindControl<TextBlock>("CoverageBarText");
+        if (barText != null)
+        {
+            barText.Text = loopEnabled
+                ? "Music loops - full coverage"
+                : $"{FormatSeconds(audibleMusic)} / {FormatSeconds(videoDuration)}";
+        }
+
+        var warningBanner = this.FindControl<Border>("CoverageWarningBanner");
+        var warningText = this.FindControl<TextBlock>("CoverageWarningText");
+        if (warningBanner != null && warningText != null)
+        {
+            if (coveragePercent >= 99.9 || loopEnabled)
+            {
+                warningBanner.IsVisible = false;
+            }
+            else
+            {
+                double uncovered = videoDuration - audibleMusic;
+                warningBanner.IsVisible = true;
+                warningText.Text = $"WARNING: Your music covers {coveragePercent:0}% of the video. The last {FormatSeconds(uncovered)} will have NO music. Add more songs, enable looping, or continue anyway.";
+            }
+        }
     }
 
     private void UpdatePreviewControlsState()

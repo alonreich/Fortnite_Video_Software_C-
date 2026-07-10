@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using FortniteVideoSoftware.App.Controls;
@@ -64,7 +64,7 @@ public partial class PreviewMonitorWindow : Window
 
     public void TogglePortraitOverlay(bool isPortrait)
     {
-        var overlay = this.FindControl<Grid>("PortraitSimulatorOverlay");
+        var overlay = this.FindControl<UserControl>("PortraitSimulatorOverlay");
         RuntimeLog.Info("UI", $"TogglePortraitOverlay called with isPortrait={isPortrait}. Found overlay? {overlay != null}");
         if (overlay != null)
         {
@@ -81,7 +81,8 @@ public partial class PreviewMonitorWindow : Window
 
     public void SetSkiaTextPlaceholder(Avalonia.Media.Imaging.Bitmap? bitmap)
     {
-        var img = this.FindControl<Image>("SkiaTextPlaceholder");
+        var phoneFrame = this.FindControl<PhoneFrameMockup>("PhoneFrame");
+        var img = phoneFrame?.PortraitImageControl;
         if (img != null)
         {
             img.Source = bitmap;

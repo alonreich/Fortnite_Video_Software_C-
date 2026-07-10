@@ -1,98 +1,261 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         Title="Fortnite Video Software - Merger"
-        Width="1200" Height="800"
+        Width="1500" Height="900"
         Background="{DynamicResource AppSurfaceBrush}"
-        MinWidth="1200" MinHeight="800"
+        MinWidth="1200" MinHeight="700"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
+    <!-- Video Queue: selection marching ants, hover glow, hand cursor -->
+    <Window.Styles>
+        <Style Selector="ListBoxItem:selected Rectangle.MarchingAnts">
+            <Setter Property="IsVisible" Value="True"/>
+            <Style.Animations>
+                <Animation Duration="0:0:0.6" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="StrokeDashOffset" Value="0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="StrokeDashOffset" Value="6"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="ListBoxItem Rectangle.MarchingAnts">
+            <Setter Property="IsVisible" Value="False"/>
+        </Style>
+        <Style Selector="ListBoxItem Border.HoverGlow">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover Border.HoverGlow">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="ListBoxItem Border.SelectGlow">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ListBoxItem:selected Border.SelectGlow">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="#VideoList ListBoxItem">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
+    </Window.Styles>
 
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
-            <Grid RowDefinitions="30, *">
+            <Grid RowDefinitions="30, Auto, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
-                <Grid Grid.Row="1" ColumnDefinitions="*, 350">
-                    <!-- LEFT COLUMN: Video Player Area -->
-        <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto">
-            <Border Grid.Row="0" Background="Black" Margin="10,10,10,0" CornerRadius="6" ClipToBounds="True">
-                <local:MpvVideoView Name="VideoHost" />
-            </Border>
 
-            <!-- Timeline -->
-            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="10,10,10,0">
-                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" />
-                <Slider Grid.Column="1" Name="TimelineSlider" Margin="10,0" Minimum="0" Maximum="100" Cursor="Hand" ToolTip.Tip="Drag to scrub through the video" />
-                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="60" TextAlignment="Right" />
-            </Grid>
+                <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
+                    <MenuItem Header="_File">
+                        <MenuItem Name="MenuAddVideo" Header="Add Video..." />
+                        <Separator />
+                        <MenuItem Name="MenuOutputFolder" Header="Output Folder..." />
+                        <Separator />
+                        <MenuItem Name="MenuSettings" Header="_Settings" />
+                        <Separator />
+                        <MenuItem Name="MenuReturnToApp" Header="Return to Main App" />
+                        <MenuItem Name="MenuExit" Header="Exit" />
+                    </MenuItem>
+                    <MenuItem Header="_Edit">
+                        <MenuItem Name="MenuRemoveSelected" Header="Remove Selected" />
+                        <MenuItem Name="MenuClearAll" Header="Clear All" />
+                    </MenuItem>
+                </Menu>
 
-            <!-- Bottom Controls -->
-            <Grid Grid.Row="2" RowDefinitions="Auto, Auto" Margin="10,15,10,10">
-                <!-- Top Row: Play/Pause -->
-                <Grid Grid.Row="0" Margin="0,0,0,10">
-                    <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video">
-                        <Panel Width="16" Height="16">
-                            <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
-                            <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Rectangle Width="4" Height="14" Fill="White"/>
-                                <Rectangle Width="4" Height="14" Fill="White"/>
+                <!-- FLIPPED: Queue on LEFT, Player on RIGHT -->
+                <Grid Grid.Row="2" ColumnDefinitions="480, *">
+
+                    <!-- LEFT PANEL: Video Queue & Controls -->
+                    <Border Grid.Column="0" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0" Padding="15">
+                        <Grid RowDefinitions="Auto, *, Auto, Auto">
+                            <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="10" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+
+                            <Border Grid.Row="1" Name="VideoListFrame" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,15">
+                                <Grid>
+                                    <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="9" DragDrop.AllowDrop="True">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Grid Height="30" ClipToBounds="False">
+                                                    <Border Classes="SelectGlow" Background="#0AFFD700" CornerRadius="3" BoxShadow="0 0 8 1 #55FFD700"/>
+                                                    <Border Classes="HoverGlow" Background="#0A38bdf8" CornerRadius="3" BoxShadow="0 0 4 0 #3338bdf8"/>
+                                                    <Rectangle Classes="MarchingAnts" Stroke="#FFD700" StrokeThickness="1" StrokeDashArray="4,2" IsVisible="False" IsHitTestVisible="False" RadiusX="3" RadiusY="3"/>
+                                                    <!-- ISSUE_011: Filename shown via converter, tooltip shows full path -->
+                                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0" VerticalAlignment="Center">
+                                                        <TextBlock Text="🎬" FontSize="10" IsHitTestVisible="False"/>
+                                                        <TextBlock Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" ToolTip.Tip="{Binding}" TextTrimming="CharacterEllipsis" FontSize="9" VerticalAlignment="Center" Foreground="White"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <TextBlock Name="EmptyQueueText" Text="Add at least two videos to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="8" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
+                                    <Border Name="DropIndicator" Height="3" Background="#38bdf8" CornerRadius="1.5" IsVisible="False" VerticalAlignment="Top" Margin="4,0,4,0" BoxShadow="0 0 6 1 #6638bdf8" ZIndex="100" IsHitTestVisible="False"/>
+                                </Grid>
+                            </Border>
+
+                            <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,15">
+                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
+                                <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music"/>
+                                <Grid ColumnDefinitions="*, *">
+                                    <Button Grid.Column="0" Name="MoveUpButton" Classes="Primary" Content="MOVE UP" Margin="0,0,4,0" IsEnabled="False" FontSize="7" ToolTip.Tip="Move selected video up"/>
+                                    <Button Grid.Column="1" Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" Margin="4,0,0,0" IsEnabled="False" FontSize="7" ToolTip.Tip="Move selected video down"/>
+                                </Grid>
+                                <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" FontSize="7" ToolTip.Tip="Select a video to remove it from the queue"/>
                             </StackPanel>
-                        </Panel>
-                    </Button>
-                </Grid>
 
-                <!-- Bottom Row: Return To App, Merge Videos, Add Music -->
-                <Grid Grid.Row="1" Margin="0,10,0,0">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="ReturnButton" Classes="Primary" Content="RETURN TO APP" Width="140" ToolTip.Tip="Close merger and return to main app"/>
-                    </StackPanel>
-                    
-                    <!-- Centered buttons -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="140" Margin="0,0,15,0" IsEnabled="False" ToolTip.Tip="Add at least two videos to enable merging"/>
-                        <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" Width="130" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music"/>
-                    </StackPanel>
-                </Grid>
-            </Grid>
-        </Grid>
+                            <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="7" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Grid>
+                    </Border>
 
-        <!-- RIGHT PANEL: Video List & Utility -->
-        <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="15">
-            <Grid RowDefinitions="Auto, *, Auto, Auto">
-                <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-                
-                <Border Grid.Row="1" Name="VideoListFrame" Background="#1e293b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,15">
-                    <Grid>
-                        <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="12" DragDrop.AllowDrop="True">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{Binding}" Cursor="Hand" ToolTip.Tip="Click to select this video"/>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                        <TextBlock Name="EmptyQueueText" Text="Add at least two videos to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
+                    <!-- RIGHT COLUMN: Player & Editing Controls -->
+                    <Grid Grid.Column="1" RowDefinitions="*, Auto" ClipToBounds="False">
+
+                        <!-- Video Player Area + Volume Slider -->
+                        <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,10,10,10" ClipToBounds="False">
+                            <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="True" Padding="2">
+                                <Grid ClipToBounds="True" Name="MainVideoGrid">
+                                    <local:MpvVideoView Name="VideoHost" Margin="0,0,0,52" />
+
+                                    <!-- ISSUE_006: No-video placeholder overlay -->
+                                    <Border Name="NoVideoOverlay" Background="#95000000" CornerRadius="4" IsVisible="True" ZIndex="500">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                                            <TextBlock Text="🎬" FontSize="48" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="No video loaded" Foreground="#94a3b8" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="Select a video from the queue to preview" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Name="TimelineOverlay" VerticalAlignment="Bottom" Height="72" Background="Transparent" ZIndex="9999" Cursor="Hand" ClipToBounds="False" IsVisible="False">
+                                        <Border VerticalAlignment="Bottom" Background="#B3000000" Padding="8,0,8,3" Height="52" ClipToBounds="False">
+                                            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
+                                                <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" FontSize="10" Margin="0,0,8,0" />
+                                                <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
+                                                    <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
+                                                    <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
+                                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
+                                                        <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
+                                                    </Grid>
+                                                </Grid>
+                                                <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" TextAlignment="Right" FontSize="10" Margin="8,0,0,0" />
+                                            </Grid>
+                                        </Border>
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="4,8" Width="48" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
+                                <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Stretch" Margin="0">
+                                    <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
+                                    <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
+                                    <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Mute or restore volume" AutomationProperties.Name="Mute or restore volume" ClipToBounds="False" KeyDown="SpeakerHitBox_KeyDown">
+                                        <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </Grid>
+
+                        <!-- Bottom Controls -->
+                        <Grid Grid.Row="1" Margin="0,8,10,8">
+                            <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <!-- Output Quality -->
+                                <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,20,0" VerticalAlignment="Center">
+                                    <TextBlock Text="OUTPUT QUALITY" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                                    <controls:SpinningWheelSlider Name="QualitySlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Output quality percentage" />
+                                    <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
+                                </StackPanel>
+
+                                <!-- Transport Controls + Merge Button -->
+                                <StackPanel Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
+                                        <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
+                                        <Button Name="FastBackwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Fast Backward (seek -10s)" Padding="0" IsEnabled="False">
+                                            <Panel Width="16" Height="16">
+                                                <Polygon Points="6,2 6,14 0,8" Fill="White"/>
+                                                <Polygon Points="14,2 14,14 8,8" Fill="White"/>
+                                            </Panel>
+                                        </Button>
+                                        <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Cursor="Hand" IsEnabled="False">
+                                            <Panel Width="16" Height="16">
+                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                                                <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                                </StackPanel>
+                                            </Panel>
+                                        </Button>
+                                        <!-- Fast forward uses RIGHT-pointing triangles -->
+                                        <Button Name="FastForwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Fast Forward (seek +10s)" Padding="0" IsEnabled="False">
+                                            <Panel Width="16" Height="16">
+                                                <Polygon Points="2,2 8,8 2,14" Fill="White"/>
+                                                <Polygon Points="8,2 14,8 8,14" Fill="White"/>
+                                            </Panel>
+                                        </Button>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="160" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Merge all listed videos together"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Speed -->
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="20,0,0,0" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
+                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Playback speed multiplier" />
+                                        <TextBlock Name="MainSpeedLabel" Text="1.0x — Normal" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x"/>
+                                            <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x"/>
+                                            <Button Name="SpeedPreset10" Classes="SpeedPreset BaseSpeedPreset" Content="1.0x"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <Button Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x"/>
+                                            <Button Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x"/>
+                                            <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- RETURN + Output Info + Estimated Size -->
+                                <StackPanel Orientation="Vertical" Spacing="3" Margin="20,0,0,0" VerticalAlignment="Center">
+                                    <Button Name="ReturnToMainAppButton" Classes="Primary" Content="← RETURN TO MAIN APP" FontSize="9" Cursor="Hand" ToolTip.Tip="Go back to the main app"/>
+                                    <!-- ISSUE_004: Show output folder path -->
+                                    <TextBlock Name="OutputPathText" Text="" Foreground="#64748b" FontSize="7" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                    <TextBlock Name="EstimatedSizeText" Text="" Foreground="#38bdf8" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                    <!-- ISSUE_005: Normalization info -->
+                                    <TextBlock Name="NormalizeInfoText" Text="" Foreground="#475569" FontSize="7" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                </StackPanel>
+                            </WrapPanel>
+                        </Grid>
                     </Grid>
-                </Border>
-
-                <StackPanel Grid.Row="2" Spacing="10" Margin="0,0,0,15">
-                    <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
-                    <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
-                    <Button Name="MoveUpButton" Classes="Primary" Content="MOVE UP" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video that is not already first"/>
-                    <Button Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video that is not already last"/>
-                </StackPanel>
-                <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"/>
-            </Grid>
-        </Border>
-        
-        <!-- Processing Overlay -->
-        <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.ColumnSpan="2" IsVisible="False" />
                 </Grid>
+
+                <!-- Processing Overlay -->
+                <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.Row="2" Grid.ColumnSpan="2" IsVisible="False" />
             </Grid>
         </Border>
     </Grid>

@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -10,21 +10,6 @@
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
-
-    <Window.Styles>
-        <Style Selector="TextBlock.BlinkingText">
-            <Style.Animations>
-                <Animation Duration="0:0:1" IterationCount="Infinite" PlaybackDirection="Alternate">
-                    <KeyFrame Cue="0%">
-                        <Setter Property="Opacity" Value="0.0"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                        <Setter Property="Opacity" Value="1.0"/>
-                    </KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-    </Window.Styles>
 
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
@@ -65,7 +50,7 @@
                     <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
                         <Canvas Name="GranularTimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
                         <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
-                            <Slider Name="GranularTimeline" Classes="TimelineSlider CompactSlider" Minimum="0" Maximum="1000" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-6px)" ToolTip.Tip="Drag to scrub through the video" />
+                            <Slider Name="GranularTimeline" Classes="CompactSlider" Minimum="0" Maximum="1000" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-6px)" ToolTip.Tip="Drag to scrub through the video" />
                             <Canvas Name="GranularTimelineCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
 
                         </Grid>
@@ -160,7 +145,7 @@
             </Grid>
 
             <!-- RIGHT: Segments List -->
-            <Border Grid.Column="1" Background="#334155" BorderBrush="#475569" BorderThickness="1,0,0,0" Padding="12">
+            <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="12">
                 <Grid RowDefinitions="Auto, Auto, *">
                     <TextBlock Grid.Row="0" Text="SPEED SEGMENTS" Foreground="#60a5fa" FontSize="13" FontWeight="Bold" Margin="0,0,0,5"/>
                     <TextBlock Grid.Row="1" Name="SegmentCountLabel" Text="No segments" Foreground="#94a3b8" FontSize="11" Margin="0,0,0,10"/>
@@ -172,7 +157,7 @@
         </Grid>
 
         <!-- BOTTOM NAVIGATION -->
-        <Border Grid.Row="1" Background="#1e293b" Padding="16,10" BorderBrush="#334155" BorderThickness="0,1,0,0">
+        <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Padding="16,10" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*, Auto">
                 <TextBlock Grid.Column="0" Name="BottomStatusLabel"
                            Text="Set speed, then press MARK END to create a segment. Start is auto-inferred."
