@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -45,12 +45,15 @@ public partial class SettingsWindow : Window
             NoFade = SettingsManager.Instance.Defaults.NoFade,
             NoFadeBehavior = SettingsManager.Instance.Defaults.NoFadeBehavior,
             QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
-            QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior
+            QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
+            AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
+            AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening
         };
 
         LoadCurrentKeybinds();
         BuildKeyBindsUi();
         BuildDefaultsUi();
+        BuildMaskOverlayUi();
 
         this.FindControl<Button>("SaveBtn")!.Click += (s, e) => SaveAndClose();
         this.FindControl<Button>("CancelBtn")!.Click += (s, e) => Close();
@@ -163,6 +166,29 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private string _pendingMaskOverlay = "";
+
+    private void BuildMaskOverlayUi()
+    {
+        _pendingMaskOverlay = SettingsManager.Instance.ActiveMaskOverlay;
+        
+        var combo = this.FindControl<ComboBox>("MaskOverlayProfileComboBox");
+        if (combo != null)
+        {
+            var profiles = MaskOverlayManager.GetAvailableProfiles();
+            combo.ItemsSource = profiles;
+            combo.SelectedItem = _pendingMaskOverlay;
+
+            combo.SelectionChanged += (s, e) =>
+            {
+                if (combo.SelectedItem is string selected)
+                {
+                    _pendingMaskOverlay = selected;
+                }
+            };
+        }
+    }
+
         private void BuildDefaultsUi()
     {
         var panel = this.FindControl<StackPanel>("DefaultsPanel");
@@ -234,6 +260,20 @@ public partial class SettingsWindow : Window
                 }
             };
         }
+        
+        var cbVoice = this.FindControl<CheckBox>("AutoVoiceNormalizationCheckbox");
+        if (cbVoice != null)
+        {
+            cbVoice.IsChecked = _pendingDefaults.AutoVoiceNormalization;
+            cbVoice.IsCheckedChanged += (_, _) => _pendingDefaults.AutoVoiceNormalization = cbVoice.IsChecked ?? true;
+        }
+
+        var cbSpike = this.FindControl<CheckBox>("AutoSpikeFlatteningCheckbox");
+        if (cbSpike != null)
+        {
+            cbSpike.IsChecked = _pendingDefaults.AutoSpikeFlattening;
+            cbSpike.IsCheckedChanged += (_, _) => _pendingDefaults.AutoSpikeFlattening = cbSpike.IsChecked ?? true;
+        }
     }
 
     private Grid MakeBehaviorCheckboxRow(string label, CheckboxDefaultBehavior initialBehavior, Action<CheckboxDefaultBehavior> onToggle)
@@ -298,6 +338,11 @@ public partial class SettingsWindow : Window
         kb.AggressiveVolumeDown = _pendingKeys["AggressiveVolumeDown"];
 
         SettingsManager.Instance.Defaults = _pendingDefaults;
+
+        if (_pendingMaskOverlay != SettingsManager.Instance.ActiveMaskOverlay)
+        {
+            MaskOverlayManager.ApplyProfile(_pendingMaskOverlay);
+        }
 
         SettingsManager.Save();
         

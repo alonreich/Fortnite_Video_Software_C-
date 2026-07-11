@@ -1,4 +1,4 @@
-﻿using Avalonia.Platform.Storage;
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -3440,19 +3440,21 @@ public partial class MainWindow : Window
     {
         var btn = this.FindControl<Button>("AddMusicButton");
         if (btn == null) return;
+        var txt = this.FindControl<TextBlock>("AddMusicText");
+        
         _isMusicActive = active;
         if (active)
         {
             btn.Classes.Remove("Primary");
             btn.Classes.Add("Danger");
-            btn.Content = "REMOVE MUSIC";
+            if (txt != null) txt.Text = " REMOVE MUSIC ";
             ToolTip.SetTip(btn, "Click here to remove the background music you added. This deletes the music track from your video.");
         }
         else
         {
             btn.Classes.Remove("Danger");
             btn.Classes.Add("Primary");
-            btn.Content = "ADD MUSIC";
+            if (txt != null) txt.Text = " ADD MUSIC ";
             ToolTip.SetTip(btn, "Add background music to the video");
         }
         SaveRecoveryState();

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -71,36 +71,33 @@ public static class RuntimeLog
     {
         lock (Sync)
         {
+            if (_initialized) return;
             try
             {
                 string lp = LogPath;
             }
             catch { /* ignore — counter starts at 0 */ }
 
-            string header = Environment.NewLine +
-                $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName})" + Environment.NewLine;
-
-            SafeWrite(header);
-            _initialized = true;
-
             if (!_exitRegistered)
             {
                 AppDomain.CurrentDomain.ProcessExit += (s, e) => WriteExitSeparator();
                 _exitRegistered = true;
             }
+            _initialized = true;
         }
+
+        string header = Environment.NewLine +
+            $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName})" + Environment.NewLine;
+        SafeWrite(header);
     }
 
     private static void WriteExitSeparator()
     {
-        lock (Sync)
-        {
-            string separator = Environment.NewLine + 
-                               "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine + 
-                               Environment.NewLine + 
-                               "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine;
-            SafeWrite(separator);
-        }
+        string separator = Environment.NewLine + 
+                           "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine + 
+                           Environment.NewLine + 
+                           "---------------------------------------------------------------------------------------------------------------------------" + Environment.NewLine;
+        SafeWrite(separator);
     }
 
     public static void Info(string step, string detail)
@@ -120,11 +117,8 @@ public static class RuntimeLog
 
     public static void AppendRaw(string line)
     {
-        lock (Sync)
-        {
-            SafeWrite(line + Environment.NewLine);
-            LogAppended?.Invoke(line);
-        }
+        SafeWrite(line + Environment.NewLine);
+        LogAppended?.Invoke(line);
     }
 
     public static void Fail(string step, Exception exception)
@@ -134,17 +128,14 @@ public static class RuntimeLog
 
     private static void Write(string level, string step, string detail)
     {
-        lock (Sync)
+        if (!_initialized)
         {
-            if (!_initialized)
-            {
-                ResetForProcess();
-            }
-
-            string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
-            SafeWrite(line);
-            LogAppended?.Invoke(line.TrimEnd());
+            ResetForProcess();
         }
+
+        string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
+        SafeWrite(line);
+        LogAppended?.Invoke(line.TrimEnd());
     }
 
     private static void SafeWrite(string text)

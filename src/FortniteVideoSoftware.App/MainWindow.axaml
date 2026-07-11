@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -14,30 +14,29 @@
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, Auto, *">
-                <!-- Issue #5: Title bar bound to shared resource tokens -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
                 <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
                     <MenuItem Header="_File">
-                        <MenuItem Name="MenuUploadVideo" Header="Upload Video..." />
+                        <MenuItem Name="MenuUploadVideo" Header="Upload Video..." ToolTip.Tip="Upload a new MP4/MKV video file" />
                         <Separator />
-                        <MenuItem Name="MenuExportConfig" Header="Backup Settings..." />
-                        <MenuItem Name="MenuImportConfig" Header="Restore Settings..." />
+                        <MenuItem Name="MenuExportConfig" Header="Backup Settings..." ToolTip.Tip="Export current configurations to a file" />
+                        <MenuItem Name="MenuImportConfig" Header="Restore Settings..." ToolTip.Tip="Import settings from a backup file" />
                         <Separator />
-                        <MenuItem Name="MenuSettingsBtn" Header="_Settings" />
+                        <MenuItem Name="MenuSettingsBtn" Header="_Settings" ToolTip.Tip="Open the application settings menu" />
                         <Separator />
-                        <MenuItem Name="MenuExit" Header="E_xit" />
+                        <MenuItem Name="MenuExit" Header="E_xit" ToolTip.Tip="Close the application" />
                     </MenuItem>
                     <MenuItem Header="_Edit">
-                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" />
-                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" />
+                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" ToolTip.Tip="Configure video cropping presets" />
+                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" ToolTip.Tip="Open the video merger utility" />
                     </MenuItem>
                     <MenuItem Header="_View">
-                        <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" />
+                        <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" ToolTip.Tip="Toggle floating preview monitor" />
                     </MenuItem>
                 </Menu>
-                <Grid Grid.Row="2" ColumnDefinitions="*, 170">
+                <Grid Grid.Row="2" ColumnDefinitions="*, Auto">
         <!-- LEFT COLUMN: Player & Editing Controls -->
         <Grid Grid.Column="0" RowDefinitions="*, Auto" ClipToBounds="False">
 
@@ -45,8 +44,8 @@
                  Right margin removed so the volume frame sits flush against the right pane (no gap). -->
             <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="10,10,0,10" ClipToBounds="False">
                 <!-- Video Border contains the video, overlays, and the floating timeline -->
-                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True">
-                    <Grid ClipToBounds="True" Name="MainVideoGrid">
+                <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="False" Padding="2" DragDrop.AllowDrop="True" Focusable="True" KeyboardNavigation.TabNavigation="Cycle">
+                    <Grid ClipToBounds="True" Name="MainVideoGrid" Focusable="True">
                         <!-- MpvVideoView: bottom margin leaves room for the overlaid timeline
                              so the native HWND does not cover the Avalonia timeline controls -->
                         <local:MpvVideoView Name="VideoHost" IsVisible="False" Margin="0,0,0,52" />
@@ -60,17 +59,16 @@
                         </Grid>
 
                         <!-- Upload Video Overlay -->
-                        <Border Name="UploadOverlay" Background="#cc1e293b" CornerRadius="6" ClipToBounds="False" DragDrop.AllowDrop="True">
+                        <Border Name="UploadOverlay" Background="{DynamicResource AppPanelBrush}" Opacity="0.95" CornerRadius="6" ClipToBounds="False" DragDrop.AllowDrop="True">
                             <Grid ClipToBounds="False">
                                 <Grid Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center" DragDrop.AllowDrop="True">
-                                    <Rectangle Stroke="#64748b" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="8" RadiusY="8" Fill="#1a2536" Opacity="0.8" IsHitTestVisible="False" />
+                                    <Rectangle Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="8" RadiusY="8" Fill="{DynamicResource AppSurfaceBrush}" Opacity="0.8" IsHitTestVisible="False" />
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Margin="60,40" DragDrop.AllowDrop="True">
-                                        <TextBlock Text="Drag &amp; Drop video file here" Foreground="#94a3b8" FontSize="14" HorizontalAlignment="Center" IsHitTestVisible="False" />
+                                        <TextBlock Text="Drag &amp; Drop video file here" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="14" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                         <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                         <Button Name="CenterUploadButton" Classes="Primary" Content="BROWSE VIDEO" Width="200" Cursor="Hand" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
-                                <!-- Settings Button removed to Menu Bar -->
                             </Grid>
                         </Border>
 
@@ -81,21 +79,23 @@
                             <Border VerticalAlignment="Bottom" Background="#B3000000" Padding="8,0,8,3" Height="52" ClipToBounds="False">
                                 <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                                     <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" FontSize="10" Margin="0,0,8,0" />
-                                    <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
-                                        <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                        <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
-                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
-                                                                                        <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003">
-                                                <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
-                                                    <Border.Transitions>
-                                                        <Transitions>
-                                                            <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
-                                                        </Transitions>
-                                                    </Border.Transitions>
-                                                    <TextBlock Name="PlayheadBadgeText" Text="00:00:00" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                            </Canvas>
-                                        </Grid>
+                                    <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" ClipToBounds="False">
+                                        <StackPanel Orientation="Vertical">
+                                            <Canvas Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
+                                            <Grid Height="32" ClipToBounds="False">
+                                                <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                                <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
+                                                    <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
+                                                        <Border.Transitions>
+                                                            <Transitions>
+                                                                <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
+                                                            </Transitions>
+                                                        </Border.Transitions>
+                                                        <TextBlock Name="PlayheadBadgeText" Text="00:00:00" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </Canvas>
+                                            </Grid>
+                                        </StackPanel>
                                     </Grid>
                                     <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" TextAlignment="Right" FontSize="10" Margin="8,0,0,0" />
                                 </Grid>
@@ -153,9 +153,10 @@
                 <Grid Grid.Row="0" Margin="0,0,0,8">
                     <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
                         <Button Name="SetThumbnailButton" Classes="Primary" Width="160" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
-                            <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Path Fill="White" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                                <TextBlock Name="SetThumbnailText" Text="SET THUMBNAIL" FontSize="9" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
+                                <TextBlock Name="SetThumbnailText" Text=" SET THUMBNAIL " FontSize="9" VerticalAlignment="Center" Margin="6,0,6,0" />
+                                <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -221,10 +222,16 @@
         </Grid>
 
         <!-- RIGHT PANEL: Utility & Plugins -->
-        <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
+        <Border Grid.Column="1" MinWidth="170" MaxWidth="300" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
             <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto">
                 <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
-                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video"/>
+                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video">
+                    <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                        <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
+                        <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                    </StackPanel>
+                </Button>
 
                 <TextBlock Grid.Row="2" Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="#00783C" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" Margin="0,0,0,15" TextWrapping="Wrap"/>
 

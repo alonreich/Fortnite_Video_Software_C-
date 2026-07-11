@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
@@ -86,27 +86,29 @@
                 </Menu>
 
                 <!-- FLIPPED: Queue on LEFT, Player on RIGHT -->
-                <Grid Grid.Row="2" ColumnDefinitions="480, *">
+                <Grid Grid.Row="2" ColumnDefinitions="260, *">
 
                     <!-- LEFT PANEL: Video Queue & Controls -->
                     <Border Grid.Column="0" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0" Padding="15">
                         <Grid RowDefinitions="Auto, *, Auto, Auto">
-                            <TextBlock Grid.Row="0" Text="VIDEO QUEUE" Foreground="White" FontSize="10" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Text="VIDEOS LIST" Foreground="White" FontSize="12" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
 
                             <Border Grid.Row="1" Name="VideoListFrame" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,15">
                                 <Grid>
-                                    <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="9" DragDrop.AllowDrop="True">
+                                    <ListBox Name="VideoList" Background="Transparent" Foreground="White" FontSize="11" DragDrop.AllowDrop="True" SelectionMode="Multiple">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate x:DataType="x:String">
-                                                <Grid Height="30" ClipToBounds="False">
+                                                <Grid Height="30" ClipToBounds="False" ToolTip.Tip="{Binding}">
                                                     <Border Classes="SelectGlow" Background="#0AFFD700" CornerRadius="3" BoxShadow="0 0 8 1 #55FFD700"/>
                                                     <Border Classes="HoverGlow" Background="#0A38bdf8" CornerRadius="3" BoxShadow="0 0 4 0 #3338bdf8"/>
                                                     <Rectangle Classes="MarchingAnts" Stroke="#FFD700" StrokeThickness="1" StrokeDashArray="4,2" IsVisible="False" IsHitTestVisible="False" RadiusX="3" RadiusY="3"/>
-                                                    <!-- ISSUE_011: Filename shown via converter, tooltip shows full path -->
-                                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0" VerticalAlignment="Center">
-                                                        <TextBlock Text="🎬" FontSize="10" IsHitTestVisible="False"/>
-                                                        <TextBlock Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" ToolTip.Tip="{Binding}" TextTrimming="CharacterEllipsis" FontSize="9" VerticalAlignment="Center" Foreground="White"/>
-                                                    </StackPanel>
+                                                    <!-- Smart resize via Viewbox inside a constrained Grid -->
+                                                    <Grid Margin="8,0" VerticalAlignment="Center" ColumnDefinitions="Auto, *">
+                                                        <TextBlock Grid.Column="0" Text="🎬" FontSize="10" IsHitTestVisible="False" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                        <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                                                            <TextBlock Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" FontSize="12" VerticalAlignment="Center" Foreground="White"/>
+                                                        </Viewbox>
+                                                    </Grid>
                                                 </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
@@ -118,12 +120,14 @@
 
                             <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,15">
                                 <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
-                                <Button Name="AddMusicButton" Classes="Primary" Content="ADD MUSIC" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music"/>
-                                <Grid ColumnDefinitions="*, *">
-                                    <Button Grid.Column="0" Name="MoveUpButton" Classes="Primary" Content="MOVE UP" Margin="0,0,4,0" IsEnabled="False" FontSize="7" ToolTip.Tip="Move selected video up"/>
-                                    <Button Grid.Column="1" Name="MoveDownButton" Classes="Primary" Content="MOVE DOWN" Margin="4,0,0,0" IsEnabled="False" FontSize="7" ToolTip.Tip="Move selected video down"/>
-                                </Grid>
-                                <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" FontSize="7" ToolTip.Tip="Select a video to remove it from the queue"/>
+                                <Button Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music">
+                                    <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                                        <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
+                                        <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
                             </StackPanel>
 
                             <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="7" TextWrapping="Wrap" TextAlignment="Center"/>
@@ -135,9 +139,20 @@
 
                         <!-- Video Player Area + Volume Slider -->
                         <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,10,10,10" ClipToBounds="False">
-                            <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="True" Padding="2">
-                                <Grid ClipToBounds="True" Name="MainVideoGrid">
+
+                            <Border Name="VideoAreaBorder" Grid.Column="0" Background="Black" CornerRadius="6" ClipToBounds="True" Padding="2" Focusable="True" KeyboardNavigation.TabNavigation="Cycle">
+                                <Grid ClipToBounds="True" Name="MainVideoGrid" Focusable="True">
                                     <local:MpvVideoView Name="VideoHost" Margin="0,0,0,52" />
+
+                                    <!-- Floating Move Up / Move Down buttons -->
+                                    <StackPanel Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Left" Spacing="20" Margin="15,0,0,0" ZIndex="600" ClipToBounds="False">
+                                        <Button Name="MoveUpButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move selected video up" FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                            <TextBlock Text="▲" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" />
+                                        </Button>
+                                        <Button Name="MoveDownButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move selected video down" FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                            <TextBlock Text="▼" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" />
+                                        </Button>
+                                    </StackPanel>
 
                                     <!-- ISSUE_006: No-video placeholder overlay -->
                                     <Border Name="NoVideoOverlay" Background="#95000000" CornerRadius="4" IsVisible="True" ZIndex="500">
@@ -152,12 +167,14 @@
                                         <Border VerticalAlignment="Bottom" Background="#B3000000" Padding="8,0,8,3" Height="52" ClipToBounds="False">
                                             <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                                                 <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" FontSize="10" Margin="0,0,8,0" />
-                                                <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
-                                                    <Canvas Name="TimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                                    <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
-                                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
-                                                        <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
-                                                    </Grid>
+                                                <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" ClipToBounds="False">
+                                                    <StackPanel Orientation="Vertical">
+                                                        <Canvas Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
+                                                        <Grid Height="32" ClipToBounds="False">
+                                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                                            <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" />
+                                                        </Grid>
+                                                    </StackPanel>
                                                 </Grid>
                                                 <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="White" VerticalAlignment="Center" Width="64" TextAlignment="Right" FontSize="10" Margin="8,0,0,0" />
                                             </Grid>
@@ -166,7 +183,7 @@
                                 </Grid>
                             </Border>
 
-                            <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="4,8" Width="48" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
+                            <Border Grid.Column="2" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="4,8" Width="48" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                                 <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Stretch" Margin="0">
                                     <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
                                     <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
@@ -177,7 +194,7 @@
                             </Border>
                         </Grid>
 
-                        <!-- Bottom Controls -->
+                        <!-- Bottom Controls --><!-- Bottom Controls -->
                         <Grid Grid.Row="1" Margin="0,8,10,8">
                             <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <!-- Output Quality -->
@@ -260,3 +277,4 @@
         </Border>
     </Grid>
 </Window>
+

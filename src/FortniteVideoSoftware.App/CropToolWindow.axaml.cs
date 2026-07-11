@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -91,6 +91,7 @@ public partial class CropToolWindow : Window
     private bool _suppressLayerSelection;
     private bool _isSafeToClose;
     private DispatcherTimer? _timelineTimer;
+    private DispatcherTimer? _cleanupTimer;
 
     private static readonly HudRole[] Roles =
     [
@@ -124,6 +125,16 @@ public partial class CropToolWindow : Window
 
         Loaded += async (_, _) =>
         {
+            _cleanupTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(30)
+            };
+            _cleanupTimer.Tick += (_, _) =>
+            {
+                CleanupTempFiles();
+                GC.Collect();
+            };
+            _cleanupTimer.Start();
 
             await InitializeMpvAsync();
             await LoadExistingPlaceholdersAsync();
@@ -209,6 +220,7 @@ public partial class CropToolWindow : Window
         ButtonClick("ResetButton", (_, _) => ResetWorkingState());
         ButtonClick("ReturnButton", async (_, _) => await ReturnToMainAppAsync());
         ButtonClick("SaveButton", async (button, _) => await SaveAndReturnAsync(button));
+        BuildMaskOverlayUi();
 
         var showPlaceholders = this.FindControl<CheckBox>("ShowPlaceholders");
         if (showPlaceholders != null)
@@ -256,6 +268,55 @@ public partial class CropToolWindow : Window
         _timelineTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _timelineTimer.Tick += (_, _) => UpdateTimelineUi();
         _timelineTimer.Start();
+    }
+
+    private void BuildMaskOverlayUi()
+    {
+        var combo = this.FindControl<ComboBox>("CropToolMaskOverlayCombo");
+        if (combo != null)
+        {
+            var profiles = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.GetAvailableProfiles();
+            combo.ItemsSource = profiles;
+            combo.SelectedItem = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay;
+
+            combo.SelectionChanged += (s, e) =>
+            {
+                if (combo.SelectedItem is string selected && selected != FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay)
+                {
+                    FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(selected);
+                    ResetWorkingState();
+                    _ = LoadExistingPlaceholdersAsync();
+                    SetStatus("Profile Loaded: " + selected);
+                }
+            };
+        }
+
+        var btn = this.FindControl<Button>("CreateMaskOverlayBtn");
+        var txt = this.FindControl<TextBox>("NewMaskOverlayTextBox");
+        if (btn != null && txt != null)
+        {
+            btn.Click += async (s, e) =>
+            {
+                var newName = txt.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(newName))
+                {
+                    if (_items.Count > 0)
+                    {
+                        await SaveConfigAsync();
+                    }
+                    
+                    FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.CreateNewProfile(newName);
+                    if (combo != null)
+                    {
+                        var updatedProfiles = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.GetAvailableProfiles();
+                        combo.ItemsSource = updatedProfiles;
+                        combo.SelectedItem = newName;
+                    }
+                    txt.Text = "";
+                    SetStatus("New overlay created: " + newName);
+                }
+            };
+        }
     }
 
     private void ButtonClick(string name, EventHandler<RoutedEventArgs> handler)
@@ -1334,18 +1395,60 @@ public partial class CropToolWindow : Window
         if (button != null)
         {
             button.IsEnabled = false;
-            button.Content = "SAVING...";
         }
 
+        var thinkingOverlay = this.FindControl<Grid>("ThinkingOverlay");
+        if (thinkingOverlay != null) thinkingOverlay.IsVisible = true;
+        
+        await Task.Delay(100);
+
         bool saved = await SaveConfigAsync();
+
+        if (thinkingOverlay != null) thinkingOverlay.IsVisible = false;
+
         if (saved)
         {
+            var summaryOverlay = this.FindControl<Grid>("SummaryOverlay");
+            if (summaryOverlay != null)
+            {
+                var summaryContent = this.FindControl<StackPanel>("SummaryContent");
+                if (summaryContent != null)
+                {
+                    summaryContent.Children.Clear();
+                    var headerModBorder = new Border { Background = SolidColorBrush.Parse("#1e10b981"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
+                    headerModBorder.Child = new TextBlock { Text = "  MODIFIED ELEMENTS", Foreground = SolidColorBrush.Parse("#10b981"), FontWeight = FontWeight.Bold, FontSize = 14 };
+                    summaryContent.Children.Add(headerModBorder);
+                    foreach(var item in _items)
+                    {
+                        summaryContent.Children.Add(new TextBlock { Text = $"  ✓  {item.DisplayName}", Foreground = SolidColorBrush.Parse("#94a3b8"), FontSize = 16 });
+                    }
+                    
+                    var existingKeys = _items.Select(x => x.RoleKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var untouched = Roles.Where(r => !existingKeys.Contains(r.Key)).ToList();
+                    
+                    if (untouched.Count > 0)
+                    {
+                        summaryContent.Children.Add(new Border { Height = 20 });
+                        var headerUnBorder = new Border { Background = SolidColorBrush.Parse("#1e9ca3af"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
+                        headerUnBorder.Child = new TextBlock { Text = "  UNTOUCHED (DEFAULTS)", Foreground = SolidColorBrush.Parse("#9ca3af"), FontWeight = FontWeight.Bold, FontSize = 14 };
+                        summaryContent.Children.Add(headerUnBorder);
+                        foreach(var u in untouched)
+                        {
+                            summaryContent.Children.Add(new TextBlock { Text = $"  •  {u.DisplayName}", Foreground = SolidColorBrush.Parse("#9ca3af"), FontSize = 15 });
+                        }
+                    }
+                }
+                
+                summaryOverlay.IsVisible = true;
+                await Task.Delay(2500);
+            }
             await ReturnToMainAppAsync();
             return;
         }
 
         if (button != null)
         {
+            button.IsEnabled = true;
             button.Content = "FINISH & SAVE";
         }
         RefreshActionButtons();
@@ -1363,6 +1466,27 @@ public partial class CropToolWindow : Window
         {
             RuntimeLog.Info("CROP", "Saving crop coordinates.");
             var store = new CropConfigStore(_paths);
+            
+            try
+            {
+                string confPath = _paths.CropCoordinatesFile;
+                if (System.IO.File.Exists(confPath))
+                {
+                    for (int i = 4; i >= 1; i--)
+                    {
+                        string oldB = $"{confPath}.bak{i}";
+                        string newB = $"{confPath}.bak{i + 1}";
+                        if (System.IO.File.Exists(oldB)) System.IO.File.Move(oldB, newB, true);
+                    }
+                    System.IO.File.Copy(confPath, $"{confPath}.bak1", true);
+                    RuntimeLog.Info("CROP", $"Rotation backup created: {confPath}.bak1");
+                }
+            }
+            catch (Exception backupErr)
+            {
+                RuntimeLog.Info("CROP", $"Failed to create rotation backup: {backupErr.Message}");
+            }
+
             JsonObject config = await store.LoadAsync();
 
             JsonObject crops = EnsureObject(config, "crops_1080p");
@@ -1398,6 +1522,8 @@ public partial class CropToolWindow : Window
             config["schema_version"] = CropConfigDefaults.SchemaVersion;
             config["coordinate_space"] = CropConfigDefaults.CoordinateSpace;
             await store.SaveAsync(config);
+
+            FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.SyncActiveProfileFromCurrentConfig();
 
             _dirty = false;
             RefreshActionButtons();

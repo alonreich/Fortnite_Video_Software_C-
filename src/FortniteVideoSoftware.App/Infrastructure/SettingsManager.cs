@@ -11,6 +11,7 @@ public class AppSettings
     public KeyBinds KeyBinds { get; set; } = new();
     public DefaultValues Defaults { get; set; } = new();
     public int Volume { get; set; } = 100;
+    public string ActiveMaskOverlay { get; set; } = "Fortnite";
 }
 
 public class KeyBinds
@@ -67,9 +68,11 @@ public class DefaultValues
     public bool NoFade { get; set; } = false;
     public CheckboxDefaultBehavior NoFadeBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
 
-    /// <summary>Default Output File Size slider index (0-20, where 7 = 40MB)</summary>
     public int QualityIndex { get; set; } = 7;
     public ValueDefaultBehavior QualityBehavior { get; set; } = ValueDefaultBehavior.FixedValue;
+
+    public bool AutoVoiceNormalization { get; set; } = true;
+    public bool AutoSpikeFlattening { get; set; } = true;
 }
 
 public static class SettingsManager

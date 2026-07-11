@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -129,7 +129,7 @@ public partial class GranularSpeedEditorWindow : Window
                 var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
                 var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
                 if (icon != null) icon.Text = "🔓";
-                if (txt != null) txt.Text = "UNFREEZE IMAGE";
+                if (txt != null) txt.Text = " UNFREEZE IMAGE ";
             }
         }
 
@@ -768,7 +768,7 @@ public partial class GranularSpeedEditorWindow : Window
                     var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
                     var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
                     if (icon != null) icon.Text = "📸";
-                    if (txt != null) txt.Text = "FREEZE IMAGE";
+                    if (txt != null) txt.Text = " FREEZE IMAGE ";
                     freezeImageToggle.Classes.Remove("Danger");
                     freezeImageToggle.Classes.Add("Primary");
 

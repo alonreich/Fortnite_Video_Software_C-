@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="FortniteVideoSoftware.App.Controls.SettingsWindow"
         Title="Settings"
@@ -29,6 +29,8 @@
                                 <TextBlock Text="Music Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
                                 
                                 <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="#94a3b8" Margin="0,0,0,10" />
+                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="#94a3b8" Margin="0,0,0,10" />
+                                <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Enable Auto Spike Flattening (Limiter)" Foreground="#94a3b8" Margin="0,0,0,10" />
                                 
                                 <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>
                                 <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" Width="700">
@@ -46,6 +48,15 @@
                                 </ScrollViewer>
                                 <Button Grid.Row="1" Name="ResetKeyBindsBtn" Content="Reset to Factory Defaults" Classes="Danger" HorizontalAlignment="Right" Margin="0,10,10,10" ToolTip.Tip="Reset all keys to default"/>
                             </Grid>
+                        </TabItem>
+                        <TabItem Header="Mask Overlay">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Mask Overlay Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
+                                <TextBlock Foreground="#94a3b8" TextWrapping="Wrap" FontSize="13" Text="What is this section for?&#x0a;This section lets you pick which game or device you are making a video for. Different games have their menus and health bars in different places. By telling the software which game you are playing (like Fortnite or Counter Strike), the software will automatically know exactly where to crop the video so your health bar, weapons, and map look perfect in your final video! Changing this setting will immediately switch the crop layouts." />
+                                
+                                <TextBlock Text="Current Mask Overlay Profile:" Foreground="White" FontWeight="SemiBold" Margin="0,15,0,0"/>
+                                <ComboBox Name="MaskOverlayProfileComboBox" Width="300" />
+                            </StackPanel>
                         </TabItem>
                     </TabControl>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">

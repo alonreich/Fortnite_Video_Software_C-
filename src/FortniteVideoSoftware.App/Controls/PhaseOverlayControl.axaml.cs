@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -15,7 +15,7 @@ namespace FortniteVideoSoftware.App.Controls;
 public partial class PhaseOverlayControl : UserControl
 {
     private DispatcherTimer? _timer;
-    private StringBuilder _logBuffer = new();
+    private List<string> _logLines = new();
     
     private List<int> _cpuHist = new();
     private List<int> _gpuHist = new();
@@ -51,7 +51,7 @@ public partial class PhaseOverlayControl : UserControl
         _cpuHist.Clear();
         _gpuHist.Clear();
         _memHist.Clear();
-        _logBuffer.Clear();
+        _logLines.Clear();
         
         var txt = this.FindControl<TextBox>("LiveLogTextBox");
         if (txt != null) txt.Text = "Backend log stream attached.\n";
@@ -96,7 +96,12 @@ public partial class PhaseOverlayControl : UserControl
             var txt = this.FindControl<TextBox>("LiveLogTextBox");
             if (txt != null)
             {
-                txt.Text += message + "\n";
+                _logLines.Add(message);
+                if (_logLines.Count > 100)
+                {
+                    _logLines.RemoveAt(0);
+                }
+                txt.Text = string.Join("\n", _logLines) + "\n";
                 txt.CaretIndex = txt.Text.Length;
             }
         });

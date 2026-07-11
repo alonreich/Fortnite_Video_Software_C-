@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -393,7 +393,10 @@ public class MergerWorker : IDisposable
                 string? line = await reader.ReadLineAsync(cancellationToken);
                 if (!string.IsNullOrWhiteSpace(line))
                 {
-                    CoreLogger.Append(line);
+                    if (!line.StartsWith("frame=") && !line.StartsWith("size="))
+                    {
+                        CoreLogger.Append(line);
+                    }
                 }
             }
         }, cancellationToken);

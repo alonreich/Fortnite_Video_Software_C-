@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:CompileBindings="True"
@@ -176,14 +176,14 @@
                                     Classes="Primary"
                                     Content="OPEN VIDEO"
                                     Width="120"
-                                    ToolTip.Tip="Open a video file"
+                                    ToolTip.Tip="Click here to pick a video from your computer."
                                     Margin="0,0,12,0" />
                             <Button Name="SnapshotButton"
                                     Grid.Column="1"
                                     Classes="Primary"
                                     Content="START CROPPING"
                                     Width="130"
-                                    ToolTip.Tip="Capture a frame and start cropping"
+                                    ToolTip.Tip="Take a picture of this frame so you can start drawing boxes."
                                     IsEnabled="False"
                                     Margin="0,0,12,0" />
                             <Button Name="MagicWandButton"
@@ -191,7 +191,7 @@
                                     Classes="Primary"
                                     Content="MAGIC WAND"
                                     Width="120"
-                                    ToolTip.Tip="Auto-detect game UI elements"
+                                    ToolTip.Tip="Let the computer try to find the HUD items for you automatically."
                                     IsVisible="False"
                                     Margin="0,0,12,0" />
                             <Button Name="BackToVideoButton"
@@ -199,7 +199,7 @@
                                     Classes="Primary"
                                     Content="BACK TO VIDEO"
                                     Width="130"
-                                    ToolTip.Tip="Return to video view"
+                                    ToolTip.Tip="Stop drawing and go back to the video seeker."
                                     IsVisible="False"
                                     Margin="0,0,12,0" />
                             <Button Name="PlayPauseButton"
@@ -215,14 +215,14 @@
                                     Classes="Primary"
                                     Content="RETURN"
                                     Width="90"
-                                    ToolTip.Tip="Return to the main application"
+                                    ToolTip.Tip="Close this tool and go back to the main menu."
                                     Margin="0,0,12,0" />
                             <Button Name="ResetButton"
                                     Grid.Column="7"
                                     Classes="Danger"
                                     Content="RESET"
                                     Width="90"
-                                    ToolTip.Tip="Clear all layers" />
+                                    ToolTip.Tip="Wipe everything clean and start over from scratch." />
                         </Grid>
                     </Border>
                 </Grid>
@@ -231,8 +231,20 @@
                         Background="#253549"
                         BorderBrush="{DynamicResource AppBorderBrush}"
                         BorderThickness="1,0,0,0">
-                    <Grid RowDefinitions="42,*,46">
+                    <Grid RowDefinitions="Auto,42,*,46">
                     <Border Grid.Row="0"
+                            Background="#161b22"
+                            BorderBrush="{DynamicResource AppBorderBrush}"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,6">
+                        <Grid ColumnDefinitions="Auto, *, Auto, Auto">
+                            <TextBlock Text="Active Profile:" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="11"/>
+                            <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" Width="180" HorizontalAlignment="Left"/>
+                            <TextBox Name="NewMaskOverlayTextBox" Grid.Column="2" Watermark="New profile name..." Width="130" Margin="0,0,10,0" FontSize="11" />
+                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Primary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="10" />
+                        </Grid>
+                    </Border>
+                    <Border Grid.Row="1"
                             Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,0,0,1"
@@ -250,24 +262,26 @@
                                     Maximum="255"
                                     Value="95"
                                     IsVisible="False"
-                                    Margin="10,0,0,0" />
+                                    Margin="10,0,0,0"
+                                    ToolTip.Tip="Make old saved crops look see-through or solid." />
                             <CheckBox Name="SnapToggle"
                                       Grid.Column="3"
                                       Content="Snap"
                                       Foreground="White"
                                       IsChecked="True"
-                                      VerticalAlignment="Center" />
+                                      VerticalAlignment="Center"
+                                      ToolTip.Tip="Turn the 'Magnetic Pull' on or off. Blue lines will always help you align things." />
                             <Button Name="SaveButton"
                                     Grid.Column="5"
                                     Classes="Success"
                                     Content="FINISH &amp; SAVE"
                                     Width="120"
-                                    ToolTip.Tip="Save crop settings"
+                                    ToolTip.Tip="Save all your work permanently to the computer."
                                     IsEnabled="False" />
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="1" ColumnDefinitions="*,90,184">
+                    <Grid Grid.Row="2" ColumnDefinitions="*,90,184">
                         <Border Grid.Column="0"
                                 Background="Black"
                                 ClipToBounds="True">
@@ -336,13 +350,13 @@
                                     Classes="Primary"
                                     Content="UNDO"
                                     Width="90"
-                                    ToolTip.Tip="Undo the last crop action"
+                                    ToolTip.Tip="Undo your last mistake."
                                     IsEnabled="False" />
                             <Button Name="RedoButton"
                                     Classes="Primary"
                                     Content="REDO"
                                     Width="90"
-                                    ToolTip.Tip="Redo the last crop action"
+                                    ToolTip.Tip="Redo what you just undid."
                                     IsEnabled="False" />
                         </StackPanel>
 
@@ -366,7 +380,7 @@
                         </Border>
                     </Grid>
 
-                    <Border Grid.Row="2"
+                    <Border Grid.Row="3"
                             Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,1,0,0"
@@ -384,7 +398,7 @@
                                     Classes="Danger"
                                     Content="DELETE"
                                     Width="90"
-                                    ToolTip.Tip="Delete the selected layer"
+                                    ToolTip.Tip="Throw this piece into the trash."
                                     IsEnabled="False" />
                             <Button Name="RaiseButton"
                                     Classes="Primary"
@@ -397,6 +411,35 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <!-- Overlays -->
+            <Grid Name="ThinkingOverlay" Background="#cc0f172a" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                    <TextBlock Text="↻" FontSize="60" Foreground="#38bdf8" HorizontalAlignment="Center" />
+                    <Border Background="#cc0f172a" CornerRadius="10" Padding="20">
+                        <TextBlock Text="Please wait while processing" FontSize="20" FontWeight="Bold" Foreground="White" />
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <Grid Name="SummaryOverlay" Background="#cc0f172a" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
+                <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" Width="650" Height="500" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
+                    <StackPanel Spacing="20">
+                        <StackPanel Orientation="Horizontal" Spacing="20">
+                            <TextBlock Text="✓" FontSize="60" Foreground="#10b981" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="SUCCESS" FontSize="28" FontWeight="ExtraBold" Foreground="White" />
+                                <TextBlock Text="Configuration deployed safely." FontSize="16" Foreground="#94a3b8" />
+                            </StackPanel>
+                        </StackPanel>
+                        <ScrollViewer Height="250">
+                            <StackPanel Name="SummaryContent" Spacing="10" />
+                        </ScrollViewer>
+                        <TextBlock Text="Automatically returning to main app..." FontSize="14" FontWeight="Bold" Foreground="#38bdf8" HorizontalAlignment="Center" Margin="0,20,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
         </Grid>
     </Border>
 </Window>

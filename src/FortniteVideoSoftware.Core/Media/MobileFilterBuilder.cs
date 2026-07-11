@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -102,10 +102,11 @@ public class MobileFilterBuilder
                     (lyRaw > maxLy ? maxLy : lyRaw));
 
                 parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
-                          $"scale=w={rw}:h={rh}:flags=lanczos[v_layer_out_{i}]");
+                          $"scale=w={rw}:h={rh}:flags=lanczos," +
+                          $"pad=w=iw+4:h=ih+4:x=2:y=2:color=black[v_layer_out_{i}]");
 
                 string nextV = $"[v_comp_{i}]";
-                parts.Add($"{currV}[v_layer_out_{i}]overlay=x={lx}:y={ly}:eof_action=pass{nextV}");
+                parts.Add($"{currV}[v_layer_out_{i}]overlay=x={lx - 2}:y={ly - 2}:eof_action=pass{nextV}");
                 currV = nextV;
             }
         }

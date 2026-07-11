@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -266,6 +266,16 @@ public class MpvVideoView : Control, IDisposable
         _drawingSurface = null;
         _surfaceVisual = null;
         _gpuInterop = null;
+        
+        for (int i = 0; i < SwapChainSize; i++)
+        {
+            if (_importedImages[i] != null)
+            {
+                if (_importedImages[i] is IAsyncDisposable ad) _ = ad.DisposeAsync();
+                else if (_importedImages[i] is IDisposable d) d.Dispose();
+                _importedImages[i] = null;
+            }
+        }
     }
 
     protected override void OnSizeChanged(SizeChangedEventArgs e)

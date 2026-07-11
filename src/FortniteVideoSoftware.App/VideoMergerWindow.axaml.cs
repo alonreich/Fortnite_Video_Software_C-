@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -252,11 +252,20 @@ public partial class VideoMergerWindow : Window
         if (menuRemoveSelected != null) menuRemoveSelected.Click += (s, e) =>
         {
             var videoList = this.FindControl<ListBox>("VideoList");
-            int index = videoList?.SelectedIndex ?? -1;
-            if (index >= 0 && index < VideoQueue.Count)
+            if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
             {
-                VideoQueue.RemoveAt(index);
-                if (videoList != null) videoList.SelectedIndex = Math.Min(index, VideoQueue.Count - 1);
+                var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
+                int lastIndex = -1;
+                foreach (var item in itemsToRemove)
+                {
+                    lastIndex = Math.Max(lastIndex, VideoQueue.IndexOf(item));
+                    VideoQueue.Remove(item);
+                }
+                if (VideoQueue.Count > 0)
+                {
+                    videoList.SelectedItems.Clear();
+                    videoList.SelectedIndex = Math.Min(Math.Max(0, lastIndex - itemsToRemove.Count + 1), VideoQueue.Count - 1);
+                }
             }
         };
 
@@ -299,11 +308,20 @@ public partial class VideoMergerWindow : Window
             removeBtn.Click += (s, e) =>
             {
                 var videoList = this.FindControl<ListBox>("VideoList");
-                int index = videoList?.SelectedIndex ?? -1;
-                if (index >= 0 && index < VideoQueue.Count)
+                if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
                 {
-                    VideoQueue.RemoveAt(index);
-                    if (videoList != null) videoList.SelectedIndex = Math.Min(index, VideoQueue.Count - 1);
+                    var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
+                    int lastIndex = -1;
+                    foreach (var item in itemsToRemove)
+                    {
+                        lastIndex = Math.Max(lastIndex, VideoQueue.IndexOf(item));
+                        VideoQueue.Remove(item);
+                    }
+                    if (VideoQueue.Count > 0)
+                    {
+                        videoList.SelectedItems.Clear();
+                        videoList.SelectedIndex = Math.Min(Math.Max(0, lastIndex - itemsToRemove.Count + 1), VideoQueue.Count - 1);
+                    }
                 }
             };
         }
@@ -340,14 +358,39 @@ public partial class VideoMergerWindow : Window
     private void MoveVideo(int direction)
     {
         var videoList = this.FindControl<ListBox>("VideoList");
-        int index = videoList?.SelectedIndex ?? -1;
-        int newIndex = index + direction;
-        if (index >= 0 && newIndex >= 0 && newIndex < VideoQueue.Count)
+        if (videoList?.SelectedItems == null || videoList.SelectedItems.Count == 0) return;
+
+        var selectedItems = videoList.SelectedItems.Cast<string>().ToList();
+        var selectedIndices = selectedItems.Select(x => VideoQueue.IndexOf(x)).Where(x => x >= 0).OrderBy(x => x).ToList();
+        
+        if (selectedIndices.Count == 0) return;
+        if (direction < 0 && selectedIndices.First() == 0) return; 
+        if (direction > 0 && selectedIndices.Last() == VideoQueue.Count - 1) return;
+
+        if (direction < 0)
         {
-            string item = VideoQueue[index];
-            VideoQueue.RemoveAt(index);
-            VideoQueue.Insert(newIndex, item);
-            if (videoList != null) videoList.SelectedIndex = newIndex;
+            foreach (int idx in selectedIndices)
+            {
+                var item = VideoQueue[idx];
+                VideoQueue.RemoveAt(idx);
+                VideoQueue.Insert(idx - 1, item);
+            }
+        }
+        else
+        {
+            selectedIndices.Reverse();
+            foreach (int idx in selectedIndices)
+            {
+                var item = VideoQueue[idx];
+                VideoQueue.RemoveAt(idx);
+                VideoQueue.Insert(idx + 1, item);
+            }
+        }
+        
+        videoList.SelectedItems.Clear();
+        foreach (var item in selectedItems)
+        {
+            videoList.SelectedItems.Add(item);
         }
     }
 
@@ -1292,6 +1335,7 @@ public partial class VideoMergerWindow : Window
         var addMusicBtn = this.FindControl<Button>("AddMusicButton");
         if (addMusicBtn != null)
         {
+            var txt = this.FindControl<TextBlock>("AddMusicText");
             bool canAddMusic = count >= 2;
             addMusicBtn.IsEnabled = canAddMusic;
             if (!canAddMusic)
@@ -1301,38 +1345,39 @@ public partial class VideoMergerWindow : Window
                 _musicQueueSignature = "";
                 addMusicBtn.Classes.Clear();
                 addMusicBtn.Classes.Add("Primary");
-                addMusicBtn.Content = "ADD MUSIC";
+                if (txt != null) txt.Text = " ADD MUSIC ";
                 ToolTip.SetTip(addMusicBtn, "Add at least two videos before adding music");
             }
             else if (_musicIsStale)
             {
                 addMusicBtn.Classes.Clear();
                 addMusicBtn.Classes.Add("Danger");
-                addMusicBtn.Content = "⚠ MUSIC STALE — RE-SETUP";
+                if (txt != null) txt.Text = " ⚠ MUSIC STALE — RE-SETUP ";
                 ToolTip.SetTip(addMusicBtn, "The video queue changed after music was set up. Click to re-configure music.");
             }
             else if (_musicResult != null)
             {
                 addMusicBtn.Classes.Clear();
                 addMusicBtn.Classes.Add("Primary");
-                addMusicBtn.Content = "MUSIC ADDED";
+                if (txt != null) txt.Text = " MUSIC ADDED ";
                 ToolTip.SetTip(addMusicBtn, "Music: " + System.IO.Path.GetFileName(_musicResult.MusicFilePath));
             }
             else
             {
                 addMusicBtn.Classes.Clear();
                 addMusicBtn.Classes.Add("Primary");
-                addMusicBtn.Content = "ADD MUSIC";
+                if (txt != null) txt.Text = " ADD MUSIC ";
                 ToolTip.SetTip(addMusicBtn, "Add background music to the merged video");
             }
         }
 
+        var selectedIndices = videoList?.SelectedItems?.Cast<string>().Select(x => VideoQueue.IndexOf(x)).Where(x => x >= 0).ToList() ?? new System.Collections.Generic.List<int>();
         var removeBtn = this.FindControl<Button>("RemoveVideoButton");
-        if (removeBtn != null) removeBtn.IsEnabled = selectedIndex >= 0;
+        if (removeBtn != null) removeBtn.IsEnabled = selectedIndices.Count > 0;
         var moveUpBtn = this.FindControl<Button>("MoveUpButton");
-        if (moveUpBtn != null) moveUpBtn.IsEnabled = selectedIndex > 0;
+        if (moveUpBtn != null) moveUpBtn.IsEnabled = selectedIndices.Count > 0 && selectedIndices.Min() > 0;
         var moveDownBtn = this.FindControl<Button>("MoveDownButton");
-        if (moveDownBtn != null) moveDownBtn.IsEnabled = selectedIndex >= 0 && selectedIndex < count - 1;
+        if (moveDownBtn != null) moveDownBtn.IsEnabled = selectedIndices.Count > 0 && selectedIndices.Max() < count - 1;
 
         var emptyText = this.FindControl<TextBlock>("EmptyQueueText");
         if (emptyText != null) emptyText.IsVisible = count == 0;

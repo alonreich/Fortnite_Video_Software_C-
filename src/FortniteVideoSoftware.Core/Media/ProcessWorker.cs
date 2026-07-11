@@ -394,7 +394,10 @@ public class ProcessWorker : IDisposable
                                 string? line = await reader.ReadLineAsync(cancellationToken);
                                 if (!string.IsNullOrWhiteSpace(line))
                                 {
-                                    CoreLogger.Append(line);
+                                    if (!line.StartsWith("frame=") && !line.StartsWith("size="))
+                                    {
+                                        CoreLogger.Append(line);
+                                    }
                                 }
                             }
                         }, cancellationToken);
