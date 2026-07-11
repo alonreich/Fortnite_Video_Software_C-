@@ -8,8 +8,15 @@ temp_staging/
 !binaries/*.dll
 !binaries/*.com
 *.mp3
+*.mp4
+mp3/
+mp4/
 !mp3/Cool Dance Background Music (No CopyRights).mp3
 !mp3/Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3
+!mp4/Dexter Sargent Duke.mp4
+!mp4/Crying.mp4
+!mp4/What the fuck am I doing here (Robert Deniro).mp4
+!mp4/Donald Trump - He Died like a Dog.mp4
 
 # ==============================================================================
 # .NET / C# Project Ignores

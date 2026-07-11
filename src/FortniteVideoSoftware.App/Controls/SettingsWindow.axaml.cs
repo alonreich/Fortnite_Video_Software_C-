@@ -42,8 +42,8 @@ public partial class SettingsWindow : Window
             BossHpBehavior = SettingsManager.Instance.Defaults.BossHpBehavior,
             ShowTeammates = SettingsManager.Instance.Defaults.ShowTeammates,
             ShowTeammatesBehavior = SettingsManager.Instance.Defaults.ShowTeammatesBehavior,
-            NoFade = SettingsManager.Instance.Defaults.NoFade,
-            NoFadeBehavior = SettingsManager.Instance.Defaults.NoFadeBehavior,
+            EnableFade = SettingsManager.Instance.Defaults.EnableFade,
+            EnableFadeBehavior = SettingsManager.Instance.Defaults.EnableFadeBehavior,
             QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
             AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
@@ -216,7 +216,7 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeBehaviorCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitBehavior, v => _pendingDefaults.PortraitBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
-        panel.Children.Add(MakeBehaviorCheckboxRow("Disable Fade-In/Out", _pendingDefaults.NoFadeBehavior, v => _pendingDefaults.NoFadeBehavior = v));
+        panel.Children.Add(MakeBehaviorCheckboxRow("Enable Fade-In/Out", _pendingDefaults.EnableFadeBehavior, v => _pendingDefaults.EnableFadeBehavior = v));
 
         try
         {

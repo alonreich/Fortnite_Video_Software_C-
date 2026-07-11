@@ -202,6 +202,7 @@
                                     <TextBlock Text="OUTPUT QUALITY" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
                                     <controls:SpinningWheelSlider Name="QualitySlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Output quality percentage" />
                                     <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
+                                    <TextBlock Name="EstimatedSizeText2" Text="" Foreground="#38bdf8" FontSize="14" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
                                 </StackPanel>
 
                                 <!-- Transport Controls + Merge Button -->
@@ -262,7 +263,7 @@
                                     <Button Name="ReturnToMainAppButton" Classes="Primary" Content="← RETURN TO MAIN APP" FontSize="9" Cursor="Hand" ToolTip.Tip="Go back to the main app"/>
                                     <!-- ISSUE_004: Show output folder path -->
                                     <TextBlock Name="OutputPathText" Text="" Foreground="#64748b" FontSize="7" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
-                                    <TextBlock Name="EstimatedSizeText" Text="" Foreground="#38bdf8" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                    <TextBlock Name="EstimatedSizeText" Text="" Foreground="#38bdf8" FontSize="14" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
                                     <!-- ISSUE_005: Normalization info -->
                                     <TextBlock Name="NormalizeInfoText" Text="" Foreground="#475569" FontSize="7" HorizontalAlignment="Center" TextAlignment="Center"/>
                                 </StackPanel>

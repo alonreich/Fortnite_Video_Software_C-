@@ -97,6 +97,7 @@ public partial class MainWindow : Window
     }
     private bool _draggingStartMarker = false;
     private bool _draggingEndMarker = false;
+    private bool _qualitySliderInitialized = false;
     private bool _draggingMusicStart = false;
     private bool _draggingMusicEnd = false;
     private bool _draggingMusicBlock = false;
@@ -120,6 +121,7 @@ public partial class MainWindow : Window
     private bool _isDraggingThumbnailMarker = false;
     private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerLineAntsRef;
+    private bool? _keepMusicDuringMeme;
 
     private readonly System.Collections.Generic.List<SpeedSegment> _speedSegments = new();
     private double _baseSpeed = SpeedPresetButtons.NativeDefaultSpeed;
@@ -725,6 +727,16 @@ public partial class MainWindow : Window
 
                     SetMusicButtonActive(true);
 
+                    var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+                    var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+                    if (addMemeCb?.IsChecked == true && memeCb?.SelectedItem != null)
+                    {
+                        _keepMusicDuringMeme = NativeDialog.ShowQuestion(
+                            "Would you like the background music to keep on playing as the meme plays or not?\n\nYes! Keep the music playing in the background as the meme video plays.\nNO! Stop the music as the meme plays.",
+                            "Background Music Behavior"
+                        );
+                    }
+
                     var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
                     if (volSlider != null)
                     {
@@ -750,11 +762,35 @@ public partial class MainWindow : Window
         var teammatesCb = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
-        var noFadeCb = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
-        if (noFadeCb != null) noFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
+        var enableFadeCb = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        if (enableFadeCb != null) enableFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
         var portraitTextInput = this.FindControl<TextBox>("PortraitTextInput");
         if (portraitTextInput != null) portraitTextInput.TextChanged += (s, e) => { UpdatePortraitOverlay(); SaveRecoveryState(); };
+
+        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        if (addMemeCb != null)
+        {
+            addMemeCb.IsCheckedChanged += (s, e) => {
+                if (addMemeCb.IsChecked == true) {
+                    var cb = this.FindControl<ComboBox>("MemeComboBox");
+                    if (cb != null) cb.IsDropDownOpen = true;
+                }
+                SaveRecoveryState();
+            };
+        }
+        
+        var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+        if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
+            SaveRecoveryState();
+            if (addMemeCb?.IsChecked == true && memeCb.SelectedItem != null && _musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
+            {
+                _keepMusicDuringMeme = NativeDialog.ShowQuestion(
+                    "Would you like the background music to keep on playing as the meme plays or not?\n\nYes! Keep the music playing in the background as the meme video plays.\nNO! Stop the music as the meme plays.",
+                    "Background Music Behavior"
+                );
+            }
+        };
 
         var volSliderForRecovery = this.FindControl<Slider>("VolumeSlider");
         if (volSliderForRecovery != null) volSliderForRecovery.PropertyChanged += (s, e) =>
@@ -766,6 +802,9 @@ public partial class MainWindow : Window
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
 
         this.Loaded += async (s, e) => {
+            _ = PushAssetsAsync();
+            PopulateMemeComboBox();
+
             bool hadFault = _recovery.CheckFault();
             _recovery.AcquireLock();
             if (hadFault)
@@ -805,6 +844,60 @@ public partial class MainWindow : Window
             UpdatePortraitOverlay();
         };
 
+    }
+
+    private void PopulateMemeComboBox()
+    {
+        var cb = this.FindControl<ComboBox>("MemeComboBox");
+        if (cb == null) return;
+        string memeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MEME");
+        if (Directory.Exists(memeFolder))
+        {
+            var files = Directory.GetFiles(memeFolder)
+                .Where(f => f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".avi", StringComparison.OrdinalIgnoreCase))
+                .Select(Path.GetFileName).ToList();
+            cb.ItemsSource = files;
+        }
+    }
+
+    private async Task PushAssetsAsync()
+    {
+        try
+        {
+            await Task.Run(() => {
+                string musicFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+                string videosFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                string memeFolder = Path.Combine(videosFolder, "MEME");
+
+                if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
+
+                string appRoot = @"C:\Fortnite_Video_Software - C#";
+                var music1 = Path.Combine(appRoot, "mp3", "Cool Dance Background Music (No CopyRights).mp3");
+                var music2 = Path.Combine(appRoot, "mp3", "Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3");
+                var meme1 = Path.Combine(appRoot, "mp4", "Dexter Sargent Duke.mp4");
+                var meme2 = Path.Combine(appRoot, "mp4", "Crying.mp4");
+                var meme3 = Path.Combine(appRoot, "mp4", "Donald Trump - He Died like a Dog.mp4");
+                var meme4 = Path.Combine(appRoot, "mp4", "What the fuck am I doing here (Robert Deniro).mp4");
+
+                if (File.Exists(music1) && !File.Exists(Path.Combine(musicFolder, Path.GetFileName(music1))))
+                    File.Copy(music1, Path.Combine(musicFolder, Path.GetFileName(music1)));
+                if (File.Exists(music2) && !File.Exists(Path.Combine(musicFolder, Path.GetFileName(music2))))
+                    File.Copy(music2, Path.Combine(musicFolder, Path.GetFileName(music2)));
+                
+                if (File.Exists(meme1) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme1))))
+                    File.Copy(meme1, Path.Combine(memeFolder, Path.GetFileName(meme1)));
+                if (File.Exists(meme2) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme2))))
+                    File.Copy(meme2, Path.Combine(memeFolder, Path.GetFileName(meme2)));
+                if (File.Exists(meme3) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme3))))
+                    File.Copy(meme3, Path.Combine(memeFolder, Path.GetFileName(meme3)));
+                if (File.Exists(meme4) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme4))))
+                    File.Copy(meme4, Path.Combine(memeFolder, Path.GetFileName(meme4)));
+            });
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("STARTUP", $"Failed to push assets: {ex.Message}");
+        }
     }
 
     private void SpeakerIcon_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1204,6 +1297,9 @@ public partial class MainWindow : Window
         _freezeTimeMs = -1;
         _freezeDurationS = 1.0;
 
+        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        if (addMemeCb != null) addMemeCb.IsChecked = false;
+
         var thumbBtn = this.FindControl<Button>("SetThumbnailButton");
         if (thumbBtn != null) { thumbBtn.Classes.Remove("Danger"); thumbBtn.Classes.Add("Primary"); }
         var thumbTxt = this.FindControl<TextBlock>("SetThumbnailText");
@@ -1246,7 +1342,11 @@ public partial class MainWindow : Window
             _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
 
         var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
-        if (qs != null) qs.Value = d.QualityIndex;
+        if (qs != null && !_qualitySliderInitialized) 
+        {
+            qs.Value = d.QualityIndex;
+            _qualitySliderInitialized = true;
+        }
 
         var vol = this.FindControl<Slider>("VolumeSlider");
         if (vol != null) 
@@ -1277,8 +1377,8 @@ public partial class MainWindow : Window
         var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammates != null) teammates.IsChecked = d.ShowTeammates;
 
-        var noFade = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
-        if (noFade != null) noFade.IsChecked = d.NoFade;
+        var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        if (enableFade != null) enableFade.IsChecked = d.EnableFade;
     }
 
     /// <summary>
@@ -1317,8 +1417,14 @@ public partial class MainWindow : Window
         var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammates != null) teammates.IsEnabled = true;
 
+        var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        if (enableFade != null) enableFade.IsEnabled = true;
+
         var noFade = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
         if (noFade != null) noFade.IsEnabled = true;
+
+        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        if (addMemeCb != null) addMemeCb.IsEnabled = true;
 
         var qualityPanel = this.FindControl<StackPanel>("QualityPanel");
         if (qualityPanel != null) qualityPanel.IsVisible = true;
@@ -3182,11 +3288,30 @@ public partial class MainWindow : Window
                 worker.IntroAbsTimeMs = _thumbnailPosMs;
                 worker.IntroStillSec = 0.1;
             }
+            else
+            {
+                double tStart = _trimStartMs > 0 ? _trimStartMs : 0;
+                double tEnd = _trimEndMs > 0 ? _trimEndMs : duration * 1000.0;
+                worker.IntroAbsTimeMs = tStart + (tEnd - tStart) * (2.0 / 3.0);
+                worker.IntroStillSec = 0.1;
+            }
             
             worker.HardwareStrategy = hwMode;
             worker.IsMobileFormat = this.FindControl<CheckBox>("MobileCheckbox")?.IsChecked ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
             worker.IsBossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false;
+            worker.EnableFades = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true;
             worker.ShowTeammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false;
+
+            var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+            if (addMemeCb != null && addMemeCb.IsChecked == true)
+            {
+                var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+                if (memeCb != null && memeCb.SelectedItem != null)
+                {
+                    string memeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MEME");
+                    worker.MemeFile = Path.Combine(memeFolder, memeCb.SelectedItem.ToString()!);
+                }
+            }
 
             worker.PortraitText = this.FindControl<TextBox>("PortraitTextInput")?.Text;
 
@@ -3219,6 +3344,11 @@ public partial class MainWindow : Window
                     ["music_vol"] = _musicWizardResult.MusicVolume,
                     ["carving_enabled"] = _musicWizardResult.EnableCarving
                 };
+            }
+
+            if (!string.IsNullOrEmpty(worker.MemeFile) && worker.MusicTracks != null && worker.MusicTracks.Count > 0 && _keepMusicDuringMeme.HasValue)
+            {
+                worker.KeepMusicDuringMeme = _keepMusicDuringMeme.Value;
             }
 
             _ = worker.RunAsync(_processCts.Token);
@@ -3471,6 +3601,18 @@ public partial class MainWindow : Window
         if (_isRestoring) return;
         try
         {
+            bool hasWork = _trimStartSet || _trimEndSet || _thumbnailSet || 
+                           _isGranularSpeedActive || _isMusicActive || 
+                           _speedSegments.Count > 0 || _freezeTimeMs >= 0 || 
+                           Math.Abs(_baseSpeed - 1.0) > 0.01 || 
+                           !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
+
+            if (!hasWork)
+            {
+                _recovery.ClearState();
+                return;
+            }
+
             var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
             var state = new System.Text.Json.Nodes.JsonObject
             {
@@ -3489,7 +3631,10 @@ public partial class MainWindow : Window
                 ["portraitMode"] = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true,
                 ["bossHp"] = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false,
                 ["showTeammates"] = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
+                ["enableFade"] = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
                 ["noFade"] = this.FindControl<ToggleSwitch>("NoFadeCheckbox")?.IsChecked ?? false,
+                ["addMeme"] = this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false,
+                ["memeFile"] = this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem?.ToString() ?? "",
                 ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? "",
                 ["freezeTimeMs"] = _freezeTimeMs,
                 ["freezeDurationS"] = _freezeDurationS
@@ -3590,9 +3735,9 @@ public partial class MainWindow : Window
                 RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: Successfully reinstated Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
 
             _speedSegments.Clear();
-            if (state["speedSegments"] is System.Text.Json.Nodes.JsonArray segArray)
+            if (state.TryGetPropertyValue("speedSegments", out var speedsNode) && speedsNode is System.Text.Json.Nodes.JsonArray speedsArray)
             {
-                foreach (var segNode in segArray)
+                foreach (var segNode in speedsArray)
                 {
                     var segObj = segNode?.AsObject();
                     if (segObj != null)
@@ -3659,13 +3804,28 @@ public partial class MainWindow : Window
             var teammatesCbRestore = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
             if (teammatesCbRestore != null) teammatesCbRestore.IsChecked = showTeammates;
 
-            bool noFade = state["noFade"]?.GetValue<bool>() ?? false;
+            var enableFadeCbRestore = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+            if (enableFadeCbRestore != null && state.ContainsKey("enableFade"))
+                enableFadeCbRestore.IsChecked = state["enableFade"]?.GetValue<bool>() ?? true;
+
             var noFadeCbRestore = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
-            if (noFadeCbRestore != null) noFadeCbRestore.IsChecked = noFade;
+            if (noFadeCbRestore != null && state.ContainsKey("noFade"))
+                noFadeCbRestore.IsChecked = state["noFade"]?.GetValue<bool>() ?? false;
 
             string portraitText = (string?)state["portraitText"] ?? "";
             var portraitTextRestore = this.FindControl<TextBox>("PortraitTextInput");
             if (portraitTextRestore != null) portraitTextRestore.Text = portraitText;
+
+            bool addMeme = state["addMeme"]?.GetValue<bool>() ?? false;
+            var addMemeCbRestore = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+            if (addMemeCbRestore != null) addMemeCbRestore.IsChecked = addMeme;
+
+            string memeFile = (string?)state["memeFile"] ?? "";
+            var memeCbRestore = this.FindControl<ComboBox>("MemeComboBox");
+            if (memeCbRestore != null && !string.IsNullOrEmpty(memeFile))
+            {
+                memeCbRestore.SelectedItem = memeFile;
+            }
 
             string? videoPath = (string?)state["loadedVideoPath"];
             if (!string.IsNullOrWhiteSpace(videoPath) && File.Exists(videoPath))

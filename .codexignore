@@ -6,6 +6,7 @@ out/
 publish/
 dist/
 mp3/
+mp4/
 build/
 coverage/
 .npm/
@@ -32,6 +33,7 @@ pnpm-lock.yaml
 *.dmp
 *.log
 *.mp3
+*.mp4
 
 # Generated Code
 **/Migrations/*

@@ -65,8 +65,8 @@ public class DefaultValues
     public CheckboxDefaultBehavior ShowTeammatesBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
 
     /// <summary>Default Disable Fade checkbox state</summary>
-    public bool NoFade { get; set; } = false;
-    public CheckboxDefaultBehavior NoFadeBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
+    public bool EnableFade { get; set; } = true;
+    public CheckboxDefaultBehavior EnableFadeBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOn;
 
     public int QualityIndex { get; set; } = 7;
     public ValueDefaultBehavior QualityBehavior { get; set; } = ValueDefaultBehavior.FixedValue;

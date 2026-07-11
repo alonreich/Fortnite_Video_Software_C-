@@ -146,12 +146,23 @@
                                        Width="64"
                                        FontSize="10"
                                        Margin="0,0,8,0" />
-                            <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" RowDefinitions="14,32" ClipToBounds="False">
-                                <Canvas Name="CropTimelineScaleCanvas" Grid.Row="0" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                <Grid Grid.Row="1" Height="32" ClipToBounds="False" ZIndex="10001">
-                                    <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="1000" Value="0" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" RenderTransform="translateY(-10px)" ToolTip.Tip="Drag to scrub through the video" />
-                                    <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
-                                </Grid>
+                            <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" ClipToBounds="False">
+                                <StackPanel Orientation="Vertical">
+                                    <Canvas Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
+                                    <Grid Height="32" ClipToBounds="False">
+                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                        <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
+                                            <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
+                                                <Border.Transitions>
+                                                    <Transitions>
+                                                        <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
+                                                    </Transitions>
+                                                </Border.Transitions>
+                                                <TextBlock Name="PlayheadBadgeText" Text="00:00:00" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Canvas>
+                                    </Grid>
+                                </StackPanel>
                             </Grid>
                             <TextBlock Name="TotalTimeLabel"
                                        Grid.Column="2"

@@ -29,7 +29,8 @@ public class ProcessWorker : IDisposable
     public bool ShowTeammates { get; set; }
     public bool ShowSpectating { get; set; }
     public int QualityLevel { get; set; } = 2;
-    public bool DisableFades { get; set; }
+    public bool EnableFades { get; set; } = true;
+    public string? MemeFile { get; set; }
     public string? PortraitText { get; set; }
     public JsonObject? MusicConfig { get; set; }
     public List<SpeedSegment>? SpeedSegments { get; set; }
@@ -42,6 +43,7 @@ public class ProcessWorker : IDisposable
     public bool IntroFromMidpoint { get; set; }
     public double? IntroAbsTimeMs { get; set; }
     public double MusicVolume { get; set; } = 0.8;
+    public bool KeepMusicDuringMeme { get; set; }
 
     public ProcessWorker(ApplicationPaths? paths = null)
     {
@@ -137,17 +139,49 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
+                double maxPadSec = 1.0;
+                double minPadSec = 0.5;
+
+                double availStartSec = StartTimeMs / 1000.0;
+                double availEndSec = Math.Max(0, sourceDuration - (EndTimeMs / 1000.0));
+
+                double padStartHumanSec = EnableFades ? Math.Min(maxPadSec, availStartSec / SpeedFactor) : 0;
+                if (padStartHumanSec < minPadSec) padStartHumanSec = 0;
+                double sourcePadStartSec = padStartHumanSec * SpeedFactor;
+
+                double padEndHumanSec = EnableFades ? Math.Min(maxPadSec, availEndSec / SpeedFactor) : 0;
+                if (padEndHumanSec < minPadSec) padEndHumanSec = 0;
+                double sourcePadEndSec = padEndHumanSec * SpeedFactor;
+
+                double memeDuration = 0;
+                int memeWidth = 0;
+                int memeHeight = 0;
+                if (!string.IsNullOrEmpty(MemeFile) && File.Exists(MemeFile))
+                {
+                    var memeProber = new MediaProber(_ffprobePath, MemeFile);
+                    memeDuration = await memeProber.GetDurationAsync();
+                    var res = await memeProber.GetResolutionAsync();
+                    memeWidth = res.width;
+                    memeHeight = res.height;
+                    
+                    padEndHumanSec = 0;
+                    sourcePadEndSec = 0;
+                }
+
+                double actualExtractStartMs = StartTimeMs - (sourcePadStartSec * 1000.0);
+                double actualExtractEndMs = EndTimeMs + (sourcePadEndSec * 1000.0);
+
                 string granularFilters = "";
                 string gV = "", gA = "";
-                double gDur = (EndTimeMs - StartTimeMs) / 1000.0 / SpeedFactor;
+                double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
 
                 if (SpeedSegments != null && SpeedSegments.Count > 0)
                 {
                     var (filterGraph, vLabel, aLabel, finalDur, _) = GranularSpeedBuilder.Build(
-                        EndTimeMs - StartTimeMs,
+                        actualExtractEndMs - actualExtractStartMs,
                         SpeedSegments,
                         SpeedFactor,
-                        StartTimeMs,
+                        actualExtractStartMs,
                         "[0:v]",
                         sourceHasAudio ? "[0:a]" : null,
                         targetFps);
@@ -170,7 +204,7 @@ public class ProcessWorker : IDisposable
                         gDur, audioKbps, targetMb, keepHighestRes, qualityLevel, outputRes, targetFps);
                 }
 
-                var musicTracks = MusicTracks ?? new List<MusicTrack>();
+                var musicTracks = MusicTracks != null ? new List<MusicTrack>(MusicTracks) : new List<MusicTrack>();
                 if (musicTracks.Count == 0 && MusicConfig != null)
                 {
                     string? mPath = MusicConfig["path"]?.ToString();
@@ -181,10 +215,23 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
+                bool mixMusicAfterMeme = KeepMusicDuringMeme && memeDuration > 0 && musicTracks.Count > 0;
+                if (mixMusicAfterMeme)
+                {
+                    for (int i = 0; i < musicTracks.Count; i++)
+                    {
+                        musicTracks[i] = musicTracks[i] with { Duration = musicTracks[i].Duration + memeDuration, ApplyFadeOut = false };
+                    }
+                }
+
                 double introDurationSec = Math.Max(0, IntroStillSec);
                 int? introInputIndex = introDurationSec > 0.001 ? 1 + musicTracks.Count : null;
                 string? textInputLabel = textPngPath != null
                     ? $"[{1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0)}:v]"
+                    : null;
+                
+                int? memeInputIndex = MemeFile != null
+                    ? 1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0) + (textPngPath != null ? 1 : 0)
                     : null;
 
                 double renderDurationSec = gDur + introDurationSec;
@@ -197,20 +244,28 @@ public class ProcessWorker : IDisposable
 
                 PhaseUpdate?.Invoke(2, "Encoding Video Pipeline", 0);
 
-                var (audioChains, finalALabel) = AudioFilterChain.Build(
-                    MusicConfig,
-                    StartTimeMs / 1000.0,
-                    EndTimeMs / 1000.0,
-                    SpeedFactor,
-                    DisableFades,
-                    DisableFades ? 0 : 0.5,
-                    null,
-                    48000,
-                    musicTracks,
-                    1,
-                    gDur,
-                    sourceHasAudio ? "[0:a]" : "",
-                    VolumeNormalizeDb);
+                List<string> audioChains = new();
+                string finalALabel = sourceHasAudio ? "[0:a]" : "";
+                
+                if (!mixMusicAfterMeme)
+                {
+                    var built = AudioFilterChain.Build(
+                        MusicConfig,
+                        actualExtractStartMs / 1000.0,
+                        actualExtractEndMs / 1000.0,
+                        SpeedFactor,
+                        true, // disable internal fades to sync completely with video global timeline
+                        0,
+                        null,
+                        48000,
+                        musicTracks,
+                        1,
+                        gDur,
+                        sourceHasAudio ? "[0:a]" : "",
+                        VolumeNormalizeDb);
+                    audioChains = built.chains;
+                    finalALabel = built.finalLabel;
+                }
 
                 JsonObject mobileCoords = await VideoConfig.GetMobileCoordinatesAsync(_paths);
 
@@ -242,6 +297,48 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
+                // 1. Audio Processing
+                string currentALabel = aPreparedPad;
+                if (!mixMusicAfterMeme)
+                {
+                    currentALabel = finalALabel;
+                    foreach (var part in audioChains)
+                    {
+                        coreFilters.Add(part.Replace("[0:a]", aPreparedPad));
+                    }
+                }
+
+                // 2. Fades (Before Intro to avoid fading out the thumbnail!)
+                if (padStartHumanSec > 0 || padEndHumanSec > 0)
+                {
+                    double fadeVideoLengthSec = gDur; 
+                    double fadeOutStart = Math.Max(0, fadeVideoLengthSec - padEndHumanSec);
+                    
+                    var vFades = new List<string>();
+                    var aFades = new List<string>();
+
+                    if (padStartHumanSec > 0)
+                    {
+                        vFades.Add($"fade=t=in:st=0:d={padStartHumanSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                        aFades.Add($"afade=t=in:st=0:d={padStartHumanSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    }
+                    if (padEndHumanSec > 0)
+                    {
+                        vFades.Add($"fade=t=out:st={fadeOutStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={padEndHumanSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                        aFades.Add($"afade=t=out:st={fadeOutStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={padEndHumanSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    }
+
+                    if (vFades.Count > 0)
+                    {
+                        coreFilters.Add($"{vStabilizedPad}{string.Join(",", vFades)}[v_faded]");
+                        vStabilizedPad = "[v_faded]";
+
+                        coreFilters.Add($"{currentALabel}{string.Join(",", aFades)}[a_faded]");
+                        currentALabel = "[a_faded]";
+                    }
+                }
+
+                // 3. Intro Concatenation
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
                     int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
@@ -256,6 +353,15 @@ public class ProcessWorker : IDisposable
                     vStabilizedPad = "[v_with_intro]";
                 }
 
+                if (introDurationSec > 0)
+                {
+                    coreFilters.Add($"anullsrc=r=48000:cl=stereo," +
+                                   $"atrim=duration={introDurationSec:F4},asetpts=PTS-STARTPTS[a_intro_silence]");
+                    coreFilters.Add($"[a_intro_silence]{currentALabel}concat=n=2:v=0:a=1[a_with_intro]");
+                    currentALabel = "[a_with_intro]";
+                }
+
+                // 4. Mobile Format
                 if (IsMobileFormat)
                 {
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
@@ -269,22 +375,87 @@ public class ProcessWorker : IDisposable
                     vOutputPad = vStabilizedPad;
                 }
 
-                string currentALabel = finalALabel;
-                foreach (var part in audioChains)
-                {
-                    coreFilters.Add(part.Replace("[0:a]", aPreparedPad));
-                }
-
-                if (introDurationSec > 0)
-                {
-                    coreFilters.Add($"anullsrc=r=48000:cl=stereo," +
-                                   $"atrim=duration={introDurationSec:F4},asetpts=PTS-STARTPTS[a_intro_silence]");
-                    coreFilters.Add($"[a_intro_silence]{currentALabel}concat=n=2:v=0:a=1[a_with_intro]");
-                    currentALabel = "[a_with_intro]";
-                }
-
                 coreFilters.Add($"{vOutputPad}fps={targetFps}:round=near," +
                                $"setpts=N/({targetFps})/TB[v_render_out]");
+
+                string vOutputFinal = "[v_render_out]";
+                string aOutputFinal = currentALabel;
+
+                if (memeInputIndex.HasValue)
+                {
+                    string memeRes = IsMobileFormat ? "1080:1920" : "1920:1080";
+                    string memeScale;
+                    double memeRatio = memeWidth > 0 && memeHeight > 0 ? (double)memeWidth / memeHeight : 1.777;
+
+                    if (IsMobileFormat)
+                    {
+                        if (memeRatio >= 1.7) // 16:9 or wider
+                        {
+                            memeScale = $"scale=1280:1920:force_original_aspect_ratio=increase,crop=1280:1920,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={targetFps}:round=near";
+                        }
+                        else
+                        {
+                            memeScale = $"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps={targetFps}:round=near";
+                        }
+                    }
+                    else
+                    {
+                        memeScale = $"scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,fps={targetFps}:round=near";
+                    }
+
+                    string memeAudio = "aresample=48000:async=1";
+
+                    if (EnableFades && memeDuration >= 0.5)
+                    {
+                        double memeFadeDur = Math.Min(1.0, memeDuration / 2.0);
+                        double memeFadeStart = Math.Max(0, memeDuration - memeFadeDur);
+                        memeScale += $",fade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+                        
+                        if (!mixMusicAfterMeme)
+                        {
+                            memeAudio += $",afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+                        }
+                    }
+
+                    coreFilters.Add($"[{memeInputIndex}:v]{memeScale}[meme_v]");
+                    coreFilters.Add($"[{memeInputIndex}:a]{memeAudio}[meme_a]");
+                    coreFilters.Add($"[v_render_out]{aOutputFinal}[meme_v][meme_a]concat=n=2:v=1:a=1[v_final][a_final_before_music]");
+                    vOutputFinal = "[v_final]";
+                    aOutputFinal = "[a_final_before_music]";
+                }
+
+                if (mixMusicAfterMeme)
+                {
+                    var built = AudioFilterChain.Build(
+                        MusicConfig,
+                        actualExtractStartMs / 1000.0,
+                        actualExtractEndMs / 1000.0,
+                        SpeedFactor,
+                        true, 
+                        0,
+                        null,
+                        48000,
+                        musicTracks,
+                        1,
+                        gDur + memeDuration,
+                        aOutputFinal,
+                        VolumeNormalizeDb);
+                        
+                    foreach (var part in built.chains)
+                    {
+                        coreFilters.Add(part);
+                    }
+                    aOutputFinal = built.finalLabel;
+                    
+                    if (EnableFades && memeDuration >= 0.5)
+                    {
+                        double memeFadeDur = Math.Min(1.0, memeDuration / 2.0);
+                        double totalOutDur = gDur + introDurationSec + memeDuration;
+                        double memeFadeStart = Math.Max(0, totalOutDur - memeFadeDur);
+                        coreFilters.Add($"{aOutputFinal}afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}[a_final_music_faded]");
+                        aOutputFinal = "[a_final_music_faded]";
+                    }
+                }
 
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
                 CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
@@ -309,8 +480,8 @@ public class ProcessWorker : IDisposable
                         var ffmpegArgs = new List<string>
                         {
                             "-y", "-hide_banner", "-progress", "pipe:1",
-                            "-ss", (StartTimeMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                            "-t", ((EndTimeMs - StartTimeMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                            "-ss", (actualExtractStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                            "-t", ((actualExtractEndMs - actualExtractStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-i", InputPath,
                         };
 
@@ -330,11 +501,15 @@ public class ProcessWorker : IDisposable
                         if (textPngPath != null)
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
+                        if (MemeFile != null)
+                            ffmpegArgs.AddRange(["-i", MemeFile]);
+
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
-                        ffmpegArgs.AddRange(["-map", "[v_render_out]", "-map", currentALabel]);
+                        ffmpegArgs.AddRange(["-map", vOutputFinal, "-map", aOutputFinal]);
                         ffmpegArgs.AddRange(codecArgs);
+                        double totalOutputDurationSec = renderDurationSec + memeDuration;
                         ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
-                            "-t", renderDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                            "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-movflags", "+faststart", corePath]);
 
                         string cmdLine = string.Join(" ", ffmpegArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
@@ -371,9 +546,9 @@ public class ProcessWorker : IDisposable
                                     if (long.TryParse(line.AsSpan(12), out long outTimeUs))
                                     {
                                         double currentSec = outTimeUs / 1_000_000.0;
-                                        if (renderDurationSec > 0)
+                                        if (totalOutputDurationSec > 0)
                                         {
-                                            int percent = (int)Math.Clamp(currentSec / renderDurationSec * 100, 0, 100);
+                                            int percent = (int)Math.Clamp(currentSec / totalOutputDurationSec * 100, 0, 100);
                                             int scaledPercent = percent;
                                             if (targetMb.HasValue && attemptNum == 1) scaledPercent = percent / 3;
                                             else if (targetMb.HasValue && attemptNum == 2) scaledPercent = 33 + (percent / 3);

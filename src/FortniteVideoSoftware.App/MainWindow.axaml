@@ -238,6 +238,11 @@
                 <StackPanel Grid.Row="4" Spacing="10" Margin="0,0,0,15">
                     <StackPanel Spacing="5">
                         <Grid ColumnDefinitions="*, Auto">
+                            <TextBlock Text="Add MEME" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <ToggleSwitch Name="AddMemeCheckbox" IsChecked="False" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Add MEME" />
+                        </Grid>
+                        <ComboBox Name="MemeComboBox" Width="140" HorizontalAlignment="Left" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" />
+                        <Grid ColumnDefinitions="*, Auto">
                             <TextBlock Text="Portrait (9:16)" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
                             <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" />
                         </Grid>
@@ -254,8 +259,8 @@
                         <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" />
                     </Grid>
                     <Grid ColumnDefinitions="*, Auto">
-                        <TextBlock Text="Disable Fade" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="NoFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Disable fade" />
+                        <TextBlock Text="Enable Fade" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ToggleSwitch Name="EnableFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Enable fade" />
                     </Grid>
                 </StackPanel>
 

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -30,47 +30,45 @@ public sealed class RecoveryManager
             return false;
         }
 
-        if (File.Exists(_paths.AppSessionLockFile))
+        if (!File.Exists(_paths.AppSessionLockFile))
         {
-            try
+            // If state exists but lock file does NOT, it means ReleaseLockOnly() was intentionally called
+            // during a graceful process handoff (Main -> Merger/Crop). This is not a crash.
+            return false;
+        }
+
+        try
+        {
+            string content = File.ReadAllText(_paths.AppSessionLockFile).Trim();
+            string[] parts = content.Split(':');
+            if (parts.Length > 0 && int.TryParse(parts[0], out int oldPid))
             {
-                string content = File.ReadAllText(_paths.AppSessionLockFile).Trim();
-                string[] parts = content.Split(':');
-                if (parts.Length > 0 && int.TryParse(parts[0], out int oldPid))
+                if (oldPid != Environment.ProcessId)
                 {
-                    if (oldPid != Environment.ProcessId)
+                    try
                     {
-                        try
+                        Process proc = Process.GetProcessById(oldPid);
+                        if (!proc.HasExited)
                         {
-                            Process proc = Process.GetProcessById(oldPid);
-                            if (!proc.HasExited)
+                            if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
                             {
-                                if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
-                                {
-                                    if (proc.StartTime.Ticks == oldTicks)
-                                        return false;
-                                }
-                                else
-                                {
+                                if (proc.StartTime.Ticks == oldTicks)
                                     return false;
-                                }
+                            }
+                            else
+                            {
+                                return false;
                             }
                         }
-                        catch (ArgumentException)
-                        {
-                        }
-                        catch (InvalidOperationException)
-                        {
-                        }
-                        catch (System.ComponentModel.Win32Exception)
-                        {
-                        }
                     }
+                    catch (ArgumentException) { }
+                    catch (InvalidOperationException) { }
+                    catch (System.ComponentModel.Win32Exception) { }
                 }
             }
-            catch (Exception)
-            {
-            }
+        }
+        catch (Exception)
+        {
         }
 
         return true;

@@ -8,6 +8,7 @@ dist/
 build/
 coverage/
 mp3/
+mp4/
 .npm/
 
 # IDE & Editor Settings
@@ -32,6 +33,8 @@ pnpm-lock.yaml
 *.dmp
 *.log
 *.mp3
+*.mp4
+
 # Generated Code
 **/Migrations/*
 *.g.cs

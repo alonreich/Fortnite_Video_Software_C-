@@ -432,6 +432,7 @@ public class MpvVideoView : Control, IDisposable
                             paramsArray[1].data = (nint)(&flipY);
 
                             paramsArray[2].type = 0;
+                            paramsArray[2].data = nint.Zero;
 
                             LibMpvInterop.mpv_render_context_render(_renderContext, (nint)paramsArray);
                         }
@@ -489,17 +490,8 @@ public class MpvVideoView : Control, IDisposable
 
     private void PumpEmptyRender()
     {
-        if (_renderContext == nint.Zero) return;
-        WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-        try
-        {
-            var emptyParams = new LibMpvInterop.mpv_render_param[] { new LibMpvInterop.mpv_render_param { type = 0, data = nint.Zero } };
-            LibMpvInterop.mpv_render_context_render(_renderContext, emptyParams);
-        }
-        finally
-        {
-            WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
-        }
+        // Calling mpv_render_context_render with empty params causes an unhandled exception (access violation) inside libmpv.
+        // If we have no surface, we simply drop the frame.
     }
 
     private void EnsureRenderTexture(int width, int height)
@@ -723,6 +715,12 @@ public class MpvVideoView : Control, IDisposable
             _sharedTextureHandles[i] = nint.Zero;
             if (_importedImages[i] != null)
             {
+                var image = _importedImages[i];
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+                {
+                    if (image is IAsyncDisposable ad) _ = ad.DisposeAsync();
+                    else if (image is IDisposable d) d.Dispose();
+                });
                 _importedImages[i] = null;
             }
         }
@@ -732,80 +730,83 @@ public class MpvVideoView : Control, IDisposable
 
     public void Dispose()
     {
-        ReleaseRenderTexture();
-
-        if (_renderContext != nint.Zero)
+        lock (_renderLock)
         {
-            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-            LibMpvInterop.mpv_render_context_free(_renderContext);
-            _renderContext = nint.Zero;
-        }
+            ReleaseRenderTexture();
 
-        if (_glFramebuffers[0] != 0)
-        {
-            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-            WglInterop.glDeleteFramebuffers!(SwapChainSize, _glFramebuffers);
-            Array.Clear(_glFramebuffers, 0, SwapChainSize);
-        }
-        
-        if (_glTextures[0] != 0 || _glTextures[1] != 0)
-        {
-            WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-            WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
-            Array.Clear(_glTextures, 0, SwapChainSize);
-        }
+            if (_renderContext != nint.Zero)
+            {
+                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                LibMpvInterop.mpv_render_context_free(_renderContext);
+                _renderContext = nint.Zero;
+            }
 
-        if (_dxInteropDevice != nint.Zero)
-        {
-            WglInterop.wglDXCloseDeviceNV!(_dxInteropDevice);
-            _dxInteropDevice = nint.Zero;
-        }
+            if (_glFramebuffers[0] != 0)
+            {
+                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                WglInterop.glDeleteFramebuffers!(SwapChainSize, _glFramebuffers);
+                Array.Clear(_glFramebuffers, 0, SwapChainSize);
+            }
+            
+            if (_glTextures[0] != 0 || _glTextures[1] != 0)
+            {
+                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
+                Array.Clear(_glTextures, 0, SwapChainSize);
+            }
 
-        if (_hglrc != nint.Zero)
-        {
-            WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
-            WglInterop.wglDeleteContext(_hglrc);
-            _hglrc = nint.Zero;
-        }
+            if (_dxInteropDevice != nint.Zero)
+            {
+                WglInterop.wglDXCloseDeviceNV!(_dxInteropDevice);
+                _dxInteropDevice = nint.Zero;
+            }
 
-        if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
-        {
-            WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
-            _dummyHdc = nint.Zero;
-        }
+            if (_hglrc != nint.Zero)
+            {
+                WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+                WglInterop.wglDeleteContext(_hglrc);
+                _hglrc = nint.Zero;
+            }
 
-        if (_dummyHwnd != nint.Zero)
-        {
-            WglInterop.DestroyWindow(_dummyHwnd);
-            _dummyHwnd = nint.Zero;
-        }
+            if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
+            {
+                WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
+                _dummyHdc = nint.Zero;
+            }
 
-        if (_openglLibrary != nint.Zero)
-        {
-            NativeLibrary.Free(_openglLibrary);
-            _openglLibrary = nint.Zero;
-        }
+            if (_dummyHwnd != nint.Zero)
+            {
+                WglInterop.DestroyWindow(_dummyHwnd);
+                _dummyHwnd = nint.Zero;
+            }
 
-        _d3d11Context?.Dispose();
-        _d3d11Context = null;
+            if (_openglLibrary != nint.Zero)
+            {
+                NativeLibrary.Free(_openglLibrary);
+                _openglLibrary = nint.Zero;
+            }
 
-        _d3d11Device?.Dispose();
-        _d3d11Device = null;
+            _d3d11Context?.Dispose();
+            _d3d11Context = null;
 
-        _gpuInterop = null;
+            _d3d11Device?.Dispose();
+            _d3d11Device = null;
 
-        IpcClient?.Dispose();
-        IpcClient = null;
+            _gpuInterop = null;
 
-        if (_mpvHandle != nint.Zero)
-        {
-            MpvWrapper.mpv_terminate_destroy(_mpvHandle);
-            _mpvHandle = nint.Zero;
-        }
+            IpcClient?.Dispose();
+            IpcClient = null;
 
-        if (_gcHandle.IsAllocated)
-        {
-            _gcHandle.Free();
+            if (_mpvHandle != nint.Zero)
+            {
+                MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+                _mpvHandle = nint.Zero;
+            }
+
+            if (_gcHandle.IsAllocated)
+            {
+                _gcHandle.Free();
+            }
         }
     }
 }

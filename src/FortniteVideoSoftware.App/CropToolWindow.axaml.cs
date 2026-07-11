@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -85,6 +85,10 @@ public partial class CropToolWindow : Window
     private int _snapshotHeight = 1080;
     private double _durationMs;
     private bool _isTimelineUpdating;
+    private bool _isTimerUpdatingSlider;
+    private bool _isSeeking;
+    private double? _nextSeekTarget;
+    private Avalonia.Threading.DispatcherTimer? _playheadBadgeTimer;
     private bool _isMpvStarted;
     private bool _dirty;
     private bool _restoringSnapshot;
@@ -255,14 +259,26 @@ public partial class CropToolWindow : Window
 
         if (_timelineSlider != null)
         {
-            _timelineSlider.PropertyChanged += async (_, e) =>
+            _timelineSlider.PropertyChanged += (s, e) =>
             {
-                if (e.Property == Slider.ValueProperty && !_isTimelineUpdating && _durationMs > 0 && _videoHost?.IpcClient != null)
+                if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty && e.NewValue is double newValue && !_isTimerUpdatingSlider)
                 {
-                    double seconds = Math.Max(0, Math.Min(_timelineSlider.Value, _durationMs)) / 1000.0;
-                    await _videoHost.IpcClient.SendCommandAsync("seek", seconds, "absolute", "exact");
+                    double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+                    if (duration > 0 && _videoHost?.IpcClient != null)
+                    {
+                        double targetTime = (newValue / 100.0) * duration;
+                        _ = SeekInternal(targetTime);
+                        ShowPlayheadBadge(targetTime, newValue);
+                    }
                 }
             };
+        }
+
+        var timelinePanel = this.FindControl<Border>("TimelinePanel");
+        var timelineCanvas = this.FindControl<Canvas>("CropTimelineMarkersCanvas");
+        if (timelinePanel != null && timelineCanvas != null && _timelineSlider != null)
+        {
+            timelinePanel.PointerPressed += (s, e) => SeekTimelineFromPointer(e, timelineCanvas, _timelineSlider);
         }
 
         _timelineTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -1721,6 +1737,88 @@ public partial class CropToolWindow : Window
         SetEnabled("RedoButton", _redoStack.Count > 0);
     }
 
+    private async Task SeekInternal(double time)
+    {
+        if (_isSeeking)
+        {
+            _nextSeekTarget = time;
+            return;
+        }
+        _isSeeking = true;
+        try
+        {
+            if (_videoHost?.IpcClient != null)
+            {
+                await _videoHost.IpcClient.SendCommandAsync("seek", time, "absolute");
+            }
+        }
+        finally
+        {
+            _isSeeking = false;
+            if (_nextSeekTarget.HasValue)
+            {
+                double target = _nextSeekTarget.Value;
+                _nextSeekTarget = null;
+                _ = SeekInternal(target);
+            }
+        }
+    }
+
+    private void SeekTimelineFromPointer(PointerPressedEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
+    {
+        if (e.Handled) return;
+
+        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double width = timelineCanvas.Bounds.Width;
+        if (duration <= 0 || width <= 0) return;
+
+        double x = Math.Clamp(e.GetPosition(timelineCanvas).X, 0, width);
+        double sliderValue = (x / width) * 100.0;
+        double targetTime = (sliderValue / 100.0) * duration;
+
+        try
+        {
+            _isTimerUpdatingSlider = true;
+            timelineSlider.Value = sliderValue;
+        }
+        finally
+        {
+            _isTimerUpdatingSlider = false;
+        }
+
+        _ = SeekInternal(targetTime);
+        ShowPlayheadBadge(targetTime, sliderValue);
+        e.Handled = true;
+    }
+
+    private void ShowPlayheadBadge(double timeSeconds, double sliderValuePercentage)
+    {
+        var badge = this.FindControl<Avalonia.Controls.Border>("PlayheadBadge");
+        var text = this.FindControl<Avalonia.Controls.TextBlock>("PlayheadBadgeText");
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("CropTimelineMarkersCanvas");
+
+        if (badge != null && text != null && canvas != null)
+        {
+            text.Text = FormatTime(timeSeconds * 1000.0);
+            double canvasWidth = canvas.Bounds.Width;
+            double x = (sliderValuePercentage / 100.0) * canvasWidth;
+            Avalonia.Controls.Canvas.SetLeft(badge, x - 25);
+            badge.Opacity = 1.0;
+
+            if (_playheadBadgeTimer == null)
+            {
+                _playheadBadgeTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                _playheadBadgeTimer.Tick += (s, ev) =>
+                {
+                    _playheadBadgeTimer.Stop();
+                    badge.Opacity = 0.0;
+                };
+            }
+            _playheadBadgeTimer.Stop();
+            _playheadBadgeTimer.Start();
+        }
+    }
+
     private void UpdateTimelineUi()
     {
         if (_timelineSlider == null)
@@ -1732,18 +1830,24 @@ public partial class CropToolWindow : Window
         if (_durationMs <= 0)
         {
             _durationMs = Math.Max(0, (_videoHost?.IpcClient?.Duration ?? 0) * 1000.0);
-            if (_durationMs > 0)
-            {
-                _timelineSlider.Maximum = _durationMs;
-            }
         }
 
-        _isTimelineUpdating = true;
-        if (_durationMs > 0 && Math.Abs(_timelineSlider.Value - currentMs) > 100)
+        _isTimerUpdatingSlider = true;
+        try
         {
-            _timelineSlider.Value = Math.Max(0, Math.Min(currentMs, _durationMs));
+            if (_durationMs > 0)
+            {
+                double targetPercentage = (currentMs / _durationMs) * 100.0;
+                if (Math.Abs(_timelineSlider.Value - targetPercentage) > 0.5 && !_isSeeking)
+                {
+                    _timelineSlider.Value = Math.Max(0, Math.Min(targetPercentage, 100.0));
+                }
+            }
         }
-        _isTimelineUpdating = false;
+        finally
+        {
+            _isTimerUpdatingSlider = false;
+        }
 
         if (_currentTimeLabel != null)
         {

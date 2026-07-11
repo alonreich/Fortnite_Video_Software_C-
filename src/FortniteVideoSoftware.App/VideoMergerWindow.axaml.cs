@@ -797,6 +797,8 @@ public partial class VideoMergerWindow : Window
             : $"Est. Output: ~{estimatedMB:F0} MB";
 
         sizeLabel.Text = sizeText;
+        var sizeLabel2 = this.FindControl<TextBlock>("EstimatedSizeText2");
+        if (sizeLabel2 != null) sizeLabel2.Text = sizeText;
     }
 
     private void UpdateSpeedLabel()

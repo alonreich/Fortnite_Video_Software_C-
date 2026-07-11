@@ -1391,7 +1391,7 @@ public partial class MusicWizardWindow : Window
         var fill = this.FindControl<Border>("CoverageBarFill");
         if (fill != null)
         {
-            double panelWidth = this.FindControl<Border>("MultiSongHelperPanel")?.Bounds.Width ?? 200;
+            double panelWidth = this.FindControl<Avalonia.Controls.Control>("MultiSongHelperPanel")?.Bounds.Width ?? 200;
             fill.Width = Math.Max(0, panelWidth * (coveragePercent / 100.0) - 24);
             fill.Background = coveragePercent >= 99.9
                 ? Avalonia.Media.Brush.Parse("#22c55e")

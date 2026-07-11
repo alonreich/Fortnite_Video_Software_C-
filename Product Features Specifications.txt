@@ -229,3 +229,12 @@
 **Core Logic:** FFmpeg outputs statistical spam (`frame=123 size=...`) dozens of times a second via `StandardError`. The application actively intercepts this pipe and filters out these specific prefixes before they hit the core file-writing engine.
 **Edge Cases:**
 * **Edge Case A (Preserving the Beginning):** By eliminating the spam, the 10MB file limit is respected without causing premature log file rotation. This ensures the absolute beginning of the "Story" (hardware GPU probes, full video paths, initialization logic) remains perfectly intact for developers to read when a user reports a crash.
+
+## 27. Dynamic Meme Formatting & Post-Meme Audio Overlay
+**Description:** Intelligent parsing of Meme aspect ratios and adaptive background music mixing logic across the final export.
+**Core Logic:** The export pipeline actively probes imported Meme video files. If creating a 1080x1920 portrait video and the meme is natively 16:9 or wider, it is center-cropped to a 2:3 aspect ratio and horizontally padded with black voids to 1080x1920 to mathematically preserve a wider field of view. Additionally, a native UI dialog interrupts processing to ask the user if background music should keep playing across the meme. If accepted, the FFmpeg audio mixer dynamically stretches the music track duration and overlays it across the combined game+meme timeline post-concatenation.
+**Edge Cases:**
+* **Edge Case A (Native Aspect Fallback):** If the meme is already natively 9:16 or very close, the scaling logic ignores the 2:3 crop calculation and seamlessly scales it to fit the 1080x1920 canvas without generating black void padding.
+**Examples:**
+* *Example 1:* User uploads a wide-screen meme template for their TikTok. The system automatically creates a cinematic black letterbox at the top and bottom of the meme to preserve the funny wide visuals instead of severely chopping off the sides.
+* *Example 2:* The background music drops a heavy beat right as the gameplay ends and the meme begins. The music continues playing at full volume beneath the meme until the meme finishes, fading out smoothly at the absolute end.
