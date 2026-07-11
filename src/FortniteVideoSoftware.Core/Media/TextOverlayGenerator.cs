@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -140,24 +140,41 @@ public static class TextOverlayGenerator
         
         var tokens = Regex.Split(input, @"([\s]+)");
         var result = new StringBuilder();
+        var ltrBuffer = new List<string>();
         
         for (int i = tokens.Length - 1; i >= 0; i--)
         {
             string token = tokens[i];
             bool isHebrewWord = token.Any(c => c >= 0x0590 && c <= 0x05FF);
-            bool isPunctuation = token.All(char.IsPunctuation);
             
-            if (isHebrewWord || isPunctuation)
+            if (isHebrewWord)
             {
+                // Flush any accumulated LTR tokens in their original forward order
+                if (ltrBuffer.Count > 0)
+                {
+                    ltrBuffer.Reverse();
+                    result.Append(string.Join("", ltrBuffer));
+                    ltrBuffer.Clear();
+                }
+
                 char[] charArray = token.ToCharArray();
                 Array.Reverse(charArray);
                 result.Append(new string(charArray));
             }
             else
             {
-                result.Append(token);
+                // LTR words, numbers, symbols, and whitespace are accumulated
+                ltrBuffer.Add(token);
             }
         }
+
+        // Flush remaining LTR tokens
+        if (ltrBuffer.Count > 0)
+        {
+            ltrBuffer.Reverse();
+            result.Append(string.Join("", ltrBuffer));
+        }
+
         return result.ToString();
     }
 }

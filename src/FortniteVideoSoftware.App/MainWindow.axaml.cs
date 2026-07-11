@@ -1420,9 +1420,6 @@ public partial class MainWindow : Window
         var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
         if (enableFade != null) enableFade.IsEnabled = true;
 
-        var noFade = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
-        if (noFade != null) noFade.IsEnabled = true;
-
         var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
         if (addMemeCb != null) addMemeCb.IsEnabled = true;
 
@@ -3632,7 +3629,6 @@ public partial class MainWindow : Window
                 ["bossHp"] = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false,
                 ["showTeammates"] = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
                 ["enableFade"] = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
-                ["noFade"] = this.FindControl<ToggleSwitch>("NoFadeCheckbox")?.IsChecked ?? false,
                 ["addMeme"] = this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false,
                 ["memeFile"] = this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem?.ToString() ?? "",
                 ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? "",
@@ -3807,10 +3803,6 @@ public partial class MainWindow : Window
             var enableFadeCbRestore = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
             if (enableFadeCbRestore != null && state.ContainsKey("enableFade"))
                 enableFadeCbRestore.IsChecked = state["enableFade"]?.GetValue<bool>() ?? true;
-
-            var noFadeCbRestore = this.FindControl<ToggleSwitch>("NoFadeCheckbox");
-            if (noFadeCbRestore != null && state.ContainsKey("noFade"))
-                noFadeCbRestore.IsChecked = state["noFade"]?.GetValue<bool>() ?? false;
 
             string portraitText = (string?)state["portraitText"] ?? "";
             var portraitTextRestore = this.FindControl<TextBox>("PortraitTextInput");

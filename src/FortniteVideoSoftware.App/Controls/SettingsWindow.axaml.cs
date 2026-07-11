@@ -47,7 +47,8 @@ public partial class SettingsWindow : Window
             QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
             AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
-            AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening
+            AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening,
+            RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes
         };
 
         LoadCurrentKeybinds();
@@ -273,6 +274,13 @@ public partial class SettingsWindow : Window
         {
             cbSpike.IsChecked = _pendingDefaults.AutoSpikeFlattening;
             cbSpike.IsCheckedChanged += (_, _) => _pendingDefaults.AutoSpikeFlattening = cbSpike.IsChecked ?? true;
+        }
+
+        var cbVolumes = this.FindControl<CheckBox>("RememberVolumesCheckbox");
+        if (cbVolumes != null)
+        {
+            cbVolumes.IsChecked = _pendingDefaults.RememberMusicVolumes;
+            cbVolumes.IsCheckedChanged += (_, _) => _pendingDefaults.RememberMusicVolumes = cbVolumes.IsChecked ?? true;
         }
     }
 

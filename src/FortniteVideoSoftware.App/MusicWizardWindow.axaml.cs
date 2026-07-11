@@ -206,6 +206,12 @@ public partial class MusicWizardWindow : Window
 
         AddHandler(DragDrop.DropEvent, OnFileDrop);
 
+        var loopCheck = this.FindControl<CheckBox>("LoopMusicCheckBox");
+        if (loopCheck != null)
+        {
+            loopCheck.IsCheckedChanged += (s, e) => UpdateCoverageBar();
+        }
+
         var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
         if (autoFillBtn != null)
         {

@@ -118,6 +118,7 @@ public class ProcessWorker : IDisposable
                 bool sourceHasAudio = await prober.HasAudioAsync();
                 int sourceAudioKbps = await prober.GetAudioBitrateAsync();
                 double sourceDuration = await prober.GetDurationAsync();
+                OriginalResolution = await prober.GetResolutionStringAsync();
 
                 var config = new VideoConfig();
                 var (keepHighestRes, targetMb, qualityLevel) = config.GetQualitySettings(QualityLevel, TargetMbOverride);

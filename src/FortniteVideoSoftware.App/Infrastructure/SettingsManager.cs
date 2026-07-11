@@ -73,6 +73,9 @@ public class DefaultValues
 
     public bool AutoVoiceNormalization { get; set; } = true;
     public bool AutoSpikeFlattening { get; set; } = true;
+    
+    /// <summary>Whether to remember the music and video volume set in the music wizard</summary>
+    public bool RememberMusicVolumes { get; set; } = true;
 }
 
 public static class SettingsManager
