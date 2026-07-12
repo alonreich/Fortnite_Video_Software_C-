@@ -15,7 +15,6 @@ using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -53,7 +52,7 @@ public partial class CropToolWindow : Window
     private Canvas? _portraitCanvas;
     private Image? _snapshotImage;
     private Image? _composerBackgroundImage;
-    private ComboBox? _roleCombo;
+    private TextBox? _roleTextBox;
     private ListBox? _layerList;
     private Slider? _timelineSlider;
     private TextBlock? _currentTimeLabel;
@@ -95,7 +94,6 @@ public partial class CropToolWindow : Window
     private bool _suppressLayerSelection;
     private bool _isSafeToClose;
     private DispatcherTimer? _timelineTimer;
-    private DispatcherTimer? _cleanupTimer;
 
     private static readonly HudRole[] Roles =
     [
@@ -129,17 +127,6 @@ public partial class CropToolWindow : Window
 
         Loaded += async (_, _) =>
         {
-            _cleanupTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(30)
-            };
-            _cleanupTimer.Tick += (_, _) =>
-            {
-                CleanupTempFiles();
-                GC.Collect();
-            };
-            _cleanupTimer.Start();
-
             await InitializeMpvAsync();
             await LoadExistingPlaceholdersAsync();
 
@@ -162,7 +149,7 @@ public partial class CropToolWindow : Window
         _portraitCanvas = this.FindControl<Canvas>("PortraitCanvas");
         _snapshotImage = this.FindControl<Image>("SnapshotImage");
         _composerBackgroundImage = this.FindControl<Image>("ComposerBackgroundImage");
-        _roleCombo = this.FindControl<ComboBox>("RoleCombo");
+        _roleTextBox = this.FindControl<TextBox>("RoleTextBox");
         _layerList = this.FindControl<ListBox>("LayerList");
         _timelineSlider = this.FindControl<Slider>("TimelineSlider");
         _currentTimeLabel = this.FindControl<TextBlock>("CurrentTimeLabel");
@@ -346,11 +333,6 @@ public partial class CropToolWindow : Window
 
     private void InitializeRoles()
     {
-        if (_roleCombo != null)
-        {
-            _roleCombo.ItemsSource = Roles;
-            _roleCombo.SelectedIndex = 0;
-        }
     }
 
     private void InitializeHistory()
@@ -460,7 +442,6 @@ public partial class CropToolWindow : Window
 
         await LoadVideoAsync(files[0].Path.LocalPath, startPaused: true);
     }
-
     private async Task LoadVideoAsync(string path, bool startPaused)
     {
         if (!File.Exists(path))
@@ -502,11 +483,18 @@ public partial class CropToolWindow : Window
             _snapshotWidth = w;
             _snapshotHeight = h;
 
+            double aspectRatio = h > 0 ? (double)w / h : 1.777;
+            if (Math.Abs(aspectRatio - (16.0 / 9.0)) > 0.05)
+            {
+                NativeDialog.ShowError($"The selected video has a resolution of {w}x{h} (Aspect Ratio: {aspectRatio:F2}).\n\nThe crop tool requires a standard 16:9 resolution (e.g., 1920x1080, 2560x1440, 3840x2160) to generate accurate HUD overlay masks. Non-16:9 videos will result in misaligned overlays on standard videos.\n\nPlease upload a 16:9 video for crop configuration.", "Unsupported Aspect Ratio");
+                SetWizardState(2, "Find HUD Frame", $"Warning: Non 16:9 video ({w}x{h}) loaded.");
+            }
+
             if (_timelineSlider != null)
             {
                 _isTimelineUpdating = true;
                 _timelineSlider.Minimum = 0;
-                _timelineSlider.Maximum = Math.Max(1000, _durationMs);
+                _timelineSlider.Maximum = 100;
                 _timelineSlider.Value = 0;
                 _isTimelineUpdating = false;
             }
@@ -554,9 +542,7 @@ public partial class CropToolWindow : Window
             string tempOutput = output + ".tmp.png";
             double seconds = GetCurrentTimeMs() / 1000.0;
 
-            string ffmpegPath = ResolveBinaryPath("ffmpeg.exe", "backend");
-            string args = $"-ss {seconds.ToString("0.000", CultureInfo.InvariantCulture)} -i \"{_videoPath}\" -frames:v 1 -q:v 2 -y \"{tempOutput}\"";
-            await RunProcessAsync(ffmpegPath, args, TimeSpan.FromSeconds(20));
+            await CaptureCurrentPreviewFrameAsync(tempOutput);
 
             if (!File.Exists(tempOutput) || new FileInfo(tempOutput).Length < 100)
             {
@@ -616,13 +602,107 @@ public partial class CropToolWindow : Window
 
         if (_composerBackgroundImage != null)
         {
-            using var bgStream = File.OpenRead(path);
+            string previewPath = CreateComposerBackgroundPreview(path);
+            _tempFiles.Add(previewPath);
+            using var bgStream = File.OpenRead(previewPath);
             _composerBackgroundImage.Source = new Bitmap(bgStream);
         }
 
         ClearSourceSelection();
         ClearMagicWandCandidates();
         SetWizardState(3, "Refine Box", $"Draw a HUD box on the {_originalResolution} snapshot.");
+    }
+
+    private async Task CaptureCurrentPreviewFrameAsync(string outputPath)
+    {
+        if (_videoHost?.IpcClient == null)
+        {
+            throw new InvalidOperationException("Video preview is not ready.");
+        }
+
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+
+        await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        await _videoHost.IpcClient.SendCommandAsync("screenshot-to-file", outputPath, "video");
+        await WaitForFileAsync(outputPath, TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task WaitForFileAsync(string path, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        while (!cts.IsCancellationRequested)
+        {
+            if (File.Exists(path))
+            {
+                try
+                {
+                    if (new FileInfo(path).Length > 100)
+                    {
+                        return;
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            }
+
+            await Task.Delay(50, CancellationToken.None);
+        }
+
+        throw new TimeoutException("Timed out waiting for the current preview frame snapshot.");
+    }
+
+    private string CreateComposerBackgroundPreview(string snapshotPath)
+    {
+        _paths.EnsureWritableDirectories();
+        string output = IOPath.Combine(_paths.TempDirectory, $"crop_canvas_trick_{Guid.NewGuid():N}.png");
+
+        using SKBitmap source = SKBitmap.Decode(snapshotPath) ?? throw new IOException("Could not decode snapshot.");
+        using var internalBitmap = new SKBitmap(
+            CoordinateConstants.InternalW,
+            CoordinateConstants.InternalH,
+            SKColorType.Bgra8888,
+            SKAlphaType.Premul);
+        using (var internalCanvas = new SKCanvas(internalBitmap))
+        {
+            internalCanvas.Clear(SKColors.Black);
+            double scale = Math.Max(
+                (double)CoordinateConstants.InternalW / source.Width,
+                (double)CoordinateConstants.InternalH / source.Height);
+            double scaledW = source.Width * scale;
+            double scaledH = source.Height * scale;
+            float left = (float)((CoordinateConstants.InternalW - scaledW) / 2.0);
+            float top = (float)((CoordinateConstants.InternalH - scaledH) / 2.0);
+            var dst = new SKRect(left, top, left + (float)scaledW, top + (float)scaledH);
+            internalCanvas.DrawBitmap(source, dst);
+            internalCanvas.Flush();
+        }
+
+        using var finalBitmap = new SKBitmap(
+            CoordinateConstants.PortraitW,
+            CoordinateConstants.PortraitH,
+            SKColorType.Bgra8888,
+            SKAlphaType.Premul);
+        using (var finalCanvas = new SKCanvas(finalBitmap))
+        {
+            finalCanvas.Clear(SKColors.Black);
+            var contentDst = new SKRect(
+                0,
+                CoordinateConstants.UIPaddingTop,
+                CoordinateConstants.PortraitW,
+                CoordinateConstants.PortraitH - CoordinateConstants.UIPaddingBottom);
+            finalCanvas.DrawBitmap(internalBitmap, contentDst);
+            finalCanvas.Flush();
+        }
+
+        using SKImage image = SKImage.FromBitmap(finalBitmap);
+        using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
+        using FileStream fs = File.OpenWrite(output);
+        data.SaveTo(fs);
+        return output;
     }
 
     private void ShowVideoPanel()
@@ -753,9 +833,9 @@ public partial class CropToolWindow : Window
         HudRole role = roleKey != null && RoleByKey.TryGetValue(roleKey, out var found)
             ? found
             : SuggestRole(rect);
-        if (_roleCombo != null)
+        if (_roleTextBox != null)
         {
-            _roleCombo.SelectedItem = role;
+            _roleTextBox.Text = role.DisplayName;
         }
     }
 
@@ -782,7 +862,18 @@ public partial class CropToolWindow : Window
             return;
         }
 
-        HudRole role = _roleCombo?.SelectedItem as HudRole ?? SuggestRole(_sourceSelection.Value);
+        string roleName = _roleTextBox?.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(roleName))
+        {
+            SetStatus("Please enter a name for the HUD element.");
+            return;
+        }
+
+        string roleKey = roleName.ToLowerInvariant().Replace(" ", "_");
+        HudRole role = RoleByKey.TryGetValue(roleKey, out var existingRole) 
+            ? existingRole 
+            : new HudRole(roleKey, roleName, 50, 500, 500);
+
         SourceRect sourceRect = ClampSourceRect(_sourceSelection.Value);
         if (sourceRect.Width < MinSelectionSize || sourceRect.Height < MinSelectionSize)
         {
@@ -792,7 +883,16 @@ public partial class CropToolWindow : Window
 
         try
         {
-            string cropPath = CropSnapshotRegion(_snapshotPath, sourceRect);
+            var contentRect = CoordinateMath.TransformToContentAreaInt(
+                (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
+                _originalResolution);
+            if (contentRect.w < 2 || contentRect.h < 2)
+            {
+                SetStatus("Selection does not map to a visible portrait area.");
+                return;
+            }
+
+            string cropPath = CropSnapshotRegionForExportPreview(_snapshotPath, sourceRect, role.Key);
             _tempFiles.Add(cropPath);
 
             CropEditorItem? existing = _items.FirstOrDefault(i => i.RoleKey == role.Key);
@@ -801,9 +901,10 @@ public partial class CropToolWindow : Window
                 RemoveItem(existing);
             }
 
-            double width = sourceRect.Width;
-            double height = sourceRect.Height;
-            (double x, double y) = ClampOverlay(role.DefaultX, role.DefaultY, width, height);
+            var initialSize = QuantizeItemSize(sourceRect, contentRect.w);
+            int width = initialSize.width;
+            int height = initialSize.height;
+            (int x, int y) = ClampOverlay(role.DefaultX, role.DefaultY, width, height);
 
             int z = role.DefaultZ;
             if (_items.Any(i => i.Z == z))
@@ -827,6 +928,18 @@ public partial class CropToolWindow : Window
             RuntimeLog.Fail("CROP", $"Add selection failed: {ex.Message}");
             SetStatus("Could not add that selection.");
         }
+    }
+
+    private string CropSnapshotRegionForExportPreview(string snapshotPath, SourceRect sourceRect, string roleKey)
+    {
+        var contentRect = CoordinateMath.TransformToContentAreaInt(
+            (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
+            _originalResolution);
+        var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
+            (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
+            _originalResolution,
+            HudConfig.CropDriftType(roleKey));
+        return CropSnapshotRegion(snapshotPath, new SourceRect(exportRect.x, exportRect.y, exportRect.w, exportRect.h));
     }
 
     private string CropSnapshotRegion(string snapshotPath, SourceRect rect)
@@ -1021,9 +1134,9 @@ public partial class CropToolWindow : Window
             double x = _editStartX + dx;
             double y = _editStartY + dy;
             (x, y) = SnapPosition(_activeEditItem, x, y, _activeEditItem.Width, _activeEditItem.Height);
-            (x, y) = ClampOverlay(x, y, _activeEditItem.Width, _activeEditItem.Height);
-            _activeEditItem.X = x;
-            _activeEditItem.Y = y;
+            (int ix, int iy) = ClampOverlay(x, y, _activeEditItem.Width, _activeEditItem.Height);
+            _activeEditItem.X = ix;
+            _activeEditItem.Y = iy;
         }
         else if (_composerEditMode == ComposerEditMode.ResizeBottomRight)
         {
@@ -1085,8 +1198,9 @@ public partial class CropToolWindow : Window
             width = height / aspect;
         }
 
-        item.Width = Math.Max(MinItemSize, width);
-        item.Height = Math.Max(MinItemSize, height);
+        var quantized = QuantizeItemSize(item.SourceRect, width);
+        item.Width = quantized.width;
+        item.Height = quantized.height;
     }
 
     private void ResizeFromTopLeft(CropEditorItem item, double dx)
@@ -1116,16 +1230,18 @@ public partial class CropToolWindow : Window
             x = anchorRight - width;
         }
 
-        item.X = Math.Max(0, x);
-        item.Y = Math.Max(ContentTop, y);
-        item.Width = Math.Max(MinItemSize, width);
-        item.Height = Math.Max(MinItemSize, height);
+        var quantized = QuantizeItemSize(item.SourceRect, width);
+        item.Width = quantized.width;
+        item.Height = quantized.height;
+        item.X = Math.Max(0, RoundPixel(anchorRight - item.Width));
+        item.Y = Math.Max((int)ContentTop, RoundPixel(anchorBottom - item.Height));
     }
 
     private void ApplyItemLayout(CropEditorItem item)
     {
-        item.Width = Math.Max(MinItemSize, item.Width);
-        item.Height = Math.Max(MinItemSize, item.Height);
+        var quantized = QuantizeItemSize(item.SourceRect, item.Width);
+        item.Width = quantized.width;
+        item.Height = quantized.height;
         (item.X, item.Y) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
 
         item.Root.Width = item.Width;
@@ -1151,6 +1267,19 @@ public partial class CropToolWindow : Window
         Canvas.SetLeft(item.LabelHost, labelLeft);
         Canvas.SetTop(item.LabelHost, item.Y > PortraitHeight / 2 ? -34 : item.Height + 10);
         item.LabelText.Text = item.DisplayName.ToUpperInvariant();
+    }
+
+    private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth)
+    {
+        var contentRect = CoordinateMath.TransformToContentAreaInt(
+            (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
+            _originalResolution);
+        int contentW = Math.Max(2, contentRect.w);
+        int contentH = Math.Max(2, contentRect.h);
+        double scale = Math.Max(0.0001, Math.Round(Math.Max(MinItemSize, desiredWidth) / contentW, 4));
+        int width = Math.Max((int)MinItemSize, CoordinateMath.ScaleRound(Frac.FromDouble(contentW * scale)));
+        int height = Math.Max((int)MinItemSize, CoordinateMath.ScaleRound(Frac.FromDouble(contentH * scale)));
+        return (width, height, scale);
     }
 
     private void SelectItem(CropEditorItem? item, bool updateLayerList = true)
@@ -1512,26 +1641,29 @@ public partial class CropToolWindow : Window
 
             foreach (CropEditorItem item in _items)
             {
+                var quantized = QuantizeItemSize(item.SourceRect, item.Width);
+                item.Width = quantized.width;
+                item.Height = quantized.height;
+                ApplyItemLayout(item);
+
                 var transformed = CoordinateMath.TransformToContentAreaInt(
                     (item.SourceRect.X, item.SourceRect.Y, item.SourceRect.Width, item.SourceRect.Height),
                     _originalResolution);
 
                 int cropW = Math.Max(2, transformed.w);
                 int cropH = Math.Max(2, transformed.h);
-                double scaleX = item.Width / cropW;
-                double scaleY = item.Height / cropH;
-                double scale = Math.Max(0.0001, Math.Round((scaleX + scaleY) / 2.0, 4));
-                (double ox, double oy) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
+                double scale = quantized.scale;
+                (int ox, int oy) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
 
                 crops[item.RoleKey] = new JsonArray(cropW, cropH, transformed.x, transformed.y);
                 scales[item.RoleKey] = scale;
                 overlays[item.RoleKey] = new JsonObject
                 {
-                    ["x"] = (int)Math.Round(ox),
-                    ["y"] = (int)Math.Round(oy)
+                    ["x"] = ox,
+                    ["y"] = oy
                 };
                 zOrders[item.RoleKey] = item.Z;
-                RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{transformed.x}+{transformed.y}] scale={scale:F4} overlay=({(int)Math.Round(ox)},{(int)Math.Round(oy)}) z={item.Z}");
+                RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{transformed.x}+{transformed.y}] scale={scale:F4} overlay=({ox},{oy}) z={item.Z}");
             }
 
             RuntimeLog.Info("CROP", $"Saving {_items.Count} item(s) to config (schema v{CropConfigDefaults.SchemaVersion}).");
@@ -1699,10 +1831,10 @@ public partial class CropToolWindow : Window
             if (x.RoleKey != y.RoleKey ||
                 x.CropImagePath != y.CropImagePath ||
                 !x.SourceRect.Equals(y.SourceRect) ||
-                Math.Abs(x.X - y.X) > 0.01 ||
-                Math.Abs(x.Y - y.Y) > 0.01 ||
-                Math.Abs(x.Width - y.Width) > 0.01 ||
-                Math.Abs(x.Height - y.Height) > 0.01 ||
+                x.X != y.X ||
+                x.Y != y.Y ||
+                x.Width != y.Width ||
+                x.Height != y.Height ||
                 x.Z != y.Z)
             {
                 return false;
@@ -1870,7 +2002,12 @@ public partial class CropToolWindow : Window
         {
             return _videoHost.IpcClient.CurrentTime * 1000.0;
         }
-        return _timelineSlider?.Value ?? 0;
+        if (_timelineSlider != null && _durationMs > 0)
+        {
+            return (_timelineSlider.Value / 100.0) * _durationMs;
+        }
+
+        return 0;
     }
 
     private (double x, double y) SnapPosition(CropEditorItem item, double x, double y, double width, double height)
@@ -1986,11 +2123,14 @@ public partial class CropToolWindow : Window
         _guideControls.Clear();
     }
 
-    private (double x, double y) ClampOverlay(double x, double y, double width, double height)
+    private (int x, int y) ClampOverlay(double x, double y, double width, double height)
     {
-        double maxX = Math.Max(0, PortraitWidth - width);
-        double maxY = Math.Max(ContentTop, ContentBottom - height);
-        return (Math.Max(0, Math.Min(x, maxX)), Math.Max(ContentTop, Math.Min(y, maxY)));
+        return CoordinateMath.ClampOverlayPosition(x, y, width, height);
+    }
+
+    private static int RoundPixel(double value)
+    {
+        return CoordinateMath.ScaleRound(Frac.FromDouble(value));
     }
 
     private Point ClampToSnapshot(Point point)
@@ -2162,51 +2302,6 @@ public partial class CropToolWindow : Window
         return candidates.FirstOrDefault(File.Exists) ?? fileName;
     }
 
-    private static async Task RunProcessAsync(string fileName, string arguments, TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch
-            {
-            }
-            throw new TimeoutException($"{IOPath.GetFileName(fileName)} timed out.");
-        }
-
-        string stderr = await stderrTask;
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"{IOPath.GetFileName(fileName)} failed with exit code {process.ExitCode}: {stderr}");
-        }
-    }
-
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Delete)
@@ -2368,10 +2463,10 @@ public partial class CropToolWindow : Window
         string DisplayName,
         SourceRect SourceRect,
         string CropImagePath,
-        double X,
-        double Y,
-        double Width,
-        double Height,
+        int X,
+        int Y,
+        int Width,
+        int Height,
         int Z);
 
     private sealed record EditorSnapshot(List<ItemSnapshot> Items);
@@ -2382,10 +2477,10 @@ public partial class CropToolWindow : Window
         public required string DisplayName { get; init; }
         public required SourceRect SourceRect { get; set; }
         public required string CropImagePath { get; init; }
-        public required double X { get; set; }
-        public required double Y { get; set; }
-        public required double Width { get; set; }
-        public required double Height { get; set; }
+        public required int X { get; set; }
+        public required int Y { get; set; }
+        public required int Width { get; set; }
+        public required int Height { get; set; }
         public required int Z { get; set; }
         public required Canvas Root { get; init; }
         public required Image Image { get; init; }

@@ -40,13 +40,24 @@ public class MobileFilterBuilder
         string hpKey = isBossHp ? "boss_hp" : "normal_hp";
         var activeLayers = new List<LayerSpec>();
 
-        activeLayers.RegisterLayer(mobileCoords, "hp", hpKey, hpKey, hpKey);
-        activeLayers.RegisterLayer(mobileCoords, "loot", "loot", "loot", "loot");
-        activeLayers.RegisterLayer(mobileCoords, "stats", "stats", "stats", "stats");
-        if (showSpectating)
-            activeLayers.RegisterLayer(mobileCoords, "spec", "spectating", "spectating", "spectating");
-        if (showTeammates)
-            activeLayers.RegisterLayer(mobileCoords, "team", "team", "team", "team");
+        var crops1080p = mobileCoords["crops_1080p"]?.AsObject();
+        if (crops1080p != null)
+        {
+            foreach (var kvp in crops1080p)
+            {
+                string key = kvp.Key;
+                
+                // Backwards compatibility for existing hardcoded toggles
+                if (key == "boss_hp" || key == "normal_hp")
+                {
+                    if (key != hpKey) continue;
+                }
+                else if (key == "spectating" && !showSpectating) continue;
+                else if (key == "team" && !showTeammates) continue;
+
+                activeLayers.RegisterLayer(mobileCoords, key, key, key, key);
+            }
+        }
 
         activeLayers.Sort((a, b) => a.Z.CompareTo(b.Z));
 

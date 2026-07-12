@@ -1,4 +1,113 @@
-﻿==============================================================================
+==============================================================================
+FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
+# CONDENSED PROJECT STRUCTURE & ARCHITECTURAL CONSTRAINTS
+==============================================================================
+
+CRITICAL MANDATES FOR ALL AI AGENTS:
+1. NO CACHING ALLOWED: Do not implement any memory caches, disk caches, or memoization. Operations must be real-time or stateless.
+2. *** SINGLE EXE INSTALLER ***: The output in .\COMPILED\ MUST BE EXACTLY ONE SINGLE CONDENSED `.exe` FILE containing an embedded payload (payload.zip).
+3. *** ⚠️ PORTRAIT CANVAS TRAP ⚠️ ***
+   The portrait (9:16) conversion does NOT use a simple center crop!
+   It uses the "Portrait Canvas Trick": scale -> crop -> overlay -> compose -> pad.
+   - For 1920x1080 input: scale factor = 1920/1080 = 1.778 -> 3413x1920.
+   - Then it center-crops to exactly 1280px wide (Internal Space).
+   - Surviving original horizontal width = 1280 / 1.778 = 720px (NOT 608px).
+   THE SINGLE SOURCE OF TRUTH for all portrait math is:
+   `src/FortniteVideoSoftware.Core/Media/CoordinateMath.cs`
+
+1. THE 7 BIBLICAL NORTHSTAR ARCHITECTURE KEYPOINTS
+------------------------------------------------------------------------------
+Our goal is maximum GPU utilization and Zero-Copy UI integration on a C# .NET 9 NativeAOT footprint.
+1. Zero-Copy Memory: Maintained. WGL_NV_DX_interop2 aliases the texture natively in the driver. Pixels never traverse the PCIe bus to the CPU.
+2. Native UI Composition: Maintained. The extracted IDXGIResource.SharedHandle feeds directly into Avalonia's CompositionDrawingSurface (UpdateWithKeyedMutexAsync), preserving exact Z-index overlay rendering. No NativeControlHost/HWND hacks!
+3. Maximum GPU Utilization: ⚠️ COMPROMISED BY DESIGN ⚠️.
+   CRITICAL AI WARNING: DO NOT TRY TO "FIX" THIS TO `d3d11va`.
+   Because libmpv strictly requires an OpenGL render API, and Avalonia strictly requires a D3D11 surface, we use `WGL_NV_DX_interop2`. Native `d3d11va` hardware decoders CANNOT initialize inside an OpenGL context without falling back to CPU software decoding.
+   The mandatory fix is `hwdec=cuda,dxva2,auto-safe`. The GPU uses a microscopic "translation tax" (CUDA/DXVA2 -> OpenGL -> D3D11) completely in VRAM. It is the ONLY way to retain hardware acceleration. DO NOT OUTSMART THIS.
+4. The Hybrid Graphics Compromise: Resolved. WGL-to-DX interop successfully bridges the libmpv OpenGL limitation while keeping the D3D11 surface intact for Avalonia.
+5. NativeAOT Compilation: Maintained. Uses native Windows opengl32.dll and D3D11 libraries via [LibraryImport] and [UnmanagedCallersOnly]. No ANGLE/GStreamer bloat.
+6. Front-End Editing: Maintained. The UI retains libmpv, preserving advanced caching and frame-accurate scrubbing for the timeline.
+7. Back-End Exporting: Maintained. The FFmpeg headless encoding pipeline remains completely isolated from the UI render loop.
+
+2. THE THREE (3) SUB-APPLICATIONS
+------------------------------------------------------------------------------
+The software suite comprises 3 completely separate processes to ensure strict memory isolation:
+1. MAIN App: The primary application (`MainWindow.axaml`). Handles timeline, trimming, music wizard, and final export.
+2. Video Merger: Joins separate videos via FFmpeg (`VideoMergerWindow.axaml`). Opened as a separate process.
+3. Crop Tools: Precision canvas interface (`CropToolWindow.axaml`) to export the JSON config file that powers Portrait mode coordinates. Opened as a separate process.
+AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionally run as separate executables and instantly close the Main App.
+
+3. FILE & FOLDER STRUCTURE MINIMAP
+------------------------------------------------------------------------------
+|-- Build.cmd          : Production NativeAOT compile script (bundles payload.zip -> single .exe).
+|-- dev.cmd            : Developer hot-reload entrypoint. Uses `%TMP%\Fortnite_Video_Software_DEV\.dev_data` sandbox. Never writes logs to root.
+|-- binaries\          : Hosts native backend binaries (ffmpeg.exe, mpv.exe, libmpv-2.dll).
++-- src\
+    +-- FortniteVideoSoftware.App\  : UI Layer (Avalonia, App Lifecycle, Interop)
+    |   |-- MpvVideoView.cs         : The crucial WGL_NV_DX_interop2 composition surface.
+    |   |-- MainWindow.axaml        : Main App UI (Timeline, PlayheadBadge, Markers).
+    |   |-- MusicWizardWindow.axaml : Audio sync, waveform rendering, volume memory.
+    |   |-- GranularSpeedEditorWindow.axaml: Speed segments and Freeze Image picker.
+    |   |-- VideoMergerWindow.axaml : Merger UI.
+    |   |-- CropToolWindow.axaml    : Crop configuration UI.
+    |   |-- Controls/SettingsWindow.axaml : Global settings and persistence manager.
+    +-- FortniteVideoSoftware.Core\ : Business Logic Layer
+        |-- Media/TextOverlayGenerator.cs : SkiaSharp PNG text overlay with RTL/Hebrew wrap.
+        |-- Media/GranularSpeedBuilder.cs : FFmpeg setpts/atempo filter translation.
+        |-- Media/                  : MpvIpcClient, HardwareScanner, FilterBuilder (FFmpeg math).
+        |-- Ipc/                    : Atomic state transfer between the isolated processes.
+
+4. UI & DEV RULES
+------------------------------------------------------------------------------
+- Crash Recovery: Managed via `app_session.lock` and JSON atomic writes to `%PROGRAMDATA%` (or `%TMP%\Fortnite_Video_Software_DEV\.dev_data` when using dev.cmd).
+- Logging: Use `RuntimeLog`. Dev runs write strictly to `%TMP%\Fortnite_Video_Software_DEV\`.
+- Temp / Staging: All video processing temp files are strictly isolated to `%TMP%\Fortnite_Video_Software\temp` for prod and `%TMP%\Fortnite_Video_Software_DEV\temp` for dev. Root folder and Program Files must remain pristine.
+- Shared Styles: Use globals in `AvaloniaApp.axaml` (e.g., standard `Button` height 32, `Slider` enlarged thumbs).
+- Z-Index: Always respect Avalonia native popups for overlays that need to float above standard elements. (Note: Video is now natively composited, so HWND airspace clipping is mostly resolved, but legacy popups are still used for timeline markers).
+
+5. HARDWARE RENDERING PIPELINE (THE ZERO-COPY VRAM PATH)
+------------------------------------------------------------------------------
+To fully understand the architecture (and the Keypoint 3 translation tax), this is the exact journey of a single video frame. The frame NEVER touches the CPU (RAM) after being read from disk; it stays entirely in GPU VRAM.
+
+.mp4 Video File (Disk)
+  ===> libmpv Demuxer (CPU/RAM parsing only)
+  ===> NVIDIA/AMD Hardware Decoder (VRAM via hwdec=cuda/dxva2)  [The Translation Tax Origin]
+  ===> OpenGL Framebuffer Object [FBO] (VRAM via mpv_render_context)
+  ===> WGL_NV_DX_interop2 Bridge (VRAM cross-API translation)
+  ===> D3D11 Shared Texture (VRAM)
+  ===> IDXGIKeyedMutex (VRAM sync lock, producer/consumer handshake)
+  ===> Avalonia CompositionDrawingSurface (VRAM)
+  ===> The End User's Display Monitor (GPU Swapchain)
+
+6. CURRENT CORE LOGIC & FEATURES
+------------------------------------------------------------------------------
+- Video Playback (MpvVideoView.cs & MpvIpcClient.cs): Uses libmpv via named pipes/IPC for robust frame-accurate seeking.
+- Timeline & Markers (MainWindow.axaml.cs): Custom UI Canvas drawing for playhead (PlayheadBadge), camera cuts (ThumbnailOverlayCanvas), freeze-frames, and pink music note markers. Music markers employ a strict symmetrical 40-pixel width rendering calculation to ensure the vertical stick hits the timeline X-axis with flawless sub-millisecond precision without horizontal drift. Implements 16.66ms frame-by-frame finesse via arrow keys.
+- Music Wizard & Audio (MusicWizardWindow.axaml.cs & MainWindow.axaml.cs): Audio waveform rendering, track synchronization, visual phase 3 preview, and persistent volume settings that remember user adjustments between sessions. MP3 background music directories are permanently remembered using native string-path Avalonia overloads (bypassing strict Windows URI formatting bugs). Music previews run concurrently through an isolated `MpvIpcClient` instance (replacing legacy ffplay.exe) which allows the main App Volume Slider to scale both video and music volumes smoothly, simultaneously, and proportionally without altering final FFmpeg exports.
+- Window Management & Persistence (WindowManager.cs): The Avalonia UI strictly decouples window spawn locations from XAML (removing `WindowStartupLocation="CenterOwner"` from all secondary windows) to allow the native `WindowManager` to handle precise absolute positioning, size, and display screen persistence via the `Bounds.json` / `SessionState.json` cache located in `%APPDATA%\Roaming\FortniteVideoSoftware\Settings`. This ensures that every window remembers exactly where it was last opened, even between dual-monitor setups (falling back to the main display if the external monitor is disconnected).
+- Custom Title Bar Interactions: Standardized custom XAML title bars (`TitleBarBorder`) across all tools (Crop, Merge, Granular, Settings, Music) with explicit `DoubleTapped` event handlers that reliably toggle window maximization. Mouse drag events strictly require `e.ClickCount < 2` before invoking `BeginMoveDrag` to prevent the OS window manager from swallowing the double-click sequence.
+- Granular Speed Editor (GranularSpeedEditorWindow.axaml.cs): Segmented timeline speed mapping. Default window size is enlarged to 1600x840 with manual startup location bindings to rigidly enforce position memory across sessions. Features a highly optimized timeline engine with completely decoupled animations (e.g. pure XAML blinking "PICK FREEZE TIME" indicators and a decoupled `StrokeDashOffset` timer for marching ants). This prevents infinite layout passes, eradicates mouse hover jitter/stutter, and completely avoids redundant timeline canvas clearing loops.
+- Smart Text Overlays (TextOverlayGenerator.cs): SkiaSharp-based PNG generator for Mobile portrait videos. Dynamically calculates line wrapping, iteratively shrinks font sizes to fit within a strict 150px height, and includes an intelligent Bidirectional (BIDI) text tokenizer to correctly reverse Hebrew/RTL string blocks for LTR Skia rendering.
+- FFmpeg Rendering (FfmpegWorker.cs, ProcessWorker.cs): Translates all UI selections (crops, time segments, speeds, audio) into complex FFmpeg filter graphs (FilterBuilder.cs) and executes them.
+
+7. ACTIVE ARCHITECTURAL DECISIONS
+------------------------------------------------------------------------------
+- Decision: Pure Code-Behind UI State (vs MVVM). Rationale: Allows for rapid prototyping and absolute control over granular canvas rendering coordinates, marker bounding boxes, and dispatcher timer ticks. Tradeoffs: Results in very large .cs files (e.g., MainWindow.axaml.cs), tighter coupling between UI and logic.
+- Decision: FFmpeg + SkiaSharp for Overlays. Rationale: FFmpeg's built-in drawtext filter is highly limited for dynamic line-wrapping and BIDI/RTL text rendering. Generating a transparent PNG overlay via SkiaSharp in C# and feeding it to FFmpeg is vastly more robust. Tradeoffs: Minor disk I/O cost to save/load temporary PNGs to disk before muxing.
+
+8. KNOWN LIMITATIONS & TODOS FOR THE NEXT AI AGENT
+------------------------------------------------------------------------------
+- Refactoring MainWindow.axaml.cs: The main window code-behind is extremely large; separating Canvas drawing logic, marker tracking, and event handlers into dedicated controls/services would vastly improve maintainability.
+- Multi-Platform Support: Hardcoded Windows dependencies (such as ChildProcessTracker.cs Job Objects, win-x64 build targets, and OS-level window handles for mpv) prevent immediate macOS/Linux builds.
+- SkiaSharp Overlay Scaling: TextOverlayGenerator generates at exactly 1080px width; if the output resolution dynamically changes in the future, these dimensions must be proportionally scaled.
+
+[NVIDIA Highlights Probing & Upload Directory Memory]
+When the app is freshly installed and no config exists, the default upload video folder MUST probe and fallback to the NVIDIA Fortnite highlight folder. Probes strictly include raw hardcoded %USERPROFILE%\Videos\Fortnite and %USERPROFILE%\Videos\Highlights\Fortnite arrays in addition to standard Windows special folders. This guarantees detection even if Windows OneDrive hijacking redirects the default MyVideos path. Once the user uploads any video, the chosen directory path is cached into `UploadVideoDirectory` and explicitly restored on all subsequent opens via Avalonia's `SuggestedStartLocation`.
+
+9. LATEST SESSION UPDATES (CHANGELOG)
+------------------------------------------------------------------------------
+- Z-Index Timeline Canvas Fix: To ensure the timeline dragging functionality remains flawless and markers stay above background layers, the `TimelineMarkersCanvas` was split into an independent Z-layered approach using `TimelineBottomCanvas` and `TimelineMarkersCanvas`. Markers have an explicit `ZIndex = 100` setting.
+==============================================================================
 FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
 # CONDENSED PROJECT STRUCTURE & ARCHITECTURAL CONSTRAINTS
 ==============================================================================
@@ -111,3 +220,7 @@ When the app is freshly installed and no config exists, the default upload video
 - Persistent UI Elements: The Quality and Speed panels in `MainWindow.axaml` were set to be visible by default (removed `IsVisible="False"`) so that they are readily available to the user.
 - Drag Interaction Jitter Fix: The timeline canvas drawing code in `MainWindow` and `GranularSpeedEditorWindow` was heavily optimized. We removed continuous IPC `seek` calls during `PointerMoved` events for the camera markers and timeline markers. Instead, seeking is suppressed to prevent IPC flooding/UI stutter and is only executed on `PointerReleased`.
 - Memory & Caching Fixes: A persistent bug related to Avalonia URI formatting when reading paths from the `%APPDATA%\Roaming\FortniteVideoSoftware\Settings` cache was resolved by ensuring robust `System.Uri` parsing for custom folder paths.
+- Fade Logic & Edge Cases: The FFmpeg `ProcessWorker` enforces the "Enable Fade" toggle through a strict >0.5s pre-roll buffer requirement. It is highly coupled with several edge-case sub-systems: (1) **Speed**: Fades dynamically multiply against `SpeedFactor` to maintain 1-second human-time durations. (2) **Thumbnails**: A 0.1-second static frame is prepended before the fade-in to prevent pitch-black thumbnails on Discord/YouTube (defaulting to the 66% timestamp `(2/3)` mark of the video if a custom thumbnail wasn't selected). (3) **Memes**: Memes receive independent fade-outs. (4) **Music**: `AudioFilterChain` overrides video fades entirely, enforcing gentle 1.5s audio fades, or extending master audio fades across appended memes.
+- HUD Element Synchronization & Math: Hand-off logic between the Crop Tools wizard and the Main App `MobileFilterBuilder` now supports truly dynamic HUD element profiles. Users are no longer restricted to 5 items; they can define custom JSON profiles containing 1 to 10+ crops. `CoordinateMath.cs` evaluates fractional bounding boxes across the incoming video (guaranteed 16:9), ensuring elements correctly scale into the 9:16 Portrait Canvas Trick pipeline regardless of native resolution (1080p, 1440p, 4K). Selected profiles are instantly passed between processes via `MaskOverlayManager` and securely cached across reboots to permanently remember the user's custom layout choice.
+[ADDED 2026-07-12]: NAudio integrated for VoiceOver Studio logic (VoiceRecorder, FrequencyProber) with loudnorm DB matching.
+- VoiceOver Timeline & Multi-Recording: VoiceOver studio was fully constrained to `Mark Start` and `Mark End` segments. Visuals now include a top `TimelineRulerCanvas` with an interactive dragging caret playhead. Implemented multi-clip overlapping recording session memory, visualizing recorded regions as 40% red blocks, and utilizing an under-the-hood `ffmpeg filter_complex` with `adelay` and `amix` to dynamically merge all takes into a single master track upon completion.

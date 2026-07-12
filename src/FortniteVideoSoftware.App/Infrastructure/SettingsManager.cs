@@ -78,6 +78,13 @@ public class DefaultValues
     public bool RememberMusicVolumes { get; set; } = true;
 }
 
+[JsonSerializable(typeof(AppSettings))]
+[JsonSerializable(typeof(KeyBinds))]
+[JsonSerializable(typeof(DefaultValues))]
+[JsonSerializable(typeof(CheckboxDefaultBehavior))]
+[JsonSerializable(typeof(ValueDefaultBehavior))]
+public partial class SettingsJsonContext : JsonSerializerContext { }
+
 public static class SettingsManager
 {
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
@@ -91,7 +98,7 @@ public static class SettingsManager
             try
             {
                 var json = File.ReadAllText(SettingsPath);
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json);
+                var loaded = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings);
                 if (loaded != null) Instance = loaded;
             }
             catch (Exception ex)
@@ -105,7 +112,9 @@ public static class SettingsManager
     {
         try
         {
-            var json = JsonSerializer.Serialize(Instance, new JsonSerializerOptions { WriteIndented = true });
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            options.TypeInfoResolver = SettingsJsonContext.Default;
+            var json = JsonSerializer.Serialize(Instance, options);
             string tempFile = SettingsPath + ".tmp";
             File.WriteAllText(tempFile, json);
             File.Move(tempFile, SettingsPath, overwrite: true);

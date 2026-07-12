@@ -108,11 +108,12 @@
                                     BorderThickness="0,1,0,0"
                                     Padding="12,6">
                                 <Grid ColumnDefinitions="220,*,150">
-                                    <ComboBox Name="RoleCombo"
-                                              Grid.Column="0"
-                                              Height="30"
-                                              Foreground="White"
-                                              Background="{DynamicResource AppPanelBrush}" />
+                                    <TextBox Name="RoleTextBox"
+                                             Watermark="Element Name (e.g. Ammo)"
+                                             Grid.Column="0"
+                                             Height="30"
+                                             Foreground="White"
+                                             Background="{DynamicResource AppPanelBrush}" />
                                     <TextBlock Name="SelectionInfo"
                                                Grid.Column="1"
                                                Text="Draw a box around a HUD element, then assign its role."

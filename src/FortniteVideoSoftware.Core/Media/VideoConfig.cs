@@ -52,6 +52,6 @@ public class VideoConfig
     {
         paths ??= ApplicationPaths.CreateDefault();
         var store = new Ipc.CropConfigStore(paths);
-        return await store.LoadAsync();
+        return HudConfig.Sanitize(await store.LoadAsync(), migrateLegacy: false);
     }
 }

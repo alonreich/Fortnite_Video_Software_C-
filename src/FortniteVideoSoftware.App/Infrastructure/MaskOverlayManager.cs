@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -56,6 +56,7 @@ public static class MaskOverlayManager
 
     public static void ApplyProfile(string profileName)
     {
+        EnsureDefaults();
         var pPath = Path.Combine(ProfilesDirectory, profileName + ".json");
         if (File.Exists(pPath))
         {

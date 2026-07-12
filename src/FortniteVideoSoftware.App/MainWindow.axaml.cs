@@ -38,6 +38,12 @@ public partial class MainWindow : Window
 
     private double _trimStartMs = 0;
     private double _trimEndMs = 0;
+    private bool _trimEndSet = false;
+
+    private VoiceOverWindow.VoiceOverResult? _voiceOverResult;
+    private NAudio.Wave.WaveOutEvent? _voiceOverPlayer;
+    private NAudio.Wave.AudioFileReader? _voiceOverReader;
+
     private double _thumbnailPosMs = 0;
     private bool _thumbnailSet = false;
 
@@ -48,7 +54,6 @@ public partial class MainWindow : Window
     private double _previousVolume = 100;
 
     private bool _trimStartSet = false;
-    private bool _trimEndSet = false;
 
     private string FormatTime(TimeSpan time, bool includeMilliseconds = false)
     {
@@ -170,6 +175,7 @@ public partial class MainWindow : Window
         this.Loaded += (s, e) => InitializeMpv();
 
         SettingsManager.Load();
+        FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay);
 
         var settingsBtn = this.FindControl<MenuItem>("MenuSettingsBtn");
         if (settingsBtn != null)
@@ -523,6 +529,34 @@ public partial class MainWindow : Window
             };
         }
 
+        var voiceOverButton = this.FindControl<Button>("VoiceOverButton");
+        if (voiceOverButton != null)
+        {
+            voiceOverButton.Click += async (s, e) =>
+            {
+                if (string.IsNullOrEmpty(_loadedVideoPath)) return;
+
+                if (_voiceOverResult != null)
+                {
+                    ApplyVoiceOverState(null);
+                    ShowTacticalFeedback("Voice Over Removed");
+                    return;
+                }
+
+                bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
+                if (wasPlaying) _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+
+                var dialog = new VoiceOverWindow(_loadedVideoPath, GetCurrentMpvTime(), _trimStartMs, _trimEndSet ? _trimEndMs : 0);
+                await dialog.ShowDialog(this);
+
+                if (dialog.Result != null)
+                {
+                    ApplyVoiceOverState(dialog.Result);
+                    ShowTacticalFeedback("Voice Over Applied");
+                }
+            };
+        }
+
         var markStartButton = this.FindControl<Button>("MarkStartButton");
         if (markStartButton != null)
         {
@@ -832,7 +866,7 @@ public partial class MainWindow : Window
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
             var newObj = new System.Text.Json.Nodes.JsonObject();
-            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
+            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
             foreach (var key in preserveKeys) {
                 if (state.TryGetPropertyValue(key, out var gb)) {
                     newObj[key] = gb?.DeepClone();
@@ -1278,6 +1312,8 @@ public partial class MainWindow : Window
         if (addMusic != null) addMusic.IsEnabled = false;
         var gran = this.FindControl<Button>("GranularButton");
         if (gran != null) gran.IsEnabled = false;
+        var voBtn = this.FindControl<Button>("VoiceOverButton");
+        if (voBtn != null) voBtn.IsEnabled = false;
         
         SaveRecoveryState();
     }
@@ -1398,6 +1434,9 @@ public partial class MainWindow : Window
 
         var playPause = this.FindControl<Button>("PlayPauseButton");
         if (playPause != null) playPause.IsEnabled = true;
+        
+        var voiceOver = this.FindControl<Button>("VoiceOverButton");
+        if (voiceOver != null) voiceOver.IsEnabled = true;
 
         var markEnd = this.FindControl<Button>("MarkEndButton");
         if (markEnd != null) markEnd.IsEnabled = true;
@@ -2912,6 +2951,32 @@ public partial class MainWindow : Window
             }
         }
 
+        if (_voiceOverResult != null && _voiceOverPlayer != null && _voiceOverReader != null)
+        {
+            bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
+            if (_isCurrentlyFrozen) isPaused = false;
+            
+            double voiceTime = time - _voiceOverResult.VoiceOverStartTimestampSec;
+            bool shouldPlayVoice = !isPaused && voiceTime >= 0 && voiceTime <= _voiceOverReader.TotalTime.TotalSeconds;
+            
+            if (shouldPlayVoice && _voiceOverPlayer.PlaybackState != NAudio.Wave.PlaybackState.Playing)
+            {
+                _voiceOverReader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                _voiceOverPlayer.Play();
+            }
+            else if (!shouldPlayVoice && _voiceOverPlayer.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+            {
+                _voiceOverPlayer.Pause();
+            }
+            else if (shouldPlayVoice && _voiceOverPlayer.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+            {
+                if (Math.Abs(_voiceOverReader.CurrentTime.TotalSeconds - voiceTime) > 0.5)
+                {
+                    _voiceOverReader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                }
+            }
+        }
+
         double currentAbsMs = time * 1000.0;
 
         if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !ActiveVideoHost.IpcClient.IsPaused)
@@ -3280,6 +3345,14 @@ public partial class MainWindow : Window
             worker.SpeedSegments = allSegments;
             worker.SpeedFactor = _baseSpeed;
             worker.ThumbnailPosMs = _thumbnailSet ? _thumbnailPosMs : 0;
+            if (_voiceOverResult != null)
+            {
+                worker.VoiceOverWavPath = _voiceOverResult.VoiceOverWavPath;
+                worker.VoiceOverStartSec = _voiceOverResult.VoiceOverStartTimestampSec;
+                worker.VoiceOverMuteMale = _voiceOverResult.MuteMale;
+                worker.VoiceOverMuteFemale = _voiceOverResult.MuteFemale;
+                worker.VoiceOverMuteChild = _voiceOverResult.MuteChild;
+            }
             if (_thumbnailSet && _thumbnailPosMs > 0)
             {
                 worker.IntroAbsTimeMs = _thumbnailPosMs;
@@ -3593,13 +3666,58 @@ public partial class MainWindow : Window
     /// (recovery_v2.json) so it can be restored if the app crashes.
     /// Called on every meaningful state change (trim, speed, quality, etc.).
     /// </summary>
+    private void ApplyVoiceOverState(VoiceOverWindow.VoiceOverResult? result, bool isRestore = false)
+    {
+        _voiceOverResult = result;
+        var btn = this.FindControl<Button>("VoiceOverButton");
+        var text = this.FindControl<TextBlock>("VoiceOverText");
+
+        _voiceOverPlayer?.Dispose();
+        _voiceOverPlayer = null;
+        _voiceOverReader?.Dispose();
+        _voiceOverReader = null;
+
+        if (_voiceOverResult != null && !string.IsNullOrEmpty(_voiceOverResult.VoiceOverWavPath) && System.IO.File.Exists(_voiceOverResult.VoiceOverWavPath))
+        {
+            if (btn != null)
+            {
+                btn.Classes.Remove("Primary");
+                if (!btn.Classes.Contains("Danger")) btn.Classes.Add("Danger");
+            }
+            if (text != null) text.Text = " REMOVE VOICEOVER  ";
+
+            try
+            {
+                _voiceOverReader = new NAudio.Wave.AudioFileReader(_voiceOverResult.VoiceOverWavPath);
+                _voiceOverPlayer = new NAudio.Wave.WaveOutEvent();
+                _voiceOverPlayer.Init(_voiceOverReader);
+            }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("MainWindow", $"Failed to load VoiceOver preview: {ex.Message}");
+            }
+        }
+        else
+        {
+            _voiceOverResult = null;
+            if (btn != null)
+            {
+                btn.Classes.Remove("Danger");
+                if (!btn.Classes.Contains("Primary")) btn.Classes.Add("Primary");
+            }
+            if (text != null) text.Text = " VOICE OVER  ";
+        }
+
+        if (!isRestore) SaveRecoveryState();
+    }
+
     private void SaveRecoveryState()
     {
         if (_isRestoring) return;
         try
         {
             bool hasWork = _trimStartSet || _trimEndSet || _thumbnailSet || 
-                           _isGranularSpeedActive || _isMusicActive || 
+                           _isGranularSpeedActive || _isMusicActive || _voiceOverResult != null ||
                            _speedSegments.Count > 0 || _freezeTimeMs >= 0 || 
                            Math.Abs(_baseSpeed - 1.0) > 0.01 || 
                            !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
@@ -3635,6 +3753,15 @@ public partial class MainWindow : Window
                 ["freezeTimeMs"] = _freezeTimeMs,
                 ["freezeDurationS"] = _freezeDurationS
             };
+
+            if (_voiceOverResult != null)
+            {
+                state["voiceOverWavPath"] = _voiceOverResult.VoiceOverWavPath;
+                state["voiceOverStartSec"] = _voiceOverResult.VoiceOverStartTimestampSec;
+                state["voiceOverMuteMale"] = _voiceOverResult.MuteMale;
+                state["voiceOverMuteFemale"] = _voiceOverResult.MuteFemale;
+                state["voiceOverMuteChild"] = _voiceOverResult.MuteChild;
+            }
 
             RuntimeLog.Info("RECOVERY", "Preparing crash recovery state dump...");
             if (_freezeTimeMs >= 0)
@@ -3854,6 +3981,23 @@ public partial class MainWindow : Window
                 UpdateEstimatedQuality();
                 UpdateSpeedLabel();
                 UpdateTimelineMarkers();
+
+                if (state.TryGetPropertyValue("voiceOverWavPath", out var wavPathNode))
+                {
+                    var wavPath = wavPathNode?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(wavPath) && System.IO.File.Exists(wavPath))
+                    {
+                        var resultObj = new VoiceOverWindow.VoiceOverResult
+                        {
+                            VoiceOverWavPath = wavPath,
+                            VoiceOverStartTimestampSec = state["voiceOverStartSec"]?.GetValue<double>() ?? 0,
+                            MuteMale = state["voiceOverMuteMale"]?.GetValue<bool>() ?? false,
+                            MuteFemale = state["voiceOverMuteFemale"]?.GetValue<bool>() ?? false,
+                            MuteChild = state["voiceOverMuteChild"]?.GetValue<bool>() ?? false
+                        };
+                        ApplyVoiceOverState(resultObj, true);
+                    }
+                }
 
                 RuntimeLog.Success("RECOVERY", $"Session restored. Video={videoPath}, Trim={_trimStartMs}ms-{_trimEndMs}ms, Segments={_speedSegments.Count}, GranularActive={_isGranularSpeedActive}, MusicActive={_isMusicActive}");
                 ShowTacticalFeedback("Previous session restored after crash");

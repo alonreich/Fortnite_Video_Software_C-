@@ -45,6 +45,12 @@ public class ProcessWorker : IDisposable
     public double MusicVolume { get; set; } = 0.8;
     public bool KeepMusicDuringMeme { get; set; }
 
+    public string? VoiceOverWavPath { get; set; }
+    public double VoiceOverStartSec { get; set; }
+    public bool VoiceOverMuteMale { get; set; }
+    public bool VoiceOverMuteFemale { get; set; }
+    public bool VoiceOverMuteChild { get; set; }
+
     public ProcessWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
@@ -288,13 +294,33 @@ public class ProcessWorker : IDisposable
                     if (sourceHasAudio)
                     {
                         var atempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        coreFilters.Add($"[0:a]asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
+                        string gameAudioFilters = "";
+                        if (!string.IsNullOrEmpty(VoiceOverWavPath))
+                        {
+                            if (VoiceOverMuteMale) gameAudioFilters += "bandreject=f=125:width_type=h:w=95,";
+                            if (VoiceOverMuteFemale) gameAudioFilters += "bandreject=f=210:width_type=h:w=85,";
+                            if (VoiceOverMuteChild) gameAudioFilters += "bandreject=f=325:width_type=h:w=150,";
+                        }
+                        coreFilters.Add($"[0:a]{gameAudioFilters}asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
                     else
                     {
                         coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={gDur:F4},asetpts=PTS-STARTPTS[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
+                    }
+
+                    if (!string.IsNullOrEmpty(VoiceOverWavPath))
+                    {
+                        int voiceOverInputIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
+                        
+                        double rawGameLufs = -14.0 - VolumeNormalizeDb;
+                        rawGameLufs = Math.Clamp(rawGameLufs, -70.0, -5.0);
+                        string voLoudnorm = $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5";
+
+                        coreFilters.Add($"[{voiceOverInputIndex}:a]aresample=48000:async=1,{voLoudnorm},adelay={(int)(VoiceOverStartSec * 1000)}|{(int)(VoiceOverStartSec * 1000)}[vo_delayed]");
+                        coreFilters.Add($"{aPreparedPad}[vo_delayed]amix=inputs=2:duration=first:dropout_transition=2[a_mixed_vo]");
+                        aPreparedPad = "[a_mixed_vo]";
                     }
                 }
 
@@ -504,6 +530,9 @@ public class ProcessWorker : IDisposable
 
                         if (MemeFile != null)
                             ffmpegArgs.AddRange(["-i", MemeFile]);
+                            
+                        if (!string.IsNullOrEmpty(VoiceOverWavPath))
+                            ffmpegArgs.AddRange(["-i", VoiceOverWavPath]);
 
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         ffmpegArgs.AddRange(["-map", vOutputFinal, "-map", aOutputFinal]);

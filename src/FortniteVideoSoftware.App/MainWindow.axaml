@@ -151,20 +151,18 @@
             <Grid Grid.Row="1" RowDefinitions="Auto, Auto" Margin="10,8,10,8">
                 <!-- Upper Row -->
                 <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <StackPanel Orientation="Horizontal" Spacing="15" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="SetThumbnailButton" Classes="Primary" Width="160" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
-                            <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                                <TextBlock Name="SetThumbnailText" Text=" SET THUMBNAIL " FontSize="9" VerticalAlignment="Center" Margin="6,0,6,0" />
-                                <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
+                    <Button Name="SetThumbnailButton" Classes="Primary" Width="160" Height="36" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
+                        <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
+                            <TextBlock Name="SetThumbnailText" Text=" SET THUMBNAIL " FontSize="9" VerticalAlignment="Center" Margin="6,0,6,0" />
+                            <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
+                        </StackPanel>
+                    </Button>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="115" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Mark the beginning of your clip"/>
                         <!-- Drawn shapes for crisp white play/pause icons (no emoji blue tint) -->
-                        <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="36" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -177,12 +175,20 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" IsEnabled="False" ToolTip.Tip="Adjust granular speed settings"/>
+                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="36" IsEnabled="False" ToolTip.Tip="Adjust granular speed settings"/>
                     </StackPanel>
                 </Grid>
 
                 <!-- Bottom Row -->
                 <Grid Grid.Row="1" Margin="0,8,0,0">
+                    <Button Name="VoiceOverButton" Classes="Primary" Width="160" Height="36" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Open Voice Over Studio">
+                        <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Fill="White" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(-1px)" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z"/>
+                            <TextBlock Name="VoiceOverText" Text=" VOICE OVER  " FontSize="9" VerticalAlignment="Center" Margin="6,0,6,0" />
+                            <Path Fill="White" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(-1px)" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z"/>
+                        </StackPanel>
+                    </Button>
+
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel Name="QualityPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
                             <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />

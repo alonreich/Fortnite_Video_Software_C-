@@ -1,6 +1,7 @@
 ﻿
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
+using FortniteVideoSoftware.Core.Ipc;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -10,7 +11,7 @@ public static class HudConfig
     public static readonly string[] HudKeys = ["loot", "stats", "normal_hp", "boss_hp", "team", "spectating"];
 
     public const string HudCoordinateSpace = "content_1080x1620";
-    public const int HudSchemaVersion = 2;
+    public const int HudSchemaVersion = CropConfigDefaults.SchemaVersion;
 
     public static readonly Dictionary<string, int> ZDefaults = new()
     {
@@ -24,48 +25,7 @@ public static class HudConfig
 
     public static JsonObject CreateDefault()
     {
-        var config = new JsonObject
-        {
-            ["schema_version"] = HudSchemaVersion,
-            ["coordinate_space"] = HudCoordinateSpace,
-            ["crops_1080p"] = new JsonObject
-            {
-                ["loot"] = new JsonArray(0, 0, 0, 0),
-                ["stats"] = new JsonArray(0, 0, 0, 0),
-                ["normal_hp"] = new JsonArray(0, 0, 0, 0),
-                ["boss_hp"] = new JsonArray(0, 0, 0, 0),
-                ["team"] = new JsonArray(0, 0, 0, 0),
-                ["spectating"] = new JsonArray(0, 0, 0, 0),
-            },
-            ["scales"] = new JsonObject
-            {
-                ["loot"] = 1.0,
-                ["stats"] = 1.0,
-                ["team"] = 1.0,
-                ["normal_hp"] = 1.0,
-                ["boss_hp"] = 1.0,
-                ["spectating"] = 1.0,
-            },
-            ["overlays"] = new JsonObject
-            {
-                ["loot"] = new JsonObject { ["x"] = 680, ["y"] = 1370 },
-                ["stats"] = new JsonObject { ["x"] = 730, ["y"] = 150 },
-                ["team"] = new JsonObject { ["x"] = 30, ["y"] = 250 },
-                ["normal_hp"] = new JsonObject { ["x"] = 30, ["y"] = 1620 },
-                ["boss_hp"] = new JsonObject { ["x"] = 30, ["y"] = 1620 },
-                ["spectating"] = new JsonObject { ["x"] = 30, ["y"] = 1300 },
-            },
-            ["z_orders"] = new JsonObject
-            {
-                ["loot"] = 10,
-                ["normal_hp"] = 20,
-                ["boss_hp"] = 20,
-                ["stats"] = 30,
-                ["team"] = 40,
-                ["spectating"] = 100,
-            },
-        };
-        return config;
+        return CropConfigDefaults.Create();
     }
 
     /// <summary>
@@ -95,9 +55,19 @@ public static class HudConfig
         {
             double raw = value.GetValue<double>();
             if (!double.IsFinite(raw)) return defaultValue;
-            return Math.Round(Math.Max(0.0001, Math.Min(8.0, raw)), 4);
+            return Math.Round(Math.Max(0.0001, Math.Min(8.0, raw)), 4, MidpointRounding.AwayFromZero);
         }
         catch { return defaultValue; }
+    }
+
+    private static int ReadArrayInt(JsonArray arr, int index, int defaultValue = 0)
+    {
+        if (index < 0 || index >= arr.Count)
+        {
+            return defaultValue;
+        }
+
+        return ToInt(arr[index], defaultValue);
     }
 
     private static bool IsCurrentSpace(JsonObject config)
@@ -148,11 +118,21 @@ public static class HudConfig
             int[] rect;
             if (rectNode is JsonArray arr && arr.Count >= 4)
             {
-                rect = [arr[0]!.GetValue<int>(), arr[1]!.GetValue<int>(), arr[2]!.GetValue<int>(), arr[3]!.GetValue<int>()];
+                rect = [
+                    ReadArrayInt(arr, 0),
+                    ReadArrayInt(arr, 1),
+                    ReadArrayInt(arr, 2),
+                    ReadArrayInt(arr, 3)
+                ];
             }
             else if (defaultCrops[key] is JsonArray defArr && defArr.Count >= 4)
             {
-                rect = [defArr[0]!.GetValue<int>(), defArr[1]!.GetValue<int>(), defArr[2]!.GetValue<int>(), defArr[3]!.GetValue<int>()];
+                rect = [
+                    ReadArrayInt(defArr, 0),
+                    ReadArrayInt(defArr, 1),
+                    ReadArrayInt(defArr, 2),
+                    ReadArrayInt(defArr, 3)
+                ];
             }
             else
             {
@@ -201,8 +181,8 @@ public static class HudConfig
             }
 
             var crop = cropsObj[key] as JsonArray;
-            double cropW = crop != null ? crop[0]!.GetValue<int>() : 0;
-            double cropH = crop != null ? crop[1]!.GetValue<int>() : 0;
+            double cropW = crop != null ? ReadArrayInt(crop, 0) : 0;
+            double cropH = crop != null ? ReadArrayInt(crop, 1) : 0;
             double scaleVal = scalesObj[key]!.GetValue<double>();
             int width = Math.Max(1, CoordinateMath.ScaleRound(Frac.FromDouble(cropW * scaleVal)));
             int height = Math.Max(1, CoordinateMath.ScaleRound(Frac.FromDouble(cropH * scaleVal)));
@@ -245,9 +225,9 @@ public static class HudConfig
                 issues.Add($"Invalid crop data for '{kvp.Key}'");
                 continue;
             }
-            int w = rect[0]!.GetValue<int>();
-            int h = rect[1]!.GetValue<int>();
-            if (w < 0 || h < 0 || h > CoordinateConstants.ContentH)
+            int w = ReadArrayInt(rect, 0);
+            int h = ReadArrayInt(rect, 1);
+            if (w <= 0 || h <= 0 || h > CoordinateConstants.ContentH)
                 issues.Add($"Invalid crop dimensions for '{kvp.Key}'");
         }
 

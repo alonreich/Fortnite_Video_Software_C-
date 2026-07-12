@@ -1,0 +1,204 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
+        x:Class="FortniteVideoSoftware.App.VoiceOverWindow"
+        Title="Voice Over Studio"
+        Width="1600" Height="840"
+        Background="{DynamicResource AppSurfaceBrush}"
+        MinWidth="900" MinHeight="600"
+        CanResize="True"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+                <Grid Grid.Row="1" RowDefinitions="*, Auto">
+
+                    <!-- MAIN BODY -->
+                    <Grid Grid.Row="0" ColumnDefinitions="*, 280">
+
+                        <!-- LEFT: Video preview + timeline -->
+                        <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
+
+                            <!-- Video preview -->
+                            <Border Name="VideoAreaBorder" Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
+                                <Grid>
+                                    <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                    <!-- Playhead overlay (optional) -->
+                                </Grid>
+                            </Border>
+
+                            <!-- Timeline and controls -->
+                            <Grid Grid.Row="1" Margin="0,15,0,0">
+                                <StackPanel Orientation="Vertical" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20">
+                                        
+                                        <!-- Realistic Mic Button -->
+                                        <Button Name="MicRecordButton" Width="90" Height="90" ToolTip.Tip="Toggle Record/Pause (Shortcut: V)" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand">
+                                            <Button.Styles>
+                                                <Style Selector="Button">
+                                                    <Setter Property="Template">
+                                                        <ControlTemplate>
+                                                            <Grid>
+                                                                <!-- Outer Rim Bezel (Metallic Dark) -->
+                                                                <Ellipse Fill="#2c2f33" Stroke="#111111" StrokeThickness="4"/>
+                                                                
+                                                                <!-- Inner Blue Button Body (with 3D gradient) -->
+                                                                <Ellipse Margin="6" Name="InnerGlow">
+                                                                    <Ellipse.Fill>
+                                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
+                                                                            <GradientStop Color="#4d94ff" Offset="0"/>
+                                                                            <GradientStop Color="#0047b3" Offset="1"/>
+                                                                        </RadialGradientBrush>
+                                                                    </Ellipse.Fill>
+                                                                </Ellipse>
+
+                                                                <!-- Top Highlight for 3D sphere glass look -->
+                                                                <Ellipse Margin="15,8,15,50" Opacity="0.3">
+                                                                    <Ellipse.Fill>
+                                                                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                                                            <GradientStop Color="White" Offset="0" />
+                                                                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                                                                        </LinearGradientBrush>
+                                                                    </Ellipse.Fill>
+                                                                </Ellipse>
+
+                                                                <!-- Mic Icon -->
+                                                                <Path Fill="White" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="5,0,-5,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                            </Grid>
+                                                        </ControlTemplate>
+                                                    </Setter>
+                                                </Style>
+                                                <!-- Pointer Over State (Blue) -->
+                                                <Style Selector="Button:pointerover /template/ Ellipse#InnerGlow">
+                                                    <Setter Property="Fill">
+                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
+                                                            <GradientStop Color="#66a3ff" Offset="0"/>
+                                                            <GradientStop Color="#003d99" Offset="1"/>
+                                                        </RadialGradientBrush>
+                                                    </Setter>
+                                                </Style>
+                                                <!-- Recording State (Darker Red) -->
+                                                <Style Selector="Button.recording /template/ Ellipse#InnerGlow">
+                                                    <Setter Property="Fill">
+                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
+                                                            <GradientStop Color="#cc0000" Offset="0"/>
+                                                            <GradientStop Color="#800000" Offset="1"/>
+                                                        </RadialGradientBrush>
+                                                    </Setter>
+                                                </Style>
+                                                <Style Selector="Button.recording:pointerover /template/ Ellipse#InnerGlow">
+                                                    <Setter Property="Fill">
+                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
+                                                            <GradientStop Color="#e60000" Offset="0"/>
+                                                            <GradientStop Color="#990000" Offset="1"/>
+                                                        </RadialGradientBrush>
+                                                    </Setter>
+                                                </Style>
+                                                <!-- Pressed State -->
+                                                <Style Selector="Button:pressed /template/ Ellipse#InnerGlow">
+                                                    <Setter Property="Margin" Value="8"/>
+                                                </Style>
+                                            </Button.Styles>
+                                        </Button>
+                                        
+                                        <!-- Recording Indicator & EQ -->
+                                        <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10">
+                                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <Ellipse Name="RecordingLight" Width="16" Height="16" Fill="Red" Opacity="0.2"/>
+                                                <TextBlock Name="RecordingStatusText" Text="READY" Foreground="White" FontSize="16" FontWeight="Bold"/>
+                                            </StackPanel>
+                                            
+                                            <!-- EQ Meter -->
+                                            <Border BorderBrush="#333" BorderThickness="1" Background="#111" CornerRadius="4" Width="150" Height="20" ClipToBounds="True">
+                                                <Rectangle Name="EqMeter" Width="0" Height="20" HorizontalAlignment="Left" Fill="#00FF00" />
+                                            </Border>
+                                        </StackPanel>
+
+                                        <!-- Play Pause -->
+                                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" Margin="30,0,0,0">
+                                            <Panel Width="16" Height="16">
+                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                                                <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                                </StackPanel>
+                                            </Panel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <!-- Two 60px Lanes -->
+                                    <Border BorderBrush="#444" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0">
+                                        <Grid RowDefinitions="20, 60, 60">
+                                            <!-- Ruler -->
+                                            <Canvas Name="TimelineRulerCanvas" Grid.Row="0" Background="#222" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+                                            <!-- Thumbnails -->
+                                            <Grid Name="ThumbnailLaneGrid" Grid.Row="1" Background="#111">
+                                                <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <Border Name="ThumbLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#facc15" Background="#222"/>
+                                                        <TextBlock Text="Generating Frames..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <!-- We can generate Images via code or just a Canvas -->
+                                                <Canvas Name="ThumbnailCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                <!-- Playhead Marker -->
+                                                <Line Name="ThumbPlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="Red" StrokeThickness="2" />
+                                            </Grid>
+
+                                            <!-- Waveform -->
+                                            <Grid Name="WaveformLaneGrid" Grid.Row="2" Background="#0A0A0A">
+                                                <Image Name="WaveformLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <Border Name="WaveformLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#3b82f6" Background="#222"/>
+                                                        <TextBlock Text="Generating Waveform..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Canvas Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                <Line Name="WavePlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="Red" StrokeThickness="2" />
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+
+                        <!-- RIGHT PANEL: Probing & Options -->
+                        <Border Grid.Column="1" Background="#1A1A1A" BorderBrush="#333" BorderThickness="1,0,0,0" Padding="15">
+                            <StackPanel Orientation="Vertical" Spacing="15">
+                                <TextBlock Text="FREQUENCY PROBER" FontSize="16" FontWeight="Bold" Foreground="White" />
+                                <TextBlock Text="Scanning original video audio..." Name="ProbingStatusText" FontSize="12" Foreground="#888" TextWrapping="Wrap"/>
+                                
+                                <Border Background="#222" CornerRadius="4" Padding="10">
+                                    <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
+                                        <CheckBox Name="MuteMaleCb" Content="Mute Adult Male" />
+                                        <CheckBox Name="MuteFemaleCb" Content="Mute Female" />
+                                        <CheckBox Name="MuteChildCb" Content="Mute Child/Youngster" />
+                                    </StackPanel>
+                                </Border>
+                                
+                                <TextBlock Text="Warning: Frequency muting will affect game bass." FontSize="10" Foreground="#666" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- BOTTOM ROW (Apply / Cancel) -->
+                    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="#333" Padding="12,12,12,12">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="15">
+                            <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="100"/>
+                            <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" Width="140"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
