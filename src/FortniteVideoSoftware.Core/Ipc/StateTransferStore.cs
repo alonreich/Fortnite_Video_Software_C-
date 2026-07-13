@@ -16,7 +16,8 @@ public sealed class StateTransferStore
         "CropToolBounds",
         "GranularBounds",
         "MusicWizardBounds",
-        "SettingsBounds"
+        "SettingsBounds",
+        "VoiceOverWindowBounds"
     ];
     private static readonly string[] DirectoryPreferenceKeys =
     [

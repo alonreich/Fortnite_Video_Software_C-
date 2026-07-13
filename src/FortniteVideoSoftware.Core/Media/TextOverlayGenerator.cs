@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -149,7 +149,6 @@ public static class TextOverlayGenerator
             
             if (isHebrewWord)
             {
-                // Flush any accumulated LTR tokens in their original forward order
                 if (ltrBuffer.Count > 0)
                 {
                     ltrBuffer.Reverse();
@@ -163,12 +162,10 @@ public static class TextOverlayGenerator
             }
             else
             {
-                // LTR words, numbers, symbols, and whitespace are accumulated
                 ltrBuffer.Add(token);
             }
         }
 
-        // Flush remaining LTR tokens
         if (ltrBuffer.Count > 0)
         {
             ltrBuffer.Reverse();

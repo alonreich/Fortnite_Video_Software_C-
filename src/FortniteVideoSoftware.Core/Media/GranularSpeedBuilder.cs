@@ -20,6 +20,103 @@ public record SpeedSegment(double StartMs, double EndMs, double Speed);
 /// </summary>
 public class GranularSpeedBuilder
 {
+    public static Func<double, double> CreateTimeMapper(
+        double totalDurationMs,
+        IReadOnlyList<SpeedSegment>? segments,
+        double baseSpeed = 1.0,
+        double sourceCutStartMs = 0)
+    {
+        double totalDurationSec = totalDurationMs / 1000.0;
+        double timelineOriginSec = sourceCutStartMs / 1000.0;
+
+        double ToClipRelative(double absSec)
+        {
+            double rel = absSec - timelineOriginSec;
+            return Math.Max(0, Math.Min(rel, totalDurationSec));
+        }
+
+        var normalizedSegments = new List<(double start, double end, double speed)>();
+        if (segments != null)
+        {
+            foreach (var seg in segments)
+            {
+                double start = ToClipRelative(seg.StartMs / 1000.0);
+                double end = ToClipRelative(seg.EndMs / 1000.0);
+                if (end <= start + 0.001) continue;
+                normalizedSegments.Add((start, end, seg.Speed));
+            }
+        }
+        normalizedSegments.Sort((a, b) => a.start.CompareTo(b.start));
+
+        var sourceChunks = new List<(double start, double end, double speed)>();
+        double currentSec = 0;
+        foreach (var seg in normalizedSegments.Where(s => Math.Abs(s.speed) > 0.001))
+        {
+            double sStart = Math.Max(seg.start, currentSec);
+            if (seg.end <= sStart + 0.001) continue;
+            if (sStart > currentSec + 0.001)
+                sourceChunks.Add((currentSec, sStart, baseSpeed));
+            sourceChunks.Add((sStart, seg.end, seg.speed));
+            currentSec = seg.end;
+        }
+        if (currentSec < totalDurationSec - 0.001)
+            sourceChunks.Add((currentSec, totalDurationSec, baseSpeed));
+
+        var chunks = new List<ChunkSpec>();
+        double sourceCursor = 0;
+
+        void AppendSourceRange(double rangeStart, double rangeEnd)
+        {
+            foreach (var sc in sourceChunks)
+            {
+                double overlapStart = Math.Max(rangeStart, sc.start);
+                double overlapEnd = Math.Min(rangeEnd, sc.end);
+                if (overlapEnd > overlapStart + 0.001)
+                    chunks.Add(new ChunkSpec(overlapStart, overlapEnd, sc.speed));
+            }
+        }
+
+        foreach (var freeze in normalizedSegments.Where(s => Math.Abs(s.speed) < 0.001).OrderBy(f => f.start))
+        {
+            double fStart = Math.Max(sourceCursor, freeze.start);
+            double fEnd = Math.Max(fStart, freeze.end);
+            if (fEnd <= sourceCursor + 0.001) continue;
+
+            if (fStart > sourceCursor + 0.001)
+                AppendSourceRange(sourceCursor, fStart);
+
+            double fDur = Math.Max(0.001, fEnd - fStart);
+            chunks.Add(new ChunkSpec(fStart, fStart + 0.001, 0, fDur));
+            sourceCursor = fStart;
+        }
+        if (totalDurationSec > sourceCursor + 0.001)
+            AppendSourceRange(sourceCursor, totalDurationSec);
+
+        return timelineSec =>
+        {
+            double target = ToClipRelative(timelineSec);
+            double mapped = 0;
+            foreach (var ch in chunks)
+            {
+                if (Math.Abs(ch.Speed) < 0.001)
+                {
+                    if (target >= ch.Start) mapped += ch.FreezeDur;
+                    continue;
+                }
+
+                if (target <= ch.Start) break;
+                if (target >= ch.End) mapped += (ch.End - ch.Start) / ch.Speed;
+                else
+                {
+                    mapped += (target - ch.Start) / ch.Speed;
+                    break;
+                }
+            }
+
+            return Math.Max(0, mapped);
+        };
+    }
+
     /// <summary>
     /// Builds the complete granular speed filter chain.
     /// Returns (filterString, videoOutputLabel, audioOutputLabel, finalDurationSec, timeMapper).

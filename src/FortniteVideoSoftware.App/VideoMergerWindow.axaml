@@ -113,14 +113,14 @@
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>
-                                    <TextBlock Name="EmptyQueueText" Text="Add at least two videos to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="8" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
+                                    <TextBlock Name="EmptyQueueText" Text="Add at least one video to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="8" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
                                     <Border Name="DropIndicator" Height="3" Background="#38bdf8" CornerRadius="1.5" IsVisible="False" VerticalAlignment="Top" Margin="4,0,4,0" BoxShadow="0 0 6 1 #6638bdf8" ZIndex="100" IsHitTestVisible="False"/>
                                 </Grid>
                             </Border>
 
                             <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,15">
                                 <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
-                                <Button Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least two videos before adding music">
+                                <Button Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least one video before adding music">
                                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
                                         <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />

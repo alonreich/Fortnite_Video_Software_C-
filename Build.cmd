@@ -4,12 +4,13 @@ set "DOTNET_CLI_UI_LANGUAGE=en-US"
 set "VSCONSOLEOUTPUT=1"
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul || exit /b 1
-rem ---------------------------------------------------------------------------
-rem  Build.cmd - dual output: live console + .\build.log (ANSI colors in log).
-rem  Log is deleted at the start of each run; header/footer include timestamps.
-rem ---------------------------------------------------------------------------
 
+if "%~1"=="--internal-log" goto :run_logged
+if exist build.log del /f /q build.log
+powershell -NoProfile -Command "& { & '%~f0' --internal-log %* 2>&1 | Tee-Object -FilePath build.log; exit $LASTEXITCODE }"
+exit /b %ERRORLEVEL%
 
+:run_logged
 shift
 setlocal enabledelayedexpansion
 cd /d "."
@@ -21,7 +22,7 @@ set "OUTPUT_DIR=.\compiled"
 set "FINAL_DIR=.\obj\StandaloneTemp\NativeAot_final"
 set "PUBLISH_BASE_ARGS=-p:TreatWarningsAsErrors=true"
 set "PUBLISH_AOT_ARGS=-p:PublishAot=true -p:SelfContained=true"
-set "DOTNET_LOG_ARGS=-consoleLoggerParameters:Summary;NoItemAndPropertyList"
+set "DOTNET_LOG_ARGS=-consoleLoggerParameters:ErrorsOnly"
 
 echo ###########################################################
 echo PURGING PREVIOUS BUILD ARTIFACTS...
@@ -88,6 +89,10 @@ copy /y ".\binaries\mpv.com" "%STAGING_DIR%\frontend\" >nul
 
 echo [NativeAOT] 3. Zipping payload...
 tar.exe -a -c -f "src\FortniteVideoSoftware.App\payload.zip" -C "%STAGING_DIR%" .
+if errorlevel 1 (
+    echo ERROR: Failed to zip payload.
+    exit /b 1
+)
 
 echo [NativeAOT] 4. Publishing standalone installer...
 dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true -o "%FINAL_DIR%" %DOTNET_LOG_ARGS%

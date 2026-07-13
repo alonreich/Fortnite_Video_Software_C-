@@ -59,7 +59,7 @@
                                     <local:MpvVideoView Name="VideoHost"
                                                         Width="1280"
                                                         Height="720" />
-                                    <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Running in Software Compatibility Mode. Nvidia GPU hardware bridge unavailable. Preview framerate may be lower.">
+                                    <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
                                         <TextBlock Text="⚠️" FontSize="16" Foreground="Yellow" />
                                     </Border>
                                 </Grid>

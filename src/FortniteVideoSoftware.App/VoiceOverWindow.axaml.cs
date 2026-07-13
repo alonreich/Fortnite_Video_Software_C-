@@ -4,6 +4,8 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using FortniteVideoSoftware.App.Controls;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -11,14 +13,18 @@ using FortniteVideoSoftware.Core.Media;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FortniteVideoSoftware.App;
 
 public partial class VoiceOverWindow : Window
 {
+    private const string BoundsKey = "VoiceOverWindowBounds";
+
     private MpvVideoView? _videoHost;
     private VoiceRecorder? _recorder;
+    private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
     private string _videoPath = "";
     private string _outputWavPath = "";
 
@@ -32,9 +38,20 @@ public partial class VoiceOverWindow : Window
     private string? _tempThumbPath;
     private string? _tempWavePath;
     private System.Threading.CancellationTokenSource? _generationCts;
+    private System.Threading.CancellationTokenSource? _probeCts;
 
     private double _trimStartSec = 0;
     private double _trimEndSec = 0;
+    private readonly List<SpeedSegment> _speedSegments = new();
+    private double _baseSpeed = 1.0;
+    private double _lastAppliedSpeed = 1.0;
+    private bool _isCurrentlyFrozen;
+    private DateTime _freezeStartTime;
+    private double _currentFreezeDurationMs;
+    private double _lastFreezeTriggerMs = -1;
+    private DateTime _lastTimelineSeekUtc = DateTime.MinValue;
+    private const int TimelineDragSeekThrottleMs = 80;
+    private double? _dragSeekTimeSec = null;
 
     private class VoiceOverSession
     {
@@ -44,6 +61,45 @@ public partial class VoiceOverWindow : Window
     }
     private List<VoiceOverSession> _sessions = new();
     private VoiceOverSession? _currentSession;
+    private readonly List<Line> _waveformLinePool = new();
+    private Rectangle? _currentSessionRegionRect;
+    private Polygon? _playheadCaret;
+    private Line? _rulerPlayheadLine;
+    private int _renderedSessionCount = -1;
+    private double _renderedRulerWidth = -1;
+    private double _renderedRulerHeight = -1;
+
+    private Button? _micRecordButton;
+    private Button? _playPauseButton;
+    private Button? _applyButton;
+    private Button? _cancelButton;
+    private ComboBox? _micDeviceComboBox;
+    private TextBlock? _recordingStatusText;
+    private TextBlock? _voiceOverHintText;
+    private TextBlock? _probingStatusText;
+    private TextBlock? _thumbFallbackText;
+    private TextBlock? _waveformFallbackText;
+    private Ellipse? _recordingLight;
+    private Rectangle? _eqMeter;
+    private Border? _eqMeterTrack;
+    private Canvas? _timelineRulerCanvas;
+    private Canvas? _waveformCanvas;
+    private Grid? _thumbnailLaneGrid;
+    private Grid? _waveformLaneGrid;
+    private Image? _thumbnailLaneImage;
+    private Image? _waveformLaneImage;
+    private Border? _thumbLoadingOverlay;
+    private Border? _waveformLoadingOverlay;
+    private Polygon? _playIcon;
+    private StackPanel? _pauseIcon;
+    private CheckBox? _muteMaleCb;
+    private CheckBox? _muteFemaleCb;
+    private CheckBox? _muteChildCb;
+    private Line? _thumbPlayheadLine;
+    private Line? _wavePlayheadLine;
+    private double _detectedMaleHz;
+    private double _detectedFemaleHz;
+    private double _detectedChildHz;
 
     public VoiceOverResult? Result { get; private set; }
 
@@ -51,44 +107,67 @@ public partial class VoiceOverWindow : Window
     {
         public string? VoiceOverWavPath { get; set; }
         public double VoiceOverStartTimestampSec { get; set; }
+        public List<VoiceOverTake> VoiceOverTakes { get; set; } = new();
         public bool MuteMale { get; set; }
         public bool MuteFemale { get; set; }
         public bool MuteChild { get; set; }
+        public double MaleFrequencyHz { get; set; }
+        public double FemaleFrequencyHz { get; set; }
+        public double ChildFrequencyHz { get; set; }
     }
 
     public VoiceOverWindow()
     {
         InitializeComponent();
+        CacheControls();
+        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         Closing += OnWindowClosing;
+        AttachTitleBarDrag();
+        AttachResizeGrip();
+        PopulateMicrophoneDevices();
+        WireEffectStateControls();
+        UpdateTransportState();
+        UpdateApplyState();
     }
 
-    private async void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (_isClosing) return;
-        e.Cancel = true;
-        _isClosing = true;
-
-        await WindowBoundsHelper.SaveBoundsAsync(this, "VoiceOverWindowBounds");
-        Close();
+        WindowBoundsHelper.SaveBoundsSync(this, BoundsKey);
     }
 
-    public VoiceOverWindow(string videoPath, double startPosSec, double trimStartMs = 0, double trimEndMs = 0) : this()
+    public VoiceOverWindow(
+        string videoPath,
+        double startPosSec,
+        double trimStartMs = 0,
+        double trimEndMs = 0,
+        IEnumerable<SpeedSegment>? speedSegments = null,
+        double baseSpeed = 1.0) : this()
     {
         _videoPath = videoPath;
         _trimStartSec = trimStartMs / 1000.0;
         _trimEndSec = trimEndMs / 1000.0;
-        _outputWavPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"voiceover_{Guid.NewGuid()}.wav");
+        _baseSpeed = Math.Clamp(baseSpeed, 0.1, 4.0);
+        _lastAppliedSpeed = _baseSpeed;
+        if (speedSegments != null)
+        {
+            foreach (var segment in speedSegments)
+            {
+                _speedSegments.Add(segment);
+            }
+            _speedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+        }
+        _paths.EnsureWritableDirectories();
+        _outputWavPath = CreateTempVoiceOverPath();
 
-        _videoHost = this.FindControl<MpvVideoView>("VideoHost");
-
-        _recorder = new VoiceRecorder(_outputWavPath);
+        _recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
         _recorder.VolumeChanged += OnVolumeChanged;
 
-        this.FindControl<Button>("MicRecordButton")!.Click += ToggleRecord;
-        this.FindControl<Button>("PlayPauseButton")!.Click += ToggleRecord;
-        this.FindControl<Button>("ApplyButton")!.Click += (s, e) => ApplyAndClose();
-        this.FindControl<Button>("CancelButton")!.Click += (s, e) => Close();
+        if (_micRecordButton != null) _micRecordButton.Click += ToggleRecord;
+        if (_playPauseButton != null) _playPauseButton.Click += TogglePreviewPlayback;
+        if (_applyButton != null) _applyButton.Click += (s, e) => ApplyAndClose();
+        if (_cancelButton != null) _cancelButton.Click += (s, e) => Close();
 
         _timer.Tick += (s, e) => {
             UpdateWaveformUI();
@@ -99,65 +178,76 @@ public partial class VoiceOverWindow : Window
 
         KeyDown += OnKeyDownHandler;
 
-        var rulerGrid = this.FindControl<Canvas>("TimelineRulerCanvas");
-        if (rulerGrid != null)
+        if (_timelineRulerCanvas != null)
         {
-            rulerGrid.PointerPressed += (s, e) => SeekTimelineFromPointer(e, rulerGrid);
-            rulerGrid.PointerMoved += (s, e) =>
-            {
-                if (e.GetCurrentPoint(rulerGrid).Properties.IsLeftButtonPressed)
-                {
-                    SeekTimelineFromPointer(e, rulerGrid);
-                }
-            };
+            WireTimelineSeekSurface(_timelineRulerCanvas);
         }
 
-        var thumbnailGrid = this.FindControl<Grid>("ThumbnailLaneGrid");
-        if (thumbnailGrid != null)
+        if (_thumbnailLaneGrid != null)
         {
-            thumbnailGrid.PointerPressed += (s, e) => SeekTimelineFromPointer(e, thumbnailGrid);
-            thumbnailGrid.PointerMoved += (s, e) =>
-            {
-                if (e.GetCurrentPoint(thumbnailGrid).Properties.IsLeftButtonPressed)
-                {
-                    SeekTimelineFromPointer(e, thumbnailGrid);
-                }
-            };
+            WireTimelineSeekSurface(_thumbnailLaneGrid);
+        }
+
+        if (_waveformLaneGrid != null)
+        {
+            WireTimelineSeekSurface(_waveformLaneGrid);
         }
 
         Loaded += async (_, _) =>
         {
-            await WindowBoundsHelper.LoadBoundsAsync(this, "VoiceOverWindowBounds");
+            await WindowBoundsHelper.LoadBoundsAsync(this, BoundsKey);
             if (_videoHost != null)
             {
-                string mpvPath = ResolveBinaryPath("mpv.exe", "frontend");
-                await _videoHost.StartMpvProcessAsync(mpvPath);
-                
-                if (_videoHost.IpcClient != null)
+                bool previewReady = false;
+                try
                 {
-                    await _videoHost.IpcClient.LoadFileAsync(_videoPath);
-                    await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-                    
-                    double initialPos = startPosSec;
-                    if (_trimStartSec > 0 || _trimEndSec > 0)
-                    {
-                         await _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", _trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                         if (_trimEndSec > 0)
-                         {
-                             await _videoHost.IpcClient.SetPropertyAsync("ab-loop-b", _trimEndSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                         }
-                         if (initialPos < _trimStartSec) initialPos = _trimStartSec;
-                         if (_trimEndSec > 0 && initialPos > _trimEndSec) initialPos = _trimStartSec;
-                    }
+                    string mpvPath = ResolveBinaryPath("mpv.exe", "frontend");
+                    await _videoHost.StartMpvProcessAsync(mpvPath).WaitAsync(TimeSpan.FromSeconds(8));
 
-                    if (initialPos > 0)
-                        await _videoHost.IpcClient.SetPropertyAsync("time-pos", initialPos.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    
-                    _isMpvReady = true;
+                    if (_videoHost.IpcClient != null)
+                    {
+                        double initialPos = NormalizePreviewPlaybackPosition(startPosSec);
+                        await _videoHost.IpcClient.LoadFileAsync(_videoPath, initialPos);
+                        await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+
+                        if (_trimStartSec > 0 || _trimEndSec > 0)
+                        {
+                             await _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", _trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                             if (_trimEndSec > 0)
+                             {
+                                 await _videoHost.IpcClient.SetPropertyAsync("ab-loop-b", _trimEndSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                             }
+                             initialPos = NormalizePreviewPlaybackPosition(initialPos);
+                        }
+
+                        if (initialPos > 0)
+                            await _videoHost.IpcClient.SetPropertyAsync("time-pos", initialPos.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        await _videoHost.IpcClient.SetPropertyAsync("speed", GetSpeedForPosition(initialPos * 1000.0).ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+                        RuntimeLog.Info("VoiceOver", $"Preview loaded at {initialPos:0.###}s; trimStart={_trimStartSec:0.###}, trimEnd={_trimEndSec:0.###}.");
+                        previewReady = true;
+                    }
                 }
-                
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("VoiceOver", $"Preview startup failed. Recording disabled, voice detection remains available. {ex.Message}");
+                    _videoHost.Dispose();
+                    if (_recordingStatusText != null)
+                    {
+                        _recordingStatusText.Text = "PREVIEW OFF";
+                        _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
+                    }
+                    UpdateApplyState("Preview could not start on this graphics session. Voice detection still works.");
+                }
+
+                _isMpvReady = previewReady;
+                UpdateTransportState();
+                UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session. Voice detection still works.");
+
                 _ = RunFrequencyProber();
-                _ = GenerateLanesAsync();
+                if (previewReady)
+                {
+                    _ = GenerateLanesAsync();
+                }
             }
         };
     }
@@ -182,6 +272,392 @@ public partial class VoiceOverWindow : Window
         return fileName;
     }
 
+    private string CreateTempVoiceOverPath()
+    {
+        Directory.CreateDirectory(_paths.TempDirectory);
+        return System.IO.Path.Combine(_paths.TempDirectory, $"voiceover_{Guid.NewGuid():N}.wav");
+    }
+
+    private string CreatePersistedVoiceOverPath()
+    {
+        string voiceOverDir = System.IO.Path.Combine(_paths.ProgramDataRoot, "voiceovers");
+        Directory.CreateDirectory(voiceOverDir);
+        return System.IO.Path.Combine(voiceOverDir, $"voiceover_{Guid.NewGuid():N}.wav");
+    }
+
+    private void AttachTitleBarDrag()
+    {
+        var titleBar = this.FindControl<Border>("TitleBarBorder");
+        if (titleBar == null) return;
+
+        titleBar.IsHitTestVisible = true;
+        titleBar.DoubleTapped += (s, e) =>
+        {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+            e.Handled = true;
+        };
+        titleBar.PointerPressed += (s, e) =>
+        {
+            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
+            {
+                try { BeginMoveDrag(e); } catch { }
+            }
+        };
+    }
+
+    private void CacheControls()
+    {
+        _videoHost = this.FindControl<MpvVideoView>("VideoHost");
+        _micRecordButton = this.FindControl<Button>("MicRecordButton");
+        _playPauseButton = this.FindControl<Button>("PlayPauseButton");
+        _applyButton = this.FindControl<Button>("ApplyButton");
+        _cancelButton = this.FindControl<Button>("CancelButton");
+        _micDeviceComboBox = this.FindControl<ComboBox>("MicDeviceComboBox");
+        _recordingStatusText = this.FindControl<TextBlock>("RecordingStatusText");
+        _voiceOverHintText = this.FindControl<TextBlock>("VoiceOverHintText");
+        _probingStatusText = this.FindControl<TextBlock>("ProbingStatusText");
+        _thumbFallbackText = this.FindControl<TextBlock>("ThumbFallbackText");
+        _waveformFallbackText = this.FindControl<TextBlock>("WaveformFallbackText");
+        _recordingLight = this.FindControl<Ellipse>("RecordingLight");
+        _eqMeter = this.FindControl<Rectangle>("EqMeter");
+        _eqMeterTrack = this.FindControl<Border>("EqMeterTrack");
+        _timelineRulerCanvas = this.FindControl<Canvas>("TimelineRulerCanvas");
+        _waveformCanvas = this.FindControl<Canvas>("WaveformCanvas");
+        _thumbnailLaneGrid = this.FindControl<Grid>("ThumbnailLaneGrid");
+        _waveformLaneGrid = this.FindControl<Grid>("WaveformLaneGrid");
+        _thumbnailLaneImage = this.FindControl<Image>("ThumbnailLaneImage");
+        _waveformLaneImage = this.FindControl<Image>("WaveformLaneImage");
+        _thumbLoadingOverlay = this.FindControl<Border>("ThumbLoadingOverlay");
+        _waveformLoadingOverlay = this.FindControl<Border>("WaveformLoadingOverlay");
+        _playIcon = this.FindControl<Polygon>("PlayIcon");
+        _pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        _muteMaleCb = this.FindControl<CheckBox>("MuteMaleCb");
+        _muteFemaleCb = this.FindControl<CheckBox>("MuteFemaleCb");
+        _muteChildCb = this.FindControl<CheckBox>("MuteChildCb");
+        _thumbPlayheadLine = this.FindControl<Line>("ThumbPlayheadLine");
+        _wavePlayheadLine = this.FindControl<Line>("WavePlayheadLine");
+    }
+
+    private void PopulateMicrophoneDevices()
+    {
+        if (_micDeviceComboBox == null) return;
+
+        var devices = VoiceRecorder.GetInputDeviceNames();
+        _micDeviceComboBox.ItemsSource = devices;
+        _micDeviceComboBox.IsEnabled = devices.Count > 0;
+        _micDeviceComboBox.SelectedIndex = devices.Count > 0 ? 0 : -1;
+        ToolTip.SetTip(_micDeviceComboBox, devices.Count > 0
+            ? "Choose which microphone records the voiceover"
+            : "No microphone input device detected");
+    }
+
+    private int GetSelectedMicrophoneDeviceIndex()
+    {
+        if (_micDeviceComboBox == null || _micDeviceComboBox.SelectedIndex < 0)
+        {
+            return 0;
+        }
+
+        return Math.Max(0, _micDeviceComboBox.SelectedIndex);
+    }
+
+    private IBrush GetAppBrush(string resourceKey, IBrush fallback)
+    {
+        if (Application.Current?.TryFindResource(resourceKey, ActualThemeVariant, out var value) == true &&
+            value is IBrush brush)
+        {
+            return brush;
+        }
+
+        return fallback;
+    }
+
+    private Color GetAppColor(string resourceKey, Color fallback)
+    {
+        if (Application.Current?.TryFindResource(resourceKey, ActualThemeVariant, out var value) == true &&
+            value is ISolidColorBrush brush)
+        {
+            return brush.Color;
+        }
+
+        return fallback;
+    }
+
+    private SolidColorBrush CreateAppOverlayBrush(string resourceKey, byte alpha, Color fallback)
+    {
+        var color = GetAppColor(resourceKey, fallback);
+        return new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+    }
+
+    private void AttachResizeGrip()
+    {
+        var resizeGrip = this.FindControl<Border>("ResizeGrip");
+        if (resizeGrip == null) return;
+
+        resizeGrip.Cursor = new Cursor(StandardCursorType.BottomRightCorner);
+        resizeGrip.PointerPressed += (s, e) =>
+        {
+            if (WindowState == WindowState.Maximized) return;
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+            try
+            {
+                BeginResizeDrag(WindowEdge.SouthEast, e);
+                e.Handled = true;
+            }
+            catch { }
+        };
+    }
+
+    private void WireTimelineSeekSurface(Control surface)
+    {
+        surface.PointerPressed += (s, e) =>
+        {
+            e.Pointer.Capture(surface);
+            SeekTimelineFromPointer(e, surface, force: true);
+        };
+        surface.PointerMoved += (s, e) =>
+        {
+            if (e.GetCurrentPoint(surface).Properties.IsLeftButtonPressed)
+            {
+                SeekTimelineFromPointer(e, surface, force: false);
+            }
+        };
+        surface.PointerReleased += (s, e) =>
+        {
+            e.Pointer.Capture(null);
+            SeekTimelineFromPointer(e, surface, force: true);
+        };
+        surface.KeyDown += TimelineSurface_KeyDown;
+    }
+
+    private void TimelineSurface_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_videoHost?.IpcClient == null) return;
+
+        switch (e.Key)
+        {
+            case Key.Left:
+                SeekBySeconds(-1);
+                e.Handled = true;
+                break;
+            case Key.Right:
+                SeekBySeconds(1);
+                e.Handled = true;
+                break;
+            case Key.Home:
+                SeekToAbsolute(_trimStartSec);
+                e.Handled = true;
+                break;
+            case Key.End:
+                SeekToAbsolute(GetEffectiveTimelineEnd());
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void SeekBySeconds(double seconds)
+    {
+        if (_videoHost?.IpcClient == null) return;
+        double target = Math.Clamp(_videoHost.IpcClient.CurrentTime + seconds, _trimStartSec, GetEffectiveTimelineEnd());
+        SeekToAbsolute(target);
+    }
+
+    private void SeekToAbsolute(double seconds)
+    {
+        if (_videoHost?.IpcClient == null) return;
+        _isCurrentlyFrozen = false;
+        _lastFreezeTriggerMs = -1;
+        ApplyPreviewSpeedForPosition(seconds * 1000.0);
+        _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private double GetEffectiveTimelineEnd()
+    {
+        if (_videoHost?.IpcClient == null) return _trimEndSec > 0 ? _trimEndSec : _trimStartSec;
+        double videoDuration = _videoHost.IpcClient.Duration;
+        return _trimEndSec > 0 ? _trimEndSec : Math.Max(_trimStartSec, videoDuration);
+    }
+
+    private double NormalizePreviewPlaybackPosition(double seconds)
+    {
+        double start = Math.Max(0, _trimStartSec);
+        double end = _trimEndSec > start ? _trimEndSec : double.PositiveInfinity;
+
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < start)
+        {
+            return start;
+        }
+
+        if (!double.IsInfinity(end) && seconds >= end - 0.05)
+        {
+            return start;
+        }
+
+        return seconds;
+    }
+
+    private SpeedSegment? FindFreezeSegment(double positionMs)
+    {
+        foreach (var seg in _speedSegments)
+        {
+            if (Math.Abs(seg.Speed) < 0.001 &&
+                positionMs >= seg.StartMs &&
+                positionMs < seg.EndMs)
+            {
+                return seg;
+            }
+        }
+
+        return null;
+    }
+
+    private double GetSpeedForPosition(double positionMs)
+    {
+        foreach (var seg in _speedSegments)
+        {
+            if (positionMs >= seg.StartMs && positionMs < seg.EndMs)
+            {
+                return Math.Abs(seg.Speed) < 0.001 ? _baseSpeed : Math.Clamp(seg.Speed, 0.1, 4.0);
+            }
+        }
+
+        return _baseSpeed;
+    }
+
+    private void ApplyPreviewSpeedForPosition(double positionMs)
+    {
+        if (_videoHost?.IpcClient == null) return;
+        double targetSpeed = GetSpeedForPosition(positionMs);
+        if (Math.Abs(targetSpeed - _lastAppliedSpeed) <= 0.001) return;
+
+        _lastAppliedSpeed = targetSpeed;
+        _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+            targetSpeed.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private void UpdatePreviewSpeedAndFreeze(double currentTimeSec)
+    {
+        if (_videoHost?.IpcClient == null) return;
+
+        double currentAbsMs = currentTimeSec * 1000.0;
+        if (_isCurrentlyFrozen)
+        {
+            if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= Math.Max(0.05, (_currentFreezeDurationMs / 1000.0)))
+            {
+                _isCurrentlyFrozen = false;
+                _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
+            }
+            return;
+        }
+
+        if (_videoHost.IpcClient.IsPaused) return;
+
+        var freeze = FindFreezeSegment(currentAbsMs);
+        if (freeze != null && Math.Abs(freeze.StartMs - _lastFreezeTriggerMs) > 1.0)
+        {
+            _lastFreezeTriggerMs = freeze.StartMs;
+            _currentFreezeDurationMs = Math.Max(50.0, freeze.EndMs - freeze.StartMs);
+            _isCurrentlyFrozen = true;
+            _freezeStartTime = DateTime.UtcNow;
+            _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", (freeze.StartMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            return;
+        }
+        if (freeze == null && _lastFreezeTriggerMs >= 0 && Math.Abs(currentAbsMs - _lastFreezeTriggerMs) > 1000.0)
+        {
+            _lastFreezeTriggerMs = -1;
+        }
+
+        ApplyPreviewSpeedForPosition(currentAbsMs);
+    }
+
+    private void WireEffectStateControls()
+    {
+        foreach (var checkBox in new[] { _muteMaleCb, _muteFemaleCb, _muteChildCb })
+        {
+            if (checkBox != null)
+            {
+                checkBox.IsCheckedChanged += (_, _) => UpdateApplyState();
+            }
+        }
+    }
+
+    private void UpdateTransportState()
+    {
+        bool hasInputDevice = VoiceRecorder.HasInputDevice;
+        if (_micRecordButton != null)
+        {
+            _micRecordButton.IsEnabled = _isMpvReady && (_isRecording || hasInputDevice);
+            ToolTip.SetTip(_micRecordButton, hasInputDevice
+                ? "Start or stop voiceover recording (V)"
+                : "No microphone input device detected");
+        }
+        if (_playPauseButton != null) _playPauseButton.IsEnabled = _isMpvReady && !_isRecording;
+        if (_micDeviceComboBox != null) _micDeviceComboBox.IsEnabled = hasInputDevice && !_isRecording;
+
+        if (!hasInputDevice && !_isRecording && _recordingStatusText != null)
+        {
+            _recordingStatusText.Text = "NO MIC";
+            _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
+        }
+    }
+
+    private bool HasSavedVoiceOverSession()
+    {
+        foreach (var session in _sessions)
+        {
+            if (session.EndSec > session.StartSec &&
+                !string.IsNullOrWhiteSpace(session.WavPath) &&
+                System.IO.File.Exists(session.WavPath))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private bool HasMuteSelection()
+    {
+        return _muteMaleCb?.IsChecked == true ||
+               _muteFemaleCb?.IsChecked == true ||
+               _muteChildCb?.IsChecked == true;
+    }
+
+    private bool HasApplicableVoiceEffect()
+    {
+        return _isRecording || HasSavedVoiceOverSession() || HasMuteSelection();
+    }
+
+    private void UpdateApplyState(string? message = null)
+    {
+        bool canApply = HasApplicableVoiceEffect();
+        string? effectiveMessage = message;
+        if (effectiveMessage == null && !canApply && !VoiceRecorder.HasInputDevice)
+        {
+            effectiveMessage = "No microphone input detected. You can still choose a detected voice mute option.";
+        }
+
+        if (_applyButton != null)
+        {
+            _applyButton.IsEnabled = canApply;
+            ToolTip.SetTip(_applyButton, canApply
+                ? "Apply recorded voiceover and selected voice muting"
+                : "Record a take or choose a mute option before applying");
+        }
+
+        if (_voiceOverHintText != null)
+        {
+            _voiceOverHintText.Text = effectiveMessage ?? (canApply
+                ? "Ready to apply the current voiceover changes. Cancel discards unapplied takes."
+                : "Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes.");
+            _voiceOverHintText.Foreground = canApply
+                ? GetAppBrush("AppTextPrimaryBrush", Brushes.White)
+                : GetAppBrush("AppTextMutedBrush", Brushes.Gray);
+        }
+    }
 
 
     private async Task GenerateLanesAsync()
@@ -202,13 +678,10 @@ public partial class VoiceOverWindow : Window
         _generationCts = new System.Threading.CancellationTokenSource();
         var token = _generationCts.Token;
 
-        var thumbOverlay = this.FindControl<Border>("ThumbLoadingOverlay");
-        var waveOverlay = this.FindControl<Border>("WaveformLoadingOverlay");
-        var thumbLane = this.FindControl<Image>("ThumbnailLaneImage");
-        var waveLane = this.FindControl<Image>("WaveformLaneImage");
-
-        if (thumbOverlay != null) thumbOverlay.IsVisible = true;
-        if (waveOverlay != null) waveOverlay.IsVisible = true;
+        if (_thumbFallbackText != null) _thumbFallbackText.IsVisible = false;
+        if (_waveformFallbackText != null) _waveformFallbackText.IsVisible = false;
+        if (_thumbLoadingOverlay != null) _thumbLoadingOverlay.IsVisible = true;
+        if (_waveformLoadingOverlay != null) _waveformLoadingOverlay.IsVisible = true;
 
         var thumbTask = Task.Run(async () =>
         {
@@ -222,7 +695,7 @@ public partial class VoiceOverWindow : Window
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpeg,
-                    Arguments = $"-y -hide_banner -loglevel error -ss {_trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {durationSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i \"{_videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
+                    Arguments = $"-y -hide_banner -loglevel error -hwaccel auto -ss {_trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {durationSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i \"{_videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 };
@@ -231,7 +704,10 @@ public partial class VoiceOverWindow : Window
                 if (process != null) await process.WaitForExitAsync(token);
                 if (process?.ExitCode == 0 && System.IO.File.Exists(tempPng)) return tempPng;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("VoiceOver", $"Thumbnail lane generation failed: {ex.Message}");
+            }
             return null;
         });
 
@@ -242,7 +718,10 @@ public partial class VoiceOverWindow : Window
                 return await FortniteVideoSoftware.Core.Media.WaveformGenerator.GenerateWaveformImageAsync(
                         ffmpeg, _videoPath, 1200, 60, _trimStartSec, durationSec, token);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("VoiceOver", $"Waveform lane generation failed: {ex.Message}");
+            }
             return null;
         });
 
@@ -251,39 +730,58 @@ public partial class VoiceOverWindow : Window
 
         if (token.IsCancellationRequested) return;
 
-        if (thumbPath != null && thumbLane != null)
+        bool thumbLoaded = false;
+        bool waveformLoaded = false;
+
+        if (thumbPath != null && _thumbnailLaneImage != null)
         {
             try
             {
                 using var fs = System.IO.File.OpenRead(thumbPath);
-                thumbLane.Source = new Avalonia.Media.Imaging.Bitmap(fs);
+                _thumbnailLaneImage.Source = new Bitmap(fs);
                 _tempThumbPath = thumbPath;
+                thumbLoaded = true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("VoiceOver", $"Thumbnail lane image load failed: {ex.Message}");
+            }
         }
-        if (thumbOverlay != null) thumbOverlay.IsVisible = false;
+        if (_thumbLoadingOverlay != null) _thumbLoadingOverlay.IsVisible = false;
+        if (_thumbFallbackText != null)
+        {
+            _thumbFallbackText.Text = thumbLoaded ? "" : "Frame preview unavailable.";
+            _thumbFallbackText.IsVisible = !thumbLoaded;
+        }
 
-        if (wavePath != null && waveLane != null)
+        if (wavePath != null && _waveformLaneImage != null)
         {
             try
             {
                 using var fs = System.IO.File.OpenRead(wavePath);
-                waveLane.Source = new Avalonia.Media.Imaging.Bitmap(fs);
+                _waveformLaneImage.Source = new Bitmap(fs);
                 _tempWavePath = wavePath;
+                waveformLoaded = true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("VoiceOver", $"Waveform lane image load failed: {ex.Message}");
+            }
         }
-        if (waveOverlay != null) waveOverlay.IsVisible = false;
+        if (_waveformLoadingOverlay != null) _waveformLoadingOverlay.IsVisible = false;
+        if (_waveformFallbackText != null)
+        {
+            _waveformFallbackText.Text = waveformLoaded ? "" : "Waveform unavailable.";
+            _waveformFallbackText.IsVisible = !waveformLoaded;
+        }
     }
 
     private void UpdatePlayPauseIconUI()
     {
         if (_videoHost?.IpcClient == null) return;
-        bool isPaused = _videoHost.IpcClient.IsPaused;
-        var playIcon = this.FindControl<Polygon>("PlayIcon");
-        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
-        if (playIcon != null) playIcon.IsVisible = isPaused;
-        if (pauseIcon != null) pauseIcon.IsVisible = !isPaused;
+        bool isPaused = _videoHost.IpcClient.IsPaused && !_isCurrentlyFrozen;
+        if (_playIcon != null) _playIcon.IsVisible = isPaused;
+        if (_pauseIcon != null) _pauseIcon.IsVisible = !isPaused;
     }
 
     private void UpdatePlayheadUI()
@@ -292,120 +790,253 @@ public partial class VoiceOverWindow : Window
         double currentTime = _videoHost.IpcClient.CurrentTime;
         double videoDuration = _videoHost.IpcClient.Duration;
         if (videoDuration <= 0) return;
+        UpdatePreviewSpeedAndFreeze(currentTime);
         
         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
         if (effectiveDuration <= 0) effectiveDuration = videoDuration;
 
-        double relativeTime = currentTime - _trimStartSec;
+        double visualTime = _dragSeekTimeSec ?? currentTime;
+        double relativeTime = visualTime - _trimStartSec;
         double fraction = Math.Clamp(relativeTime / effectiveDuration, 0, 1);
 
-        var ruler = this.FindControl<Canvas>("TimelineRulerCanvas");
-        if (ruler != null && ruler.Bounds.Width > 0)
+        if (_timelineRulerCanvas != null && _timelineRulerCanvas.Bounds.Width > 0)
         {
-            ruler.Children.Clear();
-            double width = ruler.Bounds.Width;
-            
-            foreach (var session in _sessions)
+            double width = _timelineRulerCanvas.Bounds.Width;
+            double height = Math.Max(1, _timelineRulerCanvas.Bounds.Height);
+
+            if (_renderedSessionCount != _sessions.Count ||
+                Math.Abs(_renderedRulerWidth - width) > 0.5 ||
+                Math.Abs(_renderedRulerHeight - height) > 0.5)
             {
-                double startFrac = (session.StartSec - _trimStartSec) / effectiveDuration;
-                double endFrac = (session.EndSec - _trimStartSec) / effectiveDuration;
-                double x1 = Math.Clamp(startFrac * width, 0, width);
-                double x2 = Math.Clamp(endFrac * width, 0, width);
-                if (x2 > x1)
-                {
-                    ruler.Children.Add(new Avalonia.Controls.Shapes.Rectangle
-                    {
-                        Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(102, 255, 0, 0)),
-                        Width = x2 - x1,
-                        Height = ruler.Bounds.Height,
-                        [Avalonia.Controls.Canvas.LeftProperty] = x1,
-                        [Avalonia.Controls.Canvas.TopProperty] = 0
-                    });
-                }
+                RebuildRulerSessionRegions(_timelineRulerCanvas, effectiveDuration, width, height);
             }
 
-            if (_isRecording && _currentSession != null)
-            {
-                double startFrac = (_currentSession.StartSec - _trimStartSec) / effectiveDuration;
-                double endFrac = fraction;
-                double x1 = Math.Clamp(startFrac * width, 0, width);
-                double x2 = Math.Clamp(endFrac * width, 0, width);
-                if (x2 > x1)
-                {
-                    ruler.Children.Add(new Avalonia.Controls.Shapes.Rectangle
-                    {
-                        Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(102, 255, 0, 0)),
-                        Width = x2 - x1,
-                        Height = ruler.Bounds.Height,
-                        [Avalonia.Controls.Canvas.LeftProperty] = x1,
-                        [Avalonia.Controls.Canvas.TopProperty] = 0
-                    });
-                }
-            }
+            EnsureRulerDynamicVisuals(_timelineRulerCanvas, height);
+            UpdateCurrentRecordingRegion(_timelineRulerCanvas, effectiveDuration, width, height, fraction);
 
-            double caretX = fraction * width;
-            var caret = new Avalonia.Controls.Shapes.Polygon
+            double caretX = Math.Clamp(fraction * width, 0, width);
+            if (_playheadCaret != null)
             {
-                Points = new List<Avalonia.Point> { new Avalonia.Point(-6, 0), new Avalonia.Point(6, 0), new Avalonia.Point(0, 10) },
-                Fill = Avalonia.Media.Brushes.Red,
-                [Avalonia.Controls.Canvas.LeftProperty] = caretX,
-                [Avalonia.Controls.Canvas.TopProperty] = 10
+                Canvas.SetLeft(_playheadCaret, caretX);
+                Canvas.SetTop(_playheadCaret, Math.Max(0, height - 10));
+            }
+            if (_rulerPlayheadLine != null)
+            {
+                _rulerPlayheadLine.StartPoint = new Avalonia.Point(0, 0);
+                _rulerPlayheadLine.EndPoint = new Avalonia.Point(0, height);
+                Canvas.SetLeft(_rulerPlayheadLine, caretX);
+            }
+        }
+
+        if (_thumbnailLaneGrid != null && _thumbnailLaneGrid.Bounds.Width > 0)
+        {
+            if (_thumbPlayheadLine != null)
+            {
+                double x = fraction * _thumbnailLaneGrid.Bounds.Width;
+                _thumbPlayheadLine.StartPoint = new Point(x, 0);
+                _thumbPlayheadLine.EndPoint = new Point(x, _thumbnailLaneGrid.Bounds.Height);
+            }
+        }
+
+        if (_waveformLaneGrid != null && _waveformLaneGrid.Bounds.Width > 0)
+        {
+            if (_wavePlayheadLine != null)
+            {
+                double x = fraction * _waveformLaneGrid.Bounds.Width;
+                _wavePlayheadLine.StartPoint = new Point(x, 0);
+                _wavePlayheadLine.EndPoint = new Point(x, _waveformLaneGrid.Bounds.Height);
+            }
+        }
+    }
+
+    private void RebuildRulerSessionRegions(Canvas ruler, double effectiveDuration, double width, double height)
+    {
+        ruler.Children.Clear();
+        _currentSessionRegionRect = null;
+        _playheadCaret = null;
+        _rulerPlayheadLine = null;
+
+        foreach (var session in _sessions)
+        {
+            double startFrac = (session.StartSec - _trimStartSec) / effectiveDuration;
+            double endFrac = (session.EndSec - _trimStartSec) / effectiveDuration;
+            double x1 = Math.Clamp(startFrac * width, 0, width);
+            double x2 = Math.Clamp(endFrac * width, 0, width);
+            if (x2 <= x1) continue;
+
+            var region = new Rectangle
+            {
+                Opacity = 0.4,
+                Width = x2 - x1,
+                Height = height,
+                IsHitTestVisible = false
             };
-            ruler.Children.Add(caret);
-            
-            ruler.Children.Add(new Avalonia.Controls.Shapes.Line {
-                StartPoint = new Avalonia.Point(0, 10),
-                EndPoint = new Avalonia.Point(0, 20),
-                Stroke = Avalonia.Media.Brushes.Red,
+            region[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+            Canvas.SetLeft(region, x1);
+            Canvas.SetTop(region, 0);
+            ruler.Children.Add(region);
+        }
+
+        _renderedSessionCount = _sessions.Count;
+        _renderedRulerWidth = width;
+        _renderedRulerHeight = height;
+    }
+
+    private void EnsureRulerDynamicVisuals(Canvas ruler, double height)
+    {
+        if (_currentSessionRegionRect == null)
+        {
+            _currentSessionRegionRect = new Rectangle
+            {
+                Opacity = 0.4,
+                Height = height,
+                IsHitTestVisible = false,
+                IsVisible = false
+            };
+            _currentSessionRegionRect[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+            ruler.Children.Add(_currentSessionRegionRect);
+        }
+
+        if (_playheadCaret == null)
+        {
+            _playheadCaret = new Polygon
+            {
+                Points = new List<Avalonia.Point> { new(-6, 0), new(6, 0), new(0, 10) },
+                IsHitTestVisible = false
+            };
+            _playheadCaret[!Polygon.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+            ruler.Children.Add(_playheadCaret);
+        }
+
+        if (_rulerPlayheadLine == null)
+        {
+            _rulerPlayheadLine = new Line
+            {
                 StrokeThickness = 2,
-                [Avalonia.Controls.Canvas.LeftProperty] = caretX
-            });
+                IsHitTestVisible = false
+            };
+            _rulerPlayheadLine[!Line.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+            ruler.Children.Add(_rulerPlayheadLine);
+        }
+    }
+
+    private void UpdateCurrentRecordingRegion(Canvas ruler, double effectiveDuration, double width, double height, double currentFraction)
+    {
+        if (_currentSessionRegionRect == null) return;
+
+        if (!_isRecording || _currentSession == null)
+        {
+            _currentSessionRegionRect.IsVisible = false;
+            return;
         }
 
-        var thumbCanvas = this.FindControl<Grid>("ThumbnailLaneGrid");
-        if (thumbCanvas != null && thumbCanvas.Bounds.Width > 0)
+        double startFrac = (_currentSession.StartSec - _trimStartSec) / effectiveDuration;
+        double x1 = Math.Clamp(startFrac * width, 0, width);
+        double x2 = Math.Clamp(currentFraction * width, 0, width);
+        if (x2 <= x1)
         {
-            var thumbPlayhead = this.FindControl<Line>("ThumbPlayheadLine");
-            if (thumbPlayhead != null)
-            {
-                double x = fraction * thumbCanvas.Bounds.Width;
-                thumbPlayhead.StartPoint = new Point(x, 0);
-                thumbPlayhead.EndPoint = new Point(x, thumbCanvas.Bounds.Height);
-            }
+            _currentSessionRegionRect.IsVisible = false;
+            return;
         }
 
-        var waveCanvas = this.FindControl<Grid>("WaveformLaneGrid");
-        if (waveCanvas != null && waveCanvas.Bounds.Width > 0)
-        {
-            var wavePlayhead = this.FindControl<Line>("WavePlayheadLine");
-            if (wavePlayhead != null)
-            {
-                double x = fraction * waveCanvas.Bounds.Width;
-                wavePlayhead.StartPoint = new Point(x, 0);
-                wavePlayhead.EndPoint = new Point(x, waveCanvas.Bounds.Height);
-            }
-        }
+        _currentSessionRegionRect.IsVisible = true;
+        _currentSessionRegionRect.Width = x2 - x1;
+        _currentSessionRegionRect.Height = height;
+        Canvas.SetLeft(_currentSessionRegionRect, x1);
+        Canvas.SetTop(_currentSessionRegionRect, 0);
     }
 
     private async Task RunFrequencyProber()
     {
-        var text = this.FindControl<TextBlock>("ProbingStatusText");
-        var maleCb = this.FindControl<CheckBox>("MuteMaleCb");
-        var femaleCb = this.FindControl<CheckBox>("MuteFemaleCb");
-        var childCb = this.FindControl<CheckBox>("MuteChildCb");
+        _probeCts?.Cancel();
+        _probeCts?.Dispose();
+        _probeCts = new CancellationTokenSource();
+        var token = _probeCts.Token;
+        FrequencyProber.DemographicResult result;
+        try
+        {
+            int probeSeconds = 15;
+            if (_trimEndSec > _trimStartSec)
+            {
+                probeSeconds = Math.Max(1, (int)Math.Ceiling(Math.Min(15, _trimEndSec - _trimStartSec)));
+            }
+            result = await Task.Run(() => FrequencyProber.Probe(_videoPath, probeSeconds, token, _trimStartSec), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("VoiceOver", $"Voice frequency probe failed: {ex.Message}");
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_isClosing) return;
+                if (_probingStatusText != null)
+                {
+                    _probingStatusText.Text = "Voice detection unavailable. Recording still works.";
+                    _probingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
+                }
 
-        var result = await Task.Run(() => FrequencyProber.Probe(_videoPath, 15));
+                if (_muteMaleCb != null) _muteMaleCb.IsVisible = false;
+                if (_muteFemaleCb != null) _muteFemaleCb.IsVisible = false;
+                if (_muteChildCb != null) _muteChildCb.IsVisible = false;
+                UpdateApplyState("Voice detection could not run. You can still record a voiceover take.");
+            });
+            return;
+        }
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (text != null) text.Text = "Probing complete.";
-            if (maleCb != null && result.HasAdultMale) maleCb.IsChecked = true;
-            if (femaleCb != null && result.HasAdultFemale) femaleCb.IsChecked = true;
-            if (childCb != null && result.HasChild) childCb.IsChecked = true;
+            if (_isClosing) return;
+            var found = new List<string>();
+            _detectedMaleHz = result.AdultMaleFrequencyHz;
+            _detectedFemaleHz = result.AdultFemaleFrequencyHz;
+            _detectedChildHz = result.ChildFrequencyHz;
+
+            if (result.HasAdultMale) found.Add($"Male {result.AdultMaleConfidence:P0} @ {result.AdultMaleFrequencyHz:0}Hz");
+            if (result.HasAdultFemale) found.Add($"Female {result.AdultFemaleConfidence:P0} @ {result.AdultFemaleFrequencyHz:0}Hz");
+            if (result.HasChild) found.Add($"Child {result.ChildConfidence:P0} @ {result.ChildFrequencyHz:0}Hz");
+
+            if (_probingStatusText != null)
+            {
+                _probingStatusText.Text = found.Count > 0
+                    ? $"Candidate voice ranges: {string.Join(", ", found)}"
+                    : "No strong voice-frequency candidates detected.";
+                _probingStatusText.Foreground = found.Count > 0
+                    ? GetAppBrush("AppTextPrimaryBrush", Brushes.White)
+                    : GetAppBrush("AppTextMutedBrush", Brushes.Gray);
+            }
+
+            if (_muteMaleCb != null)
+            {
+                _muteMaleCb.IsVisible = result.HasAdultMale;
+                _muteMaleCb.Content = result.HasAdultMale
+                    ? $"Reduce Adult Male Range ({result.AdultMaleFrequencyHz:0}Hz)"
+                    : "Reduce Adult Male Range";
+                _muteMaleCb.IsChecked = false;
+            }
+            if (_muteFemaleCb != null)
+            {
+                _muteFemaleCb.IsVisible = result.HasAdultFemale;
+                _muteFemaleCb.Content = result.HasAdultFemale
+                    ? $"Reduce Female Range ({result.AdultFemaleFrequencyHz:0}Hz)"
+                    : "Reduce Female Range";
+                _muteFemaleCb.IsChecked = false;
+            }
+            if (_muteChildCb != null)
+            {
+                _muteChildCb.IsVisible = result.HasChild;
+                _muteChildCb.Content = result.HasChild
+                    ? $"Reduce Child Range ({result.ChildFrequencyHz:0}Hz)"
+                    : "Reduce Child Range";
+                _muteChildCb.IsChecked = false;
+            }
+            UpdateApplyState();
         });
     }
 
-    private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Control timelineCanvas)
+    private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Control timelineCanvas, bool force)
     {
         if (e.Handled) return;
         if (_videoHost?.IpcClient == null) return;
@@ -417,7 +1048,18 @@ public partial class VoiceOverWindow : Window
 
         double x = Math.Clamp(e.GetPosition(timelineCanvas).X, 0, width);
         double targetTime = _trimStartSec + (x / width) * effectiveDuration;
-        _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", targetTime.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        
+        if (!force)
+        {
+            _dragSeekTimeSec = targetTime;
+            e.Handled = true;
+            return;
+        }
+
+        _dragSeekTimeSec = null;
+        _lastTimelineSeekUtc = DateTime.UtcNow;
+        SeekToAbsolute(targetTime);
+        e.Handled = true;
     }
 
     private void OnKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
@@ -442,71 +1084,176 @@ public partial class VoiceOverWindow : Window
         }
     }
 
+    private async void TogglePreviewPlayback(object? sender, Avalonia.Interactivity.RoutedEventArgs? e)
+    {
+        if (!_isMpvReady || _isRecording || _videoHost?.IpcClient == null) return;
+
+        bool shouldPlay = _videoHost.IpcClient.IsPaused;
+        if (shouldPlay)
+        {
+            double current = _videoHost.IpcClient.CurrentTime;
+            double safeStart = NormalizePreviewPlaybackPosition(current);
+            if (Math.Abs(safeStart - current) > 0.01)
+            {
+                await _videoHost.IpcClient.SetPropertyAsync("time-pos", safeStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            _isCurrentlyFrozen = false;
+            _lastFreezeTriggerMs = -1;
+            ApplyPreviewSpeedForPosition(safeStart * 1000.0);
+            RuntimeLog.Info("VoiceOver", $"Preview playback requested at {safeStart:0.###}s.");
+        }
+
+        await _videoHost.IpcClient.SetPropertyAsync("pause", shouldPlay ? "no" : "yes");
+        UpdatePlayPauseIconUI();
+    }
+
     private void StartRecordingAndPlayback()
     {
-        _isRecording = true;
-        
+        if (!VoiceRecorder.HasInputDevice)
+        {
+            ShowMicrophoneUnavailable("No microphone input device is available.");
+            return;
+        }
+
         if (_recorder != null)
         {
             _recorder.VolumeChanged -= OnVolumeChanged;
             _recorder.Dispose();
         }
-        _outputWavPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"voiceover_{Guid.NewGuid():N}.wav");
-        
+        _outputWavPath = CreateTempVoiceOverPath();
+
+        double currentPreviewTime = _videoHost?.IpcClient?.CurrentTime ?? _trimStartSec;
+        double recordingStart = NormalizePreviewPlaybackPosition(currentPreviewTime);
+        if (Math.Abs(recordingStart - currentPreviewTime) > 0.01)
+        {
+            _ = _videoHost?.IpcClient?.SetPropertyAsync("time-pos", recordingStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        _isCurrentlyFrozen = false;
+        _lastFreezeTriggerMs = -1;
+        ApplyPreviewSpeedForPosition(recordingStart * 1000.0);
+
         _currentSession = new VoiceOverSession {
             WavPath = _outputWavPath,
-            StartSec = _videoHost?.IpcClient?.CurrentTime ?? 0
+            StartSec = recordingStart
         };
 
-        _recorder = new VoiceRecorder(_outputWavPath);
+        _recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
         _recorder.VolumeChanged += OnVolumeChanged;
-        
-        _recorder.StartRecording();
+
+        try
+        {
+            _recorder.StartRecording();
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {ex.Message}");
+            _recorder.VolumeChanged -= OnVolumeChanged;
+            _recorder.Dispose();
+            _recorder = null;
+            _currentSession = null;
+            _isRecording = false;
+            TryDeleteFile(_outputWavPath);
+            ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
+            return;
+        }
+
+        _isRecording = true;
         _waveformSamples.Clear();
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
 
-        var light = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("RecordingLight");
-        var status = this.FindControl<TextBlock>("RecordingStatusText");
-        if (light != null) light.Opacity = 1.0;
-        if (status != null) { status.Text = "RECORDING"; status.Foreground = Avalonia.Media.Brushes.Red; }
+        if (_recordingLight != null) _recordingLight.Opacity = 1.0;
+        if (_recordingStatusText != null)
+        {
+            _recordingStatusText.Text = "RECORDING";
+            _recordingStatusText.Foreground = GetAppBrush("AppDangerBrush", Brushes.Red);
+        }
         
-        var btn = this.FindControl<Button>("MicRecordButton");
-        if (btn != null && !btn.Classes.Contains("recording")) btn.Classes.Add("recording");
+        if (_micRecordButton != null && !_micRecordButton.Classes.Contains("recording")) _micRecordButton.Classes.Add("recording");
+        UpdateTransportState();
+        UpdateApplyState("Recording in progress. Apply will save the current take and close.");
+    }
+
+    private void ShowMicrophoneUnavailable(string message)
+    {
+        _isRecording = false;
+        if (_recordingLight != null) _recordingLight.Opacity = 0.2;
+        if (_recordingStatusText != null)
+        {
+            _recordingStatusText.Text = "NO MIC";
+            _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
+        }
+        if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
+        UpdateTransportState();
+        UpdateApplyState($"{message} You can still use voice mute options if detection finds them.");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+            {
+                System.IO.File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private void StopRecordingAndPlayback()
     {
+        if (!_isRecording) return;
+
         _isRecording = false;
+        _isCurrentlyFrozen = false;
         _recorder?.StopRecording();
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
+        bool rejectedShortRecording = false;
         if (_currentSession != null)
         {
             _currentSession.EndSec = _videoHost?.IpcClient?.CurrentTime ?? _currentSession.StartSec;
-            _sessions.Add(_currentSession);
+            if (_currentSession.EndSec > _currentSession.StartSec + 0.05 &&
+                System.IO.File.Exists(_currentSession.WavPath))
+            {
+                _sessions.Add(_currentSession);
+                _renderedSessionCount = -1;
+            }
+            else
+            {
+                rejectedShortRecording = true;
+            }
             _currentSession = null;
         }
 
-        var light = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("RecordingLight");
-        var status = this.FindControl<TextBlock>("RecordingStatusText");
-        if (light != null) light.Opacity = 0.2;
-        if (status != null) { status.Text = "PAUSED"; status.Foreground = Avalonia.Media.Brushes.White; }
+        if (_recordingLight != null) _recordingLight.Opacity = 0.2;
+        if (_recordingStatusText != null)
+        {
+            _recordingStatusText.Text = "PAUSED";
+            _recordingStatusText.Foreground = GetAppBrush("AppTextPrimaryBrush", Brushes.White);
+        }
         
-        var btn = this.FindControl<Button>("MicRecordButton");
-        if (btn != null) btn.Classes.Remove("recording");
+        if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
+        UpdateTransportState();
+        UpdateApplyState(rejectedShortRecording
+            ? "Recording was too short to apply. Record another take or choose a mute option."
+            : null);
     }
 
     private void OnVolumeChanged(object? sender, float volume)
     {
         Dispatcher.UIThread.Post(() =>
         {
-            var eq = this.FindControl<Rectangle>("EqMeter");
-            if (eq != null)
+            if (_eqMeter != null)
             {
-                eq.Width = Math.Min(150, volume * 300);
-                if (volume > 0.8) eq.Fill = Brushes.Red;
-                else if (volume > 0.5) eq.Fill = Brushes.Yellow;
-                else eq.Fill = Brushes.LimeGreen;
+                double meterWidth = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0
+                    ? _eqMeterTrack.Bounds.Width
+                    : 150;
+                _eqMeter.Width = Math.Min(meterWidth, volume * meterWidth * 2.0);
+                if (volume > 0.8) _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+                else if (volume > 0.5) _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppWarningBrush");
+                else _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
             }
 
             if (_isRecording)
@@ -518,117 +1265,194 @@ public partial class VoiceOverWindow : Window
 
     private void UpdateWaveformUI()
     {
-        var canvas = this.FindControl<Canvas>("WaveformCanvas");
-        if (canvas == null || !_isRecording) return;
+        if (_waveformCanvas == null || !_isRecording) return;
 
-        canvas.Children.Clear();
-        int maxLines = (int)(canvas.Bounds.Width / 2);
+        int maxLines = Math.Max(0, (int)(_waveformCanvas.Bounds.Width / 2));
+        int visibleLines = Math.Min(maxLines, _waveformSamples.Count);
+        EnsureWaveformLinePool(_waveformCanvas, visibleLines);
         
-        int startIdx = Math.Max(0, _waveformSamples.Count - maxLines);
+        int startIdx = Math.Max(0, _waveformSamples.Count - visibleLines);
         double x = 0;
+        double laneHeight = Math.Max(1, _waveformCanvas.Bounds.Height);
+        double centerY = laneHeight / 2;
 
-        for (int i = startIdx; i < _waveformSamples.Count; i++)
+        for (int i = 0; i < visibleLines; i++)
         {
-            double height = Math.Max(2, _waveformSamples[i] * 60);
-            var line = new Line
-            {
-                StartPoint = new Point(x, 30 - height / 2),
-                EndPoint = new Point(x, 30 + height / 2),
-                Stroke = Brushes.LimeGreen,
-                StrokeThickness = 1
-            };
-            canvas.Children.Add(line);
+            double height = Math.Max(2, _waveformSamples[startIdx + i] * laneHeight);
+            var line = _waveformLinePool[i];
+            line.IsVisible = true;
+            line.StartPoint = new Point(x, centerY - height / 2);
+            line.EndPoint = new Point(x, centerY + height / 2);
             x += 2;
+        }
+
+        for (int i = visibleLines; i < _waveformLinePool.Count; i++)
+        {
+            _waveformLinePool[i].IsVisible = false;
         }
     }
 
-    private async void ApplyAndClose()
+    private void EnsureWaveformLinePool(Canvas canvas, int requiredLines)
     {
-        StopRecordingAndPlayback();
-        _recorder?.StopRecording();
-        
-        string? finalWav = null;
-        double finalStart = 0;
-
-        if (_sessions.Count == 1)
+        while (_waveformLinePool.Count < requiredLines)
         {
-            finalWav = _sessions[0].WavPath;
-            finalStart = _sessions[0].StartSec;
-        }
-        else if (_sessions.Count > 1)
-        {
-            var btn = this.FindControl<Button>("ApplyButton");
-            if (btn != null) { btn.IsEnabled = false; btn.Content = "MIXING..."; }
-            finalWav = await MixSessionsAsync();
-            finalStart = _trimStartSec;
-        }
-        else
-        {
-            if (System.IO.File.Exists(_outputWavPath))
+            var line = new Line
             {
-                finalWav = _outputWavPath;
-                finalStart = 0;
-            }
+                StrokeThickness = 1,
+                IsHitTestVisible = false
+            };
+            line[!Line.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
+            _waveformLinePool.Add(line);
+            canvas.Children.Add(line);
         }
+    }
+
+    private void ApplyAndClose()
+    {
+        if (_isRecording)
+        {
+            StopRecordingAndPlayback();
+        }
+        _recorder?.StopRecording();
+
+        bool muteMale = _muteMaleCb?.IsChecked == true;
+        bool muteFemale = _muteFemaleCb?.IsChecked == true;
+        bool muteChild = _muteChildCb?.IsChecked == true;
+        bool hasMuteEffect = muteMale || muteFemale || muteChild;
+
+        if (!HasSavedVoiceOverSession() && !hasMuteEffect)
+        {
+            Result = null;
+            UpdateApplyState("Nothing to apply yet. Record a take or choose a detected voice mute option.");
+            return;
+        }
+        
+        var persistedTakes = new List<VoiceOverTake>();
+        var keepPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_sessions.Count > 0)
+        {
+            if (_applyButton != null) { _applyButton.IsEnabled = false; _applyButton.Content = "SAVING..."; }
+
+            for (int i = 0; i < _sessions.Count; i++)
+            {
+                var session = _sessions[i];
+                if (session.EndSec <= session.StartSec ||
+                    string.IsNullOrWhiteSpace(session.WavPath) ||
+                    !System.IO.File.Exists(session.WavPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    string persistedPath = CreatePersistedVoiceOverPath();
+                    File.Copy(session.WavPath, persistedPath, overwrite: true);
+                    persistedTakes.Add(new VoiceOverTake(persistedPath, session.StartSec));
+                    keepPaths.Add(persistedPath);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("VoiceOver", $"Voiceover take {i + 1} could not be persisted. {ex.Message}");
+                    Result = null;
+                    if (_applyButton != null) _applyButton.Content = "APPLY & CLOSE";
+                    UpdateApplyState($"Voiceover take {i + 1} could not be saved. Record another take or choose a mute option.");
+                    return;
+                }
+            }
+
+            if (_applyButton != null) _applyButton.Content = "APPLY & CLOSE";
+            DeleteSessionFilesExcept(keepPaths);
+        }
+
+        if (persistedTakes.Count == 0 && !hasMuteEffect)
+        {
+            Result = null;
+            UpdateApplyState("Voiceover audio could not be prepared. Record another take or choose a mute option.");
+            return;
+        }
+
+        string? finalWav = persistedTakes.Count > 0 ? persistedTakes[0].Path : null;
+        double finalStart = persistedTakes.Count > 0 ? persistedTakes[0].StartSec : 0;
 
         Result = new VoiceOverResult
         {
             VoiceOverWavPath = finalWav,
             VoiceOverStartTimestampSec = finalStart,
-            MuteMale = this.FindControl<CheckBox>("MuteMaleCb")?.IsChecked == true,
-            MuteFemale = this.FindControl<CheckBox>("MuteFemaleCb")?.IsChecked == true,
-            MuteChild = this.FindControl<CheckBox>("MuteChildCb")?.IsChecked == true
+            VoiceOverTakes = persistedTakes,
+            MuteMale = muteMale,
+            MuteFemale = muteFemale,
+            MuteChild = muteChild,
+            MaleFrequencyHz = _detectedMaleHz,
+            FemaleFrequencyHz = _detectedFemaleHz,
+            ChildFrequencyHz = _detectedChildHz
         };
 
         Close();
     }
 
-    private async Task<string?> MixSessionsAsync()
+    private void DeleteSessionFilesExcept(IReadOnlySet<string> keepPaths)
     {
-        try
+        foreach (var session in _sessions)
         {
-            string outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"voiceover_mix_{Guid.NewGuid():N}.wav");
-            string ffmpeg = ResolveBinaryPath("ffmpeg.exe", "backend");
-            
-            var args = new System.Text.StringBuilder("-y -hide_banner -loglevel error ");
-            foreach (var s in _sessions)
+            if (!keepPaths.Contains(session.WavPath))
             {
-                args.Append($"-i \"{s.WavPath}\" ");
+                TryDeleteFile(session.WavPath);
             }
-            
-            args.Append("-filter_complex \"");
-            for (int i = 0; i < _sessions.Count; i++)
-            {
-                int delayMs = (int)Math.Max(0, (_sessions[i].StartSec - _trimStartSec) * 1000);
-                args.Append($"[{i}]adelay={delayMs}|{delayMs}[a{i}]; ");
-            }
-            for (int i = 0; i < _sessions.Count; i++)
-            {
-                args.Append($"[a{i}]");
-            }
-            args.Append($"amix=inputs={_sessions.Count}:normalize=0[out]\" -map \"[out]\" \"{outPath}\"");
-
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                Arguments = args.ToString(),
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var p = System.Diagnostics.Process.Start(psi);
-            if (p != null) await p.WaitForExitAsync();
-
-            if (System.IO.File.Exists(outPath)) return outPath;
         }
-        catch { }
-        return null;
+        if (!keepPaths.Contains(_outputWavPath))
+        {
+            TryDeleteFile(_outputWavPath);
+        }
+    }
+
+    private void DeleteUnappliedVoiceOverFiles()
+    {
+        var appliedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(Result?.VoiceOverWavPath))
+        {
+            appliedPaths.Add(Result!.VoiceOverWavPath!);
+        }
+        if (Result?.VoiceOverTakes != null)
+        {
+            foreach (var take in Result.VoiceOverTakes)
+            {
+                if (!string.IsNullOrWhiteSpace(take.Path))
+                {
+                    appliedPaths.Add(take.Path);
+                }
+            }
+        }
+
+        foreach (var session in _sessions)
+        {
+            if (!appliedPaths.Contains(session.WavPath))
+            {
+                TryDeleteFile(session.WavPath);
+            }
+        }
+
+        if (_currentSession != null)
+        {
+            if (!appliedPaths.Contains(_currentSession.WavPath))
+            {
+                TryDeleteFile(_currentSession.WavPath);
+            }
+        }
+
+        if (!appliedPaths.Contains(_outputWavPath))
+        {
+            TryDeleteFile(_outputWavPath);
+        }
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _isClosing = true;
         _generationCts?.Cancel();
+        _probeCts?.Cancel();
+        _timer.Stop();
+        _recorder?.Dispose();
+        DeleteUnappliedVoiceOverFiles();
         
         if (_tempThumbPath != null && System.IO.File.Exists(_tempThumbPath))
         {
@@ -639,8 +1463,7 @@ public partial class VoiceOverWindow : Window
             try { System.IO.File.Delete(_tempWavePath); } catch { }
         }
 
-        _timer.Stop();
-        _recorder?.Dispose();
+        _probeCts?.Dispose();
         _videoHost?.Dispose();
         base.OnClosed(e);
     }

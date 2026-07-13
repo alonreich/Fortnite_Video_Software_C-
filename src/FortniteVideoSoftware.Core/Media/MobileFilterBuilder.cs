@@ -1,4 +1,4 @@
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -47,7 +47,6 @@ public class MobileFilterBuilder
             {
                 string key = kvp.Key;
                 
-                // Backwards compatibility for existing hardcoded toggles
                 if (key == "boss_hp" || key == "normal_hp")
                 {
                     if (key != hpKey) continue;
@@ -173,15 +172,15 @@ public class MobileFilterBuilder
         double scale = 1.0;
         if (scalesObj != null && scalesObj.ContainsKey(confKey))
         {
-            try { scale = scalesObj[confKey]!.GetValue<double>(); } catch { }
+            try { scale = (double)scalesObj[confKey]!; } catch { try { scale = double.Parse(scalesObj[confKey]!.ToString()); } catch { } }
         }
 
         var overlaysObj = coords["overlays"]?.AsObject();
         double posX = 0, posY = CoordinateConstants.UIPaddingTop;
         if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
         {
-            try { posX = ov["x"]?.GetValue<double>() ?? 0; } catch { }
-            try { posY = ov["y"]?.GetValue<double>() ?? CoordinateConstants.UIPaddingTop; } catch { }
+            try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch { } }
+            try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch { } }
         }
 
         var zOrdersObj = coords["z_orders"]?.AsObject();
@@ -221,15 +220,15 @@ internal static class MobileFilterBuilderExtensions
         double scale = 1.0;
         if (scalesObj != null && scalesObj.ContainsKey(confKey))
         {
-            try { scale = scalesObj[confKey]!.GetValue<double>(); } catch { }
+            try { scale = (double)scalesObj[confKey]!; } catch { try { scale = double.Parse(scalesObj[confKey]!.ToString()); } catch { } }
         }
 
         var overlaysObj = coords["overlays"]?.AsObject();
         double posX = 0, posY = CoordinateConstants.UIPaddingTop;
         if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
         {
-            try { posX = ov["x"]?.GetValue<double>() ?? 0; } catch { }
-            try { posY = ov["y"]?.GetValue<double>() ?? CoordinateConstants.UIPaddingTop; } catch { }
+            try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch { } }
+            try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch { } }
         }
 
         var zOrdersObj = coords["z_orders"]?.AsObject();

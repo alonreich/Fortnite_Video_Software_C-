@@ -133,13 +133,13 @@ public partial class MusicWizardWindow : Window
     }
 
 
-    public MusicWizardWindow(System.Collections.Generic.List<string> mergerVideos) : this()
+    public MusicWizardWindow(System.Collections.Generic.List<string> mergerVideos, double totalDurationSec) : this()
     {
         _mergerVideos = mergerVideos;
         _isMergerMode = true;
         _videoPath = mergerVideos.FirstOrDefault() ?? "";
         _trimStartMs = 0;
-        _trimEndMs = 0;
+        _trimEndMs = totalDurationSec * 1000.0;
         _playheadTimer?.Start();
         SharedInit();
     }
@@ -171,6 +171,10 @@ public partial class MusicWizardWindow : Window
     {
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         this.Loaded += async (s, e) => {
+            await WindowBoundsHelper.LoadBoundsAsync(this, "MusicWizardBounds");
+        };
+        this.Closing += (s, e) => {
+            WindowBoundsHelper.SaveBoundsSync(this, "MusicWizardBounds");
         };
 
         var listbox = this.FindControl<ListBox>("MusicListBox");
@@ -1156,7 +1160,12 @@ public partial class MusicWizardWindow : Window
                     border.Child = null;
                 }
 
-                var wizardVideoHost = new FortniteVideoSoftware.App.MpvVideoView { Name = "WizardVideoHost" };
+                var wizardVideoHost = new FortniteVideoSoftware.App.MpvVideoView
+                {
+                    Name = "WizardVideoHost",
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+                };
                 border.Child = wizardVideoHost;
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
                 await Task.Delay(50, cancellationToken);
@@ -1168,10 +1177,10 @@ public partial class MusicWizardWindow : Window
                 if (wizardVideoHost.IpcClient == null)
                     throw new InvalidOperationException("Video preview did not start.");
 
-                string safeVideoPath = _videoPath.Replace("\\", "/");
-                await wizardVideoHost.IpcClient.SendCommandAsync("loadfile", safeVideoPath, "replace");
+                await wizardVideoHost.IpcClient.LoadFileAsync(_videoPath, _trimStartMs / 1000.0);
                 await wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", (_trimStartMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await wizardVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                RuntimeLog.Info("MUSIC_WIZARD", "Phase 3 MPV preview video loaded.");
 
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)

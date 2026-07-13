@@ -29,7 +29,14 @@ AppDomain.CurrentDomain.UnhandledException += (s, e) =>
 
 TaskScheduler.UnobservedTaskException += (s, e) =>
 {
-    RuntimeLog.Fail("FATAL UNOBSERVED TASK", e.Exception);
+    if (e.Exception?.ToString().Contains("OpenSharedResource failed") == true)
+    {
+        RuntimeLog.Info("MPV-Interop", "Ignored benign OpenSharedResource Avalonia rendering exception on finalizer thread.");
+    }
+    else
+    {
+        RuntimeLog.Fail("FATAL UNOBSERVED TASK", e.Exception ?? new Exception("Unknown unobserved task exception"));
+    }
     e.SetObserved();
 };
 RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={Environment.ProcessPath}; args={string.Join(" ", args)}");

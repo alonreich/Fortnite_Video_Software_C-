@@ -46,7 +46,13 @@ public class ProcessWorker : IDisposable
     public bool KeepMusicDuringMeme { get; set; }
 
     public string? VoiceOverWavPath { get; set; }
-    public double VoiceOverStartSec { get; set; }
+    public double VoiceOverStartSec { get; set; } 
+    public List<VoiceOverTake>? VoiceOverTakes { get; set; }
+    public double VoiceOverMuteMaleHz { get; set; }
+    public double VoiceOverMuteFemaleHz { get; set; }
+    public double VoiceOverMuteChildHz { get; set; }
+    public bool AutoVoiceNormalization { get; set; } = true;
+
     public bool VoiceOverMuteMale { get; set; }
     public bool VoiceOverMuteFemale { get; set; }
     public bool VoiceOverMuteChild { get; set; }
@@ -297,9 +303,10 @@ public class ProcessWorker : IDisposable
                         string gameAudioFilters = "";
                         if (!string.IsNullOrEmpty(VoiceOverWavPath))
                         {
-                            if (VoiceOverMuteMale) gameAudioFilters += "bandreject=f=125:width_type=h:w=95,";
-                            if (VoiceOverMuteFemale) gameAudioFilters += "bandreject=f=210:width_type=h:w=85,";
-                            if (VoiceOverMuteChild) gameAudioFilters += "bandreject=f=325:width_type=h:w=150,";
+                            if (VoiceOverMuteMale || VoiceOverMuteFemale || VoiceOverMuteChild)
+                            {
+                                gameAudioFilters += "stereotools=mlev=0.0625,";
+                            }
                         }
                         coreFilters.Add($"[0:a]{gameAudioFilters}asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
@@ -676,19 +683,23 @@ public class ProcessWorker : IDisposable
 
                 if (ThumbnailPosMs > 0)
                 {
-                    string thumbnailOutput = Path.Combine(tempJobDir, "thumbnail.jpg");
-                    double ss = ThumbnailPosMs / 1000.0;
+                    string thumbnailOutput = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
+                    double extractTargetSec = Math.Max(0.0, (ThumbnailPosMs - actualExtractStartMs) / 1000.0 / Math.Max(0.001, SpeedFactor));
+                    if (introDurationSec > 0.0)
+                    {
+                        extractTargetSec += introDurationSec;
+                    }
+                    string targetStr = extractTargetSec.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = _ffmpegPath,
-                        Arguments = $"-y -ss {ss.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)} -i \"{InputPath}\" -vframes 1 -q:v 2 \"{thumbnailOutput}\"",
+                        Arguments = $"-y -ss {targetStr} -i \"{finalOutput}\" -vframes 1 -q:v 2 \"{thumbnailOutput}\"",
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
                     using var p = System.Diagnostics.Process.Start(psi);
                     if (p != null) await p.WaitForExitAsync(cancellationToken);
                 }
-
                 ProgressUpdate?.Invoke(100);
                 EmitFinished(true, finalOutput);
             }
@@ -797,3 +808,5 @@ public class ProcessWorker : IDisposable
         _currentProcess?.Dispose();
     }
 }
+
+public record VoiceOverTake(string Path, double StartSec);

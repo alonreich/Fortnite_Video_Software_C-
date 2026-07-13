@@ -4,9 +4,9 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.VoiceOverWindow"
         Title="Voice Over Studio"
-        Width="1600" Height="840"
+        Width="1024" Height="680"
         Background="{DynamicResource AppSurfaceBrush}"
-        MinWidth="900" MinHeight="600"
+        MinWidth="980" MinHeight="640"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
@@ -14,16 +14,16 @@
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" Cursor="DragMove" ToolTip.Tip="Drag to move. Double-click to maximize.">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
                 <Grid Grid.Row="1" RowDefinitions="*, Auto">
 
                     <!-- MAIN BODY -->
-                    <Grid Grid.Row="0" ColumnDefinitions="*, 280">
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto">
 
                         <!-- LEFT: Video preview + timeline -->
-                        <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
+                        <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="12" MinWidth="0">
 
                             <!-- Video preview -->
                             <Border Name="VideoAreaBorder" Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
@@ -36,27 +36,20 @@
                             <!-- Timeline and controls -->
                             <Grid Grid.Row="1" Margin="0,15,0,0">
                                 <StackPanel Orientation="Vertical" Spacing="8">
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20">
+                                    <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center" ItemHeight="88">
                                         
                                         <!-- Realistic Mic Button -->
-                                        <Button Name="MicRecordButton" Width="90" Height="90" ToolTip.Tip="Toggle Record/Pause (Shortcut: V)" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand">
+                                         <Button Name="MicRecordButton" MinWidth="82" MinHeight="82" Margin="0,0,20,0" ToolTip.Tip="Start or stop voiceover recording (V)" AutomationProperties.Name="Start or stop voiceover recording" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand" IsEnabled="False">
                                             <Button.Styles>
                                                 <Style Selector="Button">
                                                     <Setter Property="Template">
                                                         <ControlTemplate>
                                                             <Grid>
                                                                 <!-- Outer Rim Bezel (Metallic Dark) -->
-                                                                <Ellipse Fill="#2c2f33" Stroke="#111111" StrokeThickness="4"/>
+                                                                <Ellipse Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="4"/>
                                                                 
                                                                 <!-- Inner Blue Button Body (with 3D gradient) -->
-                                                                <Ellipse Margin="6" Name="InnerGlow">
-                                                                    <Ellipse.Fill>
-                                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
-                                                                            <GradientStop Color="#4d94ff" Offset="0"/>
-                                                                            <GradientStop Color="#0047b3" Offset="1"/>
-                                                                        </RadialGradientBrush>
-                                                                    </Ellipse.Fill>
-                                                                </Ellipse>
+                                                                <Ellipse Margin="6" Name="InnerGlow" Fill="{DynamicResource AppAccentBrush}" />
 
                                                                 <!-- Top Highlight for 3D sphere glass look -->
                                                                 <Ellipse Margin="15,8,15,50" Opacity="0.3">
@@ -69,36 +62,36 @@
                                                                 </Ellipse>
 
                                                                 <!-- Mic Icon -->
-                                                                <Path Fill="White" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="5,0,-5,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                                <Path Name="MicIcon" Fill="{DynamicResource AppTextPrimaryBrush}" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                                <Border Name="MicFocusRing" CornerRadius="45" BorderBrush="Transparent" BorderThickness="0" Margin="1" IsHitTestVisible="False"/>
                                                             </Grid>
                                                         </ControlTemplate>
                                                     </Setter>
                                                 </Style>
                                                 <!-- Pointer Over State (Blue) -->
                                                 <Style Selector="Button:pointerover /template/ Ellipse#InnerGlow">
-                                                    <Setter Property="Fill">
-                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
-                                                            <GradientStop Color="#66a3ff" Offset="0"/>
-                                                            <GradientStop Color="#003d99" Offset="1"/>
-                                                        </RadialGradientBrush>
-                                                    </Setter>
+                                                    <Setter Property="Fill" Value="{DynamicResource AppInfoBrush}"/>
+                                                </Style>
+                                                <Style Selector="Button:focus /template/ Border#MicFocusRing">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AppInfoBrush}"/>
+                                                    <Setter Property="BorderThickness" Value="3"/>
+                                                </Style>
+                                                <Style Selector="Button:focus-visible /template/ Border#MicFocusRing">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                                                    <Setter Property="BorderThickness" Value="4"/>
+                                                </Style>
+                                                <Style Selector="Button:disabled /template/ Ellipse#InnerGlow">
+                                                    <Setter Property="Fill" Value="{DynamicResource AppPanelBrush}"/>
+                                                </Style>
+                                                <Style Selector="Button:disabled /template/ Path#MicIcon">
+                                                    <Setter Property="Opacity" Value="0.45"/>
                                                 </Style>
                                                 <!-- Recording State (Darker Red) -->
                                                 <Style Selector="Button.recording /template/ Ellipse#InnerGlow">
-                                                    <Setter Property="Fill">
-                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
-                                                            <GradientStop Color="#cc0000" Offset="0"/>
-                                                            <GradientStop Color="#800000" Offset="1"/>
-                                                        </RadialGradientBrush>
-                                                    </Setter>
+                                                    <Setter Property="Fill" Value="{DynamicResource AppDangerBrush}"/>
                                                 </Style>
                                                 <Style Selector="Button.recording:pointerover /template/ Ellipse#InnerGlow">
-                                                    <Setter Property="Fill">
-                                                        <RadialGradientBrush GradientOrigin="50%,20%" Center="50%,50%">
-                                                            <GradientStop Color="#e60000" Offset="0"/>
-                                                            <GradientStop Color="#990000" Offset="1"/>
-                                                        </RadialGradientBrush>
-                                                    </Setter>
+                                                    <Setter Property="Fill" Value="{DynamicResource AppDangerBrush}"/>
                                                 </Style>
                                                 <!-- Pressed State -->
                                                 <Style Selector="Button:pressed /template/ Ellipse#InnerGlow">
@@ -108,62 +101,64 @@
                                         </Button>
                                         
                                         <!-- Recording Indicator & EQ -->
-                                        <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10">
+                                        <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="0,0,20,0">
                                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                                <Ellipse Name="RecordingLight" Width="16" Height="16" Fill="Red" Opacity="0.2"/>
-                                                <TextBlock Name="RecordingStatusText" Text="READY" Foreground="White" FontSize="16" FontWeight="Bold"/>
+                                                <Ellipse Name="RecordingLight" Width="16" Height="16" Fill="{DynamicResource AppDangerBrush}" Opacity="0.2"/>
+                                                <TextBlock Name="RecordingStatusText" Text="READY" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="16" FontWeight="Bold"/>
                                             </StackPanel>
                                             
                                             <!-- EQ Meter -->
-                                            <Border BorderBrush="#333" BorderThickness="1" Background="#111" CornerRadius="4" Width="150" Height="20" ClipToBounds="True">
-                                                <Rectangle Name="EqMeter" Width="0" Height="20" HorizontalAlignment="Left" Fill="#00FF00" />
+                                            <Border Name="EqMeterTrack" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" MinWidth="120" MaxWidth="180" Height="20" ClipToBounds="True">
+                                                <Rectangle Name="EqMeter" Width="0" Height="20" HorizontalAlignment="Left" Fill="{DynamicResource AppSuccessBrush}" />
                                             </Border>
                                         </StackPanel>
 
                                         <!-- Play Pause -->
-                                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" Margin="30,0,0,0">
+                                        <Button Name="PlayPauseButton" Classes="Secondary" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
                                             <Panel Width="16" Height="16">
-                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
+                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppTextPrimaryBrush}"/>
                                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Rectangle Width="4" Height="14" Fill="White"/>
-                                                    <Rectangle Width="4" Height="14" Fill="White"/>
+                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppTextPrimaryBrush}"/>
+                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppTextPrimaryBrush}"/>
                                                 </StackPanel>
                                             </Panel>
                                         </Button>
-                                    </StackPanel>
+                                    </WrapPanel>
 
-                                    <!-- Two 60px Lanes -->
-                                    <Border BorderBrush="#444" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0">
-                                        <Grid RowDefinitions="20, 60, 60">
+                                    <!-- Timeline lanes -->
+                                    <Border BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0">
+                                        <Grid RowDefinitions="Auto, *, *" MinHeight="140">
                                             <!-- Ruler -->
-                                            <Canvas Name="TimelineRulerCanvas" Grid.Row="0" Background="#222" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurface" Grid.Row="0" MinHeight="20" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand" Focusable="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
 
                                             <!-- Thumbnails -->
-                                            <Grid Name="ThumbnailLaneGrid" Grid.Row="1" Background="#111">
+                                            <Grid Name="ThumbnailLaneGrid" Classes="TimelineSeekSurface" Grid.Row="1" MinHeight="54" Background="{DynamicResource AppSurfaceBrush}" Cursor="Hand" Focusable="True" ToolTip.Tip="Click or drag to seek by frame preview" AutomationProperties.Name="Voiceover thumbnail seek lane">
                                                 <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
-                                                <Border Name="ThumbLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                <Border Name="ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#facc15" Background="#222"/>
-                                                        <TextBlock Text="Generating Frames..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
+                                                        <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="10" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                                 <!-- We can generate Images via code or just a Canvas -->
                                                 <Canvas Name="ThumbnailCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                 <!-- Playhead Marker -->
-                                                <Line Name="ThumbPlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="Red" StrokeThickness="2" />
+                                                <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <Line Name="ThumbPlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
                                             </Grid>
 
                                             <!-- Waveform -->
-                                            <Grid Name="WaveformLaneGrid" Grid.Row="2" Background="#0A0A0A">
+                                            <Grid Name="WaveformLaneGrid" Classes="TimelineSeekSurface" Grid.Row="2" MinHeight="54" Background="{DynamicResource AppSurfaceBrush}" Cursor="Hand" Focusable="True" ToolTip.Tip="Click or drag to seek by audio waveform" AutomationProperties.Name="Voiceover waveform seek lane">
                                                 <Image Name="WaveformLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
-                                                <Border Name="WaveformLoadingOverlay" Background="#AA000000" IsHitTestVisible="False" IsVisible="False">
+                                                <Border Name="WaveformLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="#3b82f6" Background="#222"/>
-                                                        <TextBlock Text="Generating Waveform..." Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppInfoBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
+                                                        <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="10" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                                 <Canvas Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-                                                <Line Name="WavePlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="Red" StrokeThickness="2" />
+                                                <TextBlock Name="WaveformFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <Line Name="WavePlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
                                             </Grid>
                                         </Grid>
                                     </Border>
@@ -172,33 +167,45 @@
                         </Grid>
 
                         <!-- RIGHT PANEL: Probing & Options -->
-                        <Border Grid.Column="1" Background="#1A1A1A" BorderBrush="#333" BorderThickness="1,0,0,0" Padding="15">
+                        <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15" MinWidth="260" MaxWidth="340">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Orientation="Vertical" Spacing="15">
-                                <TextBlock Text="FREQUENCY PROBER" FontSize="16" FontWeight="Bold" Foreground="White" />
-                                <TextBlock Text="Scanning original video audio..." Name="ProbingStatusText" FontSize="12" Foreground="#888" TextWrapping="Wrap"/>
+                                <TextBlock Text="VOICE DETECTION" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Text="Scanning for candidate voice-frequency ranges..." Name="ProbingStatusText" FontSize="12" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Vertical" Spacing="5">
+                                    <TextBlock Text="MICROPHONE" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                    <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
+                                </StackPanel>
                                 
-                                <Border Background="#222" CornerRadius="4" Padding="10">
+                                <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
                                     <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
-                                        <CheckBox Name="MuteMaleCb" Content="Mute Adult Male" />
-                                        <CheckBox Name="MuteFemaleCb" Content="Mute Female" />
-                                        <CheckBox Name="MuteChildCb" Content="Mute Child/Youngster" />
+                                        <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
+                                        <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
+                                        <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
                                     </StackPanel>
                                 </Border>
                                 
-                                <TextBlock Text="Warning: Frequency muting will affect game bass." FontSize="10" Foreground="#666" TextWrapping="Wrap"/>
+                                <TextBlock Text="Frequency muting can also reduce nearby game sounds." FontSize="10" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
+                            </ScrollViewer>
                         </Border>
                     </Grid>
 
                     <!-- BOTTOM ROW (Apply / Cancel) -->
-                    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="#333" Padding="12,12,12,12">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="15">
-                            <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="100"/>
-                            <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" Width="140"/>
-                        </StackPanel>
+                    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource AppBorderBrush}" Padding="12,12,12,12">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
+                                <Button Name="CancelButton" Classes="Danger" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
+                                <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>
+                            </StackPanel>
+                        </Grid>
                     </Border>
                 </Grid>
             </Grid>
+        </Border>
+        <Border Name="ResizeGrip" Width="24" Height="24" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="Transparent" Cursor="BottomRightCorner" ToolTip.Tip="Resize Voice Over Studio" AutomationProperties.Name="Resize Voice Over Studio">
+            <Path Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="1.5" StrokeLineCap="Round" Data="M 8,20 L 20,8 M 13,20 L 20,13 M 18,20 L 20,18" />
         </Border>
     </Grid>
 </Window>

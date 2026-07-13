@@ -194,7 +194,7 @@ public partial class GranularSpeedEditorWindow : Window
                     });
                 };
 
-                LoadVideo();
+                await LoadVideoAsync();
             }
             else
             {
@@ -315,14 +315,15 @@ public partial class GranularSpeedEditorWindow : Window
         if (_videoHost?.IpcClient != null) await _videoHost.IpcClient.SendCommandAsync("seek", absTime.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
     }
 
-    private void LoadVideo()
+    private async Task LoadVideoAsync()
     {
         if (string.IsNullOrWhiteSpace(_videoPath) || _videoHost?.IpcClient == null) return;
 
         double startSec = _trimStartMs / 1000.0;
-        
-        _ = _videoHost.IpcClient.LoadFileAsync(_videoPath, startSec);
-        _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+
+        await _videoHost.IpcClient.LoadFileAsync(_videoPath, startSec);
+        await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+        RuntimeLog.Info("Granular", $"Loaded preview video at {startSec:0.###}s.");
     }
 
     private void WireUpControls()
@@ -1601,6 +1602,9 @@ public partial class GranularSpeedEditorWindow : Window
 
         _playbackTimer?.Stop();
         _marchingAntsTimer?.Stop();
+        _freezePulseTimer?.Stop();
+        _videoHost?.Dispose();
+        _videoHost = null;
         base.OnClosed(e);
     }
 

@@ -10,6 +10,7 @@ using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.App.Infrastructure;
 using FortniteVideoSoftware.Core.Media;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,6 +44,16 @@ public partial class MainWindow : Window
     private VoiceOverWindow.VoiceOverResult? _voiceOverResult;
     private NAudio.Wave.WaveOutEvent? _voiceOverPlayer;
     private NAudio.Wave.AudioFileReader? _voiceOverReader;
+    private readonly List<VoiceOverPreviewTake> _voiceOverPreviewTakes = new();
+    private Func<double, double>? _voiceOverPreviewTimeMapper;
+
+    private sealed class VoiceOverPreviewTake
+    {
+        public required VoiceOverTake Take { get; init; }
+        public required NAudio.Wave.WaveOutEvent Player { get; init; }
+        public required NAudio.Wave.AudioFileReader Reader { get; init; }
+        public double StartProjectSec { get; set; }
+    }
 
     private double _thumbnailPosMs = 0;
     private bool _thumbnailSet = false;
@@ -351,6 +362,7 @@ public partial class MainWindow : Window
                     if (ActiveVideoHost?.IpcClient != null)
                         _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
                             _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    InvalidateVoiceOverRecordingForTimingChange();
                     UpdateEstimatedQuality();
                     ShowTacticalFeedback("Speed segments removed");
                     UpdateTimelineMarkers();
@@ -405,6 +417,7 @@ public partial class MainWindow : Window
                         ? "Granular settings applied"
                         : "Granular segments cleared");
 
+                    InvalidateVoiceOverRecordingForTimingChange();
                     UpdateEstimatedQuality();
                     UpdateTimelineMarkers();
                 }
@@ -538,6 +551,17 @@ public partial class MainWindow : Window
 
                 if (_voiceOverResult != null)
                 {
+                    var confirm = new ConfirmDialogWindow();
+                    confirm.SetTitle("Remove Voice Over?");
+                    confirm.SetMessage("This will remove the applied voiceover or voice-frequency muting from the current edit.");
+                    confirm.SetButtonText("REMOVE", "KEEP");
+                    await confirm.ShowDialog(this);
+                    if (!confirm.Result)
+                    {
+                        ShowTacticalFeedback("Voice Over Kept");
+                        return;
+                    }
+
                     ApplyVoiceOverState(null);
                     ShowTacticalFeedback("Voice Over Removed");
                     return;
@@ -546,13 +570,29 @@ public partial class MainWindow : Window
                 bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
                 if (wasPlaying) _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
-                var dialog = new VoiceOverWindow(_loadedVideoPath, GetCurrentMpvTime(), _trimStartMs, _trimEndSet ? _trimEndMs : 0);
-                await dialog.ShowDialog(this);
-
-                if (dialog.Result != null)
+                var dialog = new VoiceOverWindow(
+                    _loadedVideoPath,
+                    GetCurrentMpvTime(),
+                    _trimStartMs,
+                    _trimEndSet ? _trimEndMs : 0,
+                    BuildExportSpeedSegments(),
+                    _baseSpeed);
+                try
                 {
-                    ApplyVoiceOverState(dialog.Result);
-                    ShowTacticalFeedback("Voice Over Applied");
+                    await dialog.ShowDialog(this);
+
+                    if (HasVoiceOverEffect(dialog.Result))
+                    {
+                        ApplyVoiceOverState(dialog.Result);
+                        ShowTacticalFeedback(HasVoiceOverWav(dialog.Result) ? "Voice Over Applied" : "Voice Effects Applied");
+                    }
+                }
+                finally
+                {
+                    if (wasPlaying && ActiveVideoHost?.IpcClient != null)
+                    {
+                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "no");
+                    }
                 }
             };
         }
@@ -639,9 +679,12 @@ public partial class MainWindow : Window
             SpeedPresetButtons.WirePresetButtons(this, SpeedPresetButtons.NativeDefaultSpeed, ApplyMainSpeedPreset);
             mainSpeedSlider.ValueChanged += (s, e) =>
             {
+                double previousSpeed = _baseSpeed;
                 _baseSpeed = e / 10.0;
                 if (ActiveVideoHost?.IpcClient != null)
                     _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                if (Math.Abs(previousSpeed - _baseSpeed) > 0.001)
+                    InvalidateVoiceOverRecordingForTimingChange();
                 UpdateEstimatedQuality();
                 UpdateSpeedLabel();
                 SaveRecoveryState();
@@ -1332,6 +1375,7 @@ public partial class MainWindow : Window
         _thumbnailPosMs = 0;
         _freezeTimeMs = -1;
         _freezeDurationS = 1.0;
+        ApplyVoiceOverState(null, isRestore: true);
 
         var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
         if (addMemeCb != null) addMemeCb.IsChecked = false;
@@ -1996,6 +2040,7 @@ public partial class MainWindow : Window
         var speedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
         SpeedPresetButtons.SetSpinningWheelValue(speedSlider, speed);
 
+        double previousSpeed = _baseSpeed;
         _baseSpeed = Math.Clamp(speed, 0.1, 4.0);
         if (ActiveVideoHost?.IpcClient != null)
         {
@@ -2004,6 +2049,8 @@ public partial class MainWindow : Window
                 _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
         }
 
+        if (Math.Abs(previousSpeed - _baseSpeed) > 0.001)
+            InvalidateVoiceOverRecordingForTimingChange();
         UpdateEstimatedQuality();
         UpdateSpeedLabel();
         SaveRecoveryState();
@@ -2951,28 +2998,32 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_voiceOverResult != null && _voiceOverPlayer != null && _voiceOverReader != null)
+        if (_voiceOverResult != null && _voiceOverPreviewTakes.Count > 0)
         {
             bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
             if (_isCurrentlyFrozen) isPaused = false;
-            
-            double voiceTime = time - _voiceOverResult.VoiceOverStartTimestampSec;
-            bool shouldPlayVoice = !isPaused && voiceTime >= 0 && voiceTime <= _voiceOverReader.TotalTime.TotalSeconds;
-            
-            if (shouldPlayVoice && _voiceOverPlayer.PlaybackState != NAudio.Wave.PlaybackState.Playing)
+
+            double editedTime = GetEditedPreviewTimeSeconds(time);
+            foreach (var take in _voiceOverPreviewTakes)
             {
-                _voiceOverReader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
-                _voiceOverPlayer.Play();
-            }
-            else if (!shouldPlayVoice && _voiceOverPlayer.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-            {
-                _voiceOverPlayer.Pause();
-            }
-            else if (shouldPlayVoice && _voiceOverPlayer.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-            {
-                if (Math.Abs(_voiceOverReader.CurrentTime.TotalSeconds - voiceTime) > 0.5)
+                double voiceTime = editedTime - take.StartProjectSec;
+                bool shouldPlayVoice = !isPaused && voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
+
+                if (shouldPlayVoice && take.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
                 {
-                    _voiceOverReader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                    take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                    take.Player.Play();
+                }
+                else if (!shouldPlayVoice && take.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                {
+                    take.Player.Pause();
+                }
+                else if (shouldPlayVoice && take.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                {
+                    if (Math.Abs(take.Reader.CurrentTime.TotalSeconds - voiceTime) > 0.5)
+                    {
+                        take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                    }
                 }
             }
         }
@@ -3345,13 +3396,18 @@ public partial class MainWindow : Window
             worker.SpeedSegments = allSegments;
             worker.SpeedFactor = _baseSpeed;
             worker.ThumbnailPosMs = _thumbnailSet ? _thumbnailPosMs : 0;
+            worker.AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization;
             if (_voiceOverResult != null)
             {
                 worker.VoiceOverWavPath = _voiceOverResult.VoiceOverWavPath;
                 worker.VoiceOverStartSec = _voiceOverResult.VoiceOverStartTimestampSec;
+                worker.VoiceOverTakes = GetExistingVoiceOverTakes(_voiceOverResult);
                 worker.VoiceOverMuteMale = _voiceOverResult.MuteMale;
                 worker.VoiceOverMuteFemale = _voiceOverResult.MuteFemale;
                 worker.VoiceOverMuteChild = _voiceOverResult.MuteChild;
+                worker.VoiceOverMuteMaleHz = _voiceOverResult.MaleFrequencyHz;
+                worker.VoiceOverMuteFemaleHz = _voiceOverResult.FemaleFrequencyHz;
+                worker.VoiceOverMuteChildHz = _voiceOverResult.ChildFrequencyHz;
             }
             if (_thumbnailSet && _thumbnailPosMs > 0)
             {
@@ -3444,7 +3500,18 @@ public partial class MainWindow : Window
             {
                 mpvPath = "mpv.exe";
             }
-            await _videoHost.StartMpvProcessAsync(mpvPath);
+            try
+            {
+                await _videoHost.StartMpvProcessAsync(mpvPath);
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Fail("UI", $"Video preview initialization failed. {ex}");
+                ShowTacticalFeedback("Video preview unavailable on this hardware.");
+                PlayUiSound();
+                return;
+            }
+
             if (_videoHost.IpcClient != null)
             {
                 _videoHost.IpcClient.SeekCompleted += () => {
@@ -3579,6 +3646,7 @@ public partial class MainWindow : Window
     {
         base.OnClosed(e);
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
+        DisposeVoiceOverPreviewTakes();
         _musicPreviewIpcClient?.Dispose();
         Environment.Exit(0);
     }
@@ -3666,9 +3734,103 @@ public partial class MainWindow : Window
     /// (recovery_v2.json) so it can be restored if the app crashes.
     /// Called on every meaningful state change (trim, speed, quality, etc.).
     /// </summary>
+    private static bool HasVoiceOverWav(VoiceOverWindow.VoiceOverResult? result)
+    {
+        foreach (var take in GetExistingVoiceOverTakes(result))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static List<VoiceOverTake> GetExistingVoiceOverTakes(VoiceOverWindow.VoiceOverResult? result)
+    {
+        var takes = new List<VoiceOverTake>();
+        if (result == null) return takes;
+
+        if (result.VoiceOverTakes != null)
+        {
+            foreach (var take in result.VoiceOverTakes)
+            {
+                if (!string.IsNullOrWhiteSpace(take.Path) && System.IO.File.Exists(take.Path))
+                {
+                    takes.Add(take);
+                }
+            }
+        }
+
+        if (takes.Count == 0 &&
+            !string.IsNullOrWhiteSpace(result.VoiceOverWavPath) &&
+            System.IO.File.Exists(result.VoiceOverWavPath))
+        {
+            takes.Add(new VoiceOverTake(result.VoiceOverWavPath!, result.VoiceOverStartTimestampSec));
+        }
+
+        return takes;
+    }
+
+    private static bool HasVoiceOverEffect(VoiceOverWindow.VoiceOverResult? result)
+    {
+        return HasVoiceOverWav(result) ||
+               result?.MuteMale == true ||
+               result?.MuteFemale == true ||
+               result?.MuteChild == true;
+    }
+
+    private void DisposeVoiceOverPreviewTakes()
+    {
+        foreach (var take in _voiceOverPreviewTakes)
+        {
+            try { take.Player.Dispose(); } catch { }
+            try { take.Reader.Dispose(); } catch { }
+        }
+        _voiceOverPreviewTakes.Clear();
+    }
+
+    private Func<double, double> GetVoiceOverPreviewTimeMapper()
+    {
+        if (_voiceOverPreviewTimeMapper != null)
+        {
+            return _voiceOverPreviewTimeMapper;
+        }
+
+        double durationMs = ActiveVideoHost?.IpcClient?.Duration > 0
+            ? ActiveVideoHost.IpcClient.Duration * 1000.0
+            : Math.Max(_trimEndMs, _trimStartMs + 1000.0);
+        double endMs = _trimEndMs > _trimStartMs ? _trimEndMs : durationMs;
+        double totalMs = Math.Max(1.0, endMs - _trimStartMs);
+
+        _voiceOverPreviewTimeMapper = GranularSpeedBuilder.CreateTimeMapper(
+            totalMs,
+            BuildExportSpeedSegments(),
+            _baseSpeed,
+            _trimStartMs);
+
+        foreach (var take in _voiceOverPreviewTakes)
+        {
+            take.StartProjectSec = _voiceOverPreviewTimeMapper(take.Take.StartSec);
+        }
+
+        return _voiceOverPreviewTimeMapper;
+    }
+
+    private double GetEditedPreviewTimeSeconds(double sourceTimeSec)
+    {
+        var mapper = GetVoiceOverPreviewTimeMapper();
+        if (_isCurrentlyFrozen && _freezeTimeMs >= 0)
+        {
+            double freezeBaseSec = mapper(_freezeTimeMs / 1000.0);
+            double elapsedFreezeSec = Math.Clamp((DateTime.UtcNow - _freezeStartTime).TotalSeconds, 0, Math.Max(0, _freezeDurationS));
+            return freezeBaseSec + elapsedFreezeSec;
+        }
+
+        return mapper(sourceTimeSec);
+    }
+
     private void ApplyVoiceOverState(VoiceOverWindow.VoiceOverResult? result, bool isRestore = false)
     {
-        _voiceOverResult = result;
+        _voiceOverResult = HasVoiceOverEffect(result) ? result : null;
         var btn = this.FindControl<Button>("VoiceOverButton");
         var text = this.FindControl<TextBlock>("VoiceOverText");
 
@@ -3676,25 +3838,43 @@ public partial class MainWindow : Window
         _voiceOverPlayer = null;
         _voiceOverReader?.Dispose();
         _voiceOverReader = null;
+        DisposeVoiceOverPreviewTakes();
+        _voiceOverPreviewTimeMapper = null;
 
-        if (_voiceOverResult != null && !string.IsNullOrEmpty(_voiceOverResult.VoiceOverWavPath) && System.IO.File.Exists(_voiceOverResult.VoiceOverWavPath))
+        if (_voiceOverResult != null)
         {
+            var takes = GetExistingVoiceOverTakes(_voiceOverResult);
+            bool hasWav = takes.Count > 0;
             if (btn != null)
             {
+                btn.Classes.Remove("VoiceOverEntry");
                 btn.Classes.Remove("Primary");
                 if (!btn.Classes.Contains("Danger")) btn.Classes.Add("Danger");
+                ToolTip.SetTip(btn, hasWav ? "Remove the current voiceover" : "Remove voice frequency muting");
             }
-            if (text != null) text.Text = " REMOVE VOICEOVER  ";
+            if (text != null) text.Text = hasWav ? "REMOVE VOICE" : "VOICE FX ON";
 
-            try
+            if (hasWav)
             {
-                _voiceOverReader = new NAudio.Wave.AudioFileReader(_voiceOverResult.VoiceOverWavPath);
-                _voiceOverPlayer = new NAudio.Wave.WaveOutEvent();
-                _voiceOverPlayer.Init(_voiceOverReader);
-            }
-            catch (Exception ex)
-            {
-                CoreLogger.Fail("MainWindow", $"Failed to load VoiceOver preview: {ex.Message}");
+                foreach (var take in takes)
+                {
+                    try
+                    {
+                        var reader = new NAudio.Wave.AudioFileReader(take.Path);
+                        var player = new NAudio.Wave.WaveOutEvent();
+                        player.Init(reader);
+                        _voiceOverPreviewTakes.Add(new VoiceOverPreviewTake
+                        {
+                            Take = take,
+                            Reader = reader,
+                            Player = player
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        CoreLogger.Fail("MainWindow", $"Failed to load VoiceOver preview take '{take.Path}': {ex.Message}");
+                    }
+                }
             }
         }
         else
@@ -3703,12 +3883,32 @@ public partial class MainWindow : Window
             if (btn != null)
             {
                 btn.Classes.Remove("Danger");
-                if (!btn.Classes.Contains("Primary")) btn.Classes.Add("Primary");
+                btn.Classes.Remove("Primary");
+                if (!btn.Classes.Contains("VoiceOverEntry")) btn.Classes.Add("VoiceOverEntry");
+                ToolTip.SetTip(btn, "Open Voice Over Studio");
             }
-            if (text != null) text.Text = " VOICE OVER  ";
+            if (text != null) text.Text = "VOICE OVER";
         }
 
         if (!isRestore) SaveRecoveryState();
+    }
+
+    private void InvalidateVoiceOverRecordingForTimingChange()
+    {
+        if (!HasVoiceOverWav(_voiceOverResult)) return;
+
+        var muteOnly = new VoiceOverWindow.VoiceOverResult
+        {
+            MuteMale = _voiceOverResult!.MuteMale,
+            MuteFemale = _voiceOverResult.MuteFemale,
+            MuteChild = _voiceOverResult.MuteChild,
+            MaleFrequencyHz = _voiceOverResult.MaleFrequencyHz,
+            FemaleFrequencyHz = _voiceOverResult.FemaleFrequencyHz,
+            ChildFrequencyHz = _voiceOverResult.ChildFrequencyHz
+        };
+
+        ApplyVoiceOverState(HasVoiceOverEffect(muteOnly) ? muteOnly : null);
+        ShowTacticalFeedback("Voice Over recording cleared after timing changed");
     }
 
     private void SaveRecoveryState()
@@ -3761,6 +3961,20 @@ public partial class MainWindow : Window
                 state["voiceOverMuteMale"] = _voiceOverResult.MuteMale;
                 state["voiceOverMuteFemale"] = _voiceOverResult.MuteFemale;
                 state["voiceOverMuteChild"] = _voiceOverResult.MuteChild;
+                state["voiceOverMuteMaleHz"] = _voiceOverResult.MaleFrequencyHz;
+                state["voiceOverMuteFemaleHz"] = _voiceOverResult.FemaleFrequencyHz;
+                state["voiceOverMuteChildHz"] = _voiceOverResult.ChildFrequencyHz;
+
+                var voiceTakeArray = new System.Text.Json.Nodes.JsonArray();
+                foreach (var take in GetExistingVoiceOverTakes(_voiceOverResult))
+                {
+                    voiceTakeArray.Add(new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["path"] = take.Path,
+                        ["startSec"] = take.StartSec
+                    });
+                }
+                state["voiceOverTakes"] = voiceTakeArray;
             }
 
             RuntimeLog.Info("RECOVERY", "Preparing crash recovery state dump...");
@@ -3982,18 +4196,44 @@ public partial class MainWindow : Window
                 UpdateSpeedLabel();
                 UpdateTimelineMarkers();
 
-                if (state.TryGetPropertyValue("voiceOverWavPath", out var wavPathNode))
+                if (state.TryGetPropertyValue("voiceOverWavPath", out var wavPathNode) || state.ContainsKey("voiceOverMuteMale") || state.ContainsKey("voiceOverTakes"))
                 {
                     var wavPath = wavPathNode?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(wavPath) && System.IO.File.Exists(wavPath))
+                    bool muteMale = state.TryGetPropertyValue("voiceOverMuteMale", out var mNode) && mNode != null && mNode.GetValue<bool>();
+                    bool muteFemale = state.TryGetPropertyValue("voiceOverMuteFemale", out var fNode) && fNode != null && fNode.GetValue<bool>();
+                    bool muteChild = state.TryGetPropertyValue("voiceOverMuteChild", out var cNode) && cNode != null && cNode.GetValue<bool>();
+                    double muteMaleHz = state.TryGetPropertyValue("voiceOverMuteMaleHz", out var mhzNode) && mhzNode != null ? mhzNode.GetValue<double>() : 0;
+                    double muteFemaleHz = state.TryGetPropertyValue("voiceOverMuteFemaleHz", out var fhzNode) && fhzNode != null ? fhzNode.GetValue<double>() : 0;
+                    double muteChildHz = state.TryGetPropertyValue("voiceOverMuteChildHz", out var chzNode) && chzNode != null ? chzNode.GetValue<double>() : 0;
+                    var restoredTakes = new List<VoiceOverTake>();
+                    if (state.TryGetPropertyValue("voiceOverTakes", out var takesNode) &&
+                        takesNode is System.Text.Json.Nodes.JsonArray takesArray)
+                    {
+                        foreach (var takeNode in takesArray)
+                        {
+                            if (takeNode is not System.Text.Json.Nodes.JsonObject takeObj) continue;
+                            string? takePath = takeObj["path"]?.GetValue<string>();
+                            double takeStart = takeObj["startSec"]?.GetValue<double>() ?? 0;
+                            if (!string.IsNullOrWhiteSpace(takePath) && System.IO.File.Exists(takePath))
+                            {
+                                restoredTakes.Add(new VoiceOverTake(takePath, takeStart));
+                            }
+                        }
+                    }
+
+                    if (restoredTakes.Count > 0 || (!string.IsNullOrEmpty(wavPath) && System.IO.File.Exists(wavPath)) || muteMale || muteFemale || muteChild)
                     {
                         var resultObj = new VoiceOverWindow.VoiceOverResult
                         {
-                            VoiceOverWavPath = wavPath,
-                            VoiceOverStartTimestampSec = state["voiceOverStartSec"]?.GetValue<double>() ?? 0,
-                            MuteMale = state["voiceOverMuteMale"]?.GetValue<bool>() ?? false,
-                            MuteFemale = state["voiceOverMuteFemale"]?.GetValue<bool>() ?? false,
-                            MuteChild = state["voiceOverMuteChild"]?.GetValue<bool>() ?? false
+                            VoiceOverWavPath = wavPath ?? "",
+                            VoiceOverStartTimestampSec = state.TryGetPropertyValue("voiceOverStartSec", out var sNode) && sNode != null ? sNode.GetValue<double>() : 0,
+                            VoiceOverTakes = restoredTakes,
+                            MuteMale = muteMale,
+                            MuteFemale = muteFemale,
+                            MuteChild = muteChild,
+                            MaleFrequencyHz = muteMaleHz,
+                            FemaleFrequencyHz = muteFemaleHz,
+                            ChildFrequencyHz = muteChildHz
                         };
                         ApplyVoiceOverState(resultObj, true);
                     }

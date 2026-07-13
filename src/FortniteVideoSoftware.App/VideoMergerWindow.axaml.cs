@@ -89,6 +89,9 @@ public partial class VideoMergerWindow : Window
         WireUpEvents();
         InitializeSliders();
         LoadOutputDirectory();
+
+        FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
+        this.Closed += (s, e) => { FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged; };
     }
 
     private void InitializeControls()
@@ -278,14 +281,14 @@ public partial class VideoMergerWindow : Window
             addMusicBtn.Click += async (s, e) =>
             {
                 RuntimeLog.Info("UI", "User clicked Add Music in Video Merger.");
-                if (VideoQueue.Count < 2)
+                if (VideoQueue.Count < 1)
                 {
                     UpdateQueueState();
-                    SetQueueStatus("Add at least two videos before adding music.", true);
+                    SetQueueStatus("Add at least one video before adding music.", true);
                     return;
                 }
 
-                var wizard = new MusicWizardWindow(VideoQueue.ToList());
+                var wizard = new MusicWizardWindow(VideoQueue.ToList(), _cachedTotalDurationSec);
                 await wizard.ShowDialog(this);
 
                 if (wizard.Result != null)
@@ -832,6 +835,9 @@ public partial class VideoMergerWindow : Window
         var volumeSpeakerIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("VolumeSpeakerIcon");
         if (volumeSlider != null && volumeBadgeText != null)
         {
+            volumeSlider.Value = FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
+            volumeBadgeText.Text = $"{FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume}%";
+
             volumeSlider.PropertyChanged += (s, e) =>
             {
                 if (e.Property == Slider.ValueProperty && e.NewValue != null)
@@ -871,6 +877,14 @@ public partial class VideoMergerWindow : Window
     private void ApplyMasterVolume(int masterVolumePercentage)
     {
         FortniteVideoSoftware.Core.Media.MpvIpcClient.SetGlobalMasterVolume(masterVolumePercentage);
+    }
+
+    private void OnGlobalMasterVolumeChanged(int masterVolumePercentage)
+    {
+        if (_videoHost?.IpcClient != null)
+        {
+            _ = _videoHost.IpcClient.SetPropertyAsync("volume", masterVolumePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     private async void OnAddVideoClicked()
@@ -1218,10 +1232,10 @@ public partial class VideoMergerWindow : Window
 
     private async Task OnMergeClicked(Button mergeBtn)
     {
-        if (VideoQueue.Count < 2)
+        if (VideoQueue.Count < 1)
         {
             UpdateQueueState();
-            SetQueueStatus("Add at least two videos before merging.", true);
+            SetQueueStatus("Add at least one video before processing.", true);
             return;
         }
 
@@ -1242,8 +1256,36 @@ public partial class VideoMergerWindow : Window
             var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
             int qualityPercent = qs != null ? (qs.Value + 1) * 5 : 100;
 
-            var worker = new MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent };
+            bool allPortrait = true;
+            bool allLandscape = true;
+            foreach (var path in VideoQueue)
+            {
+                if (!System.IO.File.Exists(path)) continue;
+                var prober = new FortniteVideoSoftware.Core.Media.MediaProber(_ffprobePath, path);
+                var (w, h) = await prober.GetResolutionAsync();
+                if (h > w) allLandscape = false;
+                if (w > h) allPortrait = false;
+            }
+
+            var targetRatio = FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
+
+            if (allPortrait && !allLandscape) targetRatio = FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Portrait9x16;
+            else if (allLandscape && !allPortrait) targetRatio = FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
+            else
+            {
+                var dialog = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+                dialog.SetTitle("Mixed Aspect Ratios");
+                dialog.SetMessage("Your queue contains a mix of portrait and landscape videos.\n\nChoose 'Portrait (9:16)' to aggressively crop the sides of landscape videos, or 'Landscape (16:9)' to add black padding.");
+                dialog.SetButtonText("Portrait (9:16)", "Landscape (16:9)");
+                await dialog.ShowDialog(this);
+                targetRatio = dialog.Result ? FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Portrait9x16 : FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
+            }
+
+            var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio };
             _activeMergerWorker = worker;
+
+            var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
+            double currentMainVol = volSlider != null ? volSlider.Value / 100.0 : 1.0;
 
             if (_musicResult != null)
             {
@@ -1268,7 +1310,7 @@ public partial class VideoMergerWindow : Window
                     {
                         ["ducking_threshold"] = _musicResult.EnableDucking ? 0.15 : 1.0,
                         ["ducking_ratio"] = _musicResult.EnableDucking ? 2.5 : 1.0,
-                        ["main_vol"] = _musicResult.VideoVolume,
+                        ["main_vol"] = currentMainVol,
                         ["music_vol"] = _musicResult.MusicVolume,
                         ["carving_enabled"] = _musicResult.EnableCarving,
                         ["timeline_start_sec"] = _musicResult.TimelineStartSeconds,
@@ -1278,9 +1320,22 @@ public partial class VideoMergerWindow : Window
                 }
             }
 
+            if (worker.MusicConfig == null)
+            {
+                worker.MusicConfig = new System.Text.Json.Nodes.JsonObject { ["main_vol"] = currentMainVol };
+            }
+            else
+            {
+                worker.MusicConfig["main_vol"] = currentMainVol;
+            }
+
             this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
 
-            worker.ProgressUpdate += percent => Avalonia.Threading.Dispatcher.UIThread.Post(() => mergeBtn.Content = $"MERGING... {percent}%");
+            worker.ProgressUpdate += percent => Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+            {
+                mergeBtn.Content = $"MERGING... {percent}%";
+                this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.UpdatePhase(1, "Merging Videos...", percent);
+            });
 
             worker.Finished += async (success, msg) =>
             {
@@ -1330,15 +1385,15 @@ public partial class VideoMergerWindow : Window
         var mergeBtn = this.FindControl<Button>("MergeButton");
         if (mergeBtn != null)
         {
-            mergeBtn.IsEnabled = count >= 2;
-            ToolTip.SetTip(mergeBtn, count >= 2 ? "Merge all listed videos together" : "Add at least two videos to enable merging");
+            mergeBtn.IsEnabled = count >= 1;
+            ToolTip.SetTip(mergeBtn, count >= 1 ? "Merge/Process all listed videos" : "Add at least one video to enable processing");
         }
 
         var addMusicBtn = this.FindControl<Button>("AddMusicButton");
         if (addMusicBtn != null)
         {
             var txt = this.FindControl<TextBlock>("AddMusicText");
-            bool canAddMusic = count >= 2;
+            bool canAddMusic = count >= 1;
             addMusicBtn.IsEnabled = canAddMusic;
             if (!canAddMusic)
             {
@@ -1348,7 +1403,7 @@ public partial class VideoMergerWindow : Window
                 addMusicBtn.Classes.Clear();
                 addMusicBtn.Classes.Add("Primary");
                 if (txt != null) txt.Text = " ADD MUSIC ";
-                ToolTip.SetTip(addMusicBtn, "Add at least two videos before adding music");
+                ToolTip.SetTip(addMusicBtn, "Add at least one video before adding music");
             }
             else if (_musicIsStale)
             {
@@ -1386,7 +1441,7 @@ public partial class VideoMergerWindow : Window
 
         if (_musicIsStale) { SetQueueStatus("⚠ Music setup is stale — queue changed. Re-run Add Music before merging.", true); }
         else if (count == 0) SetQueueStatus("Waiting for videos.", false);
-        else if (count == 1) SetQueueStatus("Add one more video to enable merging.", false);
+        else if (count == 1) SetQueueStatus("Ready to process 1 video.", false);
         else SetQueueStatus($"Ready to merge {count} videos.", false);
         UpdateNormalizeInfo();
         UpdateOutputPathDisplay();

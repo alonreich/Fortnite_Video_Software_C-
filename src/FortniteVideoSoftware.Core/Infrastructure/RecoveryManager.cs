@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -32,8 +32,6 @@ public sealed class RecoveryManager
 
         if (!File.Exists(_paths.AppSessionLockFile))
         {
-            // If state exists but lock file does NOT, it means ReleaseLockOnly() was intentionally called
-            // during a graceful process handoff (Main -> Merger/Crop). This is not a crash.
             return false;
         }
 

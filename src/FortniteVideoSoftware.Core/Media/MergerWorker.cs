@@ -22,6 +22,9 @@ public class MergerWorker : IDisposable
     public JsonObject? MusicConfig { get; set; }
     public string? OutputDirectory { get; set; }
     public double SpeedFactor { get; set; } = 1.0;
+    public enum TargetAspectRatio { Landscape16x9, Portrait9x16 }
+    public TargetAspectRatio OutputRatio { get; set; } = TargetAspectRatio.Landscape16x9;
+
     public int QualityPercent { get; set; } = 100;
 
     public MergerWorker(ApplicationPaths? paths = null)
@@ -99,7 +102,12 @@ public class MergerWorker : IDisposable
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
                     double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
-                    filters.Add($"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)}[v{i}]");
+                    
+                    string scaleFilter = OutputRatio == TargetAspectRatio.Portrait9x16
+                        ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
+                        : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
+
+                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)}[v{i}]");
                     double clipDur = fileDurations[i] > 0 ? fileDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
@@ -117,8 +125,16 @@ public class MergerWorker : IDisposable
                     vInputs += $"[v{i}]";
                     aInputs += $"[a{i}]";
                 }
-                filters.Add($"{vInputs}concat=n={InputFiles.Count}:v=1:a=0{vOutputLabel}");
-                filters.Add($"{aInputs}concat=n={InputFiles.Count}:v=0:a=1{aOutputLabel}");
+                if (InputFiles.Count > 1)
+                {
+                    filters.Add($"{vInputs}concat=n={InputFiles.Count}:v=1:a=0{vOutputLabel}");
+                    filters.Add($"{aInputs}concat=n={InputFiles.Count}:v=0:a=1{aOutputLabel}");
+                }
+                else
+                {
+                    vOutputLabel = "[v0]";
+                    aOutputLabel = "[a0]";
+                }
 
                 string finalAudioLabel = aOutputLabel;
 
@@ -192,7 +208,7 @@ public class MergerWorker : IDisposable
                     CoreLogger.Info("FFmpeg", $"Executing merge with encoder {currentEncoder} ({rcLabel}).");
                     CoreLogger.Info("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
 
-                    bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, totalDuration, cancellationToken);
+                    bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, totalDuration / Math.Max(0.1, SpeedFactor), cancellationToken);
 
                     if (attemptSuccess && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                     {
@@ -288,7 +304,7 @@ public class MergerWorker : IDisposable
         foreach (var track in sourceTracks)
         {
             double duration = track.Duration;
-            bool durationFromSourceProbe = duration <= 0 || duration >= 9999.0 || duration > musicWindowDuration;
+            bool durationFromSourceProbe = true;
             if (durationFromSourceProbe)
             {
                 try

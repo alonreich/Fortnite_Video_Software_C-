@@ -1,6 +1,7 @@
 
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -27,9 +28,8 @@ public class EncoderManager
 
     public EncoderManager(string? hardwareStrategy = null, string? ffmpegPath = null, string? videoHwEncoderEnv = null, bool forceCpuEnv = false)
     {
-        string localFfmpeg = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
         FFmpegPath = !string.IsNullOrEmpty(ffmpegPath) ? ffmpegPath :
-                     File.Exists(localFfmpeg) ? localFfmpeg : "ffmpeg.exe";
+                     BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
 
         AvailableEncoders = DetectAvailableEncoders(FFmpegPath);
         PrimaryEncoder = videoHwEncoderEnv ?? "h264_nvenc";

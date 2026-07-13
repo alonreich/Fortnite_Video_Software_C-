@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -43,7 +43,7 @@ public class AudioFilterChain
 
         var rawParts = new List<string>();
         if (audioFilterCmd != null) rawParts.AddRange(audioFilterCmd);
-        if (vfadeInD > 0) rawParts.Add($"afade=t=in:st=0:d={vfadeInD:F3}");
+        if (vfadeInD > 0) rawParts.Add($"afade=t=in:st=0:d={vfadeInD.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
 
         var cleanedParts = new List<string>();
         foreach (var part in rawParts)
@@ -64,7 +64,7 @@ public class AudioFilterChain
         else
         {
             chain.Add($"anullsrc=r={targetSampleRate}:cl=stereo," +
-                      $"atrim=duration={Math.Max(0.01, mainDuration):F4}," +
+                      $"atrim=duration={Math.Max(0.01, mainDuration).ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
                       $"asetpts=PTS-STARTPTS[a_main_raw]");
         }
 
@@ -116,7 +116,7 @@ public class AudioFilterChain
             double vVol = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
             if (volumeNormalizeDb != 0)
                 vVol *= Math.Pow(10, volumeNormalizeDb / 20.0);
-            chain.Add($"[a_main_raw]volume={vVol:F4}," +
+            chain.Add($"[a_main_raw]volume={vVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
                       $"aresample={targetSampleRate}:async=1[a_main_prepared]");
             return (chain, "[a_main_prepared]");
         }
@@ -178,7 +178,7 @@ public class AudioFilterChain
             string mixInputs = string.Join("", preparedMusicLabels);
             string weights = string.Join(" ", Enumerable.Repeat("1", preparedMusicLabels.Count));
             chain.Add($"{mixInputs}amix=inputs={preparedMusicLabels.Count}:" +
-                      $"duration=longest:dropout_transition=0:weights='{weights}'[a_bg_music_raw]");
+                      $"duration=longest:dropout_transition=0:weights='{weights}':normalize=0[a_bg_music_raw]");
             bgMusicLabel = "[a_bg_music_raw]";
         }
         else

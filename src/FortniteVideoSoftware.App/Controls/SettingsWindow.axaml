@@ -29,7 +29,7 @@
                                 <TextBlock Text="Music Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
                                 
                                 <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="#94a3b8" Margin="0,0,0,10" />
-                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="#94a3b8" Margin="0,0,0,10" />
+                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="#94a3b8" Margin="0,0,0,10" ToolTip.Tip="Match applied voiceover loudness to the game audio during export." />
                                 <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Enable Auto Spike Flattening (Limiter)" Foreground="#94a3b8" Margin="0,0,0,10" />
                                 
                                 <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>

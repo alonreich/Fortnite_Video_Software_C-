@@ -14,10 +14,10 @@ using Vortice.DXGI;
 
 namespace FortniteVideoSoftware.App;
 
-public class MpvVideoView : Control, IDisposable
+internal sealed class MpvHardwareVideoView : Control, IDisposable
 {
     public static readonly StyledProperty<bool> IsSoftwareFallbackActiveProperty =
-        AvaloniaProperty.Register<MpvVideoView, bool>(nameof(IsSoftwareFallbackActive), false);
+        AvaloniaProperty.Register<MpvHardwareVideoView, bool>(nameof(IsSoftwareFallbackActive), false);
 
     public bool IsSoftwareFallbackActive
     {
@@ -76,11 +76,14 @@ public class MpvVideoView : Control, IDisposable
 
     public void InitializeMpv(string mpvPath)
     {
+        var renderMode = VideoRenderMode.Current;
+        bool useHardwareInterop = renderMode.UseHardwareAcceleration;
+
         _mpvHandle = MpvWrapper.mpv_create();
 
         MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", "0");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "libmpv");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", "cuda,dxva2,auto-safe");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", useHardwareInterop ? "libmpv" : "null");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", useHardwareInterop ? "cuda,dxva2,auto-safe" : "no");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "background", "#FF000000");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "keep-open", "yes");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
@@ -106,11 +109,128 @@ public class MpvVideoView : Control, IDisposable
 
         if (OperatingSystem.IsWindows())
         {
-            InitializeWGLInteropContext();
+            if (!useHardwareInterop)
+            {
+                IsSoftwareFallbackActive = true;
+                RuntimeLog.Info(InteropLogStep, $"Hardware video interop disabled: {renderMode.FailureReason}");
+                return;
+            }
+
+            try
+            {
+                InitializeWGLInteropContext();
+                IsSoftwareFallbackActive = false;
+            }
+            catch (Exception ex)
+            {
+                IsSoftwareFallbackActive = true;
+                RuntimeLog.Fail(InteropLogStep, $"Hardware video interop unavailable; continuing without preview surface. {ex.Message}");
+                ReleaseHardwareInteropResources();
+            }
         }
         else
         {
             throw new PlatformNotSupportedException();
+        }
+    }
+
+    private void ReleaseHardwareInteropResources()
+    {
+        lock (_renderLock)
+        {
+            ReleaseRenderTexture();
+
+            if (_renderContext != nint.Zero)
+            {
+                try
+                {
+                    if (_dummyHdc != nint.Zero && _hglrc != nint.Zero)
+                    {
+                        WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    }
+
+                    LibMpvInterop.mpv_render_context_free(_renderContext);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail(InteropLogStep, ex);
+                }
+                finally
+                {
+                    _renderContext = nint.Zero;
+                }
+            }
+
+            if ((_glFramebuffers[0] != 0 || _glFramebuffers[1] != 0) && _dummyHdc != nint.Zero && _hglrc != nint.Zero)
+            {
+                try
+                {
+                    WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    WglInterop.glDeleteFramebuffers?.Invoke(SwapChainSize, _glFramebuffers);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail(InteropLogStep, ex);
+                }
+                finally
+                {
+                    Array.Clear(_glFramebuffers, 0, SwapChainSize);
+                }
+            }
+
+            if ((_glTextures[0] != 0 || _glTextures[1] != 0) && _dummyHdc != nint.Zero && _hglrc != nint.Zero)
+            {
+                try
+                {
+                    WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail(InteropLogStep, ex);
+                }
+                finally
+                {
+                    Array.Clear(_glTextures, 0, SwapChainSize);
+                }
+            }
+
+            if (_dxInteropDevice != nint.Zero && WglInterop.wglDXCloseDeviceNV != null)
+            {
+                WglInterop.wglDXCloseDeviceNV(_dxInteropDevice);
+                _dxInteropDevice = nint.Zero;
+            }
+
+            if (_hglrc != nint.Zero)
+            {
+                WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+                WglInterop.wglDeleteContext(_hglrc);
+                _hglrc = nint.Zero;
+            }
+
+            if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
+            {
+                WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
+                _dummyHdc = nint.Zero;
+            }
+
+            if (_dummyHwnd != nint.Zero)
+            {
+                WglInterop.DestroyWindow(_dummyHwnd);
+                _dummyHwnd = nint.Zero;
+            }
+
+            if (_openglLibrary != nint.Zero)
+            {
+                NativeLibrary.Free(_openglLibrary);
+                _openglLibrary = nint.Zero;
+            }
+
+            _d3d11Context?.Dispose();
+            _d3d11Context = null;
+
+            _d3d11Device?.Dispose();
+            _d3d11Device = null;
         }
     }
 
@@ -119,7 +239,7 @@ public class MpvVideoView : Control, IDisposable
     {
         if (ctx == nint.Zero || namePtr == null) return nint.Zero;
         var handle = GCHandle.FromIntPtr(ctx);
-        if (handle.Target is MpvVideoView view)
+        if (handle.Target is MpvHardwareVideoView view)
         {
             string name = Marshal.PtrToStringUTF8((nint)namePtr) ?? string.Empty;
             return view.GetProcAddressForMpvInternal(name);
@@ -309,7 +429,7 @@ public class MpvVideoView : Control, IDisposable
     {
         if (ctx == nint.Zero) return;
         var handle = GCHandle.FromIntPtr(ctx);
-        if (handle.Target is MpvVideoView view)
+        if (handle.Target is MpvHardwareVideoView view)
         {
             view.OnRenderUpdate();
         }
@@ -490,8 +610,6 @@ public class MpvVideoView : Control, IDisposable
 
     private void PumpEmptyRender()
     {
-        // Calling mpv_render_context_render with empty params causes an unhandled exception (access violation) inside libmpv.
-        // If we have no surface, we simply drop the frame.
     }
 
     private void EnsureRenderTexture(int width, int height)

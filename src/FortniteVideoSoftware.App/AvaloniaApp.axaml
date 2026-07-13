@@ -1,6 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
-             x:Class="FortniteVideoSoftware.App.AvaloniaApp">
+             x:Class="FortniteVideoSoftware.App.AvaloniaApp"
+             RequestedThemeVariant="Dark">
     <Application.Resources>
         <!-- Title Bar Tokens (brushed dark grey metal) -->
         <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
@@ -32,6 +33,10 @@
         <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
         <SolidColorBrush x:Key="AppSuccessBrush" Color="#22c55e" />
         <SolidColorBrush x:Key="AppDangerBrush" Color="#dc2626" />
+        <SolidColorBrush x:Key="AppWarningBrush" Color="#facc15" />
+        <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
+        <SolidColorBrush x:Key="AppControlTrackBrush" Color="#222222" />
+        <SolidColorBrush x:Key="AppVideoRailBrush" Color="#15202b" />
     </Application.Resources>
 
     <Application.Styles>
@@ -150,6 +155,35 @@
                     <GradientStop Offset="1.0" Color="#3a8bb2"/>
                 </LinearGradientBrush>
             </Setter>
+        </Style>
+
+        <!-- Voiceover entry: distinct from general primary actions in the main editing controls. -->
+        <Style Selector="Button.VoiceOverEntry">
+            <Setter Property="BorderBrush" Value="#0e7490"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#38bdf8"/>
+                    <GradientStop Offset="0.18" Color="#0891b2"/>
+                    <GradientStop Offset="1.0" Color="#155e75"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.VoiceOverEntry:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#67e8f9"/>
+                    <GradientStop Offset="0.18" Color="#06b6d4"/>
+                    <GradientStop Offset="1.0" Color="#0e7490"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.VoiceOverEntry:disabled">
+            <Setter Property="Foreground" Value="#88ffffff"/>
+            <Setter Property="BorderBrush" Value="#2a3340"/>
+        </Style>
+        <Style Selector="Button.VoiceOverEntry:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a4452"/>
         </Style>
 
         <!-- Issue #1: Disabled Primary buttons — flat muted gray, low-opacity text -->
@@ -362,6 +396,25 @@
         <Style Selector="CheckBox:focus-visible /template/ Border#Root">
             <Setter Property="BorderBrush" Value="#38bdf8" />
             <Setter Property="BorderThickness" Value="2" />
+        </Style>
+
+        <Style Selector="Canvas.TimelineSeekSurface:pointerover">
+            <Setter Property="Background" Value="#1838bdf8" />
+        </Style>
+        <Style Selector="Canvas.TimelineSeekSurface:focus">
+            <Setter Property="Background" Value="#2638bdf8" />
+        </Style>
+        <Style Selector="Canvas.TimelineSeekSurface:focus-visible">
+            <Setter Property="Background" Value="#3338bdf8" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurface:pointerover">
+            <Setter Property="Background" Value="#1838bdf8" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurface:focus">
+            <Setter Property="Background" Value="#2638bdf8" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurface:focus-visible">
+            <Setter Property="Background" Value="#3338bdf8" />
         </Style>
 
         <!-- Issue #17: ListBoxItem hover/focus feedback -->
