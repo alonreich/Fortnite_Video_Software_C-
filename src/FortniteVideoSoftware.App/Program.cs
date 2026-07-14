@@ -248,3 +248,12 @@ internal static class NativeHelpers
     public static extern IntPtr AddDllDirectory(string newDirectory);
 }
 
+
+public partial class Program
+{
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(EntryPoint = "NvOptimusEnablement")]
+    public static uint NvOptimusEnablement() => 1;
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(EntryPoint = "AmdPowerXpressRequestHighPerformance")]
+    public static int AmdPowerXpressRequestHighPerformance() => 1;
+}
