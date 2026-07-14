@@ -117,7 +117,7 @@ public partial class CropToolWindow : Window
         _initialVideoPath = string.IsNullOrWhiteSpace(initialVideoPath) ? null : initialVideoPath;
 
         InitializeComponent();
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "CropToolBounds");
         FindControls();
         AttachTitleBarDrag();
         WireEvents();
@@ -2363,7 +2363,7 @@ public partial class CropToolWindow : Window
         }
 
         e.Cancel = true;
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
+        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "CropToolBounds");
         Hide();
 
         try

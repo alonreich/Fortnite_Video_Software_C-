@@ -268,7 +268,7 @@ public partial class MainWindow : Window
 
         UpdateTooltips();
 
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "MainWindowBounds");
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
 
@@ -909,14 +909,14 @@ public partial class MainWindow : Window
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
             var newObj = new System.Text.Json.Nodes.JsonObject();
-            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
+            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "PreviewMonitorWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
             foreach (var key in preserveKeys) {
                 if (state.TryGetPropertyValue(key, out var gb)) {
                     newObj[key] = gb?.DeepClone();
                 }
             }
             await store.SaveAsync(newObj);
-            await WindowBoundsHelper.LoadBoundsAsync(this, "MainWindowBounds");
+
             await InitializeHardwareScanAsync();
             UpdatePortraitOverlay();
         };

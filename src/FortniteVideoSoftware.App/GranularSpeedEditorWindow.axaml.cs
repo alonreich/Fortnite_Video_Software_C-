@@ -86,7 +86,7 @@ public partial class GranularSpeedEditorWindow : Window
         _selectedFreezePresetS = -1.0;
 
         InitializeComponent();
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "GranularBounds");
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
         _pendingSpeed = baseSpeed;
@@ -1477,7 +1477,7 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         e.Cancel = true;
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
+        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
 
         try
         {

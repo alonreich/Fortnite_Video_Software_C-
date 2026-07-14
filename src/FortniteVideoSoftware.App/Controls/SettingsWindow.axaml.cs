@@ -30,7 +30,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "SettingsBounds");
 
         _pendingDefaults = new DefaultValues
         {
@@ -382,7 +382,7 @@ public partial class SettingsWindow : Window
         }
 
         e.Cancel = true;
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
+        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "SettingsBounds");
 
         this.Hide();
 

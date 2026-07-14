@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using FortniteVideoSoftware.App.Controls;
@@ -19,7 +19,7 @@ public partial class PreviewMonitorWindow : Window
 #if DEBUG
         this.AttachDevTools();
 #endif
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "PreviewMonitorWindowBounds");
     }
 
     private void InitializeComponent()
@@ -53,7 +53,7 @@ public partial class PreviewMonitorWindow : Window
     protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
         base.OnClosing(e);
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveWindowState(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "PreviewMonitorWindowBounds");
         
         if (ParentMainWindow != null && ParentMainWindow.IsPreviewDetached)
         {

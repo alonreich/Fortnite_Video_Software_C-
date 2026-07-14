@@ -19,7 +19,7 @@ namespace FortniteVideoSoftware.App
         public DeploymentProgressWindow()
         {
             InitializeComponent();
-            Infrastructure.WindowManager.RegisterWindow(this);
+
         }
 
         public DeploymentProgressWindow(string title) : this(title, null)

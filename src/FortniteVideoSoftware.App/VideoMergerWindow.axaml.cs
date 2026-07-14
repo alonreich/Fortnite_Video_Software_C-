@@ -69,7 +69,7 @@ public partial class VideoMergerWindow : Window
     public VideoMergerWindow()
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "VideoMergerBounds");
 
         _ffprobePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
         if (!System.IO.File.Exists(_ffprobePath))
@@ -78,7 +78,7 @@ public partial class VideoMergerWindow : Window
 
         this.Loaded += async (s, e) => {
             InitializeMpv();
-            await WindowBoundsHelper.LoadBoundsAsync(this, "VideoMergerBounds");
+
         };
 
         _playbackTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };

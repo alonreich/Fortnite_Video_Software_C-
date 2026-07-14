@@ -120,7 +120,7 @@ public partial class MusicWizardWindow : Window
 
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.RegisterWindow(this);
+        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "MusicWizardBounds");
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += (s, e) =>
         {
@@ -170,9 +170,7 @@ public partial class MusicWizardWindow : Window
     private void SharedInit()
     {
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
-        this.Loaded += async (s, e) => {
-            await WindowBoundsHelper.LoadBoundsAsync(this, "MusicWizardBounds");
-        };
+
         this.Closing += (s, e) => {
             WindowBoundsHelper.SaveBoundsSync(this, "MusicWizardBounds");
         };
