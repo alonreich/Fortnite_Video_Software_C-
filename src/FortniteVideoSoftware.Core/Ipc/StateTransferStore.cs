@@ -19,6 +19,12 @@ public sealed class StateTransferStore
         "SettingsBounds",
         "VoiceOverWindowBounds"
     ];
+    private static readonly string[] SubprocessStateKeys =
+    [
+        "AdvancedEditorState",
+        "VideoMergerState",
+        "CropToolState"
+    ];
     private static readonly string[] DirectoryPreferenceKeys =
     [
         "UploadVideoDirectory",
@@ -98,22 +104,30 @@ public sealed class StateTransferStore
     /// </summary>
     public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default)
     {
-        Paths.EnsureWritableDirectories();
-
-        using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-            MutexName,
-            DefaultMutexTimeout,
-            cancellationToken);
-
-        JsonObject current = LoadUnlocked();
-        foreach (KeyValuePair<string, JsonNode?> property in updates)
+        JsonObject clonedUpdates = Clone(updates);
+        Task.Run(() =>
         {
-            ValidateKnownProperty(property.Key, property.Value);
-            current[property.Key] = property.Value?.DeepClone();
-        }
+            try
+            {
+                Paths.EnsureWritableDirectories();
 
-        current["schema_version"] = SchemaVersion;
-        AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                    MutexName,
+                    DefaultMutexTimeout,
+                    cancellationToken);
+
+                JsonObject current = LoadUnlocked();
+                foreach (KeyValuePair<string, JsonNode?> property in clonedUpdates)
+                {
+                    ValidateKnownProperty(property.Key, property.Value);
+                    current[property.Key] = property.Value?.DeepClone();
+                }
+
+                current["schema_version"] = SchemaVersion;
+                AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+            }
+            catch { }
+        }, cancellationToken);
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
@@ -235,6 +249,13 @@ public sealed class StateTransferStore
         {
             if (!TryGetBool(value, out _))
                 throw new InvalidDataException("Invalid session_state returned_from_crop_tool value.");
+            return;
+        }
+
+        if (SubprocessStateKeys.Contains(key))
+        {
+            if (value is not JsonObject)
+                throw new InvalidDataException($"Invalid session_state subprocess object for '{key}'.");
             return;
         }
 

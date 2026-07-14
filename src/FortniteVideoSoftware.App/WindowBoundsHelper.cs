@@ -19,10 +19,12 @@ public static class WindowBoundsHelper
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
                     double savedWidth = window.Width;
                     double savedHeight = window.Height;
+                    bool hasSavedSize = false;
                     if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
                     {
                         savedWidth = Math.Max(window.MinWidth > 0 ? window.MinWidth : 320, (double)w);
                         savedHeight = Math.Max(window.MinHeight > 0 ? window.MinHeight : 240, (double)h);
+                        hasSavedSize = true;
                     }
 
                     if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
@@ -57,6 +59,7 @@ public static class WindowBoundsHelper
                     }
                     window.Width = savedWidth;
                     window.Height = savedHeight;
+                    if (hasSavedSize) window.SizeToContent = SizeToContent.Manual;
                     if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
                     {
                         window.WindowState = (WindowState)(int)stateNode;

@@ -89,6 +89,7 @@ namespace FortniteVideoSoftware.App.Infrastructure
                     {
                         int windowStateInt = state["WindowState"]?.GetValue<int>() ?? (int)WindowState.Normal;
 
+                        bool hasSavedSize = state["Width"] != null && state["Height"] != null;
                         double w = state["Width"]?.GetValue<double>() ?? window.Width;
                         double h = state["Height"]?.GetValue<double>() ?? window.Height;
                         if (double.IsNaN(w) || double.IsInfinity(w) || w <= 0) w = window.MinWidth > 0 ? window.MinWidth : 320;

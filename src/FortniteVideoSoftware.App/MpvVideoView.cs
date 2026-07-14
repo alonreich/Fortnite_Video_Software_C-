@@ -14,10 +14,10 @@ using Vortice.DXGI;
 
 namespace FortniteVideoSoftware.App;
 
-internal sealed class MpvHardwareVideoView : Control, IDisposable
+public sealed class MpvVideoView : Control, IDisposable
 {
     public static readonly StyledProperty<bool> IsSoftwareFallbackActiveProperty =
-        AvaloniaProperty.Register<MpvHardwareVideoView, bool>(nameof(IsSoftwareFallbackActive), false);
+        AvaloniaProperty.Register<MpvVideoView, bool>(nameof(IsSoftwareFallbackActive), false);
 
     public bool IsSoftwareFallbackActive
     {
@@ -239,7 +239,7 @@ internal sealed class MpvHardwareVideoView : Control, IDisposable
     {
         if (ctx == nint.Zero || namePtr == null) return nint.Zero;
         var handle = GCHandle.FromIntPtr(ctx);
-        if (handle.Target is MpvHardwareVideoView view)
+        if (handle.Target is MpvVideoView view)
         {
             string name = Marshal.PtrToStringUTF8((nint)namePtr) ?? string.Empty;
             return view.GetProcAddressForMpvInternal(name);
@@ -398,6 +398,13 @@ internal sealed class MpvHardwareVideoView : Control, IDisposable
         }
     }
 
+    protected override Avalonia.Size ArrangeOverride(Avalonia.Size finalSize)
+    {
+        var size = base.ArrangeOverride(finalSize);
+        UpdateCachedSize();
+        return size;
+    }
+
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
@@ -429,7 +436,7 @@ internal sealed class MpvHardwareVideoView : Control, IDisposable
     {
         if (ctx == nint.Zero) return;
         var handle = GCHandle.FromIntPtr(ctx);
-        if (handle.Target is MpvHardwareVideoView view)
+        if (handle.Target is MpvVideoView view)
         {
             view.OnRenderUpdate();
         }

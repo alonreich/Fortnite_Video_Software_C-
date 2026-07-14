@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.VoiceOverWindow"
         Title="Voice Over Studio"
-        Width="1024" Height="680"
+        SizeToContent="WidthAndHeight"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="980" MinHeight="640"
         CanResize="True"

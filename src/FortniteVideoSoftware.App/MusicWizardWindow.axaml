@@ -1,9 +1,9 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
         Title="Background Music Selection Wizard"
-        Width="900" Height="700"
+        SizeToContent="WidthAndHeight"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         MinWidth="800" MinHeight="600"
@@ -78,72 +78,74 @@
                             </Grid>
 
                             <!-- STEP 2: Waveform + Song Start -->
-                            <Grid Name="Step2Panel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,Auto,*">
-                                <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="Selected:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
-                                        <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Border>
+                            <ScrollViewer Name="Step2Panel" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+                                    <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="Selected:" Foreground="#94a3b8" FontSize="11" VerticalAlignment="Center"/>
+                                            <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="White" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
 
-                                <TextBlock Grid.Row="1" Text="CHOOSE WHERE THE SONG BEGINS" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,5"/>
+                                    <TextBlock Grid.Row="1" Text="CHOOSE WHERE THE SONG BEGINS" FontSize="14" FontWeight="Bold" Foreground="#60a5fa" Margin="0,0,0,5"/>
 
-                                <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" Height="120">
-                                    <Panel>
-                                        <Image Name="WaveformImage" Stretch="Fill"/>
-                                        <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
-                                        <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
-                                    </Panel>
-                                </Border>
+                                    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" Height="120">
+                                        <Panel>
+                                            <Image Name="WaveformImage" Stretch="Fill"/>
+                                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
+                                            <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
+                                        </Panel>
+                                    </Border>
 
-                                <StackPanel Grid.Row="3" Spacing="0">
-                                    <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
-                                        <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                        <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
-                                            <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                    <StackPanel Grid.Row="3" Spacing="0">
+                                        <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
+                                            <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
+                                            <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
+                                                <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                                            </Grid>
+                                            <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
                                         </Grid>
-                                        <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
-                                    </Grid>
-                                    <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,-15,0,5" IsVisible="True"/>
+                                        <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,-15,0,5" IsVisible="True"/>
 
-                                    <StackPanel Spacing="10" Margin="0,10,0,0">
-                                        <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
-                                        <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="White" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
-                                    </StackPanel>
+                                        <StackPanel Spacing="10" Margin="0,10,0,0">
+                                            <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
+                                            <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="White" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
+                                        </StackPanel>
 
-                                    <!-- MULTI SONG HELPER (Video Merger Mode) -->
-                                    <StackPanel Name="MultiSongHelperPanel" IsVisible="False" Margin="0,15,0,0">
-                                        <Border Background="#331e293b" BorderBrush="#60a5fa" BorderThickness="1" CornerRadius="6" Padding="12">
-                                            <StackPanel Spacing="10">
-                                                <!-- Coverage Bar -->
-                                                <StackPanel Spacing="4">
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <TextBlock Grid.Column="0" Text="MUSIC COVERAGE" Foreground="#60a5fa" FontWeight="Bold" FontSize="10"/>
-                                                        <TextBlock Grid.Column="1" Name="CoveragePercentText" Text="0%" Foreground="#facc15" FontWeight="Bold" FontSize="10"/>
-                                                    </Grid>
-                                                    <Border Height="20" CornerRadius="4" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" ClipToBounds="True">
-                                                        <Grid>
-                                                            <Border Name="CoverageBarFill" Background="#22c55e" CornerRadius="3" HorizontalAlignment="Left" Width="0" MinWidth="0"/>
-                                                            <TextBlock Name="CoverageBarText" Text="" Foreground="White" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                        <!-- MULTI SONG HELPER (Video Merger Mode) -->
+                                        <StackPanel Name="MultiSongHelperPanel" IsVisible="False" Margin="0,15,0,0">
+                                            <Border Background="#331e293b" BorderBrush="#60a5fa" BorderThickness="1" CornerRadius="6" Padding="12">
+                                                <StackPanel Spacing="10">
+                                                    <!-- Coverage Bar -->
+                                                    <StackPanel Spacing="4">
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="MUSIC COVERAGE" Foreground="#60a5fa" FontWeight="Bold" FontSize="10"/>
+                                                            <TextBlock Grid.Column="1" Name="CoveragePercentText" Text="0%" Foreground="#facc15" FontWeight="Bold" FontSize="10"/>
                                                         </Grid>
+                                                        <Border Height="20" CornerRadius="4" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" ClipToBounds="True">
+                                                            <Grid>
+                                                                <Border Name="CoverageBarFill" Background="#22c55e" CornerRadius="3" HorizontalAlignment="Left" Width="0" MinWidth="0"/>
+                                                                <TextBlock Name="CoverageBarText" Text="" Foreground="White" FontSize="9" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                                            </Grid>
+                                                        </Border>
+                                                    </StackPanel>
+
+                                                    <!-- Warning Banner -->
+                                                    <Border Name="CoverageWarningBanner" Background="#33facc15" BorderBrush="#facc15" BorderThickness="1" CornerRadius="4" Padding="8,4" IsVisible="False">
+                                                        <TextBlock Name="CoverageWarningText" Text="" Foreground="#facc15" FontWeight="Bold" FontSize="10" TextWrapping="Wrap"/>
                                                     </Border>
+
+                                                    <!-- Loop Toggle -->
+                                                    <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" IsChecked="False" Foreground="White" FontSize="10" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
+
+                                                    <!-- Auto-Fill Button -->
+                                                    <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left" FontSize="10"/>
                                                 </StackPanel>
-
-                                                <!-- Warning Banner -->
-                                                <Border Name="CoverageWarningBanner" Background="#33facc15" BorderBrush="#facc15" BorderThickness="1" CornerRadius="4" Padding="8,4" IsVisible="False">
-                                                    <TextBlock Name="CoverageWarningText" Text="" Foreground="#facc15" FontWeight="Bold" FontSize="10" TextWrapping="Wrap"/>
-                                                </Border>
-
-                                                <!-- Loop Toggle -->
-                                                <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" IsChecked="False" Foreground="White" FontSize="10" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
-
-                                                <!-- Auto-Fill Button -->
-                                                <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left" FontSize="10"/>
-                                            </StackPanel>
-                                        </Border>
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
-                            </Grid>
+                                </Grid>
+                            </ScrollViewer>
 
                             <!-- STEP 3: Final Review Summary -->
                             <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto">

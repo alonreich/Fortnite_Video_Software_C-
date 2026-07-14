@@ -30,10 +30,8 @@ public class MergerWorker : IDisposable
     public MergerWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
-        _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffmpeg.exe");
-        if (!File.Exists(_ffmpegPath)) _ffmpegPath = "ffmpeg.exe";
-        _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
-        if (!File.Exists(_ffprobePath)) _ffprobePath = "ffprobe.exe";
+        _ffmpegPath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
+        _ffprobePath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries");
     }
 
     public void Cancel()
@@ -361,10 +359,13 @@ public class MergerWorker : IDisposable
 
     private async Task<bool> ExecuteFFmpegAsync(List<string> cmdArgs, double totalDuration, CancellationToken cancellationToken)
     {
+        string cmdLine = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+        CoreLogger.Info("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+
         var psi = new ProcessStartInfo
         {
             FileName = _ffmpegPath,
-            Arguments = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
+            Arguments = cmdLine,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

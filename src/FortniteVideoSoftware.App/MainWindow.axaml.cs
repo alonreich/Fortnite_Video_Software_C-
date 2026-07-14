@@ -1849,6 +1849,26 @@ public partial class MainWindow : Window
         }
 
         _detachedPreviewWindow.ParentMainWindow = this;
+
+        if (_detachedPreviewWindow.WindowStartupLocation == Avalonia.Controls.WindowStartupLocation.CenterScreen)
+        {
+            _detachedPreviewWindow.WindowStartupLocation = Avalonia.Controls.WindowStartupLocation.Manual;
+            double w = double.IsNaN(_detachedPreviewWindow.Width) ? 1280 : _detachedPreviewWindow.Width;
+            double h = double.IsNaN(_detachedPreviewWindow.Height) ? 750 : _detachedPreviewWindow.Height;
+            
+            int px = this.Position.X + (int)((this.Bounds.Width - w) / 2);
+            int py = Math.Max(0, this.Position.Y + (int)((this.Bounds.Height - h) / 2) - 150);
+            
+            if (this.Screens?.Primary != null)
+            {
+                var screen = this.Screens.Primary.Bounds;
+                px = Math.Max(screen.X, Math.Min(px, screen.X + screen.Width - (int)w));
+                py = Math.Max(screen.Y, Math.Min(py, screen.Y + screen.Height - (int)h));
+            }
+            
+            _detachedPreviewWindow.Position = new Avalonia.PixelPoint(px, py);
+        }
+
         _detachedPreviewWindow.Show(this);
 
         ApplyPortraitModeToActiveHost();

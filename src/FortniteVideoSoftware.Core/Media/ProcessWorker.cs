@@ -60,13 +60,8 @@ public class ProcessWorker : IDisposable
     public ProcessWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
-        _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "binaries", "ffmpeg.exe");
-        if (!File.Exists(_ffmpegPath)) _ffmpegPath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffmpeg.exe");
-        if (!File.Exists(_ffmpegPath)) _ffmpegPath = "ffmpeg.exe";
-        
-        _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "binaries", "ffprobe.exe");
-        if (!File.Exists(_ffprobePath)) _ffprobePath = Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffprobe.exe");
-        if (!File.Exists(_ffprobePath)) _ffprobePath = "ffprobe.exe";
+        _ffmpegPath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
+        _ffprobePath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries");
     }
 
     public void Cancel()
@@ -267,7 +262,7 @@ public class ProcessWorker : IDisposable
                         actualExtractStartMs / 1000.0,
                         actualExtractEndMs / 1000.0,
                         SpeedFactor,
-                        true, // disable internal fades to sync completely with video global timeline
+                        true,
                         0,
                         null,
                         48000,
@@ -331,7 +326,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // 1. Audio Processing
                 string currentALabel = aPreparedPad;
                 if (!mixMusicAfterMeme)
                 {
@@ -342,7 +336,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // 2. Fades (Before Intro to avoid fading out the thumbnail!)
                 if (padStartHumanSec > 0 || padEndHumanSec > 0)
                 {
                     double fadeVideoLengthSec = gDur; 
@@ -372,7 +365,6 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // 3. Intro Concatenation
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
                     int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
@@ -395,7 +387,6 @@ public class ProcessWorker : IDisposable
                     currentALabel = "[a_with_intro]";
                 }
 
-                // 4. Mobile Format
                 if (IsMobileFormat)
                 {
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
@@ -423,7 +414,7 @@ public class ProcessWorker : IDisposable
 
                     if (IsMobileFormat)
                     {
-                        if (memeRatio >= 1.7) // 16:9 or wider
+                        if (memeRatio >= 1.7)
                         {
                             memeScale = $"scale=1280:1920:force_original_aspect_ratio=increase,crop=1280:1920,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={targetFps}:round=near";
                         }
@@ -586,10 +577,7 @@ public class ProcessWorker : IDisposable
                                         if (totalOutputDurationSec > 0)
                                         {
                                             int percent = (int)Math.Clamp(currentSec / totalOutputDurationSec * 100, 0, 100);
-                                            int scaledPercent = percent;
-                                            if (targetMb.HasValue && attemptNum == 1) scaledPercent = percent / 3;
-                                            else if (targetMb.HasValue && attemptNum == 2) scaledPercent = 33 + (percent / 3);
-                                            else if (targetMb.HasValue && attemptNum == 3) scaledPercent = 66 + (percent / 3);
+                                            int scaledPercent = 50 + (percent / 2);
                                             ProgressUpdate?.Invoke(scaledPercent);
                                             PhaseUpdate?.Invoke(2, "Encoding Video", scaledPercent);
                                         }
@@ -646,7 +634,7 @@ public class ProcessWorker : IDisposable
                     if (!success || !targetMb.HasValue) break;
 
                     finalActualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;
-                    double variance = finalTargetSize * 0.01;
+                    double variance = finalTargetSize * 0.05;
 
                     if (Math.Abs(finalActualSize - finalTargetSize) <= variance)
                     {
@@ -776,8 +764,35 @@ public class ProcessWorker : IDisposable
             using var process = Process.Start(psi);
             if (process == null) return;
 
-            string stdErr = await process.StandardError.ReadToEndAsync(cancellationToken);
+            var stdErrBuilder = new System.Text.StringBuilder();
+            double totalDurationSec = (EndTimeMs - StartTimeMs) / 1000.0;
+            
+            using var reader = process.StandardError;
+            while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line == null) continue;
+                stdErrBuilder.AppendLine(line);
+                
+                int timeIdx = line.IndexOf("time=");
+                if (timeIdx != -1)
+                {
+                    int endIdx = line.IndexOf(" ", timeIdx);
+                    if (endIdx == -1) endIdx = line.Length;
+                    string timeStr = line.Substring(timeIdx + 5, endIdx - (timeIdx + 5));
+                    if (TimeSpan.TryParse(timeStr, out TimeSpan ts))
+                    {
+                        double currentSec = ts.TotalSeconds;
+                        int percent = totalDurationSec > 0 ? (int)Math.Clamp(currentSec / totalDurationSec * 100, 0, 100) : 0;
+                        int scaledPercent = percent / 2; // Phase 1 is 0-50%
+                        ProgressUpdate?.Invoke(scaledPercent);
+                        PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", scaledPercent);
+                    }
+                }
+            }
+
             await process.WaitForExitAsync(cancellationToken);
+            string stdErr = stdErrBuilder.ToString();
 
             int jsonStart = stdErr.LastIndexOf("{");
             int jsonEnd = stdErr.LastIndexOf("}");

@@ -23,7 +23,10 @@
                 </StackPanel>
                 <!-- Massive Glowing Progress Bar -->
                 <Border CornerRadius="4" Background="Transparent" BoxShadow="0 0 15 2 #4ade80">
-                    <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="30" Foreground="#4ade80" Background="#33000000" CornerRadius="4"/>
+                    <Grid>
+                        <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="30" Foreground="#4ade80" Background="#33000000" CornerRadius="4"/>
+                        <Canvas x:Name="FightCanvas" ClipToBounds="True" Height="30" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                    </Grid>
                 </Border>
                 <Grid Margin="0,5,0,0">
                     <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="#4ade80" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Left"/>

@@ -1,2 +1,1 @@
-﻿namespace FortniteVideoSoftware.Core.Media;
-
+// File deprecated and removed.

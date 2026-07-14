@@ -678,7 +678,7 @@ public partial class MusicWizardWindow : Window
     private void UpdateStepVisibility()
     {
         this.FindControl<Grid>("Step1Panel")!.IsVisible = _currentStep == 1;
-        this.FindControl<Grid>("Step2Panel")!.IsVisible = _currentStep == 2;
+        this.FindControl<Control>("Step2Panel")!.IsVisible = _currentStep == 2;
         this.FindControl<Grid>("Step3Panel")!.IsVisible = _currentStep == 3;
 
         var helperPanel = this.FindControl<Avalonia.Controls.StackPanel>("MultiSongHelperPanel");

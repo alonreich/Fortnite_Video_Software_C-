@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 namespace FortniteVideoSoftware.App;
 
@@ -15,6 +17,13 @@ public static class RuntimeLog
     private const long MaxLogSize = 10 * 1024 * 1024;
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
+    private static readonly BlockingCollection<string> _logQueue = new();
+    private static long _estimatedSize = -1;
+
+    static RuntimeLog()
+    {
+        Task.Factory.StartNew(ProcessLogQueue, TaskCreationOptions.LongRunning);
+    }
     
     public static event Action<string>? LogAppended;
 
@@ -140,44 +149,56 @@ public static class RuntimeLog
 
     private static void SafeWrite(string text)
     {
-        _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
-
-        bool acquired = false;
-        try
-        {
-            try { acquired = _globalMutex.WaitOne(2000); } catch (AbandonedMutexException) { acquired = true; }
-            if (!acquired) return;
-
-            RotateLogIfNeeded();
-
-            using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-            using var sw = new StreamWriter(fs, new UTF8Encoding(false));
-            sw.Write(text);
-        }
-        catch (Exception)
-        {
-        }
-        finally
-        {
-            if (acquired) _globalMutex.ReleaseMutex();
-        }
+        _logQueue.Add(text);
     }
 
-    private static void RotateLogIfNeeded()
+    private static void ProcessLogQueue()
     {
-        try
+        _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+        
+        foreach (string firstText in _logQueue.GetConsumingEnumerable())
         {
-            string lp = LogPath;
-            if (!File.Exists(lp)) return;
-            var fileInfo = new FileInfo(lp);
-            if (fileInfo.Length < MaxLogSize) return;
+            var sb = new StringBuilder();
+            sb.Append(firstText);
+            
+            while (_logQueue.TryTake(out string? moreText))
+            {
+                sb.Append(moreText);
+            }
+            
+            string combinedText = sb.ToString();
 
-            string oldLog = lp + ".old";
-            if (File.Exists(oldLog)) File.Delete(oldLog);
-            File.Move(lp, oldLog);
-        }
-        catch
-        {
+            bool acquired = false;
+            try
+            {
+                try { acquired = _globalMutex.WaitOne(2000); } catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired) continue;
+
+                if (_estimatedSize < 0)
+                {
+                    var fi = new FileInfo(LogPath);
+                    _estimatedSize = fi.Exists ? fi.Length : 0;
+                }
+
+                if (_estimatedSize >= MaxLogSize)
+                {
+                    string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeSeconds()}.old";
+                    if (File.Exists(LogPath)) File.Move(LogPath, oldLog);
+                    _estimatedSize = 0;
+                }
+
+                using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                using var sw = new StreamWriter(fs, new UTF8Encoding(false));
+                sw.Write(combinedText);
+                _estimatedSize += Encoding.UTF8.GetByteCount(combinedText);
+            }
+            catch (Exception)
+            {
+            }
+            finally
+            {
+                if (acquired) _globalMutex.ReleaseMutex();
+            }
         }
     }
 }

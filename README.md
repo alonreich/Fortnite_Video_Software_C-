@@ -12,6 +12,10 @@
 
 <h3 align="center">⚡ High-Performance, Ultra-Specialized NLE Engineered for Automated Gaming Content Creation.</h3>
 
+<h2 align="center">
+  <a href="https://github.com/alonreich/Fortnite_Video_Software_C-/releases/latest/download/FortniteVideoSoftware.exe">⬇️ DOWNLOAD LATEST INSTALLER (.EXE) ⬇️</a>
+</h2>
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="80%" />
 </p>

@@ -276,3 +276,41 @@
 6. **Multi-Session Recording & Mixing:** Users can record multiple disjointed or overlapping voiceover chunks. The UI tracks each session internally, drawing 40% semi-transparent red bounding rectangles over an interactive X-axis Timeline Ruler to visualize recorded zones. Upon "Apply", a background `ffmpeg -filter_complex` pipeline dynamically calculates precise `adelay` offsets relative to the trim-start and sub-mixes all chunks via `amix` into a single perfectly synchronized master voiceover track.
 **Edge Cases:**
 * **Edge Case A (Overlap Mixing):** If the user records two voiceovers directly on top of each other, the FFmpeg sub-mix cleanly blends them using `amix` instead of throwing an overwrite error.
+
+## 32. Normalized Multi-Phase Progress Bar
+**Description:** A unified, continuous 0-100% progress bar spanning entirely different backend operations without jumping or stuttering.
+**Core Logic:** The FFmpeg `ProcessWorker` mathematically splits the global progress bar across disparate phases. Phase 1 (Loudnorm 2-pass Audio Normalization) actively intercepts and parses the blocking FFmpeg `stderr` stream line-by-line in real-time, mapping exact timestamps to smoothly drive the first 0-50% of the bar. Phase 2 (Video Encoding) flawlessly maps its progress to occupy the remaining 50-100%. 
+**Edge Cases:**
+* **Edge Case A (Skipped Audio Phase):** If the source video contains no audio track or the normalization coefficient evaluates to `0.0`, the system cleanly skips Phase 1. The progress bar instantly and intentionally jumps to 50% and begins driving the Video Encoding phase from 50% to 100%, never appearing broken or "stuck" at 0%.
+* **Edge Case B (Target Size Multi-Attempt Resolution):** If a user explicitly specifies a 10MB file size and the video requires 3 iterative FFmpeg attempts to hit the bitrate target, the engine suppresses the artificial 33% chunk jumping. Each new attempt smoothly re-sweeps the 50-100% sector without breaking the illusion of a continuous render.
+
+## 33. Tick-Based Entertainment Canvas (Fight Animation)
+**Description:** An engaging, physics-driven loading screen overlay to combat user fatigue during intense video exports.
+**Core Logic:** A transparent Avalonia `Canvas` sits directly over the glowing green `PhaseProgressBar`. A highly optimized, decoupled 30fps C# DispatcherTimer drives a randomized fight sequence between two text-based stickmen "pencil" fighters (e.g., `ᕕ( ᐛ )ᕗ` vs `(ง'̀-'́)ง`). The system is governed by a 3-state AI (Approach, Clash, Retreat). 
+**Edge Cases:**
+* **Edge Case A (Self-Clearing Memory Management):** The instant the video export finishes and `StopOverlay()` is called, the 30fps high-speed timer is immediately halted and disposed. The canvas is completely wiped, guaranteeing no hidden background physics loops leak CPU cycles when the user returns to the main interface.
+* **Edge Case B (Fading Particle Physics):** When the fighters clash, a randomized emitter spawns high-contrast emoji explosions (`💥` and `💨`). These particles feature independent Y-axis drift and iterative opacity degradation physics until they hit 0% and auto-delete themselves from the DOM.
+
+## 34. Asynchronous High-Volume Pipeline Logging
+**Description:** Decoupled producer-consumer logging to eliminate UI thread lock-ups during multi-gigabyte FFmpeg status dumps.
+**Core Logic:** The core `RuntimeLog` engine absorbs thousands of lines of output via an asynchronous `BlockingCollection<string>` and flushes them to disk on an isolated background Task. Simultaneously, the UI `PhaseOverlayControl` ingests display logs into a `ConcurrentQueue` and utilizes a 1-second batching timer to safely dump them onto the visual textbox.
+**Edge Cases:**
+* **Edge Case A (Memory Leak Prevention):** Even while batching at high speeds, the UI textbox rigidly enforces the 100-line bounded FIFO constraint, guaranteeing that a 5-hour export will never crash the visual memory heap.
+
+## 35. Production Binary Path Resolution
+**Description:** Unification of FFmpeg/FFprobe executable discovery across development MSBuilds and final MSI production installations.
+**Core Logic:** The application's core `ProcessWorker` aggressively prioritizes searching for external tools inside an explicit `backend` directory relative to the `AppContext.BaseDirectory`. This strictly mirrors the exact final folder layout created by the production installer.
+**Edge Cases:**
+* **Edge Case A (Seamless `dev.cmd` Fallback):** During local development (running `dev.cmd`), MSBuild automatically injects copies of the binaries into a temporary `backend` folder inside the `bin/Debug` directory. By prioritizing `backend` first, the pipeline behaves flawlessly and identically across both local sandbox environments and raw Windows user environments.
+
+## 36. Native High-DPI Scaling Resilience
+**Description:** Fluid layout measurements that dynamically respect Windows OS-level UI scaling overrides without hardcoded pixel boundaries.
+**Core Logic:** All primary application windows (Main, Merger, Wizard, VoiceOver) must strictly utilize SizeToContent="WidthAndHeight" coupled with absolute MinWidth/MinHeight floor constraints. Hardcoded absolute Width and Height parameters on the Window root are strictly forbidden. This permits the Avalonia composition engine to mathematically expand or contract the physical bounding boxes in real-time based on the end-user's DPI scaling multiplier.
+**Edge Cases:**
+* **Edge Case A (4K 150%+ Scaling Text Clipping):** If a user runs a 4K monitor scaled to 150%, the internal elements natively inflate. Because the root window is not rigidly locked to 1500x900, it expands outwards to accommodate the inflated text, preventing severe text clipping or hidden navigation buttons.
+
+## 37. Phase 3 Thumbnail Temporal Padding (Illusion Prevention)
+**Description:** Infinite cloning of the final video frame during Wizard Phase 3 thumbnail extraction to mask timeline voids during merged media generation.
+**Core Logic:** When generating a 	ile=15x1 thumbnail strip for the final music wizard preview, the engine must inject a 	pad=stop_mode=clone:stop_duration=1000 filter into the FFmpeg chain before the ps sampler. 
+**Edge Cases:**
+* **Edge Case A (Merged Video Multi-Select Slicing):** In the Video Merger app, the thumbnail generator only samples the FIRST video file, but the requested UI timeline duration equals the sum of ALL merged videos. The 	pad filter forcibly stretches the final physical frame of the first video to fill the remainder of the extraction request. This safely pads the missing frames, ensuring the UI grid is completely filled with visible frames rather than rendering terrifying pitch-black voids that confuse the user into thinking the video playback ended prematurely.

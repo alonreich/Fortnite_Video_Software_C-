@@ -4,7 +4,7 @@
         x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         Title="Fortnite Video Software - Merger"
-        Width="1500" Height="900"
+        SizeToContent="WidthAndHeight"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="1200" MinHeight="700"
         CanResize="True"
@@ -70,18 +70,18 @@
 
                 <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
                     <MenuItem Header="_File">
-                        <MenuItem Name="MenuAddVideo" Header="Add Video..." />
+                        <MenuItem Name="MenuAddVideo" Header="Add Video..." ToolTip.Tip="Browse your computer to select a new video file and add it to the merger list." />
                         <Separator />
-                        <MenuItem Name="MenuOutputFolder" Header="Output Folder..." />
+                        <MenuItem Name="MenuOutputFolder" Header="Output Folder..." ToolTip.Tip="Choose the folder on your computer where the final merged video will be saved." />
                         <Separator />
-                        <MenuItem Name="MenuSettings" Header="_Settings" />
+                        <MenuItem Name="MenuSettings" Header="_Settings" ToolTip.Tip="Open advanced settings for video merging." />
                         <Separator />
-                        <MenuItem Name="MenuReturnToApp" Header="Return to Main App" />
-                        <MenuItem Name="MenuExit" Header="Exit" />
+                        <MenuItem Name="MenuReturnToApp" Header="Return to Main App" ToolTip.Tip="Close the merger and go back to the main editing studio." />
+                        <MenuItem Name="MenuExit" Header="Exit" ToolTip.Tip="Close the application entirely." />
                     </MenuItem>
                     <MenuItem Header="_Edit">
-                        <MenuItem Name="MenuRemoveSelected" Header="Remove Selected" />
-                        <MenuItem Name="MenuClearAll" Header="Clear All" />
+                        <MenuItem Name="MenuRemoveSelected" Header="Remove Selected" Foreground="{DynamicResource AppDangerBrush}" ToolTip.Tip="Delete the currently highlighted videos from the list. They will not be included in the final merged video." />
+                        <MenuItem Name="MenuClearAll" Header="Clear All" Foreground="{DynamicResource AppDangerBrush}" ToolTip.Tip="Completely empty the list of videos and start over fresh." />
                     </MenuItem>
                 </Menu>
 
@@ -119,15 +119,15 @@
                             </Border>
 
                             <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,15">
-                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Add another video to the queue"/>
-                                <Button Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add at least one video before adding music">
+                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Browse your computer and add another video to your list."/>
+                                <Button Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
                                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
                                         <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
                                         <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
                                     </StackPanel>
                                 </Button>
-                                <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Select a video to remove it from the queue"/>
+                                <Button Name="RemoveVideoButton" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Delete the currently highlighted video from your list."/>
                             </StackPanel>
 
                             <TextBlock Grid.Row="3" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="7" TextWrapping="Wrap" TextAlignment="Center"/>
@@ -146,10 +146,10 @@
 
                                     <!-- Floating Move Up / Move Down buttons -->
                                     <StackPanel Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Left" Spacing="20" Margin="15,0,0,0" ZIndex="600" ClipToBounds="False">
-                                        <Button Name="MoveUpButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move selected video up" FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                        <Button Name="MoveUpButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                             <TextBlock Text="▲" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" />
                                         </Button>
-                                        <Button Name="MoveDownButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move selected video down" FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                        <Button Name="MoveDownButton" Classes="Primary" Width="60" Height="60" CornerRadius="30" IsEnabled="False" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." FontSize="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                             <TextBlock Text="▼" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" />
                                         </Button>
                                     </StackPanel>
@@ -171,7 +171,7 @@
                                                     <StackPanel Orientation="Vertical">
                                                         <Canvas Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
                                                         <Grid Height="32" ClipToBounds="False">
-                                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
                                                             <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" />
                                                         </Grid>
                                                     </StackPanel>
@@ -186,8 +186,8 @@
                             <Border Grid.Column="2" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="4,8" Width="48" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                                 <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Stretch" Margin="0">
                                     <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
-                                    <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
-                                    <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Mute or restore volume" AutomationProperties.Name="Mute or restore volume" ClipToBounds="False" KeyDown="SpeakerHitBox_KeyDown">
+                                    <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
+                                    <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False" KeyDown="SpeakerHitBox_KeyDown">
                                         <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                                     </Border>
                                 </Grid>
@@ -200,7 +200,7 @@
                                 <!-- Output Quality -->
                                 <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,20,0" VerticalAlignment="Center">
                                     <TextBlock Text="OUTPUT QUALITY" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                                    <controls:SpinningWheelSlider Name="QualitySlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Output quality percentage" />
+                                    <controls:SpinningWheelSlider Name="QualitySlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
                                     <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                                     <TextBlock Name="EstimatedSizeText2" Text="" Foreground="#38bdf8" FontSize="14" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
                                 </StackPanel>
@@ -209,13 +209,13 @@
                                 <StackPanel Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
                                         <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
-                                        <Button Name="FastBackwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Fast Backward (seek -10s)" Padding="0" IsEnabled="False">
+                                        <Button Name="FastBackwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False">
                                             <Panel Width="16" Height="16">
                                                 <Polygon Points="6,2 6,14 0,8" Fill="White"/>
                                                 <Polygon Points="14,2 14,14 8,8" Fill="White"/>
                                             </Panel>
                                         </Button>
-                                        <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Cursor="Hand" IsEnabled="False">
+                                        <Button Name="PlayPauseButton" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Cursor="Hand" IsEnabled="False">
                                             <Panel Width="16" Height="16">
                                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -225,7 +225,7 @@
                                             </Panel>
                                         </Button>
                                         <!-- Fast forward uses RIGHT-pointing triangles -->
-                                        <Button Name="FastForwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Fast Forward (seek +10s)" Padding="0" IsEnabled="False">
+                                        <Button Name="FastForwardButton" Classes="Primary" Width="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False">
                                             <Panel Width="16" Height="16">
                                                 <Polygon Points="2,2 8,8 2,14" Fill="White"/>
                                                 <Polygon Points="8,2 14,8 8,14" Fill="White"/>
@@ -233,7 +233,7 @@
                                         </Button>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="160" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Merge all listed videos together"/>
+                                        <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" Width="160" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Combine all the videos in your list into one single final video."/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -241,7 +241,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="20,0,0,0" VerticalAlignment="Center">
                                     <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                         <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Playback speed multiplier" />
+                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
                                         <TextBlock Name="MainSpeedLabel" Text="1.0x — Normal" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                                     </StackPanel>
                                     <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
@@ -260,7 +260,7 @@
 
                                 <!-- RETURN + Output Info + Estimated Size -->
                                 <StackPanel Orientation="Vertical" Spacing="3" Margin="20,0,0,0" VerticalAlignment="Center">
-                                    <Button Name="ReturnToMainAppButton" Classes="Primary" Content="← RETURN TO MAIN APP" FontSize="9" Cursor="Hand" ToolTip.Tip="Go back to the main app"/>
+                                    <Button Name="ReturnToMainAppButton" Classes="Primary" Content="← RETURN TO MAIN APP" FontSize="9" Cursor="Hand" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
                                     <!-- ISSUE_004: Show output folder path -->
                                     <TextBlock Name="OutputPathText" Text="" Foreground="#64748b" FontSize="7" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
                                     <TextBlock Name="EstimatedSizeText" Text="" Foreground="#38bdf8" FontSize="14" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>

@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software"
-        Width="1500" Height="900"
+        SizeToContent="WidthAndHeight"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"
@@ -19,21 +19,21 @@
                 </Border>
                 <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="#cbd5e1" Padding="10,0" FontSize="12">
                     <MenuItem Header="_File">
-                        <MenuItem Name="MenuUploadVideo" Header="Upload Video..." ToolTip.Tip="Upload a new MP4/MKV video file" />
+                        <MenuItem Name="MenuUploadVideo" Header="Upload Video..." ToolTip.Tip="Upload an MP4 or MKV video file from your computer to start editing." />
                         <Separator />
-                        <MenuItem Name="MenuExportConfig" Header="Backup Settings..." ToolTip.Tip="Export current configurations to a file" />
-                        <MenuItem Name="MenuImportConfig" Header="Restore Settings..." ToolTip.Tip="Import settings from a backup file" />
+                        <MenuItem Name="MenuExportConfig" Header="Backup Settings..." ToolTip.Tip="Save all your current settings to a backup file so you don't lose them." />
+                        <MenuItem Name="MenuImportConfig" Header="Restore Settings..." ToolTip.Tip="Load your saved settings from a previous backup." />
                         <Separator />
-                        <MenuItem Name="MenuSettingsBtn" Header="_Settings" ToolTip.Tip="Open the application settings menu" />
+                        <MenuItem Name="MenuSettingsBtn" Header="_Settings" ToolTip.Tip="Open the settings menu to tweak how the application works." />
                         <Separator />
-                        <MenuItem Name="MenuExit" Header="E_xit" ToolTip.Tip="Close the application" />
+                        <MenuItem Name="MenuExit" Header="E_xit" ToolTip.Tip="Close the application." />
                     </MenuItem>
                     <MenuItem Header="_Edit">
-                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" ToolTip.Tip="Configure video cropping presets" />
-                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" ToolTip.Tip="Open the video merger utility" />
+                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" ToolTip.Tip="Choose how you want to crop or resize your videos." />
+                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" ToolTip.Tip="Open a tool that lets you combine multiple videos into one." />
                     </MenuItem>
                     <MenuItem Header="_View">
-                        <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" ToolTip.Tip="Toggle floating preview monitor" />
+                        <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" ToolTip.Tip="Pop out the video player into its own separate floating window so you can move it around." />
                     </MenuItem>
                 </Menu>
                 <Grid Grid.Row="2" ColumnDefinitions="*, Auto">
@@ -85,7 +85,7 @@
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Margin="60,40" DragDrop.AllowDrop="True">
                                         <TextBlock Text="Drag &amp; Drop video file here" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="14" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                         <TextBlock Text="Upload Video File to begin!" Foreground="White" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" IsHitTestVisible="False" />
-                                        <Button Name="CenterUploadButton" Classes="Primary" Content="BROWSE VIDEO" Width="200" Cursor="Hand" HorizontalAlignment="Center" />
+                                        <Button Name="CenterUploadButton" Classes="Primary" Content="BROWSE VIDEO" Width="200" Cursor="Hand" HorizontalAlignment="Center" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing." />
                                     </StackPanel>
                                 </Grid>
                             </Grid>
@@ -102,7 +102,7 @@
                                         <StackPanel Orientation="Vertical">
                                             <Canvas Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
                                             <Grid Height="32" ClipToBounds="False">
-                                                <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                                <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
                                                 <Canvas Name="TimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
                                                     <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
                                                         <Border.Transitions>
@@ -146,7 +146,7 @@
                                 BorderBrush="#33ffffff"
                                 BorderThickness="1"
                                 CornerRadius="4"
-                                ZIndex="9999" />
+                                ZIndex="9999" ToolTip.Tip="Pop out the video player into its own separate floating window so you can move it around." />
                     </Grid>
                 </Border>
                 <!-- Rebuilt vertical volume slider: plain default track (matches Granular Speed slider style),
@@ -155,11 +155,11 @@
                 <Border Grid.Column="1" CornerRadius="4" Background="#15202b" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="0,8" Width="40" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Left" Margin="-6,0,0,0">
                         <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="#38bdf8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="5,0,-5,6" Opacity="1" />
-                        <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Adjust Master Volume" Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
+                        <Slider Grid.Row="1" Name="VolumeSlider" Classes="CompactSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="#38bdf8" />
                         <!-- Speaker icon: enlarged 35x35 hit box on top (ZIndex 10001), centered on the
                              slider track at its bottom end. The icon Path itself is shifted 2px right and
                              made non-hit-testable so the square hit box receives all clicks/hover. -->
-                        <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Mute or restore volume" AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
+                        <Border Grid.Row="2" Name="SpeakerHitBox" Width="35" Height="35" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
                             <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="#38bdf8" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                         </Border>
                     </Grid>
@@ -170,7 +170,7 @@
             <Grid Grid.Row="1" RowDefinitions="Auto, Auto" Margin="10,8,10,8">
                 <!-- Upper Row -->
                 <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <Button Name="SetThumbnailButton" Classes="Primary" Width="160" Height="36" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Set current frame as the thumbnail">
+                    <Button Name="SetThumbnailButton" Classes="Primary" Width="160" Height="36" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Save the exact frame you are looking at right now to be the cover image for your video.">
                         <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Path Fill="White" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
                             <TextBlock Name="SetThumbnailText" Text=" SET THUMBNAIL " FontSize="9" VerticalAlignment="Center" Margin="6,0,6,0" />
@@ -179,9 +179,9 @@
                     </Button>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="115" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Mark the beginning of your clip"/>
+                        <Button Name="MarkStartButton" Classes="Primary" Content="MARK START" Width="115" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Cut out everything before this point. The final video will start exactly here."/>
                         <!-- Drawn shapes for crisp white play/pause icons (no emoji blue tint) -->
-                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="36" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                        <Button Name="PlayPauseButton" Classes="Success" Width="70" Height="36" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -190,17 +190,17 @@
                                 </StackPanel>
                             </Panel>
                         </Button>
-                        <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="115" IsEnabled="False" ToolTip.Tip="Mark the end of your clip"/>
+                        <Button Name="MarkEndButton" Classes="Primary" Content="MARK END" Width="115" IsEnabled="False" ToolTip.Tip="Cut out everything after this point. The final video will end exactly here."/>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="36" IsEnabled="False" ToolTip.Tip="Adjust granular speed settings"/>
+                        <Button Name="GranularButton" Classes="Primary" Content="GRANULAR SPEED" Width="120" Height="36" IsEnabled="False" ToolTip.Tip="Change the speed of specific parts of your video."/>
                     </StackPanel>
                 </Grid>
 
                 <!-- Bottom Row -->
                 <Grid Grid.Row="1" Margin="0,8,0,0">
-                    <Button Name="VoiceOverButton" Classes="VoiceOverEntry" MinWidth="160" Height="36" Padding="12,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Open Voice Over Studio">
+                    <Button Name="VoiceOverButton" Classes="VoiceOverEntry" MinWidth="160" Height="36" Padding="12,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Record your own voice over the video.">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(-1px)" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z"/>
                             <TextBlock Name="VoiceOverText" Text="VOICE OVER" FontSize="9" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -211,19 +211,19 @@
                         <StackPanel Name="QualityPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="0,0,50,0" VerticalAlignment="Center">
                             <TextBlock Text="OUTPUT FILE SIZE" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
                             <!-- Issue #15: Dynamic tooltip set from code-behind depending on enabled state -->
-                            <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Upload a video to set target size" />
+                            <controls:SpinningWheelSlider Name="QualitySlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
                             <TextBlock Name="QualityLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
 
                         <!-- Issue #13: Normalize to 42px standard -->
-                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="60" CornerRadius="8" IsVisible="False" ToolTip.Tip="Cancel the current operation"/>
-                        <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Render and export the final video"/>
+                        <Button Name="CancelButton" Classes="Danger" Content="CANCEL" Width="125" Height="60" CornerRadius="8" IsVisible="False" ToolTip.Tip="Stop what you are doing right now and cancel it."/>
+                        <Button Name="ProcessButton" Classes="Success" Content="PROCESS" Width="125" Height="60" CornerRadius="8" IsEnabled="False" ToolTip.Tip="Save and export your final edited video."/>
 
                         <StackPanel Name="SpeedPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="50,0,0,0" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                     <TextBlock Text="SPEED" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
-                                    <controls:SpinningWheelSlider Name="MainSpeedSlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Upload a video to set speed" />
+                                    <controls:SpinningWheelSlider Name="MainSpeedSlider" IsEnabled="False" Width="180" Height="35" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
                                     <TextBlock Name="MainSpeedLabel" Text="" Foreground="#c5dcf2" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                                 </StackPanel>
                                 <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center" IsEnabled="False">
@@ -248,8 +248,8 @@
         <!-- RIGHT PANEL: Utility & Plugins -->
         <Border Grid.Column="1" MinWidth="170" MaxWidth="300" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
             <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto">
-                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" Margin="0,0,0,15" ToolTip.Tip="Upload an MP4 or MKV video"/>
-                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add background music to the video">
+                <Button Grid.Row="0" Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" Margin="0,0,0,15" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing."/>
+                <Button Grid.Row="1" Name="AddMusicButton" Classes="Primary" HorizontalAlignment="Stretch" Margin="0,0,0,15" IsEnabled="False" ToolTip.Tip="Add a background song to play over your video.">
                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Path Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
                         <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
@@ -263,33 +263,33 @@
                     <StackPanel Spacing="5">
                         <Grid ColumnDefinitions="*, Auto">
                             <TextBlock Text="Add MEME" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <ToggleSwitch Name="AddMemeCheckbox" IsChecked="False" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Add MEME" />
+                            <ToggleSwitch Name="AddMemeCheckbox" IsChecked="False" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
                         </Grid>
                         <ComboBox Name="MemeComboBox" Width="140" HorizontalAlignment="Left" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" />
                         <Grid ColumnDefinitions="*, Auto">
                             <TextBlock Text="Portrait (9:16)" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" />
+                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
                         </Grid>
                         <Viewbox Width="140" Height="40" HorizontalAlignment="Left" Stretch="Uniform" StretchDirection="DownOnly" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}">
-                            <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="40" FontSize="14" ToolTip.Tip="Custom text for the top 150px of the 1080x1920 mobile video" TextWrapping="Wrap" AcceptsReturn="True" />
+                            <TextBox Name="PortraitTextInput" Watermark="Overlay Text" Width="140" MinHeight="40" FontSize="14" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" />
                         </Viewbox>
                     </StackPanel>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Boss HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="BossHpCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" />
+                        <ToggleSwitch Name="BossHpCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
                     </Grid>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Teammate HP" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" />
+                        <ToggleSwitch Name="TeammatesCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
                     </Grid>
                     <Grid ColumnDefinitions="*, Auto">
                         <TextBlock Text="Enable Fade" Foreground="#e2e8f0" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ToggleSwitch Name="EnableFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Enable fade" />
+                        <ToggleSwitch Name="EnableFadeCheckbox" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
                     </Grid>
                 </StackPanel>
 
-                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Merge multiple videos together"/>
-                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Adjust the cropping area"/>
+                <Button Grid.Row="5" Name="VideoMergerButton" Classes="Primary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Open a tool that lets you combine multiple videos into one."/>
+                <Button Grid.Row="6" Name="CropSettingsButton" Classes="Primary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTip.Tip="Choose how you want to crop or resize your videos."/>
             </Grid>
         </Border>
 

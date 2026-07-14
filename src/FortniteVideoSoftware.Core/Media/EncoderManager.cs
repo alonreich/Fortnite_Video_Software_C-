@@ -1,4 +1,3 @@
-
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -110,6 +109,10 @@ public class EncoderManager
                 if (line.Contains("h264_amf")) found.Add("h264_amf");
                 if (line.Contains("h264_qsv")) found.Add("h264_qsv");
             }
+            if (found.Count > 0)
+                CoreLogger.Info("GPU DETECT", $"Found Hardware Encoders: {string.Join(", ", found)}");
+            else
+                CoreLogger.Info("GPU DETECT", "No supported hardware encoders found. CPU fallback necessary.");
             return found;
         }
         catch { return []; }
@@ -117,8 +120,14 @@ public class EncoderManager
 
     public string GetInitialEncoder(bool useCuda)
     {
-        if (ForcedCpu) return "libx264";
-        return useCuda ? PrimaryEncoder : "libx264";
+        if (ForcedCpu) 
+        {
+            CoreLogger.Info("GPU STRATEGY", "Forced CPU selected. Using libx264.");
+            return "libx264";
+        }
+        string selected = useCuda ? PrimaryEncoder : "libx264";
+        CoreLogger.Info("GPU STRATEGY", $"Primary encoder selected: {selected}");
+        return selected;
     }
 
     public List<string> GetFallbackList(string failedEncoder, bool allowCpu = true)
@@ -260,4 +269,3 @@ public class EncoderManager
         return (vcodec, rcLabel);
     }
 }
-
