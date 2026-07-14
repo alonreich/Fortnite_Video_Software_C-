@@ -56,6 +56,24 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public JsonObject LoadSync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            Paths.EnsureWritableDirectories();
+            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                MutexName,
+                DefaultMutexTimeout,
+                cancellationToken);
+
+            return LoadUnlocked();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
+    }
+
     public async Task SaveAsync(JsonObject state, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
