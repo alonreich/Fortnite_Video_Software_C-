@@ -7,6 +7,7 @@
         Width="1280" Height="800"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="1200" MinHeight="700"
+        WindowStartupLocation="Manual"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">

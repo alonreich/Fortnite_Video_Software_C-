@@ -7,6 +7,7 @@
         Width="1280" Height="800"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="800" MinHeight="600"
+        WindowStartupLocation="Manual"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
         DragDrop.AllowDrop="True">
