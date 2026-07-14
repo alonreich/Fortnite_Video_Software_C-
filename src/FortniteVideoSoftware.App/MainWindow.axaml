@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MainWindow"
         Title="Fortnite Video Software"
-        SizeToContent="WidthAndHeight"
+        Width="1280" Height="800"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="800" MinHeight="600"
         ExtendClientAreaToDecorationsHint="True"

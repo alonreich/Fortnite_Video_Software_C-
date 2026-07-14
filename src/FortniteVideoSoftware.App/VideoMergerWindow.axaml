@@ -4,7 +4,7 @@
         x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         Title="Fortnite Video Software - Merger"
-        SizeToContent="WidthAndHeight"
+        Width="1280" Height="800"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="1200" MinHeight="700"
         CanResize="True"

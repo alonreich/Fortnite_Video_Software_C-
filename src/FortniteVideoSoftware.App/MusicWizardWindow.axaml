@@ -3,7 +3,7 @@
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
         Title="Background Music Selection Wizard"
-        SizeToContent="WidthAndHeight"
+        Width="1024" Height="768"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         MinWidth="800" MinHeight="600"
