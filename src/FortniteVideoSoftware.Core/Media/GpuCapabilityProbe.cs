@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -64,8 +64,7 @@ public static class GpuCapabilityProbe
 
             if (GetSystemMetrics(SM_REMOTESESSION) != 0)
             {
-                CoreLogger.Info("GPU", "Remote desktop session detected — using software mode");
-                return new Result(false, "N/A", "N/A", "Remote desktop session detected");
+                CoreLogger.Info("GPU", "Remote desktop session detected — attempting hardware acceleration anyway.");
             }
 
             int hr = D3D11CreateDevice(

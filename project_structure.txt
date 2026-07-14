@@ -24,7 +24,9 @@ Our goal is maximum GPU utilization and Zero-Copy UI integration on a C# .NET 9 
    CRITICAL AI WARNING: DO NOT TRY TO "FIX" THIS TO `d3d11va`.
    Because libmpv strictly requires an OpenGL render API, and Avalonia strictly requires a D3D11 surface, we use `WGL_NV_DX_interop2`. Native `d3d11va` hardware decoders CANNOT initialize inside an OpenGL context without falling back to CPU software decoding.
    The mandatory fix is `hwdec=cuda,dxva2,auto-safe`. The GPU uses a microscopic "translation tax" (CUDA/DXVA2 -> OpenGL -> D3D11) completely in VRAM. It is the ONLY way to retain hardware acceleration. DO NOT OUTSMART THIS.
-4. The Hybrid Graphics Compromise: Resolved. WGL-to-DX interop successfully bridges the libmpv OpenGL limitation while keeping the D3D11 surface intact for Avalonia.
+4. The Hybrid Graphics Compromise (Optimus / Switchable GPUs): Resolved. WGL-to-DX interop successfully bridges the libmpv OpenGL limitation while keeping the D3D11 surface intact for Avalonia.
+   CRITICAL AI NOTE: On laptops with dedicated GPUs (e.g. RTX 4070) alongside integrated Intel CPUs, Windows OS power management routinely attempts to route D3D11 to NVIDIA and OpenGL to Intel. Because WGL_NV_DX_interop physically cannot bridge two different chips, this causes a "black screen" crash.
+   The mandatory fix implemented is exporting `NvOptimusEnablement` and `AmdPowerXpressRequestHighPerformance` in the NativeAOT `Program.cs`. This forces the driver to hijack the entire process onto the high-performance GPU, preserving the zero-copy bridge. Pure Intel integrated GPUs physically lack this extension and will inevitably fall back.
 5. NativeAOT Compilation: Maintained. Uses native Windows opengl32.dll and D3D11 libraries via [LibraryImport] and [UnmanagedCallersOnly]. No ANGLE/GStreamer bloat.
 6. Front-End Editing: Maintained. The UI retains libmpv, preserving advanced caching and frame-accurate scrubbing for the timeline.
 7. Back-End Exporting: Maintained. The FFmpeg headless encoding pipeline remains completely isolated from the UI render loop.
