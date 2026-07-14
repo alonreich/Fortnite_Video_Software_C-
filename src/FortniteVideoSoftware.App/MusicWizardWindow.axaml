@@ -3,7 +3,6 @@
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
         Title="Background Music Selection Wizard"
-        Width="1024" Height="768"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         MinWidth="800" MinHeight="600"
@@ -25,20 +24,20 @@
                         <Border Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
                         <Border Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Top" Margin="50,15,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
                         <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
-                            <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="#3b82f6" HorizontalAlignment="Center">
+                            <Border Name="Step1Dot" Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center">
                                 <TextBlock Name="Step1Icon" Text="1" Foreground="White" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <TextBlock Name="Step1Label" Text="Select Music" Foreground="#60a5fa" FontSize="9" HorizontalAlignment="Center" FontWeight="Bold"/>
+                            <TextBlock Name="Step1Label" Text="Select Music" Foreground="{DynamicResource AppAccentBrush}" FontSize="9" HorizontalAlignment="Center" FontWeight="Bold"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
                             <Border Name="Step2Dot" Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center">
-                                <TextBlock Name="Step2Icon" Text="2" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Name="Step2Icon" Text="2" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Name="Step2Label" Text="Mix and Preview" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="4" ZIndex="1">
                             <Border Name="Step3Dot" Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center">
-                                <TextBlock Name="Step3Icon" Text="3" Foreground="#94a3b8" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Name="Step3Icon" Text="3" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Name="Step3Label" Text="Confirm" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="9" HorizontalAlignment="Center"/>
                         </StackPanel>
@@ -93,7 +92,7 @@
                                     <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" Height="120">
                                         <Panel>
                                             <Image Name="WaveformImage" Stretch="Fill"/>
-                                            <Canvas Name="WaveformCanvas" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
+                                            <Canvas Name="WaveformCanvas" Classes="TimelineSeekSurface" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                             <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="White" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
                                         </Panel>
                                     </Border>
@@ -104,7 +103,7 @@
                                             <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
                                                 <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
                                             </Grid>
-                                            <Canvas Name="TimelineMarkersCanvas" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" />
+                                            <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                         </Grid>
                                         <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,-15,0,5" IsVisible="True"/>
 
@@ -197,7 +196,7 @@
                                             </Panel>
                                         </Border>
                                     </StackPanel>
-                                    <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Final preview seek area" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False"/>
+                                    <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Classes="TimelineSeekSurface" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Final preview seek area" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" />
                                     <Canvas Grid.Row="1" Name="Phase3CaretCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                         <Border Name="Phase3Caret" Width="2" Height="120" Background="Red" IsVisible="False" RenderTransform="translateY(0px)"/>
                                         <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="#AA000000" CornerRadius="2" Padding="4,2" Margin="4,2">
@@ -209,11 +208,11 @@
                                 <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
-                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
+                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
                                     </StackPanel>
                                     <StackPanel>
                                         <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
-                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" Width="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
+                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Grid>
@@ -229,12 +228,12 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
+                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Secondary" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
                             <Button Name="SkipBackBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
                                 <TextBlock Text="-30s" FontWeight="Bold" FontSize="11" Foreground="White" />
                             </Button>
-                            <Button Name="PlayBtn" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
+                            <Button Name="PlayBtn" Classes="Secondary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
                                 <Panel Width="16" Height="16">
                                     <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                     <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -247,7 +246,7 @@
                                 <TextBlock Text="+30s" FontWeight="Bold" FontSize="11" Foreground="White" />
                             </Button>
                         </StackPanel>
-                        <Button Grid.Column="2" Name="BackBtn" Content="BACK" Classes="Primary" Width="90" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" IsVisible="True" ToolTip.Tip="Go back to the previous step"/>
+                        <Button Grid.Column="2" Name="BackBtn" Content="BACK" Classes="Secondary" Width="90" HorizontalContentAlignment="Center" Margin="0,0,10,0" IsEnabled="False" IsVisible="True" ToolTip.Tip="Go back to the previous step"/>
                         <Button Grid.Column="3" Name="NextBtn" Content="NEXT" Classes="Success" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Proceed to the next step"/>
                     </Grid>
 

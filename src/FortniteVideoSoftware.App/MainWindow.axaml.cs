@@ -877,6 +877,7 @@ public partial class MainWindow : Window
 
         UpdateTooltips();
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
+        AddHandler(InputElement.KeyUpEvent, GlobalKeyUpHandler, RoutingStrategies.Tunnel);
 
         this.Loaded += async (s, e) => {
             _ = PushAssetsAsync();
@@ -1508,7 +1509,7 @@ public partial class MainWindow : Window
 
         var qualityPanel = this.FindControl<StackPanel>("QualityPanel");
         if (qualityPanel != null) qualityPanel.IsVisible = true;
-        var speedPanel = this.FindControl<StackPanel>("SpeedPanel");
+        var speedPanel = this.FindControl<Grid>("SpeedPanel");
         if (speedPanel != null) speedPanel.IsVisible = true;
 
         var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
@@ -1527,7 +1528,7 @@ public partial class MainWindow : Window
             Avalonia.Controls.ToolTip.SetTip(ss, "Playback speed multiplier");
         }
 
-        var speedPresets = this.FindControl<StackPanel>("MainSpeedPresetsPanel");
+        var speedPresets = this.FindControl<Grid>("MainSpeedPresetsPanel");
         if (speedPresets != null) speedPresets.IsEnabled = true;
     }
 
@@ -1606,10 +1607,8 @@ public partial class MainWindow : Window
 
     private void PlayUiSound()
     {
-        Task.Run(() =>
-        {
-            try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
-        });
+        // Removed to prevent double-audio and annoying default Windows "Asterisk/Ding" sound.
+        // All audio feedback is now intelligently handled by the global AvaloniaApp.axaml.cs hook via UiSoundEffect.
     }
 
     /// <summary>
@@ -3168,6 +3167,22 @@ public partial class MainWindow : Window
             }
         }
         return _baseSpeed;
+    }
+
+    private void GlobalKeyUpHandler(object? sender, KeyEventArgs e)
+    {
+        if (FocusManager?.GetFocusedElement() is TextBox or NumericUpDown)
+            return;
+
+        var kb = SettingsManager.Instance.KeyBinds;
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        var markStart = new Avalonia.Input.KeyGesture(kb.MarkStart);
+        var markEnd = new Avalonia.Input.KeyGesture(kb.MarkEnd);
+
+        if (playPause.Matches(e) || markStart.Matches(e) || markEnd.Matches(e) || e.Key is Key.Space or Key.Left or Key.Right)
+        {
+            e.Handled = true;
+        }
     }
 
     private void GlobalKeyDownHandler(object? sender, KeyEventArgs e)

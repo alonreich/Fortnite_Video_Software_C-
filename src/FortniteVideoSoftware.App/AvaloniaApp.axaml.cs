@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
@@ -9,6 +9,36 @@ public partial class AvaloniaApp : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+
+        // Globally hook all Button clicks across the entire application
+        Avalonia.Controls.Button.ClickEvent.AddClassHandler<Avalonia.Controls.Button>((sender, e) =>
+        {
+            if (sender is Avalonia.Controls.Button btn)
+            {
+                string name = btn.Name ?? "";
+                
+                if (btn.Classes.Contains("Success") || name == "ProcessButton" || name == "SaveButton")
+                {
+                    UiSoundEffect.PlayProcess();
+                }
+                else if (name == "MarkStartButton" || name == "MarkEndButton")
+                {
+                    UiSoundEffect.PlayMark();
+                }
+                else if (name == "VideoMergerButton" || name == "CropSettingsButton" || name == "GranularButton" || name == "AddMusicButton" || name == "VoiceOverButton" || name == "DetachOverlayButton")
+                {
+                    UiSoundEffect.PlayOpen();
+                }
+                else if (btn.Classes.Contains("Danger") || btn.Classes.Contains("DangerOutline") || name == "CancelButton" || name == "UndoButton" || name.Contains("Close", StringComparison.OrdinalIgnoreCase) || name.Contains("Exit", StringComparison.OrdinalIgnoreCase))
+                {
+                    UiSoundEffect.PlayClose();
+                }
+                else
+                {
+                    UiSoundEffect.PlayClick();
+                }
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
     }
 
     public override void OnFrameworkInitializationCompleted()

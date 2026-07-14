@@ -2,9 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:CompileBindings="True"
+        x:DataType="local:CropToolWindow"
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
         Title="Portrait 1080x1920 (Crop Tool)"
-        Width="1800" Height="930"
         MinWidth="1500" MinHeight="760"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
@@ -24,10 +24,10 @@
                            Foreground="{DynamicResource TitleBarForeground}" />
             </Border>
 
-            <Grid Grid.Row="1" ColumnDefinitions="*,624">
-                <Grid Grid.Column="0" RowDefinitions="78,*,42,42" Background="#1a252f">
+            <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto" Background="{DynamicResource AppSurfaceBrush}">
                     <Border Grid.Row="0"
-                            Background="#243447"
+                            Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppPanelBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="16,10">
@@ -52,83 +52,83 @@
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="1">
-                        <Grid Name="VideoPanel" Background="Black">
-                            <Viewbox Stretch="Uniform">
-                                <Grid Width="1280" Height="720" Background="Black">
-                                    <local:MpvVideoView Name="VideoHost"
-                                                        Width="1280"
-                                                        Height="720" />
-                                    <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
-                                        <TextBlock Text="⚠️" FontSize="16" Foreground="Yellow" />
-                                    </Border>
-                                </Grid>
-                            </Viewbox>
-                            <Border Name="UploadHint"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Background="#dd000000"
-                                    BorderBrush="#7dd3fc"
-                                    BorderThickness="2"
-                                    CornerRadius="8"
-                                    Padding="34,20">
-                                <TextBlock Text="UPLOAD VIDEO"
-                                           Foreground="White"
-                                           FontSize="28"
-                                           FontWeight="Bold" />
+                    <Grid Name="VideoPanel" Grid.Row="1" Background="Black">
+                        <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Black">
+                            <local:MpvVideoView Name="VideoHost"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch" />
+                            <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
+                                <TextBlock Text="⚠️" FontSize="16" Foreground="Yellow" />
                             </Border>
                         </Grid>
+                        <Border Name="UploadHint"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Background="#dd000000"
+                                BorderBrush="#7dd3fc"
+                                BorderThickness="2"
+                                CornerRadius="8"
+                                Padding="34,20">
+                            <TextBlock Text="UPLOAD VIDEO"
+                                       Foreground="White"
+                                       FontSize="28"
+                                       FontWeight="Bold" />
+                        </Border>
+                    </Grid>
 
-                        <Grid Name="SnapshotPanel"
-                              Background="{DynamicResource AppSurfaceBrush}"
-                              IsVisible="False"
-                              RowDefinitions="*,44">
-                            <ScrollViewer Grid.Row="0"
-                                          HorizontalScrollBarVisibility="Auto"
-                                          VerticalScrollBarVisibility="Auto"
-                                          Background="{DynamicResource AppSurfaceBrush}">
-                                <Viewbox Stretch="Uniform">
-                                    <Canvas Name="SourceCanvas"
-                                            Width="1920"
-                                            Height="1080"
-                                            Background="Black"
-                                            Cursor="Cross"
-                                            Focusable="True"
-                                            AutomationProperties.Name="Source snapshot selection canvas">
-                                        <Image Name="SnapshotImage"
-                                               Width="1920"
-                                               Height="1080"
-                                               Stretch="Fill" />
-                                    </Canvas>
-                                </Viewbox>
-                            </ScrollViewer>
-                            <Border Grid.Row="1"
-                                    Background="#172033"
-                                    BorderBrush="{DynamicResource AppPanelBrush}"
-                                    BorderThickness="0,1,0,0"
-                                    Padding="12,6">
-                                <Grid ColumnDefinitions="220,*,150">
+                    <Grid Name="SnapshotPanel"
+                          Grid.Row="1"
+                          Background="{DynamicResource AppSurfaceBrush}"
+                          IsVisible="False"
+                          RowDefinitions="*,44">
+                        <ScrollViewer Grid.Row="0"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      Background="{DynamicResource AppSurfaceBrush}">
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <Canvas Name="SourceCanvas"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch"
+                                        Background="Black"
+                                        Cursor="Cross"
+                                        Focusable="True"
+                                        AutomationProperties.Name="Source snapshot selection canvas">
+                                    <Image Name="SnapshotImage"
+                                           Width="{Binding $parent[Canvas].Bounds.Width}"
+                                           Height="{Binding $parent[Canvas].Bounds.Height}"
+                                           Stretch="Uniform" />
+                                </Canvas>
+                            </Grid>
+                        </ScrollViewer>
+                        <Border Grid.Row="1"
+                                Background="#172033"
+                                BorderBrush="{DynamicResource AppPanelBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="12,6">
+                            <Grid ColumnDefinitions="220,*,150">
+                                <StackPanel Grid.Column="0">
                                     <TextBox Name="RoleTextBox"
                                              Watermark="Element Name (e.g. Ammo)"
-                                             Grid.Column="0"
                                              Height="30"
                                              Foreground="White"
                                              Background="{DynamicResource AppPanelBrush}" />
-                                    <TextBlock Name="SelectionInfo"
-                                               Grid.Column="1"
-                                               Text="Draw a box around a HUD element, then assign its role."
-                                               Foreground="#cbd5e1"
-                                               VerticalAlignment="Center"
-                                               FontSize="11"
-                                               Margin="12,0,12,0" />
-                                    <Button Name="AddSelectionButton"
-                                            Grid.Column="2"
-                                            Classes="Success"
-                                            Content="ADD SELECTION"
-                                            IsEnabled="False" />
-                                </Grid>
-                            </Border>
-                        </Grid>
+                                    <TextBlock Name="RoleErrorText" Foreground="{DynamicResource AppDangerBrush}" FontSize="10" FontWeight="Bold" IsVisible="False" Margin="0,2,0,0" Text="Name must be alphanumeric, 3-15 characters." />
+                                </StackPanel>
+                                <TextBlock Name="SelectionInfo"
+                                           Grid.Column="1"
+                                           Text="Draw a box around a HUD element, then assign its role."
+                                           Foreground="#cbd5e1"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Margin="12,0,12,0" />
+                                <Button Name="AddSelectionButton"
+                                        Grid.Column="2"
+                                        Classes="Success"
+                                        Content="ADD SELECTION"
+                                        ToolTip.Tip="Add the drawn bounding box as a new HUD crop layer."
+                                        IsEnabled="False" />
+                            </Grid>
+                        </Border>
                     </Grid>
 
                     <Border Name="TimelinePanel"
@@ -153,7 +153,7 @@
                                     <Grid Height="32" ClipToBounds="False">
                                         <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
                                         <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
-                                            <Border Name="PlayheadBadge" Background="#CC0f172a" CornerRadius="4" Padding="4,2" BorderBrush="#3b82f6" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-34">
+                                            <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="0" RenderTransform="translateY(-34px)">
                                                 <Border.Transitions>
                                                     <Transitions>
                                                         <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
@@ -178,81 +178,44 @@
                     </Border>
 
                     <Border Grid.Row="3"
-                            Background="#243447"
+                            Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppPanelBrush}"
                             BorderThickness="0,1,0,0"
                             Padding="16,5">
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto">
-                            <Button Name="OpenVideoButton"
-                                    Grid.Column="0"
-                                    Classes="Primary"
-                                    Content="OPEN VIDEO"
-                                    Width="120"
-                                    ToolTip.Tip="Click here to pick a video from your computer."
-                                    Margin="0,0,12,0" />
-                            <Button Name="SnapshotButton"
-                                    Grid.Column="1"
-                                    Classes="Primary"
-                                    Content="START CROPPING"
-                                    Width="130"
-                                    ToolTip.Tip="Take a picture of this frame so you can start drawing boxes."
-                                    IsEnabled="False"
-                                    Margin="0,0,12,0" />
-                            <Button Name="MagicWandButton"
-                                    Grid.Column="2"
-                                    Classes="Primary"
-                                    Content="MAGIC WAND"
-                                    Width="120"
-                                    ToolTip.Tip="Let the computer try to find the HUD items for you automatically."
-                                    IsVisible="False"
-                                    Margin="0,0,12,0" />
-                            <Button Name="BackToVideoButton"
-                                    Grid.Column="3"
-                                    Classes="Primary"
-                                    Content="BACK TO VIDEO"
-                                    Width="130"
-                                    ToolTip.Tip="Stop drawing and go back to the video seeker."
-                                    IsVisible="False"
-                                    Margin="0,0,12,0" />
-                            <Button Name="PlayPauseButton"
-                                    Grid.Column="5"
-                                    Classes="Primary"
-                                    Content="PLAY"
-                                    Width="90"
-                                    ToolTip.Tip="Play or pause video playback"
-                                    IsEnabled="False"
-                                    Margin="0,0,12,0" />
-                            <Button Name="ReturnButton"
-                                    Grid.Column="6"
-                                    Classes="Primary"
-                                    Content="RETURN"
-                                    Width="90"
-                                    ToolTip.Tip="Close this tool and go back to the main menu."
-                                    Margin="0,0,12,0" />
-                            <Button Name="ResetButton"
-                                    Grid.Column="7"
-                                    Classes="Danger"
-                                    Content="RESET"
-                                    Width="90"
-                                    ToolTip.Tip="Wipe everything clean and start over from scratch." />
+                        <Grid ColumnDefinitions="Auto, *, Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                                <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" Width="120" ToolTip.Tip="Click here to pick a video from your computer." />
+                                <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" Width="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" />
+                                <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" Width="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" />
+                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" Width="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" />
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
+                                <Button Name="PlayPauseButton" Classes="Secondary" Content="PLAY" Width="90" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
+                                <Button Name="ReturnButton" Classes="Secondary" Content="RETURN" Width="90" ToolTip.Tip="Close this tool and go back to the main menu." />
+                                <Button Name="ResetButton" Classes="Danger" Content="RESET" Width="90" ToolTip.Tip="Wipe everything clean and start over from scratch." />
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </Grid>
 
                 <Border Grid.Column="1"
-                        Background="#253549"
+                        Background="{DynamicResource AppPanelBrush}"
                         BorderBrush="{DynamicResource AppBorderBrush}"
                         BorderThickness="1,0,0,0">
                     <Grid RowDefinitions="Auto,42,*,46">
                     <Border Grid.Row="0"
-                            Background="#161b22"
+                            Background="{DynamicResource AppSurfaceBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="12,6">
                         <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                             <TextBlock Text="Active Profile:" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="11"/>
                             <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" Width="180" HorizontalAlignment="Left"/>
-                            <TextBox Name="NewMaskOverlayTextBox" Grid.Column="2" Watermark="New profile name..." Width="130" Margin="0,0,10,0" FontSize="11" />
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0">
+                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." Width="130" FontSize="11" />
+                                <TextBlock Name="NewMaskOverlayErrorText" Foreground="{DynamicResource AppDangerBrush}" FontSize="9" FontWeight="Bold" IsVisible="False" Margin="0,2,0,0" Text="Name must be alphanumeric, no spaces." />
+                            </StackPanel>
                             <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Primary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="10" />
                         </Grid>
                     </Border>
@@ -267,6 +230,7 @@
                                       Content="Show Existing Crops"
                                       Foreground="White"
                                       IsChecked="False"
+                                      ToolTip.Tip="Toggle the visibility of previously saved crops on the canvas."
                                       VerticalAlignment="Center" />
                             <Slider Name="PlaceholderOpacitySlider"
                                     Grid.Column="1"
@@ -293,79 +257,62 @@
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="2" ColumnDefinitions="*,90,184">
+                    <Grid Grid.Row="2" ColumnDefinitions="*,90,180">
                         <Border Grid.Column="0"
-                                Background="Black"
+                                Background="{DynamicResource AppVideoRailBrush}"
                                 ClipToBounds="True">
-                            <Viewbox Stretch="Uniform">
-                                <Canvas Name="PortraitCanvas"
-                                        Width="1080"
-                                        Height="1920"
-                                        Background="Transparent"
-                                        Cursor="Cross"
-                                        Focusable="True"
-                                        AutomationProperties.Name="Portrait crop layout canvas">
-                                    <Image Name="ComposerBackgroundImage"
-                                           Width="1080"
-                                           Height="1920"
-                                           Stretch="Fill"
-                                           Opacity="0.22"
-                                           ZIndex="-90" />
-                                    <Rectangle Width="1080"
-                                               Height="1920"
-                                               Fill="#1e1e1e"
-                                               ZIndex="-100" />
-                                    
-                                    <Grid Name="RuleOfThirdsGrid" Width="1080" Height="1920" Opacity="0" IsHitTestVisible="False" ZIndex="800" Canvas.Top="0" Canvas.Left="0">
-                                        <Grid.Transitions>
-                                            <Transitions>
-                                                <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
-                                            </Transitions>
-                                        </Grid.Transitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="*" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Border Grid.RowSpan="3" Grid.Column="1" BorderBrush="#66ffffff" BorderThickness="2,0,2,0" />
-                                        <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="#66ffffff" BorderThickness="0,2,0,2" />
-                                    </Grid>
+                            <Grid>
+                                <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
+                                <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.22" />
+                                
+                                <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" AutomationProperties.Name="Portrait crop layout canvas" />
 
-                                    <Rectangle Width="1080"
-                                               Height="150"
-                                               Fill="Black"
-                                               Canvas.Top="0"
-                                               Canvas.Left="0"
-                                               ZIndex="900" />
-                                    <Rectangle Width="1080"
-                                               Height="150"
-                                               Fill="Black"
-                                               Canvas.Top="1770"
-                                               Canvas.Left="0"
-                                               ZIndex="900" />
-                                </Canvas>
-                            </Viewbox>
+                                <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
+                                    <Grid.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
+                                        </Transitions>
+                                    </Grid.Transitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.RowSpan="3" Grid.Column="1" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2,0,2,0" />
+                                    <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,2,0,2" />
+                                </Grid>
+
+                                <Grid IsHitTestVisible="False">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="150*" />
+                                        <RowDefinition Height="1620*" />
+                                        <RowDefinition Height="150*" />
+                                    </Grid.RowDefinitions>
+                                    <Rectangle Grid.Row="0" Fill="Black" />
+                                    <Rectangle Grid.Row="2" Fill="Black" />
+                                </Grid>
+                            </Grid>
                         </Border>
 
                         <StackPanel Grid.Column="1"
-                                    Background="#253549"
+                                    Background="{DynamicResource AppPanelBrush}"
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Center"
                                     Spacing="30"
                                     Margin="8,0">
                             <Button Name="UndoButton"
-                                    Classes="Primary"
+                                    Classes="Secondary"
                                     Content="UNDO"
                                     Width="90"
                                     ToolTip.Tip="Undo your last mistake."
                                     IsEnabled="False" />
                             <Button Name="RedoButton"
-                                    Classes="Primary"
+                                    Classes="Secondary"
                                     Content="REDO"
                                     Width="90"
                                     ToolTip.Tip="Redo what you just undid."
@@ -388,6 +335,15 @@
                                          Background="Transparent"
                                          Foreground="White"
                                          FontSize="11" />
+                                <TextBlock Name="EmptyLayersText"
+                                           Grid.Row="1"
+                                           Text="No layers added yet."
+                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                           FontSize="11"
+                                           FontStyle="Italic"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           IsHitTestVisible="False" />
                             </Grid>
                         </Border>
                     </Grid>
@@ -401,7 +357,7 @@
                                     HorizontalAlignment="Center"
                                     Spacing="22">
                             <Button Name="LowerButton"
-                                    Classes="Primary"
+                                    Classes="Secondary"
                                     Content="MOVE DOWN"
                                     Width="110"
                                     ToolTip.Tip="Move selected layer down"
@@ -413,7 +369,7 @@
                                     ToolTip.Tip="Throw this piece into the trash."
                                     IsEnabled="False" />
                             <Button Name="RaiseButton"
-                                    Classes="Primary"
+                                    Classes="Secondary"
                                     Content="MOVE UP"
                                     Width="110"
                                     ToolTip.Tip="Move selected layer up"
@@ -425,16 +381,16 @@
             </Grid>
 
             <!-- Overlays -->
-            <Grid Name="ThinkingOverlay" Background="#cc0f172a" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
+            <Grid Name="ThinkingOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-                    <TextBlock Text="↻" FontSize="60" Foreground="#38bdf8" HorizontalAlignment="Center" />
+                    <Path Data="M12 2v2a8 8 0 1 0 8 8h2a10 10 0 1 1-10-10z" Fill="#38bdf8" Width="60" Height="60" Stretch="Uniform" HorizontalAlignment="Center" />
                     <Border Background="#cc0f172a" CornerRadius="10" Padding="20">
                         <TextBlock Text="Please wait while processing" FontSize="20" FontWeight="Bold" Foreground="White" />
                     </Border>
                 </StackPanel>
             </Grid>
 
-            <Grid Name="SummaryOverlay" Background="#cc0f172a" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
+            <Grid Name="SummaryOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
                 <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" Width="650" Height="500" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
                     <StackPanel Spacing="20">
                         <StackPanel Orientation="Horizontal" Spacing="20">

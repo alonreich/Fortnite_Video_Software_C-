@@ -178,13 +178,19 @@
                                     <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
                                 </StackPanel>
                                 
-                                <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
-                                    <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
-                                        <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
-                                        <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
-                                        <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
-                                    </StackPanel>
-                                </Border>
+                                <StackPanel Orientation="Vertical" Spacing="5">
+                                    <TextBlock Text="VOICE MUTING FILTERS" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
+                                        <Panel>
+                                            <TextBlock Text="Scan audio to unlock voice frequencies" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="{Binding !#MuteMaleCb.IsVisible}" />
+                                            <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
+                                                <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
+                                                <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
+                                                <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
+                                            </StackPanel>
+                                        </Panel>
+                                    </Border>
+                                </StackPanel>
                                 
                                 <TextBlock Text="Frequency muting can also reduce nearby game sounds." FontSize="10" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -197,7 +203,7 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
-                                <Button Name="CancelButton" Classes="Danger" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
+                                <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
                                 <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>
                             </StackPanel>
                         </Grid>

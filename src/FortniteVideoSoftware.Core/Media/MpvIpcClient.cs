@@ -116,6 +116,7 @@ public class MpvIpcClient : IDisposable
         MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
 
         MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
 
         int err = MpvWrapper.mpv_initialize(_mpvHandle);
         if (err < 0)

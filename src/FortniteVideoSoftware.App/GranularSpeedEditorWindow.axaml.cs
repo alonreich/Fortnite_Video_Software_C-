@@ -220,6 +220,22 @@ public partial class GranularSpeedEditorWindow : Window
         if (endBtn != null) ToolTip.SetTip(endBtn, $"Mark the end of the segment ({kb.MarkEnd})");
     }
 
+    private void GranularKeyUpHandler(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
+            return;
+
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        var markStart = new Avalonia.Input.KeyGesture(kb.MarkStart);
+        var markEnd = new Avalonia.Input.KeyGesture(kb.MarkEnd);
+
+        if (playPause.Matches(e) || markStart.Matches(e) || markEnd.Matches(e) || e.Key is Avalonia.Input.Key.Space or Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
+        {
+            e.Handled = true;
+        }
+    }
+
     private void GranularKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
         if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
@@ -566,6 +582,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         UpdateTooltips();
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, GranularKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        AddHandler(Avalonia.Input.InputElement.KeyUpEvent, GranularKeyUpHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
     private void WireUpFreezeImage()

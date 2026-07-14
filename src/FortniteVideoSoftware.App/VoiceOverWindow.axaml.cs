@@ -176,7 +176,8 @@ public partial class VoiceOverWindow : Window
         };
         _timer.Start();
 
-        KeyDown += OnKeyDownHandler;
+        AddHandler(Avalonia.Input.InputElement.KeyDownEvent, OnKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        AddHandler(Avalonia.Input.InputElement.KeyUpEvent, OnKeyUpHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         if (_timelineRulerCanvas != null)
         {
@@ -1057,16 +1058,70 @@ public partial class VoiceOverWindow : Window
         }
 
         _dragSeekTimeSec = null;
-        _lastTimelineSeekUtc = DateTime.UtcNow;
+            _lastTimelineSeekUtc = DateTime.UtcNow;
         SeekToAbsolute(targetTime);
         e.Handled = true;
     }
 
+    private void OnKeyUpHandler(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
+            return;
+
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        
+        if (playPause.Matches(e) || e.Key is Avalonia.Input.Key.Space or Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
+        {
+            e.Handled = true;
+        }
+    }
+
     private void OnKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
+        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
+            return;
+
         if (e.Key == Avalonia.Input.Key.V)
         {
             ToggleRecord(null, null);
+            e.Handled = true;
+            return;
+        }
+
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
+        var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
+        var seekFwd = new Avalonia.Input.KeyGesture(kb.SeekForward);
+        var seekBack = new Avalonia.Input.KeyGesture(kb.SeekBackward);
+        var fineSeekFwdCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekFwdShift = new Avalonia.Input.KeyGesture(kb.FineSeekForward, Avalonia.Input.KeyModifiers.Shift);
+        var fineSeekBackCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Control);
+        var fineSeekBackShift = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Shift);
+
+        if (playPause.Matches(e))
+        {
+            TogglePreviewPlayback(null, null);
+            e.Handled = true;
+        }
+        else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-step");
+            e.Handled = true;
+        }
+        else if (fineSeekBackCtrl.Matches(e) || fineSeekBackShift.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("frame-back-step");
+            e.Handled = true;
+        }
+        else if (seekFwd.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", "5", "relative");
+            e.Handled = true;
+        }
+        else if (seekBack.Matches(e))
+        {
+            _ = _videoHost?.IpcClient?.SendCommandAsync("seek", "-5", "relative");
+            e.Handled = true;
         }
     }
 

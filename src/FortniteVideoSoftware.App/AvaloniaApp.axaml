@@ -91,6 +91,14 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
+        <Style Selector="Border.InteractiveFocus:focus">
+            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="Border.InteractiveFocus:focus-visible">
+            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
 
         <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
@@ -101,11 +109,11 @@
         </Style>
 
         <Style Selector="Button.SpeedPreset">
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Width" Value="31"/>
-            <Setter Property="Height" Value="25"/>
+            <Setter Property="Focusable" Value="True"/>
+            <Setter Property="MinWidth" Value="31"/>
+            <Setter Property="MinHeight" Value="25"/>
             <Setter Property="FontSize" Value="9"/>
-            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Padding" Value="4,2"/>
             <Setter Property="Margin" Value="0"/>
             <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextMutedBrush}"/>
@@ -125,7 +133,7 @@
         </Style>
 
         <Style Selector="Button.BaseSpeedPreset">
-            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Focusable" Value="True"/>
             <Setter Property="Background" Value="#14532d"/>
             <Setter Property="Foreground" Value="#86efac"/>
         </Style>
@@ -188,13 +196,12 @@
             <Setter Property="Background" Value="#3a4452"/>
         </Style>
 
-        <!-- Issue #1: Disabled Primary buttons — flat muted gray, low-opacity text -->
         <Style Selector="Button.Primary:disabled">
-            <Setter Property="Foreground" Value="#88ffffff"/>
-            <Setter Property="BorderBrush" Value="#2a3340"/>
+            <Setter Property="Foreground" Value="#b0c4de"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
         </Style>
         <Style Selector="Button.Primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#3a4452"/>
+            <Setter Property="Background" Value="#475569"/>
         </Style>
 
         <!-- Secondary Buttons (Metallic Gray) -->
@@ -219,19 +226,19 @@
             </Setter>
         </Style>
         <Style Selector="Button.Secondary:disabled">
-            <Setter Property="Foreground" Value="#88ffffff"/>
-            <Setter Property="BorderBrush" Value="#2a3340"/>
+            <Setter Property="Foreground" Value="#b0c4de"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
         </Style>
         <Style Selector="Button.Secondary:disabled /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#3a4452"/>
+            <Setter Property="Background" Value="#475569"/>
         </Style>
 
         <Style Selector="ToggleButton.Primary:disabled">
-            <Setter Property="Foreground" Value="#88ffffff"/>
-            <Setter Property="BorderBrush" Value="#2a3340"/>
+            <Setter Property="Foreground" Value="#b0c4de"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
         </Style>
         <Style Selector="ToggleButton.Primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#3a4452"/>
+            <Setter Property="Background" Value="#475569"/>
         </Style>
 
         <!-- Success Buttons (Metallic Green) -->
@@ -258,11 +265,11 @@
 
         <!-- Issue #1: Disabled Success buttons — flat muted gray, low-opacity text -->
         <Style Selector="Button.Success:disabled">
-            <Setter Property="Foreground" Value="#88ffffff"/>
-            <Setter Property="BorderBrush" Value="#2a3340"/>
+            <Setter Property="Foreground" Value="#b0c4de"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
         </Style>
         <Style Selector="Button.Success:disabled /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#3a4452"/>
+            <Setter Property="Background" Value="#475569"/>
         </Style>
 
         <!-- Danger Buttons (Metallic Red) -->
@@ -289,11 +296,11 @@
 
         <!-- Issue #1: Disabled Danger buttons — flat muted gray, low-opacity text -->
         <Style Selector="Button.Danger:disabled">
-            <Setter Property="Foreground" Value="#88ffffff"/>
-            <Setter Property="BorderBrush" Value="#2a3340"/>
+            <Setter Property="Foreground" Value="#b0c4de"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
         </Style>
         <Style Selector="Button.Danger:disabled /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#3a4452"/>
+            <Setter Property="Background" Value="#475569"/>
         </Style>
 
         <!-- Issue #1: Universal slider thumb — enlarged resting dot (~1.5x) that grows SLOWLY to 2x when grabbed.
@@ -526,6 +533,10 @@
         </Style>
         <Style Selector="Button.CloseBtn:pressed">
             <Setter Property="Background" Value="#447DD3FC" />
+        </Style>
+
+        <Style Selector="MenuItem">
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
     </Application.Styles>
 </Application>

@@ -121,6 +121,7 @@ public static class RuntimeLog
 
     public static void Fail(string step, string detail)
     {
+        UiSoundEffect.PlayError();
         Write("FAIL", step, detail);
     }
 
@@ -132,6 +133,7 @@ public static class RuntimeLog
 
     public static void Fail(string step, Exception exception)
     {
+        UiSoundEffect.PlayError();
         Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");
     }
 
