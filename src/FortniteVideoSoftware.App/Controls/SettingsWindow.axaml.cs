@@ -30,6 +30,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+        DataContext = this;
         FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "SettingsBounds");
 
         _pendingDefaults = new DefaultValues
@@ -56,12 +57,48 @@ public partial class SettingsWindow : Window
         BuildDefaultsUi();
         BuildMaskOverlayUi();
 
+        ConfirmVideoMergerRemove = SettingsManager.Instance.ConfirmVideoMergerRemove;
+        ConfirmVideoMergerClearAll = SettingsManager.Instance.ConfirmVideoMergerClearAll;
+        ConfirmCropToolReset = SettingsManager.Instance.ConfirmCropToolReset;
+        ConfirmCropToolDelete = SettingsManager.Instance.ConfirmCropToolDelete;
+
         this.FindControl<Button>("SaveBtn")!.Click += (s, e) => SaveAndClose();
         this.FindControl<Button>("CancelBtn")!.Click += (s, e) => Close();
 
         this.KeyDown += OnWindowKeyDown;
         AttachTitleBarDrag();
     }
+
+    public bool RememberMusicVolumes
+    {
+        get => _pendingDefaults.RememberMusicVolumes;
+        set => _pendingDefaults.RememberMusicVolumes = value;
+    }
+    public bool AutoVoiceNormalization
+    {
+        get => _pendingDefaults.AutoVoiceNormalization;
+        set => _pendingDefaults.AutoVoiceNormalization = value;
+    }
+    public bool AutoSpikeFlattening
+    {
+        get => _pendingDefaults.AutoSpikeFlattening;
+        set => _pendingDefaults.AutoSpikeFlattening = value;
+    }
+    public string DefaultMusicFolder
+    {
+        get => _pendingMusicFolder;
+        set {
+            if (!string.IsNullOrWhiteSpace(value) && !System.IO.Directory.Exists(value))
+                throw new ArgumentException("Folder does not exist.");
+            _pendingMusicFolder = value ?? "";
+        }
+    }
+
+    // Confirmation Dialogs
+    public bool ConfirmVideoMergerRemove { get; set; }
+    public bool ConfirmVideoMergerClearAll { get; set; }
+    public bool ConfirmCropToolReset { get; set; }
+    public bool ConfirmCropToolDelete { get; set; }
 
     private void LoadCurrentKeybinds()
     {
@@ -233,11 +270,6 @@ public partial class SettingsWindow : Window
         catch { }
 
         var txtFolder = this.FindControl<TextBox>("DefaultMusicFolderTextBox");
-        if (txtFolder != null)
-        {
-            txtFolder.Text = _pendingMusicFolder;
-            txtFolder.TextChanged += (_, _) => _pendingMusicFolder = txtFolder.Text ?? "";
-        }
 
         var btnFolder = this.FindControl<Button>("BrowseMusicFolderBtn");
         if (btnFolder != null)
@@ -256,31 +288,10 @@ public partial class SettingsWindow : Window
 
                 if (result != null && result.Count > 0)
                 {
-                    _pendingMusicFolder = result[0].Path.LocalPath;
-                    if (txtFolder != null) txtFolder.Text = _pendingMusicFolder;
+                    DefaultMusicFolder = result[0].Path.LocalPath;
+                    if (txtFolder != null) txtFolder.Text = DefaultMusicFolder;
                 }
             };
-        }
-        
-        var cbVoice = this.FindControl<CheckBox>("AutoVoiceNormalizationCheckbox");
-        if (cbVoice != null)
-        {
-            cbVoice.IsChecked = _pendingDefaults.AutoVoiceNormalization;
-            cbVoice.IsCheckedChanged += (_, _) => _pendingDefaults.AutoVoiceNormalization = cbVoice.IsChecked ?? true;
-        }
-
-        var cbSpike = this.FindControl<CheckBox>("AutoSpikeFlatteningCheckbox");
-        if (cbSpike != null)
-        {
-            cbSpike.IsChecked = _pendingDefaults.AutoSpikeFlattening;
-            cbSpike.IsCheckedChanged += (_, _) => _pendingDefaults.AutoSpikeFlattening = cbSpike.IsChecked ?? true;
-        }
-
-        var cbVolumes = this.FindControl<CheckBox>("RememberVolumesCheckbox");
-        if (cbVolumes != null)
-        {
-            cbVolumes.IsChecked = _pendingDefaults.RememberMusicVolumes;
-            cbVolumes.IsCheckedChanged += (_, _) => _pendingDefaults.RememberMusicVolumes = cbVolumes.IsChecked ?? true;
         }
     }
 
@@ -346,6 +357,11 @@ public partial class SettingsWindow : Window
         kb.AggressiveVolumeDown = _pendingKeys["AggressiveVolumeDown"];
 
         SettingsManager.Instance.Defaults = _pendingDefaults;
+
+        SettingsManager.Instance.ConfirmVideoMergerRemove = ConfirmVideoMergerRemove;
+        SettingsManager.Instance.ConfirmVideoMergerClearAll = ConfirmVideoMergerClearAll;
+        SettingsManager.Instance.ConfirmCropToolReset = ConfirmCropToolReset;
+        SettingsManager.Instance.ConfirmCropToolDelete = ConfirmCropToolDelete;
 
         if (_pendingMaskOverlay != SettingsManager.Instance.ActiveMaskOverlay)
         {

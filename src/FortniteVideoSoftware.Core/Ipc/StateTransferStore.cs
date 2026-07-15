@@ -17,7 +17,8 @@ public sealed class StateTransferStore
         "GranularBounds",
         "MusicWizardBounds",
         "SettingsBounds",
-        "VoiceOverWindowBounds"
+        "VoiceOverWindowBounds",
+        "PreviewMonitorWindowBounds"
     ];
     private static readonly string[] SubprocessStateKeys =
     [
@@ -123,29 +124,26 @@ public sealed class StateTransferStore
     public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default)
     {
         JsonObject clonedUpdates = Clone(updates);
-        Task.Run(() =>
+        try
         {
-            try
+            Paths.EnsureWritableDirectories();
+
+            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                MutexName,
+                DefaultMutexTimeout,
+                cancellationToken);
+
+            JsonObject current = LoadUnlocked();
+            foreach (KeyValuePair<string, JsonNode?> property in clonedUpdates)
             {
-                Paths.EnsureWritableDirectories();
-
-                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-                    MutexName,
-                    DefaultMutexTimeout,
-                    cancellationToken);
-
-                JsonObject current = LoadUnlocked();
-                foreach (KeyValuePair<string, JsonNode?> property in clonedUpdates)
-                {
-                    ValidateKnownProperty(property.Key, property.Value);
-                    current[property.Key] = property.Value?.DeepClone();
-                }
-
-                current["schema_version"] = SchemaVersion;
-                AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+                ValidateKnownProperty(property.Key, property.Value);
+                current[property.Key] = property.Value?.DeepClone();
             }
-            catch { }
-        }, cancellationToken);
+
+            current["schema_version"] = SchemaVersion;
+            AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+        }
+        catch { }
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)

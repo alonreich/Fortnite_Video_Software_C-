@@ -57,6 +57,8 @@ public partial class PhaseOverlayControl : UserControl
         }
     }
     
+    private Process? _smiProcess;
+
     public void StartOverlay()
     {
         IsVisible = true;
@@ -64,6 +66,37 @@ public partial class PhaseOverlayControl : UserControl
         _gpuHist.Clear();
         _memHist.Clear();
         _logLines.Clear();
+        
+        try
+        {
+            _smiProcess = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "nvidia-smi",
+                    Arguments = "--query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -i 0 -l 1",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            _smiProcess.OutputDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    var parts = e.Data.Trim().Split(',');
+                    if (parts.Length >= 2)
+                    {
+                        int core = int.TryParse(parts[0].Trim(), out int c) ? c : 0;
+                        int enc = int.TryParse(parts[1].Trim(), out int ex) ? ex : 0;
+                        _lastGpu = Math.Max(0, Math.Min(100, Math.Max(core, enc)));
+                    }
+                }
+            };
+            _smiProcess.Start();
+            _smiProcess.BeginOutputReadLine();
+        }
+        catch { }
         
         var txt = this.FindControl<TextBox>("LiveLogTextBox");
         if (txt != null) txt.Text = "Backend log stream attached.\n";
@@ -95,6 +128,17 @@ public partial class PhaseOverlayControl : UserControl
         _timer?.Stop();
         _animTimer?.Stop();
         RuntimeLog.LogAppended -= AppendLog;
+        
+        try
+        {
+            if (_smiProcess != null && !_smiProcess.HasExited)
+            {
+                _smiProcess.Kill();
+            }
+            _smiProcess?.Dispose();
+            _smiProcess = null;
+        }
+        catch { }
     }
     public void UpdateTimeRemaining(string timeRemaining)
     {
@@ -279,33 +323,6 @@ public partial class PhaseOverlayControl : UserControl
     
     private int GetGpuUsage()
     {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "nvidia-smi",
-                Arguments = "--query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -i 0",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = new Process { StartInfo = psi };
-            p.Start();
-            string output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(1000);
-            
-            if (!string.IsNullOrWhiteSpace(output))
-            {
-                var parts = output.Trim().Split(',');
-                if (parts.Length >= 2)
-                {
-                    int core = int.TryParse(parts[0].Trim(), out int c) ? c : 0;
-                    int enc = int.TryParse(parts[1].Trim(), out int e) ? e : 0;
-                    _lastGpu = Math.Max(0, Math.Min(100, Math.Max(core, enc)));
-                }
-            }
-        }
-        catch { }
         return _lastGpu;
     }
 

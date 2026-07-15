@@ -95,8 +95,8 @@ public partial class VoiceOverWindow : Window
     private CheckBox? _muteMaleCb;
     private CheckBox? _muteFemaleCb;
     private CheckBox? _muteChildCb;
-    private Line? _thumbPlayheadLine;
-    private Line? _wavePlayheadLine;
+    private Border? _thumbPlayheadLine;
+    private Border? _wavePlayheadLine;
     private double _detectedMaleHz;
     private double _detectedFemaleHz;
     private double _detectedChildHz;
@@ -161,8 +161,7 @@ public partial class VoiceOverWindow : Window
         _paths.EnsureWritableDirectories();
         _outputWavPath = CreateTempVoiceOverPath();
 
-        _recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
-        _recorder.VolumeChanged += OnVolumeChanged;
+
 
         if (_micRecordButton != null) _micRecordButton.Click += ToggleRecord;
         if (_playPauseButton != null) _playPauseButton.Click += TogglePreviewPlayback;
@@ -337,8 +336,8 @@ public partial class VoiceOverWindow : Window
         _muteMaleCb = this.FindControl<CheckBox>("MuteMaleCb");
         _muteFemaleCb = this.FindControl<CheckBox>("MuteFemaleCb");
         _muteChildCb = this.FindControl<CheckBox>("MuteChildCb");
-        _thumbPlayheadLine = this.FindControl<Line>("ThumbPlayheadLine");
-        _wavePlayheadLine = this.FindControl<Line>("WavePlayheadLine");
+        _thumbPlayheadLine = this.FindControl<Border>("ThumbPlayheadLine");
+        _wavePlayheadLine = this.FindControl<Border>("WavePlayheadLine");
     }
 
     private void PopulateMicrophoneDevices()
@@ -436,7 +435,7 @@ public partial class VoiceOverWindow : Window
 
     private void TimelineSurface_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (_videoHost?.IpcClient == null) return;
+        if (_isRecording || _videoHost?.IpcClient == null) return;
 
         switch (e.Key)
         {
@@ -834,8 +833,7 @@ public partial class VoiceOverWindow : Window
             if (_thumbPlayheadLine != null)
             {
                 double x = fraction * _thumbnailLaneGrid.Bounds.Width;
-                _thumbPlayheadLine.StartPoint = new Point(x, 0);
-                _thumbPlayheadLine.EndPoint = new Point(x, _thumbnailLaneGrid.Bounds.Height);
+                _thumbPlayheadLine.Margin = new Thickness(x, 0, 0, 0);
             }
         }
 
@@ -844,8 +842,7 @@ public partial class VoiceOverWindow : Window
             if (_wavePlayheadLine != null)
             {
                 double x = fraction * _waveformLaneGrid.Bounds.Width;
-                _wavePlayheadLine.StartPoint = new Point(x, 0);
-                _wavePlayheadLine.EndPoint = new Point(x, _waveformLaneGrid.Bounds.Height);
+                _wavePlayheadLine.Margin = new Thickness(x, 0, 0, 0);
             }
         }
     }
@@ -1040,6 +1037,7 @@ public partial class VoiceOverWindow : Window
     private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Control timelineCanvas, bool force)
     {
         if (e.Handled) return;
+        if (_isRecording) return;
         if (_videoHost?.IpcClient == null) return;
         double videoDuration = _videoHost.IpcClient.Duration;
         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;

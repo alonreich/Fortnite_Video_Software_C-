@@ -7,6 +7,7 @@
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
+        WindowStartupLocation="Manual"
         Topmost="True">
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
@@ -27,14 +28,16 @@
                             <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" HorizontalAlignment="Left">
                                 <TextBlock Text="Music Settings" FontSize="16" FontWeight="Bold" Foreground="White" />
                                 
-                                <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="#94a3b8" Margin="0,0,0,10" />
-                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="#94a3b8" Margin="0,0,0,10" ToolTip.Tip="Match applied voiceover loudness to the game audio during export." />
-                                <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Enable Auto Spike Flattening (Limiter)" Foreground="#94a3b8" Margin="0,0,0,10" />
+                                <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="#94a3b8" Margin="0,0,0,10" IsChecked="{Binding RememberMusicVolumes, Mode=TwoWay}" ToolTip.Tip="Save and recall the music/video volume levels you selected last time." />
+                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="#94a3b8" Margin="0,0,0,10" ToolTip.Tip="Match applied voiceover loudness to the game audio during export." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
+                                <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Enable Auto Spike Flattening (Limiter)" Foreground="#94a3b8" Margin="0,0,0,10" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Automatically compress sudden loud noises to protect viewers' ears." />
                                 
                                 <TextBlock Text="Music (mp3) Folder" Foreground="White" FontWeight="SemiBold"/>
                                 <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" Width="700">
-                                    <TextBox Grid.Column="0" Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="White"/>
-                                    <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand"/>
+                                    <DataValidationErrors Grid.Column="0">
+                                        <TextBox Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="White" Text="{Binding DefaultMusicFolder, Mode=TwoWay}"/>
+                                    </DataValidationErrors>
+                                    <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand" ToolTip.Tip="Pick the folder containing your background music."/>
                                 </Grid>
                             </StackPanel>
                         </TabItem>
@@ -55,6 +58,20 @@
                                 
                                 <TextBlock Text="Current Mask Overlay Profile:" Foreground="White" FontWeight="SemiBold" Margin="0,15,0,0"/>
                                 <ComboBox Name="MaskOverlayProfileComboBox" Width="300" />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Confirmation Dialogs">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Destructive Actions &amp; Warnings" FontSize="16" FontWeight="Bold" Foreground="White" />
+                                <TextBlock Foreground="#94a3b8" TextWrapping="Wrap" FontSize="13" Text="Choose whether the software should double check with you before deleting data. If you uncheck these, actions will happen instantly without warning." Margin="0,0,0,10" />
+                                
+                                <TextBlock Text="Video Merger" Foreground="White" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                                <CheckBox Content="Show warning before 'Remove Selected' video" Foreground="#94a3b8" IsChecked="{Binding ConfirmVideoMergerRemove, Mode=TwoWay}" />
+                                <CheckBox Content="Show warning before 'Clear All' videos" Foreground="#94a3b8" IsChecked="{Binding ConfirmVideoMergerClearAll, Mode=TwoWay}" />
+                                
+                                <TextBlock Text="Crop Tools" Foreground="White" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before 'Reset' entire layout" Foreground="#94a3b8" IsChecked="{Binding ConfirmCropToolReset, Mode=TwoWay}" />
+                                <CheckBox Content="Show warning before 'Delete' layer" Foreground="#94a3b8" IsChecked="{Binding ConfirmCropToolDelete, Mode=TwoWay}" />
                             </StackPanel>
                         </TabItem>
                     </TabControl>

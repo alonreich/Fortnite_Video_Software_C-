@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.VoiceOverWindow"
         Title="Voice Over Studio"
-        Width="1024" Height="768"
+
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="980" MinHeight="640"
         WindowStartupLocation="Manual"
@@ -37,7 +37,7 @@
                             <!-- Timeline and controls -->
                             <Grid Grid.Row="1" Margin="0,15,0,0">
                                 <StackPanel Orientation="Vertical" Spacing="8">
-                                    <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center" ItemHeight="88">
+                                    <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                         
                                         <!-- Realistic Mic Button -->
                                          <Button Name="MicRecordButton" MinWidth="82" MinHeight="82" Margin="0,0,20,0" ToolTip.Tip="Start or stop voiceover recording (V)" AutomationProperties.Name="Start or stop voiceover recording" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand" IsEnabled="False">
@@ -145,7 +145,7 @@
                                                 <Canvas Name="ThumbnailCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                 <!-- Playhead Marker -->
                                                 <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
-                                                <Line Name="ThumbPlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                                <Border Name="ThumbPlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
                                             </Grid>
 
                                             <!-- Waveform -->
@@ -159,7 +159,7 @@
                                                 </Border>
                                                 <Canvas Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                 <TextBlock Name="WaveformFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
-                                                <Line Name="WavePlayheadLine" StartPoint="0,0" EndPoint="0,60" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                                <Border Name="WavePlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
                                             </Grid>
                                         </Grid>
                                     </Border>

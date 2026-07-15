@@ -2077,7 +2077,7 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            var p3Canvas = this.FindControl<Canvas>("Phase3CaretCanvas");
+            var p3Canvas = this.FindControl<Panel>("Phase3CaretCanvas");
 
             var p3Caret = this.FindControl<Border>("Phase3Caret");
 
@@ -2258,7 +2258,6 @@ public partial class MusicWizardWindow : Window
 
 
         e.Cancel = true;
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
 
 
         this.Hide();

@@ -17,12 +17,14 @@ public static class RuntimeLog
     private const long MaxLogSize = 10 * 1024 * 1024;
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
-    private static readonly BlockingCollection<string> _logQueue = new();
+    private static readonly BlockingCollection<string> _logQueue = new(10000);
     private static long _estimatedSize = -1;
+    private static readonly string _sessionId = Guid.NewGuid().ToString("N")[..8];
+    private static Task? _processTask;
 
     static RuntimeLog()
     {
-        Task.Factory.StartNew(ProcessLogQueue, TaskCreationOptions.LongRunning);
+        _processTask = Task.Factory.StartNew(ProcessLogQueue, TaskCreationOptions.LongRunning);
     }
     
     public static event Action<string>? LogAppended;
@@ -89,14 +91,19 @@ public static class RuntimeLog
 
             if (!_exitRegistered)
             {
-                AppDomain.CurrentDomain.ProcessExit += (s, e) => WriteExitSeparator();
+                AppDomain.CurrentDomain.ProcessExit += (s, e) => {
+                    WriteExitSeparator();
+                    try { _logQueue.CompleteAdding(); } catch { }
+                    _processTask?.Wait(3000);
+                };
                 _exitRegistered = true;
             }
             _initialized = true;
         }
 
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
         string header = Environment.NewLine +
-            $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName})" + Environment.NewLine;
+            $"{_appName} v{version} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, User: {Environment.UserName}, Session: {_sessionId})" + Environment.NewLine;
         SafeWrite(header);
     }
 
@@ -151,12 +158,22 @@ public static class RuntimeLog
 
     private static void SafeWrite(string text)
     {
-        _logQueue.Add(text);
+        if (!_logQueue.IsAddingCompleted)
+        {
+            try { _logQueue.TryAdd(text); } catch { }
+        }
     }
 
     private static void ProcessLogQueue()
     {
-        _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+        try
+        {
+            _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+        }
+        catch
+        {
+            _globalMutex = new Mutex(false);
+        }
         
         foreach (string firstText in _logQueue.GetConsumingEnumerable())
         {
@@ -173,20 +190,33 @@ public static class RuntimeLog
             bool acquired = false;
             try
             {
-                try { acquired = _globalMutex.WaitOne(2000); } catch (AbandonedMutexException) { acquired = true; }
-                if (!acquired) continue;
-
-                if (_estimatedSize < 0)
+                try { acquired = _globalMutex.WaitOne(5000); } catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired)
                 {
-                    var fi = new FileInfo(LogPath);
-                    _estimatedSize = fi.Exists ? fi.Length : 0;
+                    if (!_logQueue.IsAddingCompleted)
+                    {
+                        try { _logQueue.TryAdd(combinedText); } catch { }
+                    }
+                    Thread.Sleep(500);
+                    continue;
                 }
+
+                var fi = new FileInfo(LogPath);
+                _estimatedSize = fi.Exists ? fi.Length : 0;
 
                 if (_estimatedSize >= MaxLogSize)
                 {
                     string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeSeconds()}.old";
-                    if (File.Exists(LogPath)) File.Move(LogPath, oldLog);
-                    _estimatedSize = 0;
+                    try 
+                    {
+                        if (File.Exists(LogPath))
+                        {
+                            File.Move(LogPath, oldLog);
+                            _estimatedSize = 0;
+                            CleanupOldLogs();
+                        }
+                    }
+                    catch { }
                 }
 
                 using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
@@ -202,5 +232,26 @@ public static class RuntimeLog
                 if (acquired) _globalMutex.ReleaseMutex();
             }
         }
+    }
+
+    private static void CleanupOldLogs()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(LogPath);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+
+            var oldLogs = Directory.GetFiles(dir, "*.old")
+                                   .Where(f => f.Contains("Fortnite_Video_Software"))
+                                   .Select(f => new FileInfo(f))
+                                   .OrderByDescending(f => f.CreationTimeUtc)
+                                   .ToList();
+
+            for (int i = 5; i < oldLogs.Count; i++)
+            {
+                try { oldLogs[i].Delete(); } catch { }
+            }
+        }
+        catch { }
     }
 }

@@ -252,28 +252,60 @@ public partial class VideoMergerWindow : Window
         }
 
         var menuRemoveSelected = this.FindControl<MenuItem>("MenuRemoveSelected");
-        if (menuRemoveSelected != null) menuRemoveSelected.Click += (s, e) =>
+        if (menuRemoveSelected != null)
         {
-            var videoList = this.FindControl<ListBox>("VideoList");
-            if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
+            menuRemoveSelected.Click += (s, e) =>
             {
-                var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
-                int lastIndex = -1;
-                foreach (var item in itemsToRemove)
+                if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerRemove)
                 {
-                    lastIndex = Math.Max(lastIndex, VideoQueue.IndexOf(item));
-                    VideoQueue.Remove(item);
+                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuRemoveSelected)?.Hide();
+                    ExecuteRemoveSelected();
                 }
-                if (VideoQueue.Count > 0)
+                else
                 {
-                    videoList.SelectedItems.Clear();
-                    videoList.SelectedIndex = Math.Min(Math.Max(0, lastIndex - itemsToRemove.Count + 1), VideoQueue.Count - 1);
+                    Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(menuRemoveSelected);
                 }
-            }
-        };
+            };
+        }
+        
+        var confirmMenuRemoveBtn = this.FindControl<Button>("ConfirmMenuRemoveButton");
+        if (confirmMenuRemoveBtn != null)
+        {
+            confirmMenuRemoveBtn.Click += (s, e) =>
+            {
+                if (menuRemoveSelected != null)
+                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuRemoveSelected)?.Hide();
+                ExecuteRemoveSelected();
+            };
+        }
 
         var menuClearAll = this.FindControl<MenuItem>("MenuClearAll");
-        if (menuClearAll != null) menuClearAll.Click += (s, e) => VideoQueue.Clear();
+        if (menuClearAll != null)
+        {
+            menuClearAll.Click += (s, e) =>
+            {
+                if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerClearAll)
+                {
+                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuClearAll)?.Hide();
+                    VideoQueue.Clear();
+                }
+                else
+                {
+                    Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(menuClearAll);
+                }
+            };
+        }
+        
+        var confirmMenuClearAllBtn = this.FindControl<Button>("ConfirmMenuClearAllButton");
+        if (confirmMenuClearAllBtn != null)
+        {
+            confirmMenuClearAllBtn.Click += (s, e) =>
+            {
+                if (menuClearAll != null)
+                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuClearAll)?.Hide();
+                VideoQueue.Clear();
+            };
+        }
 
         var addMusicBtn = this.FindControl<Button>("AddMusicButton");
         if (addMusicBtn != null)
@@ -310,22 +342,21 @@ public partial class VideoMergerWindow : Window
         {
             removeBtn.Click += (s, e) =>
             {
-                var videoList = this.FindControl<ListBox>("VideoList");
-                if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
+                if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerRemove)
                 {
-                    var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
-                    int lastIndex = -1;
-                    foreach (var item in itemsToRemove)
-                    {
-                        lastIndex = Math.Max(lastIndex, VideoQueue.IndexOf(item));
-                        VideoQueue.Remove(item);
-                    }
-                    if (VideoQueue.Count > 0)
-                    {
-                        videoList.SelectedItems.Clear();
-                        videoList.SelectedIndex = Math.Min(Math.Max(0, lastIndex - itemsToRemove.Count + 1), VideoQueue.Count - 1);
-                    }
+                    removeBtn.Flyout?.Hide();
+                    ExecuteRemoveSelected();
                 }
+            };
+        }
+        
+        var confirmRemoveBtn = this.FindControl<Button>("ConfirmRemoveVideoButton");
+        if (confirmRemoveBtn != null)
+        {
+            confirmRemoveBtn.Click += (s, e) =>
+            {
+                removeBtn?.Flyout?.Hide();
+                ExecuteRemoveSelected();
             };
         }
 
@@ -342,6 +373,26 @@ public partial class VideoMergerWindow : Window
         AttachTitleBarDrag();
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, MergerKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         UpdateQueueState();
+    }
+    
+    private void ExecuteRemoveSelected()
+    {
+        var videoList = this.FindControl<ListBox>("VideoList");
+        if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
+        {
+            var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
+            int lastIndex = -1;
+            foreach (var item in itemsToRemove)
+            {
+                lastIndex = Math.Max(lastIndex, VideoQueue.IndexOf(item));
+                VideoQueue.Remove(item);
+            }
+            if (VideoQueue.Count > 0)
+            {
+                videoList.SelectedItems.Clear();
+                videoList.SelectedIndex = Math.Min(Math.Max(0, lastIndex - itemsToRemove.Count + 1), VideoQueue.Count - 1);
+            }
+        }
     }
 
     private void VideoQueue_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -1622,7 +1673,6 @@ public partial class VideoMergerWindow : Window
         if (_isSafeToClose) { base.OnClosing(e); return; }
         e.Cancel = true;
         try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch { }
-        FortniteVideoSoftware.App.Infrastructure.WindowManager.SaveAll();
         this.Hide();
         try
         {

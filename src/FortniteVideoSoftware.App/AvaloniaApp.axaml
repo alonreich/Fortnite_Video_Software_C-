@@ -32,11 +32,16 @@
         <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
         <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
         <SolidColorBrush x:Key="AppSuccessBrush" Color="#22c55e" />
+        <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#16a34a" />
         <SolidColorBrush x:Key="AppDangerBrush" Color="#dc2626" />
+        <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#b91c1c" />
         <SolidColorBrush x:Key="AppWarningBrush" Color="#facc15" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppControlTrackBrush" Color="#222222" />
         <SolidColorBrush x:Key="AppVideoRailBrush" Color="#15202b" />
+        
+        <SolidColorBrush x:Key="AppFocusOuterBrush" Color="#7dd3fc" />
+        <SolidColorBrush x:Key="AppFocusInnerBrush" Color="#38bdf8" />
     </Application.Resources>
 
     <Application.Styles>
@@ -55,7 +60,7 @@
         </Style>
         <!-- Issue #1: Buttons MUST be focusable for keyboard navigation (WCAG 2.1.1, 2.4.7) -->
         <Style Selector="Button">
-            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinHeight" Value="32"/>
             <Setter Property="FontSize" Value="10"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -74,29 +79,29 @@
 
         <!-- Issue #1: Visible focus ring on all focusable buttons -->
         <Style Selector="Button:focus /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
         <Style Selector="Button:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
         <Style Selector="ToggleButton:focus /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
         <Style Selector="ToggleButton:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
         <Style Selector="Border.InteractiveFocus:focus">
-            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
         <Style Selector="Border.InteractiveFocus:focus-visible">
-            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
@@ -145,26 +150,14 @@
             <Setter Property="Foreground" Value="White"/>
         </Style>
 
-        <!-- Primary Buttons (Bright Blue) -->
+        <!-- Primary Buttons (Dynamic Resource Tokens) -->
         <Style Selector="Button.Primary">
-            <Setter Property="BorderBrush" Value="#174f6b"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#4ea1ca"/>
-                    <GradientStop Offset="0.15" Color="#3484ac"/>
-                    <GradientStop Offset="1.0" Color="#287397"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
         <Style Selector="Button.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#63b5dd"/>
-                    <GradientStop Offset="0.15" Color="#4ea1ca"/>
-                    <GradientStop Offset="1.0" Color="#3a8bb2"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppInfoBrush}"/>
         </Style>
 
         <!-- Voiceover entry: distinct from general primary actions in the main editing controls. -->
@@ -204,26 +197,14 @@
             <Setter Property="Background" Value="#475569"/>
         </Style>
 
-        <!-- Secondary Buttons (Metallic Gray) -->
+        <!-- Secondary Buttons (Dynamic Resource Tokens) -->
         <Style Selector="Button.Secondary">
-            <Setter Property="BorderBrush" Value="#334155"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#64748b"/>
-                    <GradientStop Offset="0.15" Color="#475569"/>
-                    <GradientStop Offset="1.0" Color="#334155"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
         </Style>
         <Style Selector="Button.Secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#94a3b8"/>
-                    <GradientStop Offset="0.15" Color="#64748b"/>
-                    <GradientStop Offset="1.0" Color="#475569"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppBorderBrush}"/>
         </Style>
         <Style Selector="Button.Secondary:disabled">
             <Setter Property="Foreground" Value="#b0c4de"/>
@@ -241,26 +222,14 @@
             <Setter Property="Background" Value="#475569"/>
         </Style>
 
-        <!-- Success Buttons (Metallic Green) -->
+        <!-- Success Buttons (Dynamic Resource Tokens) -->
         <Style Selector="Button.Success">
-            <Setter Property="BorderBrush" Value="#14532d"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#22c55e"/>
-                    <GradientStop Offset="0.15" Color="#15803d"/>
-                    <GradientStop Offset="1.0" Color="#14532d"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
         </Style>
         <Style Selector="Button.Success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#4ade80"/>
-                    <GradientStop Offset="0.15" Color="#16a34a"/>
-                    <GradientStop Offset="1.0" Color="#166534"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppSuccessHoverBrush}"/>
         </Style>
 
         <!-- Issue #1: Disabled Success buttons — flat muted gray, low-opacity text -->
@@ -272,26 +241,14 @@
             <Setter Property="Background" Value="#475569"/>
         </Style>
 
-        <!-- Danger Buttons (Metallic Red) -->
+        <!-- Danger Buttons (Dynamic Resource Tokens) -->
         <Style Selector="Button.Danger">
-            <Setter Property="BorderBrush" Value="#711616"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#dc2626"/>
-                    <GradientStop Offset="0.15" Color="#991b1b"/>
-                    <GradientStop Offset="1.0" Color="#711616"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppDangerBrush}"/>
         </Style>
         <Style Selector="Button.Danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#ef4444"/>
-                    <GradientStop Offset="0.15" Color="#b91c1c"/>
-                    <GradientStop Offset="1.0" Color="#7f1d1d"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppDangerHoverBrush}"/>
         </Style>
 
         <!-- Issue #1: Disabled Danger buttons — flat muted gray, low-opacity text -->
@@ -324,18 +281,8 @@
             <Setter Property="ClipToBounds" Value="False" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
-        <Style Selector="Slider /template/ DataValidationErrors">
-            <Setter Property="ClipToBounds" Value="False" />
-        </Style>
         <Style Selector="Slider /template/ Track">
-            <Setter Property="ClipToBounds" Value="False" />
             <Setter Property="ZIndex" Value="9998" />
-        </Style>
-        <Style Selector="Slider /template/ Grid">
-            <Setter Property="ClipToBounds" Value="False" />
-        </Style>
-        <Style Selector="Slider /template/ Border">
-            <Setter Property="ClipToBounds" Value="False" />
         </Style>
         <Style Selector="Slider:pointerover /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(1.4)" />
@@ -377,11 +324,16 @@
             <Setter Property="Focusable" Value="True"/>
         </Style>
         <Style Selector="ComboBox:focus /template/ Border#Background">
-            <Setter Property="BorderBrush" Value="#7dd3fc"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
         <Style Selector="ComboBox:focus-visible /template/ Border#Background">
-            <Setter Property="BorderBrush" Value="#38bdf8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
+        <Style Selector="TextBox.error /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDangerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
@@ -399,11 +351,11 @@
             <Setter Property="Background" Value="#22ffffff" />
         </Style>
         <Style Selector="CheckBox:focus /template/ Border#Root">
-            <Setter Property="BorderBrush" Value="#7dd3fc" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}" />
             <Setter Property="BorderThickness" Value="2" />
         </Style>
         <Style Selector="CheckBox:focus-visible /template/ Border#Root">
-            <Setter Property="BorderBrush" Value="#38bdf8" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
             <Setter Property="BorderThickness" Value="2" />
         </Style>
 
@@ -439,11 +391,11 @@
             <Setter Property="Background" Value="#1a38bdf8" />
         </Style>
         <Style Selector="ListBoxItem:focus">
-            <Setter Property="BorderBrush" Value="#38bdf8" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
         <Style Selector="ListBoxItem:focus-visible">
-            <Setter Property="BorderBrush" Value="#38bdf8" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
             <Setter Property="BorderThickness" Value="2" />
         </Style>
         <Style Selector="ListBoxItem:selected">
@@ -455,7 +407,7 @@
 
         <!-- ToggleButton must match Button styling for consistency (e.g., FREEZE FRAME) -->
         <Style Selector="ToggleButton">
-            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinHeight" Value="32"/>
             <Setter Property="FontSize" Value="10"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -475,44 +427,20 @@
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
         </Style>
         <Style Selector="ToggleButton.Primary">
-            <Setter Property="BorderBrush" Value="#174f6b"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#4ea1ca"/>
-                    <GradientStop Offset="0.15" Color="#3484ac"/>
-                    <GradientStop Offset="1.0" Color="#287397"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
         <Style Selector="ToggleButton.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#63b5dd"/>
-                    <GradientStop Offset="0.15" Color="#4ea1ca"/>
-                    <GradientStop Offset="1.0" Color="#3a8bb2"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppInfoBrush}"/>
         </Style>
         <Style Selector="ToggleButton.Primary:checked /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#4ade80"/>
-                    <GradientStop Offset="0.15" Color="#16a34a"/>
-                    <GradientStop Offset="1.0" Color="#166534"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
         </Style>
 
         <!-- Issue #3: Checked toggle hover — subtly brightened green gradient for tactile feedback -->
         <Style Selector="ToggleButton.Primary:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background">
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0.0" Color="#86efac"/>
-                    <GradientStop Offset="0.15" Color="#22c55e"/>
-                    <GradientStop Offset="1.0" Color="#1d7a42"/>
-                </LinearGradientBrush>
-            </Setter>
+            <Setter Property="Background" Value="{DynamicResource AppSuccessHoverBrush}"/>
         </Style>
 
         <!-- Issue #11: Close button style for FinishedDialog and other borderless windows -->

@@ -5,11 +5,12 @@
         x:DataType="local:CropToolWindow"
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
         Title="Portrait 1080x1920 (Crop Tool)"
-        MinWidth="1500" MinHeight="760"
+        MinWidth="800" MinHeight="600"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="30">
+        ExtendClientAreaTitleBarHeightHint="30"
+        WindowStartupLocation="Manual">
 
     <Border Name="MainBorder"
             Background="{DynamicResource AppSurfaceBrush}"
@@ -41,36 +42,32 @@
                             <TextBlock Name="GoalLabel"
                                        Grid.Row="1"
                                        Text="Goal: Upload Video"
-                                       Foreground="#cbd5e1"
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                        FontSize="12"
                                        FontWeight="Bold" />
                             <TextBlock Name="StatusLabel"
                                        Grid.Row="2"
                                        Text=""
-                                       Foreground="#94a3b8"
+                                       Foreground="{DynamicResource AppTextMutedBrush}"
                                        FontSize="10" />
                         </Grid>
                     </Border>
 
                     <Grid Name="VideoPanel" Grid.Row="1" Background="Black">
-                        <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Black">
-                            <local:MpvVideoView Name="VideoHost"
-                                                HorizontalAlignment="Stretch"
-                                                VerticalAlignment="Stretch" />
-                            <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="#cc000000" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
-                                <TextBlock Text="⚠️" FontSize="16" Foreground="Yellow" />
-                            </Border>
-                        </Grid>
+                        <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                        <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
+                            <TextBlock Text="⚠️" FontSize="16" Foreground="{DynamicResource AppWarningBrush}" />
+                        </Border>
                         <Border Name="UploadHint"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
-                                Background="#dd000000"
-                                BorderBrush="#7dd3fc"
+                                Background="{DynamicResource AppOverlayBrush}"
+                                BorderBrush="{DynamicResource AppAccentBrush}"
                                 BorderThickness="2"
                                 CornerRadius="8"
                                 Padding="34,20">
                             <TextBlock Text="UPLOAD VIDEO"
-                                       Foreground="White"
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                        FontSize="28"
                                        FontWeight="Bold" />
                         </Border>
@@ -85,39 +82,36 @@
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       Background="{DynamicResource AppSurfaceBrush}">
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Black">
+                                <Image Name="SnapshotImage" Stretch="Uniform" />
                                 <Canvas Name="SourceCanvas"
                                         HorizontalAlignment="Stretch"
                                         VerticalAlignment="Stretch"
-                                        Background="Black"
+                                        Background="Transparent"
                                         Cursor="Cross"
                                         Focusable="True"
-                                        AutomationProperties.Name="Source snapshot selection canvas">
-                                    <Image Name="SnapshotImage"
-                                           Width="{Binding $parent[Canvas].Bounds.Width}"
-                                           Height="{Binding $parent[Canvas].Bounds.Height}"
-                                           Stretch="Uniform" />
-                                </Canvas>
+                                        AutomationProperties.Name="Source snapshot selection canvas" />
                             </Grid>
                         </ScrollViewer>
                         <Border Grid.Row="1"
-                                Background="#172033"
+                                Background="{DynamicResource AppPanelBrush}"
                                 BorderBrush="{DynamicResource AppPanelBrush}"
                                 BorderThickness="0,1,0,0"
                                 Padding="12,6">
-                            <Grid ColumnDefinitions="220,*,150">
-                                <StackPanel Grid.Column="0">
-                                    <TextBox Name="RoleTextBox"
-                                             Watermark="Element Name (e.g. Ammo)"
-                                             Height="30"
-                                             Foreground="White"
-                                             Background="{DynamicResource AppPanelBrush}" />
-                                    <TextBlock Name="RoleErrorText" Foreground="{DynamicResource AppDangerBrush}" FontSize="10" FontWeight="Bold" IsVisible="False" Margin="0,2,0,0" Text="Name must be alphanumeric, 3-15 characters." />
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <StackPanel Grid.Column="0" MinWidth="220">
+                                    <DataValidationErrors>
+                                        <TextBox Name="RoleTextBox"
+                                                 Watermark="Element Name (e.g. Ammo)"
+                                                 HorizontalAlignment="Stretch"
+                                                 Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                 Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
+                                    </DataValidationErrors>
                                 </StackPanel>
                                 <TextBlock Name="SelectionInfo"
                                            Grid.Column="1"
                                            Text="Draw a box around a HUD element, then assign its role."
-                                           Foreground="#cbd5e1"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
                                            VerticalAlignment="Center"
                                            FontSize="11"
                                            Margin="12,0,12,0" />
@@ -153,7 +147,7 @@
                                     <Grid Height="32" ClipToBounds="False">
                                         <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
                                         <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
-                                            <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="0" RenderTransform="translateY(-34px)">
+                                            <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                                 <Border.Transitions>
                                                     <Transitions>
                                                         <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
@@ -184,16 +178,28 @@
                             Padding="16,5">
                         <Grid ColumnDefinitions="Auto, *, Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
-                                <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" Width="120" ToolTip.Tip="Click here to pick a video from your computer." />
-                                <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" Width="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" />
-                                <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" Width="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" />
-                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" Width="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" />
+                                <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" MinWidth="120" ToolTip.Tip="Click here to pick a video from your computer." />
+                                <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" MinWidth="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" />
+                                <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" MinWidth="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" />
+                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" MinWidth="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" />
                             </StackPanel>
                             
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
-                                <Button Name="PlayPauseButton" Classes="Secondary" Content="PLAY" Width="90" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
-                                <Button Name="ReturnButton" Classes="Secondary" Content="RETURN" Width="90" ToolTip.Tip="Close this tool and go back to the main menu." />
-                                <Button Name="ResetButton" Classes="Danger" Content="RESET" Width="90" ToolTip.Tip="Wipe everything clean and start over from scratch." />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                <Button Name="PlayPauseButton" Classes="Secondary" Content="PLAY" MinWidth="110" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
+                                <Button Name="ReturnButton" Classes="Secondary" Content="RETURN" MinWidth="110" ToolTip.Tip="Close this tool and go back to the main menu." />
+                                <Border Width="1" Height="20" Background="{DynamicResource AppBorderBrush}" Margin="8,0" />
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button Name="ResetMenuButton" Classes="Danger" Content="RESET" MinWidth="90" ToolTip.Tip="Wipe everything clean and start over from scratch.">
+                                        <Button.Flyout>
+                                            <Flyout Placement="Top">
+                                                <StackPanel Spacing="8" Margin="8">
+                                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="12" FontWeight="Bold" />
+                                                    <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" HorizontalAlignment="Stretch" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -211,12 +217,11 @@
                             Padding="12,6">
                         <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                             <TextBlock Text="Active Profile:" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="11"/>
-                            <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" Width="180" HorizontalAlignment="Left"/>
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0">
-                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." Width="130" FontSize="11" />
-                                <TextBlock Name="NewMaskOverlayErrorText" Foreground="{DynamicResource AppDangerBrush}" FontSize="9" FontWeight="Bold" IsVisible="False" Margin="0,2,0,0" Text="Name must be alphanumeric, no spaces." />
+                            <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" HorizontalAlignment="Stretch" ToolTip.Tip="Select an existing mask overlay profile."/>
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" HorizontalAlignment="Stretch" MinWidth="130">
+                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="11" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
                             </StackPanel>
-                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Primary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="10" />
+                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="10" />
                         </Grid>
                     </Border>
                     <Border Grid.Row="1"
@@ -224,7 +229,7 @@
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="12,6">
-                        <Grid ColumnDefinitions="Auto,128,*,Auto,24,Auto">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
                             <CheckBox Name="ShowPlaceholders"
                                       Grid.Column="0"
                                       Content="Show Existing Crops"
@@ -234,6 +239,7 @@
                                       VerticalAlignment="Center" />
                             <Slider Name="PlaceholderOpacitySlider"
                                     Grid.Column="1"
+                                    MinWidth="128"
                                     Minimum="20"
                                     Maximum="255"
                                     Value="95"
@@ -289,9 +295,9 @@
 
                                 <Grid IsHitTestVisible="False">
                                     <Grid.RowDefinitions>
-                                        <RowDefinition Height="150*" />
-                                        <RowDefinition Height="1620*" />
-                                        <RowDefinition Height="150*" />
+                                        <RowDefinition Height="15*" />
+                                        <RowDefinition Height="162*" />
+                                        <RowDefinition Height="15*" />
                                     </Grid.RowDefinitions>
                                     <Rectangle Grid.Row="0" Fill="Black" />
                                     <Rectangle Grid.Row="2" Fill="Black" />
@@ -307,13 +313,13 @@
                                     Margin="8,0">
                             <Button Name="UndoButton"
                                     Classes="Secondary"
-                                    Content="UNDO"
+                                    Content="⮪ UNDO"
                                     Width="90"
                                     ToolTip.Tip="Undo your last mistake."
                                     IsEnabled="False" />
                             <Button Name="RedoButton"
-                                    Classes="Secondary"
-                                    Content="REDO"
+                                    Classes="Primary"
+                                    Content="REDO ⮫"
                                     Width="90"
                                     ToolTip.Tip="Redo what you just undid."
                                     IsEnabled="False" />
@@ -362,12 +368,23 @@
                                     Width="110"
                                     ToolTip.Tip="Move selected layer down"
                                     IsEnabled="False" />
-                            <Button Name="DeleteSelectedButton"
-                                    Classes="Danger"
-                                    Content="DELETE"
-                                    Width="90"
-                                    ToolTip.Tip="Throw this piece into the trash."
-                                    IsEnabled="False" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Name="DeleteMenuButton"
+                                        Classes="Danger"
+                                        Content="DELETE"
+                                        Width="90"
+                                        ToolTip.Tip="Throw this piece into the trash."
+                                        IsEnabled="False">
+                                    <Button.Flyout>
+                                        <Flyout Placement="Top">
+                                            <StackPanel Spacing="8" Margin="8">
+                                                <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="12" FontWeight="Bold" />
+                                                <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
                             <Button Name="RaiseButton"
                                     Classes="Secondary"
                                     Content="MOVE UP"
@@ -391,7 +408,7 @@
             </Grid>
 
             <Grid Name="SummaryOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
-                <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" Width="650" Height="500" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
+                <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" MinWidth="400" MaxWidth="800" MinHeight="300" MaxHeight="800" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
                     <StackPanel Spacing="20">
                         <StackPanel Orientation="Horizontal" Spacing="20">
                             <TextBlock Text="✓" FontSize="60" Foreground="#10b981" />

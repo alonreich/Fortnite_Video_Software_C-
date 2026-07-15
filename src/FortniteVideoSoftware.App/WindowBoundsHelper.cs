@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,60 +16,7 @@ public static class WindowBoundsHelper
         {
             var store = new Core.Ipc.StateTransferStore();
             var state = store.LoadSync();
-            if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
-            {
-                double savedWidth = window.Width;
-                double savedHeight = window.Height;
-                bool hasSavedSize = false;
-                if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
-                {
-                    savedWidth = Math.Max(window.MinWidth > 0 ? window.MinWidth : 320, (double)w);
-                    savedHeight = Math.Max(window.MinHeight > 0 ? window.MinHeight : 240, (double)h);
-                    hasSavedSize = true;
-                }
-
-                if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
-                {
-                    int px = (int)x;
-                    int py = (int)y;
-
-                    var screens = window.Screens.All.ToList();
-                    var targetScreen = screens.FirstOrDefault(screen =>
-                        screen.Bounds.Intersects(new PixelRect(px, py, Math.Max(1, (int)savedWidth), Math.Max(1, (int)savedHeight))));
-
-                    if (targetScreen == null)
-                    {
-                        targetScreen = window.Screens.Primary ?? screens.FirstOrDefault();
-                        if (targetScreen != null)
-                        {
-                            px = targetScreen.Bounds.X + 50;
-                            py = targetScreen.Bounds.Y + 50;
-                        }
-                    }
-
-                    if (targetScreen != null)
-                    {
-                        savedWidth = Math.Min(savedWidth, targetScreen.Bounds.Width);
-                        savedHeight = Math.Min(savedHeight, targetScreen.Bounds.Height);
-                        px = Math.Max(targetScreen.Bounds.X, Math.Min(px, targetScreen.Bounds.X + Math.Max(0, targetScreen.Bounds.Width - (int)savedWidth)));
-                        py = Math.Max(targetScreen.Bounds.Y, Math.Min(py, targetScreen.Bounds.Y + Math.Max(0, targetScreen.Bounds.Height - (int)savedHeight)));
-                    }
-
-                    window.WindowStartupLocation = WindowStartupLocation.Manual;
-                    window.Position = new PixelPoint(px, py);
-                }
-                window.Width = savedWidth;
-                window.Height = savedHeight;
-                if (hasSavedSize) window.SizeToContent = SizeToContent.Manual;
-                if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
-                {
-                    window.WindowState = (WindowState)(int)stateNode;
-                }
-            }
-            else
-            {
-                window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            }
+            ApplyBounds(window, state, key);
         }
         catch { }
     }
@@ -78,60 +27,75 @@ public static class WindowBoundsHelper
         {
             var store = new Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync().ConfigureAwait(false);
-            if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                    double savedWidth = window.Width;
-                    double savedHeight = window.Height;
-                    bool hasSavedSize = false;
-                    if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
-                    {
-                        savedWidth = Math.Max(window.MinWidth > 0 ? window.MinWidth : 320, (double)w);
-                        savedHeight = Math.Max(window.MinHeight > 0 ? window.MinHeight : 240, (double)h);
-                        hasSavedSize = true;
-                    }
-
-                    if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
-                    {
-                        int px = (int)x;
-                        int py = (int)y;
-
-                        var screens = window.Screens.All.ToList();
-                        var targetScreen = screens.FirstOrDefault(screen =>
-                            screen.Bounds.Intersects(new PixelRect(px, py, Math.Max(1, (int)savedWidth), Math.Max(1, (int)savedHeight))));
-
-                        if (targetScreen == null)
-                        {
-                            targetScreen = window.Screens.Primary ?? screens.FirstOrDefault();
-                            if (targetScreen != null)
-                            {
-                                px = targetScreen.Bounds.X + 50;
-                                py = targetScreen.Bounds.Y + 50;
-                            }
-                        }
-
-                        if (targetScreen != null)
-                        {
-                            savedWidth = Math.Min(savedWidth, targetScreen.Bounds.Width);
-                            savedHeight = Math.Min(savedHeight, targetScreen.Bounds.Height);
-                            px = Math.Max(targetScreen.Bounds.X, Math.Min(px, targetScreen.Bounds.X + Math.Max(0, targetScreen.Bounds.Width - (int)savedWidth)));
-                            py = Math.Max(targetScreen.Bounds.Y, Math.Min(py, targetScreen.Bounds.Y + Math.Max(0, targetScreen.Bounds.Height - (int)savedHeight)));
-                        }
-
-                        window.WindowStartupLocation = WindowStartupLocation.Manual;
-                        window.Position = new PixelPoint(px, py);
-                    }
-                    window.Width = savedWidth;
-                    window.Height = savedHeight;
-                    if (hasSavedSize) window.SizeToContent = SizeToContent.Manual;
-                    if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
-                    {
-                        window.WindowState = (WindowState)(int)stateNode;
-                    }
-                });
-            }
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                ApplyBounds(window, state, key);
+            });
         }
         catch { }
+    }
+
+    private static void ApplyBounds(Window window, JsonObject state, string key)
+    {
+        if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
+        {
+            // ISSUE 4: Prevent stutter jumping by enforcing Manual startup location early
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+
+            double savedWidth = window.Width;
+            double savedHeight = window.Height;
+            bool hasSavedSize = false;
+
+            if (boundsObj.TryGetPropertyValue("Width", out var w) && w != null && boundsObj.TryGetPropertyValue("Height", out var h) && h != null)
+            {
+                savedWidth = Math.Max(window.MinWidth > 0 ? window.MinWidth : 320, (double)w);
+                savedHeight = Math.Max(window.MinHeight > 0 ? window.MinHeight : 240, (double)h);
+                hasSavedSize = true;
+            }
+
+            if (hasSavedSize)
+            {
+                window.Width = savedWidth;
+                window.Height = savedHeight;
+                window.SizeToContent = SizeToContent.Manual;
+            }
+
+            if (boundsObj.TryGetPropertyValue("X", out var x) && x != null && boundsObj.TryGetPropertyValue("Y", out var y) && y != null)
+            {
+                int px = (int)x;
+                int py = (int)y;
+
+                // ISSUE 3: Check if visible on ANY screen. Don't aggressively clamp.
+                var screens = window.Screens.All;
+                double scaling = screens.FirstOrDefault()?.Scaling ?? 1.0;
+                int pixelWidth = Math.Max(1, (int)(savedWidth * scaling));
+                int pixelHeight = Math.Max(1, (int)(savedHeight * scaling));
+
+                bool isVisible = screens.Any(s => s.Bounds.Intersects(new PixelRect(px, py, pixelWidth, pixelHeight)));
+
+                if (!isVisible)
+                {
+                    // Window is completely off-screen (e.g. monitor disconnected). Center on primary screen.
+                    var primary = window.Screens.Primary ?? screens.FirstOrDefault();
+                    if (primary != null)
+                    {
+                        px = primary.Bounds.X + Math.Max(0, (primary.Bounds.Width - pixelWidth) / 2);
+                        py = primary.Bounds.Y + Math.Max(0, (primary.Bounds.Height - pixelHeight) / 2);
+                    }
+                }
+
+                // Applying position after size helps prevent OS from aggressively snapping straddled windows
+                window.Position = new PixelPoint(px, py);
+            }
+
+            if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
+            {
+                window.WindowState = (WindowState)(int)stateNode;
+            }
+        }
+        else
+        {
+            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
     }
 
     public static async Task SaveBoundsAsync(Window window, string key)
@@ -139,7 +103,8 @@ public static class WindowBoundsHelper
         try
         {
             var store = new Core.Ipc.StateTransferStore();
-            var updates = new JsonObject { [key] = GetBoundsObj(window) };
+            var state = await store.LoadAsync().ConfigureAwait(false);
+            var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
             await store.UpdatePropertiesAsync(updates).ConfigureAwait(false);
         }
         catch { }
@@ -157,21 +122,39 @@ public static class WindowBoundsHelper
         try
         {
             var store = new Core.Ipc.StateTransferStore();
-            var updates = new JsonObject { [key] = GetBoundsObj(window) };
+            var state = store.LoadSync();
+            var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
             store.UpdatePropertiesSync(updates);
         }
         catch { }
     }
 
-    private static JsonObject GetBoundsObj(Window window)
+    private static JsonObject UpdateBoundsObj(Window window, JsonObject state, string key)
     {
-        return new JsonObject
+        JsonObject boundsObj = new JsonObject();
+        
+        // Preserve existing coordinates if currently Maximized/Minimized (ISSUE 2)
+        if (state.TryGetPropertyValue(key, out var existingNode) && existingNode is JsonObject existingObj)
         {
-            ["X"] = window.Position.X,
-            ["Y"] = window.Position.Y,
-            ["Width"] = window.Bounds.Width,
-            ["Height"] = window.Bounds.Height,
-            ["WindowState"] = (int)window.WindowState
-        };
+            if (existingObj.TryGetPropertyValue("X", out var x)) boundsObj["X"] = x?.DeepClone();
+            if (existingObj.TryGetPropertyValue("Y", out var y)) boundsObj["Y"] = y?.DeepClone();
+            if (existingObj.TryGetPropertyValue("Width", out var w)) boundsObj["Width"] = w?.DeepClone();
+            if (existingObj.TryGetPropertyValue("Height", out var h)) boundsObj["Height"] = h?.DeepClone();
+        }
+
+        boundsObj["WindowState"] = (int)window.WindowState;
+
+        if (window.WindowState == WindowState.Normal)
+        {
+            boundsObj["X"] = window.Position.X;
+            boundsObj["Y"] = window.Position.Y;
+            // ISSUE 1: Save outer Width/Height instead of inner Bounds, to prevent shrinking loop
+            double w = double.IsNaN(window.Width) ? window.Bounds.Width : window.Width;
+            double h = double.IsNaN(window.Height) ? window.Bounds.Height : window.Height;
+            boundsObj["Width"] = w;
+            boundsObj["Height"] = h;
+        }
+
+        return boundsObj;
     }
 }

@@ -105,7 +105,7 @@
                                             </Grid>
                                             <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                         </Grid>
-                                        <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,-15,0,5" IsVisible="True"/>
+                                        <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="#38bdf8" FontWeight="Bold" HorizontalAlignment="Center" FontSize="11" Margin="0,5,0,5" IsVisible="True"/>
 
                                         <StackPanel Spacing="10" Margin="0,10,0,0">
                                             <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="White" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
@@ -166,7 +166,7 @@
                                     </Border>
                                 </Grid>
 
-                                <Grid Grid.Row="2" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
+                                <Grid Grid.Row="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
                                     <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" HorizontalAlignment="Stretch" ClipToBounds="False"/>
                                     <StackPanel Grid.Row="1" Spacing="0">
                                         <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
@@ -197,15 +197,15 @@
                                         </Border>
                                     </StackPanel>
                                     <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Classes="TimelineSeekSurface" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Final preview seek area" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" />
-                                    <Canvas Grid.Row="1" Name="Phase3CaretCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                        <Border Name="Phase3Caret" Width="2" Height="120" Background="Red" IsVisible="False" RenderTransform="translateY(0px)"/>
-                                        <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="#AA000000" CornerRadius="2" Padding="4,2" Margin="4,2">
+                                    <Panel Grid.Row="1" Name="Phase3CaretCanvas" ZIndex="20" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                        <Border Name="Phase3Caret" Width="2" Background="Red" IsVisible="False" HorizontalAlignment="Left" VerticalAlignment="Stretch" RenderTransform="translateY(0px)"/>
+                                        <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="#AA000000" CornerRadius="2" Padding="4,2" Margin="4,2" HorizontalAlignment="Left" VerticalAlignment="Top">
                                             <TextBlock Name="Phase3CaretTimeText" Foreground="White" FontSize="10" FontWeight="Bold"/>
                                         </Border>
-                                    </Canvas>
+                                    </Panel>
                                 </Grid>
 
-                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
+                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="White" HorizontalAlignment="Center" FontSize="11"/>
                                         <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
@@ -230,10 +230,10 @@
                         </Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Secondary" Width="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
-                            <Button Name="SkipBackBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
+                            <Button Name="SkipBackBtn" Classes="Secondary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
                                 <TextBlock Text="-30s" FontWeight="Bold" FontSize="11" Foreground="White" />
                             </Button>
-                            <Button Name="PlayBtn" Classes="Secondary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
+                            <Button Name="PlayBtn" Classes="Success" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
                                 <Panel Width="16" Height="16">
                                     <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="White"/>
                                     <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -242,7 +242,7 @@
                                     </StackPanel>
                                 </Panel>
                             </Button>
-                            <Button Name="SkipForwardBtn" Classes="Primary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
+                            <Button Name="SkipForwardBtn" Classes="Secondary" Width="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
                                 <TextBlock Text="+30s" FontWeight="Bold" FontSize="11" Foreground="White" />
                             </Button>
                         </StackPanel>

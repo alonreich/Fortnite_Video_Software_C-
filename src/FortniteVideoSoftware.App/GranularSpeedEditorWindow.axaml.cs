@@ -58,6 +58,7 @@ public partial class GranularSpeedEditorWindow : Window
     private DateTime _freezeStartTime;
     private bool _isFreezeCameraSelected = false;
     private bool _isDraggingFreezeCamera = false;
+    private int _draggingSegmentIndex = -1;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
@@ -86,6 +87,24 @@ public partial class GranularSpeedEditorWindow : Window
         _selectedFreezePresetS = -1.0;
 
         InitializeComponent();
+
+        // Global fallback to prevent sticky segment dragging
+        this.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (s, e) =>
+        {
+            if (_draggingSegmentIndex != -1)
+            {
+                _draggingSegmentIndex = -1;
+                RefreshSegmentList();
+                RedrawTimeline();
+            }
+            if (_isDraggingFreezeCamera)
+            {
+                _isDraggingFreezeCamera = false;
+                RefreshSegmentList();
+                RedrawTimeline();
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble);
+
         FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "GranularBounds");
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
@@ -1175,7 +1194,7 @@ public partial class GranularSpeedEditorWindow : Window
                         Height = h,
                         Stroke = antsBrush,
                         StrokeThickness = 1,
-                        StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(4, 4),
+                        StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(2, 2),
                         StrokeDashOffset = _marchingAntsOffset,
                         IsHitTestVisible = false
                     };

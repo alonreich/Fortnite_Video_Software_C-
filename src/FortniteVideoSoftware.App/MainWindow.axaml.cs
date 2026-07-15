@@ -151,6 +151,15 @@ public partial class MainWindow : Window
     private bool _isMusicActive = false;
     private bool _isRestoring = false;
 
+    public static readonly StyledProperty<string> OverlayTextProperty =
+        AvaloniaProperty.Register<MainWindow, string>(nameof(OverlayText), "");
+
+    public string OverlayText
+    {
+        get => GetValue(OverlayTextProperty);
+        set => SetValue(OverlayTextProperty, value);
+    }
+
     public MainWindow()
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
@@ -184,6 +193,31 @@ public partial class MainWindow : Window
         }
 
         this.Loaded += (s, e) => InitializeMpv();
+
+        this.AddHandler(InputElement.KeyDownEvent, (s, e) =>
+        {
+            if (e.Key == Key.Space)
+            {
+                var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+                if (focused is TextBox) return;
+
+                e.Handled = true;
+                var playPauseButton = this.FindControl<Button>("PlayPauseButton");
+                if (playPauseButton != null && playPauseButton.IsEnabled)
+                {
+                    if (ActiveVideoHost?.IpcClient != null) 
+                    {
+                        if (_isCurrentlyFrozen)
+                        {
+                            _isCurrentlyFrozen = false;
+                            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                            return;
+                        }
+                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", ActiveVideoHost.IpcClient.IsPaused ? "no" : "yes");
+                    }
+                }
+            }
+        }, RoutingStrategies.Tunnel);
 
         SettingsManager.Load();
         FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay);
@@ -1086,7 +1120,7 @@ public partial class MainWindow : Window
     {
         if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.Contains(Avalonia.Input.DataFormats.FileNames) || e.Data.GetFiles()?.Any() == true)
         {
-            e.DragEffects = DragDropEffects.Copy;
+            e.DragEffects = DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link;
             var uploadOverlay = this.FindControl<Border>("UploadOverlay");
             if (uploadOverlay != null && uploadOverlay.IsVisible)
             {
@@ -2113,7 +2147,7 @@ public partial class MainWindow : Window
             double ClampLabelLeft(double desired, double approxWidth)
                 => Math.Max(0, Math.Min(Math.Max(0, canvasWidth - approxWidth), desired));
             const double trimMarkerWidth = 3.0;
-            const double trimMarkerTop = -8.0;
+            const double trimMarkerTop = 0.0;
             double trimMarkerHeight = Math.Max(1, canvas.Bounds.Height);
 
             if (_trimStartSet && _trimEndMs > _trimStartMs)

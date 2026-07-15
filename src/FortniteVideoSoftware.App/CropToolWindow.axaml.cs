@@ -106,7 +106,6 @@ public partial class CropToolWindow : Window
     ];
 
     private static readonly Dictionary<string, HudRole> RoleByKey = Roles.ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase);
-    private static readonly Dictionary<string, HudRole> RoleByDisplay = Roles.ToDictionary(r => r.DisplayName, StringComparer.OrdinalIgnoreCase);
 
     public CropToolWindow() : this(null)
     {
@@ -121,7 +120,6 @@ public partial class CropToolWindow : Window
         FindControls();
         AttachTitleBarDrag();
         WireEvents();
-        InitializeRoles();
         InitializeHistory();
         SetWizardState(1, "Upload Video", "Open a reference clip to start.");
 
@@ -203,12 +201,44 @@ public partial class CropToolWindow : Window
         ButtonClick("BackToVideoButton", (_, _) => ShowVideoPanel());
         ButtonClick("PlayPauseButton", async (_, _) => await TogglePlayPauseAsync());
         ButtonClick("AddSelectionButton", (_, _) => AddCurrentSelection());
-        ButtonClick("DeleteSelectedButton", (_, _) => DeleteSelectedItem());
+        
+        ButtonClick("DeleteMenuButton", (_, _) =>
+        {
+            if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmCropToolDelete)
+            {
+                var btn = this.FindControl<Button>("DeleteMenuButton");
+                btn?.Flyout?.Hide();
+                DeleteSelectedItem();
+            }
+        });
+        
+        ButtonClick("ConfirmDeleteButton", (_, _) =>
+        {
+            DeleteSelectedItem();
+            var btn = this.FindControl<Button>("DeleteMenuButton");
+            btn?.Flyout?.Hide();
+        });
         ButtonClick("UndoButton", (_, _) => Undo());
         ButtonClick("RedoButton", (_, _) => Redo());
         ButtonClick("RaiseButton", (_, _) => MoveSelectedLayer(1));
         ButtonClick("LowerButton", (_, _) => MoveSelectedLayer(-1));
-        ButtonClick("ResetButton", (_, _) => ResetWorkingState());
+        
+        ButtonClick("ResetMenuButton", (_, _) =>
+        {
+            if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmCropToolReset)
+            {
+                var btn = this.FindControl<Button>("ResetMenuButton");
+                btn?.Flyout?.Hide();
+                ResetWorkingState();
+            }
+        });
+        
+        ButtonClick("ConfirmResetButton", (_, _) =>
+        {
+            ResetWorkingState();
+            var btn = this.FindControl<Button>("ResetMenuButton");
+            btn?.Flyout?.Hide();
+        });
         ButtonClick("ReturnButton", async (_, _) => await ReturnToMainAppAsync());
         ButtonClick("SaveButton", async (button, _) => await SaveAndReturnAsync(button));
         BuildMaskOverlayUi();
@@ -254,9 +284,18 @@ public partial class CropToolWindow : Window
                     if (duration > 0 && _videoHost?.IpcClient != null)
                     {
                         double targetTime = (newValue / 100.0) * duration;
-                        _ = SeekInternal(targetTime);
                         ShowPlayheadBadge(targetTime, newValue);
                     }
+                }
+            };
+            
+            _timelineSlider.PointerReleased += (s, e) =>
+            {
+                double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+                if (duration > 0 && _videoHost?.IpcClient != null)
+                {
+                    double targetTime = (_timelineSlider.Value / 100.0) * duration;
+                    _ = SeekInternal(targetTime);
                 }
             };
         }
@@ -329,10 +368,6 @@ public partial class CropToolWindow : Window
         {
             button.Click += handler;
         }
-    }
-
-    private void InitializeRoles()
-    {
     }
 
     private void InitializeHistory()
@@ -487,7 +522,8 @@ public partial class CropToolWindow : Window
             if (Math.Abs(aspectRatio - (16.0 / 9.0)) > 0.05)
             {
                 NativeDialog.ShowError($"The selected video has a resolution of {w}x{h} (Aspect Ratio: {aspectRatio:F2}).\n\nThe crop tool requires a standard 16:9 resolution (e.g., 1920x1080, 2560x1440, 3840x2160) to generate accurate HUD overlay masks. Non-16:9 videos will result in misaligned overlays on standard videos.\n\nPlease upload a 16:9 video for crop configuration.", "Unsupported Aspect Ratio");
-                SetWizardState(2, "Find HUD Frame", $"Warning: Non 16:9 video ({w}x{h}) loaded.");
+                SetWizardState(2, "Find HUD Frame", $"Error: Non 16:9 video ({w}x{h}) rejected.");
+                return;
             }
 
             if (_timelineSlider != null)
@@ -695,6 +731,11 @@ public partial class CropToolWindow : Window
                 CoordinateConstants.PortraitW,
                 CoordinateConstants.PortraitH - CoordinateConstants.UIPaddingBottom);
             finalCanvas.DrawBitmap(internalBitmap, contentDst);
+
+            using var paint = new SKPaint { Color = new SKColor(255, 0, 0, 64), Style = SKPaintStyle.Fill };
+            finalCanvas.DrawRect(0, 0, CoordinateConstants.PortraitW, CoordinateConstants.UIPaddingTop, paint);
+            finalCanvas.DrawRect(0, CoordinateConstants.PortraitH - CoordinateConstants.UIPaddingBottom, CoordinateConstants.PortraitW, CoordinateConstants.UIPaddingBottom, paint);
+
             finalCanvas.Flush();
         }
 
@@ -872,7 +913,7 @@ public partial class CropToolWindow : Window
         string roleKey = roleName.ToLowerInvariant().Replace(" ", "_");
         HudRole role = RoleByKey.TryGetValue(roleKey, out var existingRole) 
             ? existingRole 
-            : new HudRole(roleKey, roleName, 50, 500, 500);
+            : new HudRole(roleKey, roleName, 50, -1, -1);
 
         SourceRect sourceRect = ClampSourceRect(_sourceSelection.Value);
         if (sourceRect.Width < MinSelectionSize || sourceRect.Height < MinSelectionSize)
@@ -901,10 +942,14 @@ public partial class CropToolWindow : Window
                 RemoveItem(existing);
             }
 
-            var initialSize = QuantizeItemSize(sourceRect, contentRect.w);
+            var initialSize = QuantizeItemSize(sourceRect, contentRect.w, role.Key);
             int width = initialSize.width;
             int height = initialSize.height;
-            (int x, int y) = ClampOverlay(role.DefaultX, role.DefaultY, width, height);
+
+            int initialX = role.DefaultX >= 0 ? (int)role.DefaultX : contentRect.x;
+            int initialY = role.DefaultY >= 0 ? (int)role.DefaultY : contentRect.y;
+
+            (int x, int y) = ClampOverlay(initialX, initialY, width, height);
 
             int z = role.DefaultZ;
             if (_items.Any(i => i.Z == z))
@@ -1198,7 +1243,7 @@ public partial class CropToolWindow : Window
             width = height / aspect;
         }
 
-        var quantized = QuantizeItemSize(item.SourceRect, width);
+        var quantized = QuantizeItemSize(item.SourceRect, width, item.RoleKey);
         item.Width = quantized.width;
         item.Height = quantized.height;
     }
@@ -1230,7 +1275,7 @@ public partial class CropToolWindow : Window
             x = anchorRight - width;
         }
 
-        var quantized = QuantizeItemSize(item.SourceRect, width);
+        var quantized = QuantizeItemSize(item.SourceRect, width, item.RoleKey);
         item.Width = quantized.width;
         item.Height = quantized.height;
         item.X = Math.Max(0, RoundPixel(anchorRight - item.Width));
@@ -1239,7 +1284,7 @@ public partial class CropToolWindow : Window
 
     private void ApplyItemLayout(CropEditorItem item)
     {
-        var quantized = QuantizeItemSize(item.SourceRect, item.Width);
+        var quantized = QuantizeItemSize(item.SourceRect, item.Width, item.RoleKey);
         item.Width = quantized.width;
         item.Height = quantized.height;
         (item.X, item.Y) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
@@ -1269,17 +1314,36 @@ public partial class CropToolWindow : Window
         item.LabelText.Text = item.DisplayName.ToUpperInvariant();
     }
 
-    private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth)
+    private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
             _originalResolution);
-        int contentW = Math.Max(2, contentRect.w);
-        int contentH = Math.Max(2, contentRect.h);
-        double scale = Math.Max(0.0001, Math.Round(Math.Max(MinItemSize, desiredWidth) / contentW, 4));
-        int width = Math.Max((int)MinItemSize, CoordinateMath.ScaleRound(Frac.FromDouble(contentW * scale)));
-        int height = Math.Max((int)MinItemSize, CoordinateMath.ScaleRound(Frac.FromDouble(contentH * scale)));
-        return (width, height, scale);
+
+        var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
+            (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
+            _originalResolution,
+            roleKey != null ? HudConfig.CropDriftType(roleKey) : null);
+
+        var trueContentRect = CoordinateMath.TransformToContentAreaInt(
+            (exportRect.x, exportRect.y, exportRect.w, exportRect.h),
+            _originalResolution);
+
+        int contentW = Math.Max(2, trueContentRect.w);
+        int contentH = Math.Max(2, trueContentRect.h);
+
+        double maxDesW = Math.Max(MinItemSize, desiredWidth);
+        Frac scaleFrac = Frac.FromDouble(maxDesW / contentW);
+        if (scaleFrac < Frac.FromDouble(0.0001)) scaleFrac = Frac.FromDouble(0.0001);
+
+        Frac backendScale = CoordinateConstants.BackendScale;
+        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentW, 1) * scaleFrac * backendScale));
+        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(rw * contentH, contentW)));
+
+        int width = CoordinateMath.ScaleRound(new Frac(rw, 1) / backendScale);
+        int height = CoordinateMath.ScaleRound(new Frac(rh, 1) / backendScale);
+
+        return (width, height, (double)width / contentW);
     }
 
     private void SelectItem(CropEditorItem? item, bool updateLayerList = true)
@@ -1641,7 +1705,7 @@ public partial class CropToolWindow : Window
 
             foreach (CropEditorItem item in _items)
             {
-                var quantized = QuantizeItemSize(item.SourceRect, item.Width);
+                var quantized = QuantizeItemSize(item.SourceRect, item.Width, item.RoleKey);
                 item.Width = quantized.width;
                 item.Height = quantized.height;
                 ApplyItemLayout(item);
@@ -1703,12 +1767,12 @@ public partial class CropToolWindow : Window
                 _ = Task.Run(() =>
                 {
                     try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
-                    Environment.Exit(0);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
                 });
             }
             else
             {
-                Environment.Exit(0);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
             }
         }
         catch (Exception ex)
@@ -2179,10 +2243,7 @@ public partial class CropToolWindow : Window
         bool right = cx > _snapshotWidth / 2.0;
         bool bottom = cy > _snapshotHeight / 2.0;
 
-        if (!bottom && !right) return RoleByKey["team"];
-        if (!bottom && right) return RoleByKey["stats"];
-        if (bottom && right) return RoleByKey["loot"];
-        return RoleByKey["normal_hp"];
+        return new HudRole("custom_element", "Custom Element", 50, -1, -1);
     }
 
     private static JsonObject EnsureObject(JsonObject config, string section)

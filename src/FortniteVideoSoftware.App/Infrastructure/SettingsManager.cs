@@ -12,6 +12,12 @@ public class AppSettings
     public DefaultValues Defaults { get; set; } = new();
     public int Volume { get; set; } = 100;
     public string ActiveMaskOverlay { get; set; } = "Fortnite";
+
+    // Confirmation Dialogs
+    public bool ConfirmVideoMergerRemove { get; set; } = false;
+    public bool ConfirmVideoMergerClearAll { get; set; } = false;
+    public bool ConfirmCropToolReset { get; set; } = true;
+    public bool ConfirmCropToolDelete { get; set; } = true;
 }
 
 public class KeyBinds

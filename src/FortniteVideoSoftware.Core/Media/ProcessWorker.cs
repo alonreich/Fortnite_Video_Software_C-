@@ -179,6 +179,26 @@ public class ProcessWorker : IDisposable
                 double actualExtractStartMs = StartTimeMs - (sourcePadStartSec * 1000.0);
                 double actualExtractEndMs = EndTimeMs + (sourcePadEndSec * 1000.0);
 
+                var coreFilters = new List<string>();
+                string baseAudioLabel = "[0:a]";
+
+                if (sourceHasAudio && (VoiceOverMuteMale || VoiceOverMuteFemale || VoiceOverMuteChild))
+                {
+                    var eqFilters = new List<string>();
+                    if (VoiceOverMuteMale && VoiceOverMuteMaleHz > 0)
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteMaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+                    if (VoiceOverMuteFemale && VoiceOverMuteFemaleHz > 0)
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteFemaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+                    if (VoiceOverMuteChild && VoiceOverMuteChildHz > 0)
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteChildHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+
+                    if (eqFilters.Count > 0)
+                    {
+                        coreFilters.Add($"[0:a]{string.Join(",", eqFilters)}[a_muted]");
+                        baseAudioLabel = "[a_muted]";
+                    }
+                }
+
                 string granularFilters = "";
                 string gV = "", gA = "";
                 double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
@@ -191,7 +211,7 @@ public class ProcessWorker : IDisposable
                         SpeedFactor,
                         actualExtractStartMs,
                         "[0:v]",
-                        sourceHasAudio ? "[0:a]" : null,
+                        sourceHasAudio ? baseAudioLabel : null,
                         targetFps);
                     granularFilters = filterGraph;
                     gV = vLabel;
@@ -269,7 +289,7 @@ public class ProcessWorker : IDisposable
                         musicTracks,
                         1,
                         gDur,
-                        sourceHasAudio ? "[0:a]" : "",
+                        sourceHasAudio ? baseAudioLabel : "",
                         VolumeNormalizeDb);
                     audioChains = built.chains;
                     finalALabel = built.finalLabel;
@@ -277,7 +297,6 @@ public class ProcessWorker : IDisposable
 
                 JsonObject mobileCoords = await VideoConfig.GetMobileCoordinatesAsync(_paths);
 
-                var coreFilters = new List<string>();
                 string vOutputPad, vStabilizedPad, aPreparedPad;
 
                 if (!string.IsNullOrEmpty(granularFilters))
@@ -295,15 +314,7 @@ public class ProcessWorker : IDisposable
                     if (sourceHasAudio)
                     {
                         var atempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        string gameAudioFilters = "";
-                        if (!string.IsNullOrEmpty(VoiceOverWavPath))
-                        {
-                            if (VoiceOverMuteMale || VoiceOverMuteFemale || VoiceOverMuteChild)
-                            {
-                                gameAudioFilters += "stereotools=mlev=0.0625,";
-                            }
-                        }
-                        coreFilters.Add($"[0:a]{gameAudioFilters}asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
+                        coreFilters.Add($"{baseAudioLabel}asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
                     else
@@ -312,17 +323,29 @@ public class ProcessWorker : IDisposable
                         aPreparedPad = "[a_prepared_base]";
                     }
 
-                    if (!string.IsNullOrEmpty(VoiceOverWavPath))
-                    {
-                        int voiceOverInputIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
-                        
-                        double rawGameLufs = -14.0 - VolumeNormalizeDb;
-                        rawGameLufs = Math.Clamp(rawGameLufs, -70.0, -5.0);
-                        string voLoudnorm = $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5";
+                }
 
-                        coreFilters.Add($"[{voiceOverInputIndex}:a]aresample=48000:async=1,{voLoudnorm},adelay={(int)(VoiceOverStartSec * 1000)}|{(int)(VoiceOverStartSec * 1000)}[vo_delayed]");
-                        coreFilters.Add($"{aPreparedPad}[vo_delayed]amix=inputs=2:duration=first:dropout_transition=2[a_mixed_vo]");
-                        aPreparedPad = "[a_mixed_vo]";
+                // VoiceOver take mixing — applies after BOTH granular and non-granular audio paths
+                var effectiveTakes = GetEffectiveVoiceOverTakes();
+                if (effectiveTakes.Count > 0)
+                {
+                    int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
+
+                    double rawGameLufs = -14.0 - VolumeNormalizeDb;
+                    rawGameLufs = Math.Clamp(rawGameLufs, -70.0, -5.0);
+                    string voLoudnorm = $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5";
+
+                    for (int t = 0; t < effectiveTakes.Count; t++)
+                    {
+                        var take = effectiveTakes[t];
+                        int inputIdx = voBaseIndex + t;
+                        int delayMs = (int)(take.StartSec * 1000);
+                        string delayLabel = $"[vo_delayed_{t}]";
+                        string mixedLabel = $"[a_mixed_vo_{t}]";
+
+                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},adelay={delayMs}|{delayMs}{delayLabel}");
+                        coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2{mixedLabel}");
+                        aPreparedPad = mixedLabel;
                     }
                 }
 
@@ -529,8 +552,9 @@ public class ProcessWorker : IDisposable
                         if (MemeFile != null)
                             ffmpegArgs.AddRange(["-i", MemeFile]);
                             
-                        if (!string.IsNullOrEmpty(VoiceOverWavPath))
-                            ffmpegArgs.AddRange(["-i", VoiceOverWavPath]);
+                        var voTakes = GetEffectiveVoiceOverTakes();
+                        foreach (var voTake in voTakes)
+                            ffmpegArgs.AddRange(["-i", voTake.Path]);
 
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         ffmpegArgs.AddRange(["-map", vOutputFinal, "-map", aOutputFinal]);
@@ -764,7 +788,7 @@ public class ProcessWorker : IDisposable
             using var process = Process.Start(psi);
             if (process == null) return;
 
-            var stdErrBuilder = new System.Text.StringBuilder();
+            var lastLines = new System.Collections.Generic.Queue<string>(100);
             double totalDurationSec = (EndTimeMs - StartTimeMs) / 1000.0;
             
             using var reader = process.StandardError;
@@ -772,7 +796,9 @@ public class ProcessWorker : IDisposable
             {
                 var line = await reader.ReadLineAsync(cancellationToken);
                 if (line == null) continue;
-                stdErrBuilder.AppendLine(line);
+                
+                lastLines.Enqueue(line);
+                if (lastLines.Count > 100) lastLines.Dequeue();
                 
                 int timeIdx = line.IndexOf("time=");
                 if (timeIdx != -1)
@@ -792,7 +818,7 @@ public class ProcessWorker : IDisposable
             }
 
             await process.WaitForExitAsync(cancellationToken);
-            string stdErr = stdErrBuilder.ToString();
+            string stdErr = string.Join("\n", lastLines);
 
             int jsonStart = stdErr.LastIndexOf("{");
             int jsonEnd = stdErr.LastIndexOf("}");
@@ -816,6 +842,15 @@ public class ProcessWorker : IDisposable
         {
             CoreLogger.Fail("Loudnorm", $"Exception during Pass 1: {ex.Message}");
         }
+    }
+
+    private List<VoiceOverTake> GetEffectiveVoiceOverTakes()
+    {
+        if (VoiceOverTakes != null && VoiceOverTakes.Count > 0)
+            return VoiceOverTakes;
+        if (!string.IsNullOrEmpty(VoiceOverWavPath))
+            return [new VoiceOverTake(VoiceOverWavPath, VoiceOverStartSec)];
+        return [];
     }
 
     public void Dispose()
