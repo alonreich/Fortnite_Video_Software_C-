@@ -1,4 +1,4 @@
-﻿using FortniteVideoSoftware.Core.Media;
+using FortniteVideoSoftware.Core.Media;
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.App;
@@ -65,7 +65,7 @@ public static class Phase4Gate
 
         // ISSUE_06: duration math via the PRODUCTION builder (replaces the deleted
         // TimeSyncEngine): 10s clip, 2s→4s at 2x (=1s), 2s freeze at 5s => 11s output.
-        var (_, _, _, finalDuration, _) = GranularSpeedBuilder.Build(
+        var (_, _, _, _, finalDuration, _) = GranularSpeedBuilder.Build(
             10000.0,
             new List<SpeedSegment> { new SpeedSegment(2000, 4000, 2.0), new SpeedSegment(5000, 7000, 0.0) },
             1.0, 0, "[0:v]", "[0:a]", "60");

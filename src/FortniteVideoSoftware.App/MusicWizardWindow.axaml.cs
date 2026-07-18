@@ -108,7 +108,7 @@ public partial class MusicWizardWindow : Window
     private int _phase3LoadVersion;
     private bool _phase3Ready;
     private double _phase3VideoDurationSec = 60.0;
-    private string? _lastPhase3ThumbFile;
+    private System.Collections.Generic.List<string> _lastPhase3ThumbFiles = new();
     private string? _lastPhase3WaveFile;
     private System.Collections.Generic.List<string>? _mergerVideos = null;
     private bool _isMergerMode = false;
@@ -1015,7 +1015,7 @@ public partial class MusicWizardWindow : Window
     }
 
 
-    private async Task<string?> GenerateThumbnailsStripAsync(string ffmpegPath, string videoPath, double startSec, double durationSec, CancellationToken cancellationToken)
+    private async Task<string?> GenerateThumbnailsStripAsync(string ffmpegPath, string videoPath, double startSec, double durationSec, CancellationToken cancellationToken, int frames = 15)
     {
         string? tempPng = null;
         Process? process = null;
@@ -1024,12 +1024,12 @@ public partial class MusicWizardWindow : Window
             tempPng = Path.Combine(_paths.TempDirectory, $"fvs_thumb_{Guid.NewGuid():N}.png");
             if (durationSec <= 0) durationSec = 10;
             
-            double fps = 16.0 / durationSec;
+            double fps = (double)frames / durationSec;
 
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error -ss {startSec} -t {durationSec} -i \"{videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
+                Arguments = $"-y -hide_banner -loglevel error -ss {startSec} -t {durationSec} -i \"{videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile={frames}x1\" -frames:v 1 \"{tempPng}\"",
 
                 UseShellExecute = false,
 
@@ -1144,9 +1144,9 @@ public partial class MusicWizardWindow : Window
         try
         {
             _phase3VideoDurationSec = GetPhase3VideoDurationSeconds();
-            var thumbLane = this.FindControl<Avalonia.Controls.Image>("ThumbnailLaneImage");
+            var thumbLaneGrid = this.FindControl<Avalonia.Controls.Grid>("ThumbnailLaneGrid");
             var waveLane = this.FindControl<Avalonia.Controls.Image>("WaveformLaneImage");
-            if (thumbLane != null) thumbLane.Source = null;
+            if (thumbLaneGrid != null) { thumbLaneGrid.Children.Clear(); thumbLaneGrid.ColumnDefinitions.Clear(); }
             if (waveLane != null) waveLane.Source = null;
 
             var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
@@ -1188,22 +1188,62 @@ public partial class MusicWizardWindow : Window
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (thumbLane != null && !string.IsNullOrEmpty(_videoPath))
+            if (thumbLaneGrid != null)
             {
-                double start = _trimStartMs / 1000.0;
                 var ffmpeg = ResolveFfmpegPath();
-                string? thumbPath = await GenerateThumbnailsStripAsync(ffmpeg, _videoPath, start, _phase3VideoDurationSec, cancellationToken);
-                if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
-                if (thumbPath != null)
+                var videosToThumb = (_isMergerMode && _mergerVideos != null && _mergerVideos.Count > 0) 
+                    ? _mergerVideos : new System.Collections.Generic.List<string> { _videoPath };
+                
+                foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch { } }
+                _lastPhase3ThumbFiles.Clear();
+
+                double totalDur = 0;
+                var videoDurs = new System.Collections.Generic.List<double>();
+                foreach (var v in videosToThumb)
                 {
-                    try
+                    double dur = 10.0;
+                    if (!_isMergerMode) dur = _phase3VideoDurationSec;
+                    else
                     {
-                        using var fs = File.OpenRead(thumbPath);
-                        thumbLane.Source = new Avalonia.Media.Imaging.Bitmap(fs);
-                        DeleteTempFile(ref _lastPhase3ThumbFile);
-                        _lastPhase3ThumbFile = thumbPath;
+                        var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffmpeg.Replace("ffmpeg.exe", "ffprobe.exe"), v);
+                        try { dur = await prober.GetDurationAsync(); } catch { dur = 10.0; }
                     }
-                    catch { }
+                    videoDurs.Add(dur);
+                    totalDur += dur;
+                }
+
+                if (totalDur <= 0) totalDur = 1.0;
+
+                for (int i = 0; i < videosToThumb.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
+
+                    double vDur = videoDurs[i];
+                    double fraction = vDur / totalDur;
+                    int framesCount = Math.Max(1, (int)Math.Round(15 * fraction));
+                    
+                    double startOffset = (_isMergerMode || i > 0) ? 0 : (_trimStartMs / 1000.0);
+                    
+                    string? thumbPath = await GenerateThumbnailsStripAsync(ffmpeg, videosToThumb[i], startOffset, vDur, cancellationToken, framesCount);
+                    if (thumbPath != null) _lastPhase3ThumbFiles.Add(thumbPath);
+
+                    thumbLaneGrid.ColumnDefinitions.Add(new Avalonia.Controls.ColumnDefinition(vDur, Avalonia.Controls.GridUnitType.Star));
+                    
+                    var img = new Avalonia.Controls.Image { Stretch = Avalonia.Media.Stretch.Fill };
+                    Avalonia.Media.RenderOptions.SetBitmapInterpolationMode(img, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+                    if (i < videosToThumb.Count - 1) img.Margin = new Avalonia.Thickness(0, 0, 4, 0);
+                    
+                    if (thumbPath != null)
+                    {
+                        try {
+                            var fs = File.OpenRead(thumbPath);
+                            img.Source = new Avalonia.Media.Imaging.Bitmap(fs);
+                            fs.Dispose();
+                        } catch { }
+                    }
+                    Avalonia.Controls.Grid.SetColumn(img, i);
+                    thumbLaneGrid.Children.Add(img);
                 }
             }
             SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
@@ -1956,14 +1996,7 @@ public partial class MusicWizardWindow : Window
 
         if (_mergerVideos != null && _mergerVideos.Count > 1 && thumbCanvas != null)
         {
-            for (int i = 1; i < _mergerVideos.Count; i++)
-            {
-                double xPos = (canvasWidth / _mergerVideos.Count) * i;
-                var border = new Avalonia.Controls.Border { Width = 3, Height = 60, Background = Avalonia.Media.Brushes.Black };
-                Canvas.SetLeft(border, xPos);
-                Canvas.SetTop(border, 0);
-                thumbCanvas.Children.Add(border);
-            }
+            // Separations are now drawn dynamically using margins in ThumbnailLaneGrid.
         }
 
         var songs = _pendingAutoFillMusicPaths;
@@ -2301,7 +2334,8 @@ public partial class MusicWizardWindow : Window
         {
             try { File.Delete(_lastWaveformFile); } catch { }
         }
-        DeleteTempFile(ref _lastPhase3ThumbFile);
+        foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch { } }
+        _lastPhase3ThumbFiles.Clear();
         DeleteTempFile(ref _lastPhase3WaveFile);
         StopPreview();
         DisposePhase3VideoHost();

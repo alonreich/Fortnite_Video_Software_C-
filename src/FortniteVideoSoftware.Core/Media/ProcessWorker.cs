@@ -166,14 +166,29 @@ public class ProcessWorker : IDisposable
                 double memeDuration = 0;
                 int memeWidth = 0;
                 int memeHeight = 0;
+                bool memeIsImage = false;
+                bool memeHasAudio = false;
                 if (!string.IsNullOrEmpty(MemeFile) && File.Exists(MemeFile))
                 {
+                    string memeExt = Path.GetExtension(MemeFile).ToLowerInvariant();
+                    memeIsImage = memeExt is ".png" or ".jpg" or ".jpeg";
+
                     var memeProber = new MediaProber(_ffprobePath, MemeFile);
-                    memeDuration = await memeProber.GetDurationAsync();
                     var res = await memeProber.GetResolutionAsync();
                     memeWidth = res.width;
                     memeHeight = res.height;
-                    
+
+                    if (!memeIsImage)
+                    {
+                        memeDuration = await memeProber.GetDurationAsync();
+                        // §5 A "video" whose duration probes as 0 is really a still — treat it as an image.
+                        if (memeDuration <= 0.0) memeIsImage = true;
+                        else memeHasAudio = await memeProber.HasAudioAsync();
+                    }
+
+                    // §5 Image memes have no intrinsic duration — give them a fixed 4s on-screen life.
+                    if (memeIsImage) memeDuration = 4.0;
+
                     padEndHumanSec = 0;
                     sourcePadEndSec = 0;
                 }
@@ -202,7 +217,7 @@ public class ProcessWorker : IDisposable
                 }
 
                 string granularFilters = "";
-                string gV = "", gA = "";
+                string gV = "", gVHud = "", gA = "";
                 double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
                 // ISSUE_01: keep the piecewise source→output time mapper so thumbnail
                 // extraction lands on the exact user-picked frame even with segments/freezes.
@@ -210,7 +225,7 @@ public class ProcessWorker : IDisposable
 
                 if (SpeedSegments != null && SpeedSegments.Count > 0)
                 {
-                    var (filterGraph, vLabel, aLabel, finalDur, timeMapper) = GranularSpeedBuilder.Build(
+                    var (filterGraph, vLabel, hudLabel, aLabel, finalDur, timeMapper) = GranularSpeedBuilder.Build(
                         actualExtractEndMs - actualExtractStartMs,
                         SpeedSegments,
                         SpeedFactor,
@@ -220,6 +235,7 @@ public class ProcessWorker : IDisposable
                         targetFps);
                     granularFilters = filterGraph;
                     gV = vLabel;
+                    gVHud = hudLabel;
                     gA = aLabel;
                     gDur = finalDur;
                     granularTimeMapper = timeMapper;
@@ -322,7 +338,7 @@ public class ProcessWorker : IDisposable
                     if (sourceHasAudio)
                     {
                         var atempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        coreFilters.Add($"{baseAudioLabel}asetpts=PTS-STARTPTS,{atempo},aresample=48000:async=1[a_prepared_base]");
+                        coreFilters.Add($"{baseAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS,{atempo}[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
                     else
@@ -421,7 +437,7 @@ public class ProcessWorker : IDisposable
                 if (IsMobileFormat)
                 {
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
-                        vStabilizedPad, mobileCoords, IsBossHp, ShowTeammates, ShowSpectating,
+                        vStabilizedPad, string.IsNullOrEmpty(gVHud) ? vStabilizedPad : gVHud, mobileCoords, IsBossHp, ShowTeammates, ShowSpectating,
                         textInputLabel, false, OriginalResolution);
                     coreFilters.Add(mobileChain);
                     vOutputPad = mobileOut;
@@ -439,26 +455,17 @@ public class ProcessWorker : IDisposable
 
                 if (memeInputIndex.HasValue)
                 {
-                    string memeRes = IsMobileFormat ? "1080:1920" : "1920:1080";
-                    string memeScale;
-                    double memeRatio = memeWidth > 0 && memeHeight > 0 ? (double)memeWidth / memeHeight : 1.777;
+                    // §6 Fit the meme into the export canvas by LETTERBOX/PILLARBOX (decrease + pad)
+                    // so a mismatched-orientation meme is never cropped. The pad canvas (1080x1920
+                    // or 1920x1080) is already even; the trailing even-guard keeps ALL scaling paths
+                    // libx264-safe (H.264 aborts on odd width/height).
+                    string canvas = IsMobileFormat ? "1080:1920" : "1920:1080";
+                    string memeScale =
+                        $"scale={canvas}:force_original_aspect_ratio=decrease," +
+                        $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
+                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,fps={targetFps}:round=near";
 
-                    if (IsMobileFormat)
-                    {
-                        if (memeRatio >= 1.7)
-                        {
-                            memeScale = $"scale=1280:1920:force_original_aspect_ratio=increase,crop=1280:1920,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={targetFps}:round=near";
-                        }
-                        else
-                        {
-                            memeScale = $"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps={targetFps}:round=near";
-                        }
-                    }
-                    else
-                    {
-                        memeScale = $"scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,fps={targetFps}:round=near";
-                    }
-
+                    // §7 Only reference the meme's own audio pad when it actually has an audio stream.
                     string memeAudio = "aresample=48000:async=1";
 
                     if (EnableFades && memeDuration >= 0.5)
@@ -466,15 +473,20 @@ public class ProcessWorker : IDisposable
                         double memeFadeDur = Math.Min(1.0, memeDuration / 2.0);
                         double memeFadeStart = Math.Max(0, memeDuration - memeFadeDur);
                         memeScale += $",fade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
-                        
-                        if (!mixMusicAfterMeme)
+
+                        if (!mixMusicAfterMeme && memeHasAudio)
                         {
                             memeAudio += $",afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
                         }
                     }
 
                     coreFilters.Add($"[{memeInputIndex}:v]{memeScale}[meme_v]");
-                    coreFilters.Add($"[{memeInputIndex}:a]{memeAudio}[meme_a]");
+                    // §7 Image memes and silent clips have no [n:a] pad; synthesize a silent track so
+                    // the concat below always receives 2 audio inputs (a missing pad crashes concat).
+                    if (memeHasAudio)
+                        coreFilters.Add($"[{memeInputIndex}:a]{memeAudio}[meme_a]");
+                    else
+                        coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[meme_a]");
                     coreFilters.Add($"[v_render_out]{aOutputFinal}[meme_v][meme_a]concat=n=2:v=1:a=1[v_final][a_final_before_music]");
                     vOutputFinal = "[v_final]";
                     aOutputFinal = "[a_final_before_music]";
@@ -559,8 +571,16 @@ public class ProcessWorker : IDisposable
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
                         if (MemeFile != null)
-                            ffmpegArgs.AddRange(["-i", MemeFile]);
-                            
+                        {
+                            // §5 An image meme has no duration: loop one still at the target fps and
+                            // bound it to memeDuration. -loop/-framerate/-t are INPUT options and MUST
+                            // precede -i (placing -t after -i would make it an OUTPUT option in FFmpeg).
+                            if (memeIsImage)
+                                ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", MemeFile]);
+                            else
+                                ffmpegArgs.AddRange(["-i", MemeFile]);
+                        }
+
                         var voTakes = GetEffectiveVoiceOverTakes();
                         foreach (var voTake in voTakes)
                             ffmpegArgs.AddRange(["-i", voTake.Path]);

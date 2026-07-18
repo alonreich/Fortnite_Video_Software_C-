@@ -170,7 +170,7 @@
                                     <StackPanel Grid.Row="1" Spacing="0">
                                         <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
                                             <Panel>
-                                                <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <Grid Name="ThumbnailLaneGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 <Border Name="Phase3ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">

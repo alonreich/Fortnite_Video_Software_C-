@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using System;
+using System.Linq;
 
 namespace FortniteVideoSoftware.App
 {
@@ -56,8 +57,37 @@ namespace FortniteVideoSoftware.App
         protected override void OnOpened(EventArgs e)
         {
             base.OnOpened(e);
+            CenterOnPrimaryScreen();
+            // The per-monitor-DPI handshake can nudge a freshly shown window right after Opened
+            // (the documented "windows keep resetting" cause), so re-apply once layout settles.
+            Dispatcher.UIThread.Post(CenterOnPrimaryScreen, DispatcherPriority.Loaded);
             Activate();
             Topmost = true;
+        }
+
+        /// <summary>
+        /// Centers the installer on the MAIN (primary) display, regardless of which monitor the
+        /// cursor is on. Avalonia's built-in CenterScreen follows the cursor's monitor, so we
+        /// position explicitly against Screens.Primary's working area (physical px), converting
+        /// the window's DIP size through the screen scaling.
+        /// </summary>
+        private void CenterOnPrimaryScreen()
+        {
+            try
+            {
+                var screen = Screens?.Primary ?? Screens?.All?.FirstOrDefault();
+                if (screen == null) return;
+
+                var wa = screen.WorkingArea; // physical pixels
+                double scale = screen.Scaling <= 0 ? 1.0 : screen.Scaling;
+                int physW = (int)Math.Round(Width * scale);
+                int physH = (int)Math.Round(Height * scale);
+
+                int x = wa.X + (wa.Width - physW) / 2;
+                int y = wa.Y + (wa.Height - physH) / 2;
+                Position = new PixelPoint(x, y);
+            }
+            catch { }
         }
 
         public void UpdateProgress(int value)

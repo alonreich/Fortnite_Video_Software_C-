@@ -16,16 +16,20 @@ FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.A
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
 
+// Capture fatal NATIVE crashes (0xC0000005 access violations in libmpv / the GL driver,
+// etc.) into our own log — the managed handlers below never fire for those.
+NativeCrashHandler.Install();
+
 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
 {
-    if (e.ExceptionObject is Exception ex)
-    {
-        RuntimeLog.Fail("FATAL UNHANDLED", ex);
-    }
-    else
-    {
-        RuntimeLog.Fail("FATAL UNHANDLED", $"Non-Exception object: {e.ExceptionObject}");
-    }
+    string detail = e.ExceptionObject is Exception ex
+        ? $"{ex.GetType().Name}: {ex.Message}{Environment.NewLine}{ex}"
+        : $"Non-Exception object: {e.ExceptionObject}";
+    // Synchronous, queue-bypassing write FIRST so the line survives even if the process is
+    // terminating faster than the async log queue can drain; then the normal path (which also
+    // feeds the live on-screen log viewer).
+    RuntimeLog.EmergencyWrite("FATAL UNHANDLED", detail);
+    RuntimeLog.Fail("FATAL UNHANDLED", detail);
 };
 
 TaskScheduler.UnobservedTaskException += (s, e) =>
@@ -41,6 +45,19 @@ TaskScheduler.UnobservedTaskException += (s, e) =>
     e.SetObserved();
 };
 RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={Environment.ProcessPath}; args={string.Join(" ", args)}");
+
+// Fold any Windows Event Viewer crash entries for this app (native fast-fails that never
+// reached our log) into the .log file. Main-app launch only, so the 3 sibling processes
+// don't each import the same events. Fire-and-forget — never delays startup.
+bool isSiblingProcess = args.Any(a =>
+    a.Equals("--merger", StringComparison.OrdinalIgnoreCase) ||
+    a.Equals("--crop-tool", StringComparison.OrdinalIgnoreCase) ||
+    a.Equals("--install-worker", StringComparison.OrdinalIgnoreCase) ||
+    a.Equals("--cleanup-worker", StringComparison.OrdinalIgnoreCase));
+if (!isSiblingProcess)
+{
+    _ = CrashLogDigest.RunAsync();
+}
 
 string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory;
 NativeHelpers.SetDllDirectory(Path.Combine(baseDir, "frontend"));

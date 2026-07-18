@@ -160,6 +160,28 @@ public static class RuntimeLog
         try { LogAppended?.Invoke(line); } catch { }
     }
 
+    /// <summary>
+    /// Synchronous, queue-BYPASSING, best-effort direct write to the log file, flushed to
+    /// disk immediately. Crash handlers must use this: a native access violation (0xC0000005)
+    /// fast-fails the process before the async <see cref="ProcessLogQueue"/> can drain, so a
+    /// normal Info/Fail would never reach disk. This writes straight through so the crash line
+    /// survives the process dying. Uses the pre-resolved cached path to avoid taking locks in
+    /// a possibly-corrupted process state.
+    /// </summary>
+    public static void EmergencyWrite(string step, string detail)
+    {
+        try
+        {
+            string path = _cachedLogPath ?? LogPath;
+            string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [FATAL] {step} - {detail}{Environment.NewLine}";
+            byte[] bytes = Encoding.UTF8.GetBytes(line);
+            using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Flush(true);
+        }
+        catch { }
+    }
+
     public static void Fail(string step, Exception exception)
     {
         Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");

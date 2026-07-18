@@ -9,6 +9,7 @@
         Background="{DynamicResource AppSurfaceBrush}"
         Topmost="True"
         ShowInTaskbar="True"
+        WindowStartupLocation="Manual"
         CanResize="True">
     <!-- ISSUE_01: window has no OS title bar; the background surface is the drag handle -->
     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="{DynamicResource AppInfoBrush}" BorderThickness="2" Margin="8" PointerPressed="OnRootPointerPressed">

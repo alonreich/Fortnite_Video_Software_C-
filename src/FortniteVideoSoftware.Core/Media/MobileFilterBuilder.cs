@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -23,7 +23,8 @@ public class MobileFilterBuilder
     /// Exact port of build_mobile_filter_chain().
     /// </summary>
     public static (string filterChain, string outputLabel) Build(
-        string inputPad,
+        string inputMainPad,
+        string inputHudPad,
         JsonObject mobileCoords,
         bool isBossHp,
         bool showTeammates,
@@ -64,15 +65,19 @@ public class MobileFilterBuilder
 
         if (activeLayers.Count > 0)
         {
-            int splitCount = 1 + activeLayers.Count;
+            if (activeLayers.Count == 1)
+            {
+                parts.Add($"{inputHudPad}null[v_layer_in_0]");
+            }
+            else
+            {
+                var splitLabels = new StringBuilder();
+                for (int i = 0; i < activeLayers.Count; i++)
+                    splitLabels.Append($"[v_layer_in_{i}]");
+                parts.Add($"{inputHudPad}split={activeLayers.Count}{splitLabels}");
+            }
 
-            var splitLabels = new StringBuilder();
-            for (int i = 0; i < activeLayers.Count; i++)
-                splitLabels.Append($"[v_layer_in_{i}]");
-
-            parts.Add($"{inputPad}split={splitCount}[v_base_in]{splitLabels}");
-
-            parts.Add($"[v_base_in]scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
+            parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
             currV = "[main_base]";
@@ -125,7 +130,7 @@ public class MobileFilterBuilder
         }
         else
         {
-            parts.Add($"{inputPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
+            parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
             currV = "[main_base]";
@@ -165,7 +170,7 @@ public class MobileFilterBuilder
         bool showTeammates = false,
         bool showSpectating = false)
     {
-        return Build("[0:v]", mobileCoords, isBossHp, showTeammates, showSpectating,
+        return Build("[0:v]", "[0:v]", mobileCoords, isBossHp, showTeammates, showSpectating,
             null, false, originalResolution);
     }
 }

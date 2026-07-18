@@ -33,6 +33,10 @@
         <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#16a34a" />
         <SolidColorBrush x:Key="AppDangerBrush" Color="#dc2626" />
         <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#b91c1c" />
+        <!-- ISSUE_02: Granular timeline "slower-than-normal" segment swatch. Kept distinct from
+             AppDangerBrush (#dc2626) because it must equal the block colour drawn in code
+             (GetSegmentOverlayColor RGB 239,68,68) so the legend chip matches the timeline. -->
+        <SolidColorBrush x:Key="AppSpeedSlowBrush" Color="#ef4444" />
         <SolidColorBrush x:Key="AppWarningBrush" Color="#facc15" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />

@@ -736,7 +736,16 @@ public sealed class MpvVideoView : Control, IDisposable
                     if (_importedImages[index] is IAsyncDisposable ad) _ = ad.DisposeAsync();
                     else if (_importedImages[index] is IDisposable d) d.Dispose();
                     _importedImages[index] = null;
-                    RuntimeLog.Fail(InteropLogStep, ex);
+                    
+                    if (ex is System.Runtime.InteropServices.COMException comEx && (uint)comEx.ErrorCode == 0x80070057)
+                    {
+                        // Harmless transient error when resizing/switching videos rapidly in D3D11.
+                        // We already disposed the texture, it will be recreated on the next frame.
+                    }
+                    else
+                    {
+                        RuntimeLog.Fail(InteropLogStep, ex);
+                    }
                 }
             }, Avalonia.Threading.DispatcherPriority.Render);
         }
@@ -906,6 +915,15 @@ public sealed class MpvVideoView : Control, IDisposable
                 _dummyHwnd = nint.Zero;
             }
 
+            IpcClient?.Dispose();
+            IpcClient = null;
+
+            if (_mpvHandle != nint.Zero)
+            {
+                MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+                _mpvHandle = nint.Zero;
+            }
+
             if (_openglLibrary != nint.Zero)
             {
                 NativeLibrary.Free(_openglLibrary);
@@ -919,15 +937,6 @@ public sealed class MpvVideoView : Control, IDisposable
             _d3d11Device = null;
 
             _gpuInterop = null;
-
-            IpcClient?.Dispose();
-            IpcClient = null;
-
-            if (_mpvHandle != nint.Zero)
-            {
-                MpvWrapper.mpv_terminate_destroy(_mpvHandle);
-                _mpvHandle = nint.Zero;
-            }
 
             if (_gcHandle.IsAllocated)
             {

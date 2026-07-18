@@ -197,7 +197,7 @@
                                 <TextBlock Text="Green = faster than normal" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Border Width="14" Height="14" CornerRadius="3" Background="#ef4444" VerticalAlignment="Center"/>
+                                <Border Width="14" Height="14" CornerRadius="3" Background="{DynamicResource AppSpeedSlowBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="Red = slower than normal" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="6">

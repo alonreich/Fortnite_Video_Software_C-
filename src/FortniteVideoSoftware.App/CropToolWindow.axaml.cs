@@ -2365,7 +2365,9 @@ public partial class CropToolWindow : Window
         }
         if (_goalLabel != null)
         {
-            _goalLabel.Text = $"Goal: {goal}";
+            // ISSUE_03: surface the explicit step number (mirrors the Music Wizard's numbered
+            // steps) so this flow reads as a guided sequence, not just a bare progress bar.
+            _goalLabel.Text = $"Step {step}: {goal}";
         }
         SetStatus(status);
     }

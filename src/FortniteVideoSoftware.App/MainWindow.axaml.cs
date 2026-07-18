@@ -679,9 +679,11 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                // Marking END must never interrupt playback: the playhead is already at
-                // the marked frame, and if the video is playing it keeps playing
-                // uninterrupted (previously this force-paused the video).
+                // The user explicitly requested: When hitting MARK END the video should pause in this state.
+                if (_videoHost?.IpcClient?.IsPaused == false)
+                {
+                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                }
 
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
@@ -1009,8 +1011,11 @@ public partial class MainWindow : Window
         string memeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MEME");
         if (Directory.Exists(memeFolder))
         {
+            // §1 Supported meme formats now include still images (.png/.jpg); skip zero-byte files.
+            string[] memeExts = { ".mp4", ".mkv", ".avi", ".png", ".jpg", ".jpeg" };
             var files = Directory.GetFiles(memeFolder)
-                .Where(f => f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".avi", StringComparison.OrdinalIgnoreCase))
+                .Where(f => memeExts.Contains(Path.GetExtension(f).ToLowerInvariant()))
+                .Where(f => { try { return new FileInfo(f).Length > 0; } catch { return false; } })
                 .Select(Path.GetFileName).ToList();
             cb.ItemsSource = files;
         }
@@ -1048,6 +1053,21 @@ public partial class MainWindow : Window
                     File.Copy(meme3, Path.Combine(memeFolder, Path.GetFileName(meme3)));
                 if (File.Exists(meme4) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme4))))
                     File.Copy(meme4, Path.Combine(memeFolder, Path.GetFileName(meme4)));
+
+                // Also seed the MEME folder with the bundled meme IMAGES so they sit alongside
+                // the meme movies. Copy every image in the source jpeg\ folder (handles the
+                // mixed jpg/png set without hardcoding filenames; skips ones already present).
+                var imageSourceDir = Path.Combine(appRoot, "jpeg");
+                if (Directory.Exists(imageSourceDir))
+                {
+                    foreach (var img in Directory.GetFiles(imageSourceDir))
+                    {
+                        string ext = Path.GetExtension(img).ToLowerInvariant();
+                        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png") continue;
+                        string imgDest = Path.Combine(memeFolder, Path.GetFileName(img));
+                        if (!File.Exists(imgDest)) File.Copy(img, imgDest);
+                    }
+                }
             });
         }
         catch (Exception ex)
@@ -2951,6 +2971,136 @@ public partial class MainWindow : Window
         return outerCanvas;
     }
 
+    public static Control CreateZoomTimelineCameraIcon()
+    {
+        return CreateZoomTimelineCameraIcon(false, 0, out _, out _);
+    }
+
+    public static Control CreateZoomTimelineCameraIcon(
+        bool isSelected,
+        double marchingAntsOffset,
+        out Avalonia.Controls.Shapes.Rectangle iconAnts,
+        out Avalonia.Controls.Shapes.Rectangle lineAnts)
+    {
+        var icon = new Border
+        {
+            Width = 36,
+            Height = 28,
+            Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(220, 15, 23, 42)),
+            BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")), // Fuchsia
+            BorderThickness = new Avalonia.Thickness(2),
+            CornerRadius = new Avalonia.CornerRadius(4),
+            IsHitTestVisible = false
+        };
+
+        var hoverIconGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconGlow",
+            Width = 44,
+            Height = 36,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(hoverIconGlow, 4);
+        Avalonia.Controls.Canvas.SetTop(hoverIconGlow, 24);
+
+        var hoverLineGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineGlow",
+            Width = 8,
+            Height = 53,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(hoverLineGlow, 20);
+        Avalonia.Controls.Canvas.SetTop(hoverLineGlow, 53);
+
+        var txt = new Avalonia.Controls.TextBlock
+        {
+            Text = "🔍",
+            FontSize = 14,
+            Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        icon.Child = txt;
+
+        var outerCanvas = new Canvas
+        {
+            Width = 52,
+            Height = 103,
+            ClipToBounds = false,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Focusable = true
+        };
+
+        var hitBox = new Border
+        {
+            Width = 52,
+            Height = 103,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(hitBox, 0);
+        Avalonia.Controls.Canvas.SetTop(hitBox, 0);
+        outerCanvas.Children.Add(hitBox);
+        outerCanvas.Children.Add(hoverIconGlow);
+        outerCanvas.Children.Add(hoverLineGlow);
+        Avalonia.Controls.Canvas.SetTop(icon, 28);
+        Avalonia.Controls.Canvas.SetLeft(icon, 8);
+        outerCanvas.Children.Add(icon);
+
+        var line = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Width = 2,
+            Height = 47,
+            Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetTop(line, 56);
+        Avalonia.Controls.Canvas.SetLeft(line, 23);
+        outerCanvas.Children.Add(line);
+
+        iconAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconAnts",
+            Width = 36,
+            Height = 28,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(iconAnts, 8);
+        Avalonia.Controls.Canvas.SetTop(iconAnts, 28);
+        outerCanvas.Children.Add(iconAnts);
+
+        lineAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineAnts",
+            Width = 6,
+            Height = 49,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(lineAnts, 21);
+        Avalonia.Controls.Canvas.SetTop(lineAnts, 55);
+        outerCanvas.Children.Add(lineAnts);
+
+        return outerCanvas;
+    }
+
     public static double ClampTimelineCameraLeft(double markerCenterX, double canvasWidth)
     {
         const double markerWidth = 52.0;
@@ -4192,6 +4342,8 @@ public partial class MainWindow : Window
                     segObj["zoomH"] = seg.ZoomH;
                     segObj["zoomOrigRes"] = seg.ZoomOrigRes;
                     segObj["zoomSlow"] = seg.ZoomSlow;
+                    if (seg.ZoomStartMs.HasValue) segObj["zoomStartMs"] = seg.ZoomStartMs.Value;
+                    if (seg.ZoomEndMs.HasValue) segObj["zoomEndMs"] = seg.ZoomEndMs.Value;
                 }
                 segArray.Add(segObj);
             }
@@ -4292,7 +4444,9 @@ public partial class MainWindow : Window
                             segObj["zoomW"]?.GetValue<int>(),
                             segObj["zoomH"]?.GetValue<int>(),
                             segObj["zoomOrigRes"]?.GetValue<string>(),
-                            segObj["zoomSlow"]?.GetValue<bool>() ?? false));
+                            segObj["zoomSlow"]?.GetValue<bool>() ?? false,
+                            segObj.ContainsKey("zoomStartMs") ? segObj["zoomStartMs"]?.GetValue<double>() : null,
+                            segObj.ContainsKey("zoomEndMs") ? segObj["zoomEndMs"]?.GetValue<double>() : null));
                     }
                 }
             }

@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 
@@ -6,29 +6,19 @@ namespace FortniteVideoSoftware.Core.Media;
 
 /// <summary>
 /// A speed or freeze segment for the granular timeline.
-/// Optional spatial zoom (§ Granular Segment Zoom-In): when ZoomW/ZoomH/ZoomX/ZoomY and
-/// ZoomOrigRes are all set, the segment's chunk is cropped to that SOURCE-resolution region,
-/// sharpened (AMD CAS), and scaled back to ZoomOrigRes. ZoomOrigRes MUST be the source
-/// resolution (e.g. "1920x1080") so every concatenated chunk keeps identical dimensions.
 /// </summary>
 public record SpeedSegment(double StartMs, double EndMs, double Speed,
     int? ZoomX = null, int? ZoomY = null, int? ZoomW = null, int? ZoomH = null, string? ZoomOrigRes = null,
-    // ZoomSlow = true → gradual "camera" ramp: zoom-in eases from full frame to the box over up to 1s
-    // (min 0.5s) of footage BEFORE the zoom start, holds through the segment, then eases back out over
-    // up to 1s AFTER the zoom end. false (default) = INSTANT hard-cut zoom. (Rendering lands in Pass 2.)
-    bool ZoomSlow = false);
+    bool ZoomSlow = false,
+    double? ZoomStartMs = null,
+    double? ZoomEndMs = null);
 
-/// <summary>
-/// Builds the FFmpeg filter_complex for granular speed control.
-/// 
-/// Rules (MANDATORY from architecture contract):
-/// - Segments are "Solid Objects" — overlapping is prohibited
-/// - Minimum segment duration: 10ms
-/// - Freeze frame: inserts still at playhead, shifts gameplay forward (does NOT discard)
-/// - Audio: atempo chained for values outside [0.5, 2.0]
-/// </summary>
 public class GranularSpeedBuilder
 {
+    private record ZoomConfig(double StartSec, double EndSec, int X, int Y, int W, int H, string Res, bool Slow);
+    private record ZoomPhase(double Start, double End, ZoomConfig Config, double ProgStart, double ProgEnd);
+    private record ChunkSpec(double Start, double End, double Speed, double FreezeDur = 0, ZoomPhase? Zoom = null);
+
     public static Func<double, double> CreateTimeMapper(
         double totalDurationMs,
         IReadOnlyList<SpeedSegment>? segments,
@@ -126,12 +116,7 @@ public class GranularSpeedBuilder
         };
     }
 
-    /// <summary>
-    /// Builds the complete granular speed filter chain.
-    /// Returns (filterString, videoOutputLabel, audioOutputLabel, finalDurationSec, timeMapper).
-    /// Exact port of build_granular_speed_chain().
-    /// </summary>
-    public static (string filterGraph, string videoLabel, string audioLabel, double finalDuration, Func<double, double> timeMapper) Build(
+    public static (string filterGraph, string videoLabel, string hudLabel, string audioLabel, double finalDuration, Func<double, double> timeMapper) Build(
         double totalDurationMs,
         List<SpeedSegment>? segments,
         double baseSpeed = 1.0,
@@ -150,26 +135,67 @@ public class GranularSpeedBuilder
             return Math.Max(0, Math.Min(rel, totalDurationSec));
         }
 
-        // Zoom is carried alongside each segment so it survives the source-chunk split below.
-        var normalizedSegments = new List<(double start, double end, double speed, (int x, int y, int w, int h, string res)? zoom)>();
+        var normalizedSegments = new List<(double start, double end, double speed)>();
+        var zooms = new List<ZoomConfig>();
+
         if (segments != null)
         {
             foreach (var seg in segments)
             {
                 double start = ToClipRelative(seg.StartMs / 1000.0);
                 double end = ToClipRelative(seg.EndMs / 1000.0);
-                double speed = seg.Speed;
-                if (end <= start + 0.001) continue;
-                (int x, int y, int w, int h, string res)? zoom =
-                    (seg.ZoomX.HasValue && seg.ZoomY.HasValue && seg.ZoomW.HasValue && seg.ZoomH.HasValue && !string.IsNullOrEmpty(seg.ZoomOrigRes))
-                        ? (seg.ZoomX.Value, seg.ZoomY.Value, seg.ZoomW.Value, seg.ZoomH.Value, seg.ZoomOrigRes!)
-                        : null;
-                normalizedSegments.Add((start, end, speed, zoom));
+                if (end > start + 0.001)
+                {
+                    normalizedSegments.Add((start, end, seg.Speed));
+                }
+
+                if (seg.ZoomW.HasValue && seg.ZoomH.HasValue && seg.ZoomX.HasValue && seg.ZoomY.HasValue && !string.IsNullOrEmpty(seg.ZoomOrigRes))
+                {
+                    double zStart = ToClipRelative((seg.ZoomStartMs ?? seg.StartMs) / 1000.0);
+                    double zEnd = ToClipRelative((seg.ZoomEndMs ?? seg.EndMs) / 1000.0);
+                    if (zEnd > zStart + 0.001)
+                    {
+                        zooms.Add(new ZoomConfig(zStart, zEnd, seg.ZoomX.Value, seg.ZoomY.Value, seg.ZoomW.Value, seg.ZoomH.Value, seg.ZoomOrigRes, seg.ZoomSlow));
+                    }
+                }
             }
         }
         normalizedSegments.Sort((a, b) => a.start.CompareTo(b.start));
+        zooms.Sort((a, b) => a.StartSec.CompareTo(b.StartSec));
 
-        var sourceChunks = new List<(double start, double end, double speed, (int x, int y, int w, int h, string res)? zoom)>();
+        var zoomPhases = new List<ZoomPhase>();
+        for (int i = 0; i < zooms.Count; i++)
+        {
+            var z = zooms[i];
+            if (!z.Slow)
+            {
+                zoomPhases.Add(new ZoomPhase(z.StartSec, z.EndSec, z, 1.0, 1.0));
+                continue;
+            }
+
+            double prevEnd = (i > 0) ? zooms[i - 1].EndSec : 0.0;
+            double nextStart = (i < zooms.Count - 1) ? zooms[i + 1].StartSec : totalDurationSec;
+
+            double availBefore = z.StartSec - prevEnd;
+            double stealBefore = 0.0;
+            if (availBefore >= 0.5) stealBefore = Math.Min(1.0, availBefore);
+
+            double availAfter = nextStart - z.EndSec;
+            double stealAfter = 0.0;
+            if (availAfter >= 0.5) stealAfter = Math.Min(1.0, availAfter);
+
+            if (stealBefore > 0)
+            {
+                zoomPhases.Add(new ZoomPhase(z.StartSec - stealBefore, z.StartSec, z, 0.0, 1.0));
+            }
+            zoomPhases.Add(new ZoomPhase(z.StartSec, z.EndSec, z, 1.0, 1.0));
+            if (stealAfter > 0)
+            {
+                zoomPhases.Add(new ZoomPhase(z.EndSec, z.EndSec + stealAfter, z, 1.0, 0.0));
+            }
+        }
+
+        var speedPhases = new List<(double start, double end, double speed)>();
         double currentSec = 0;
 
         var speedSegs = normalizedSegments.Where(s => Math.Abs(s.speed) > 0.001).ToList();
@@ -178,28 +204,53 @@ public class GranularSpeedBuilder
             double sStart = Math.Max(seg.start, currentSec);
             if (seg.end <= sStart + 0.001) continue;
             if (sStart > currentSec + 0.001)
-                sourceChunks.Add((currentSec, sStart, baseSpeed, null));
-            sourceChunks.Add((sStart, seg.end, seg.speed, seg.zoom));
+                speedPhases.Add((currentSec, sStart, baseSpeed));
+            speedPhases.Add((sStart, seg.end, seg.speed));
             currentSec = seg.end;
         }
         if (currentSec < totalDurationSec - 0.001)
-            sourceChunks.Add((currentSec, totalDurationSec, baseSpeed, null));
+            speedPhases.Add((currentSec, totalDurationSec, baseSpeed));
 
-        var freezes = normalizedSegments.Where(s => Math.Abs(s.speed) < 0.001)
-            .OrderBy(f => f.start).ToList();
-
+        var freezes = normalizedSegments.Where(s => Math.Abs(s.speed) < 0.001).OrderBy(f => f.start).ToList();
         var chunks = new List<ChunkSpec>();
         double sourceCursor = 0;
 
         void AppendSourceRange(double rangeStart, double rangeEnd)
         {
-            foreach (var sc in sourceChunks)
+            var subBounds = new HashSet<double> { rangeStart, rangeEnd };
+            foreach (var sp in speedPhases)
             {
-                double overlapStart = Math.Max(rangeStart, sc.start);
-                double overlapEnd = Math.Min(rangeEnd, sc.end);
-                if (overlapEnd > overlapStart + 0.001)
-                    chunks.Add(new ChunkSpec(overlapStart, overlapEnd, sc.speed, 0,
-                        sc.zoom?.x, sc.zoom?.y, sc.zoom?.w, sc.zoom?.h, sc.zoom?.res));
+                if (sp.start > rangeStart && sp.start < rangeEnd) subBounds.Add(sp.start);
+                if (sp.end > rangeStart && sp.end < rangeEnd) subBounds.Add(sp.end);
+            }
+            foreach (var zp in zoomPhases)
+            {
+                if (zp.Start > rangeStart && zp.Start < rangeEnd) subBounds.Add(zp.Start);
+                if (zp.End > rangeStart && zp.End < rangeEnd) subBounds.Add(zp.End);
+            }
+            var blist = subBounds.ToList();
+            blist.Sort();
+
+            for (int i = 0; i < blist.Count - 1; i++)
+            {
+                double cStart = blist[i];
+                double cEnd = blist[i + 1];
+                if (cEnd <= cStart + 0.001) continue;
+                double mid = (cStart + cEnd) / 2.0;
+
+                double cSpeed = baseSpeed;
+                foreach (var sp in speedPhases)
+                {
+                    if (mid >= sp.start && mid <= sp.end) { cSpeed = sp.speed; break; }
+                }
+
+                ZoomPhase? cZoom = null;
+                foreach (var zp in zoomPhases)
+                {
+                    if (mid >= zp.Start && mid <= zp.End) { cZoom = zp; break; }
+                }
+
+                chunks.Add(new ChunkSpec(cStart, cEnd, cSpeed, 0, cZoom));
             }
         }
 
@@ -213,7 +264,12 @@ public class GranularSpeedBuilder
                 AppendSourceRange(sourceCursor, fStart);
 
             double fDur = Math.Max(0.001, fEnd - fStart);
-            chunks.Add(new ChunkSpec(fStart, fStart + 0.001, 0, fDur));
+            ZoomPhase? cZoom = null;
+            foreach (var zp in zoomPhases)
+            {
+                if (fStart >= zp.Start && fStart <= zp.End) { cZoom = zp; break; }
+            }
+            chunks.Add(new ChunkSpec(fStart, fStart + 0.001, 0, fDur, cZoom));
             sourceCursor = fStart;
         }
         if (totalDurationSec > sourceCursor + 0.001)
@@ -242,21 +298,28 @@ public class GranularSpeedBuilder
         if (nChunks == 0)
         {
             string vChain = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_speed_out]";
+            string vChainHud = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_hud_out]";
             var audioFilters = BuildAtempoChain(baseSpeed);
             string aChain = !string.IsNullOrEmpty(inputAudioLabel)
-                ? $"{inputAudioLabel}asetpts=PTS-STARTPTS,{string.Join(",", audioFilters)},aresample=48000:async=1[a_speed_out]"
+                ? $"{inputAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS,{string.Join(",", audioFilters)}[a_speed_out]"
                 : $"anullsrc=r=48000:cl=stereo,atrim=duration={totalDurationSec / baseSpeed:F4},asetpts=PTS-STARTPTS[a_speed_out]";
-            return (string.Join(";", [.. preChainParts, vChain, aChain]), "[v_speed_out]", "[a_speed_out]",
+            return (string.Join(";", [.. preChainParts, vChain, vChainHud, aChain]), "[v_speed_out]", "[v_hud_out]", "[a_speed_out]",
                 totalDurationSec / baseSpeed, TimeMapper);
         }
 
         var fullParts = new List<string>(preChainParts);
-        var vAPads = new List<string>();
+        var vMainPads = new List<string>();
+        var vHudPads = new List<string>();
+        var aPads = new List<string>();
         double finalDuration = 0;
 
-        string vSplits = "";
-        for (int i = 0; i < nChunks; i++) vSplits += $"[v_split_{i}]";
-        fullParts.Add($"{inputVideoLabel}split={nChunks}{vSplits}");
+        string vSplitsMain = "";
+        string vSplitsHud = "";
+        for (int i = 0; i < nChunks; i++) {
+            vSplitsMain += $"[v_split_main_{i}]";
+            vSplitsHud += $"[v_split_hud_{i}]";
+        }
+        fullParts.Add($"{inputVideoLabel}split={nChunks * 2}{vSplitsMain}{vSplitsHud}");
 
         string? aSplits = null;
         if (!string.IsNullOrEmpty(inputAudioLabel))
@@ -271,10 +334,75 @@ public class GranularSpeedBuilder
         for (int i = 0; i < chunks.Count; i++)
         {
             var chunk = chunks[i];
-            string vSrc = $"[v_split_{i}]";
+            string vSrcMain = $"[v_split_main_{i}]";
+            string vSrcHud = $"[v_split_hud_{i}]";
             string? aSrc = !string.IsNullOrEmpty(inputAudioLabel) ? $"[a_split_{i}]" : null;
-            string vChunkLabel = $"[v_chunk_{i}]";
+            
+            string vChunkMainLabel = $"[v_chunk_main_{i}]";
+            string vChunkHudLabel = $"[v_chunk_hud_{i}]";
             string aChunkLabel = $"[a_chunk_{i}]";
+
+            string zoomFilter = "";
+            if (chunk.Zoom != null)
+            {
+                var zp = chunk.Zoom;
+                var zc = zp.Config;
+                var (outW, outH) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(zc.Res);
+                double phaseDur = zp.End - zp.Start;
+                double p1 = zp.ProgStart;
+                double p2 = zp.ProgEnd;
+                if (phaseDur > 0.001)
+                {
+                    p1 = zp.ProgStart + (zp.ProgEnd - zp.ProgStart) * ((chunk.Start - zp.Start) / phaseDur);
+                    p2 = zp.ProgStart + (zp.ProgEnd - zp.ProgStart) * ((chunk.End - zp.Start) / phaseDur);
+                }
+
+                if (Math.Abs(chunk.Speed) < 0.001)
+                {
+                    if (p1 >= 0.999 && !zc.Slow)
+                    {
+                        zoomFilter = $"crop={zc.W}:{zc.H}:{zc.X}:{zc.Y},cas=0.5,scale={outW}:{outH}:force_original_aspect_ratio=decrease,pad={outW}:{outH}:(ow-iw)/2:(oh-ih)/2:color=black,";
+                    }
+                    else
+                    {
+                        double targetZ = (double)outW / zc.W;
+                        double cxTarget = zc.X + zc.W / 2.0;
+                        double cyTarget = zc.Y + zc.H / 2.0;
+                        double zVal = 1.0 + (targetZ - 1.0) * p1;
+                        double xOrig = (outW / 2.0) + (cxTarget - outW / 2.0) * p1 - (outW / zVal) / 2.0;
+                        double yOrig = (outH / 2.0) + (cyTarget - outH / 2.0) * p1 - (outH / zVal) / 2.0;
+                        double cropX = xOrig * zVal;
+                        double cropY = yOrig * zVal;
+                        zoomFilter = $"scale=w='iw*({zVal.ToString(CultureInfo.InvariantCulture)})':h='ih*({zVal.ToString(CultureInfo.InvariantCulture)})':eval=frame,crop=w={outW}:h={outH}:x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',";
+                    }
+                }
+                else
+                {
+                    if (!zc.Slow)
+                    {
+                        zoomFilter = $"crop={zc.W}:{zc.H}:{zc.X}:{zc.Y},cas=0.5,scale={outW}:{outH}:force_original_aspect_ratio=decrease,pad={outW}:{outH}:(ow-iw)/2:(oh-ih)/2:color=black,";
+                    }
+                    else
+                    {
+                        double realDur = chunk.End - chunk.Start;
+                        double targetZ = (double)outW / zc.W;
+                        double cxTarget = zc.X + zc.W / 2.0;
+                        double cyTarget = zc.Y + zc.H / 2.0;
+
+                        string pExpr = Math.Abs(p1 - p2) < 0.001 ? p1.ToString(CultureInfo.InvariantCulture)
+                                     : $"{p1.ToString(CultureInfo.InvariantCulture)}+({(p2 - p1).ToString(CultureInfo.InvariantCulture)})*(t/{realDur.ToString(CultureInfo.InvariantCulture)})";
+
+                        string zExpr = $"1.0+({(targetZ - 1.0).ToString(CultureInfo.InvariantCulture)})*({pExpr})";
+                        string xOrig = $"({outW}/2)+({(cxTarget).ToString(CultureInfo.InvariantCulture)}-{outW}/2)*({pExpr})-({outW}/({zExpr}))/2";
+                        string yOrig = $"({outH}/2)+({(cyTarget).ToString(CultureInfo.InvariantCulture)}-{outH}/2)*({pExpr})-({outH}/({zExpr}))/2";
+
+                        string cropX = $"({xOrig})*({zExpr})";
+                        string cropY = $"({yOrig})*({zExpr})";
+
+                        zoomFilter = $"scale=w='iw*({zExpr})':h='ih*({zExpr})':eval=frame,crop=w={outW}:h={outH}:x='{cropX}':y='{cropY}',";
+                    }
+                }
+            }
 
             if (Math.Abs(chunk.Speed) < 0.001)
             {
@@ -285,91 +413,107 @@ public class GranularSpeedBuilder
                 double sampleUntil = Math.Min(totalDurationSec, chunk.Start + sampleWindow);
                 double sampleWindowActual = Math.Max(1.0 / fpsValue, sampleUntil - chunk.Start);
 
+                // A/V SYNC: the freeze VIDEO is exactly targetFrameCount looped frames =
+                // targetFrameCount/fps seconds. Trim the video AND the silent audio to that
+                // same frame-aligned length (not the raw FreezeDur, which can differ from the
+                // looped length by up to one frame) so a freeze can't nudge A/V apart.
+                double freezeQuantDur = fpsValue > 0 ? targetFrameCount / fpsValue : dur;
+
                 fullParts.Add(
-                    $"{vSrc}trim=start={chunk.Start:F4}:duration={sampleWindowActual:F4}," +
+                    $"{vSrcMain}trim=start={chunk.Start:F4}:duration={sampleWindowActual:F4}," +
+                    $"setpts=PTS-STARTPTS," +
+                    $"select='lte(n\\,0)'," +
+                    $"{zoomFilter}format=yuv420p,setsar=1," +
+                    $"loop=loop={loopFrames}:size=1:start=0," +
+                    $"fps={targetFps}:round=near," +
+                    $"setpts=N/({targetFps})/TB," +
+                    $"trim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS{vChunkMainLabel}");
+
+                fullParts.Add(
+                    $"{vSrcHud}trim=start={chunk.Start:F4}:duration={sampleWindowActual:F4}," +
                     $"setpts=PTS-STARTPTS," +
                     $"select='lte(n\\,0)'," +
                     $"format=yuv420p,setsar=1," +
                     $"loop=loop={loopFrames}:size=1:start=0," +
                     $"fps={targetFps}:round=near," +
                     $"setpts=N/({targetFps})/TB," +
-                    $"trim=duration={dur:F4},setpts=PTS-STARTPTS{vChunkLabel}");
+                    $"trim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS{vChunkHudLabel}");
 
                 if (!string.IsNullOrEmpty(aSrc))
                     fullParts.Add($"{aSrc}anullsink");
 
                 fullParts.Add($"anullsrc=r=48000:cl=stereo," +
-                              $"atrim=duration={dur:F4},asetpts=PTS-STARTPTS{aChunkLabel}");
+                              $"atrim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS{aChunkLabel}");
 
-                finalDuration += dur;
-                FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Info("FFmpeg", $"FFmpeg Instructions: Freeze Frame detected at {chunk.Start:F4}s. Built chunked Granular Speed complex filter. " +
-                                          $"Math: Held video frame for exactly {dur:F4}s. Offset PTS translated forward. " +
-                                          $"Audio Routing: Muted/silenced original audio by generating anullsrc spanning [{chunk.Start:F4}s -> {chunk.Start + dur:F4}s].");
+                finalDuration += freezeQuantDur;
             }
             else
             {
                 double outDur = (chunk.End - chunk.Start) / chunk.Speed;
 
-                // §6 Zoom injection: crop the user's SOURCE-resolution region, restore edge
-                // micro-contrast with AMD CAS (mandatory — digital zoom softens pixels), then
-                // scale back to ZoomOrigRes (the source resolution) so this chunk keeps the same
-                // WxH as every other chunk and the downstream concat stays valid. Injected before
-                // the framerate normalization that happens later in the pipeline.
-                string zoomFilter = "";
-                if (chunk.ZoomW.HasValue && chunk.ZoomH.HasValue && chunk.ZoomX.HasValue
-                    && chunk.ZoomY.HasValue && !string.IsNullOrEmpty(chunk.ZoomOrigRes))
-                {
-                    var (outW, outH) = CoordinateMath.GetResolutionInts(chunk.ZoomOrigRes!);
-                    // Aspect-preserving fit + black letterbox back to the SOURCE WxH keeps every chunk the
-                    // same size (concat-safe) AND distortion-free: a 16:9 crop fills exactly (no bars),
-                    // while a 2:3 mobile crop scales to source height and pads the sides — bars the portrait
-                    // center-crop in MobileFilterBuilder then removes, yielding a flawless 2:3 image.
-                    zoomFilter = $"crop={chunk.ZoomW.Value}:{chunk.ZoomH.Value}:{chunk.ZoomX.Value}:{chunk.ZoomY.Value},"
-                               + $"cas=0.5,scale={outW}:{outH}:force_original_aspect_ratio=decrease,"
-                               + $"pad={outW}:{outH}:(ow-iw)/2:(oh-ih)/2:color=black,";
-                }
+                // A/V SYNC: the per-chunk `fps` filter quantises each VIDEO chunk to a whole
+                // number of output frames, so its real duration is round(outDur*fps)/fps —
+                // NOT outDur. The audio chunk (atempo) has no such quantisation, so video and
+                // audio chunk lengths differ by up to half a frame EACH, and because the
+                // chunks are concatenated independently that error ACCUMULATES across every
+                // boundary (slow-zoom "steal" splitting adds extra boundaries, which is why it
+                // drifts worst there). We pin the audio chunk to the SAME frame-quantised
+                // length so the two streams can never separate. round=near makes the video
+                // quantisation deterministic and match this maths exactly.
+                double quantizedDur = fpsValue > 0 ? Math.Round(outDur * fpsValue) / fpsValue : outDur;
 
                 fullParts.Add(
-                    $"{vSrc}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
+                    $"{vSrcMain}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
+                    $"setpts=PTS-STARTPTS," +
+                    $"{zoomFilter}" +
+                    $"setpts='PTS/{chunk.Speed:F4}'," +
+                    $"fps={targetFps}:round=near," +
+                    $"format=yuv420p,setsar=1{vChunkMainLabel}");
+
+                fullParts.Add(
+                    $"{vSrcHud}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
                     $"setpts=PTS-STARTPTS," +
                     $"setpts='PTS/{chunk.Speed:F4}'," +
-                    $"{zoomFilter}format=yuv420p,setsar=1{vChunkLabel}");
+                    $"fps={targetFps}:round=near," +
+                    $"format=yuv420p,setsar=1{vChunkHudLabel}");
 
                 var audioFilters = BuildAtempoChain(chunk.Speed);
                 if (!string.IsNullOrEmpty(aSrc))
                 {
                     fullParts.Add(
                         $"{aSrc}atrim=start={chunk.Start:F4}:end={chunk.End:F4}," +
+                        $"aresample=48000:async=1:min_comp=0.001," +
                         $"asetpts=PTS-STARTPTS," +
                         $"{string.Join(",", audioFilters)}," +
-                        $"asetpts=PTS-STARTPTS," +
-                        $"aresample=48000:async=1:min_comp=0.001{aChunkLabel}");
+                        $"apad,atrim=duration={quantizedDur.ToString("F5", CultureInfo.InvariantCulture)}," +
+                        $"asetpts=PTS-STARTPTS{aChunkLabel}");
                 }
                 else
                 {
                     fullParts.Add($"anullsrc=r=48000:cl=stereo," +
-                                  $"atrim=duration={outDur:F4},asetpts=PTS-STARTPTS{aChunkLabel}");
+                                  $"atrim=duration={quantizedDur.ToString("F5", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS{aChunkLabel}");
                 }
 
-                finalDuration += outDur;
+                finalDuration += quantizedDur;
             }
 
-            vAPads.Add($"{vChunkLabel}{aChunkLabel}");
+            vMainPads.Add(vChunkMainLabel);
+            vHudPads.Add(vChunkHudLabel);
+            aPads.Add(aChunkLabel);
         }
 
-        fullParts.Add($"{string.Join("", vAPads)}concat=n={nChunks}:v=1:a=1[v_speed_concat][a_speed_concat]");
-        fullParts.Add("[v_speed_concat]setpts=PTS-STARTPTS[v_speed_out]");
-        fullParts.Add("[a_speed_concat]aresample=48000:async=1:min_comp=0.01," +
-                      "asetpts=PTS-STARTPTS[a_speed_out]");
+        fullParts.Add($"{string.Join("", vMainPads)}concat=n={nChunks}:v=1:a=0[v_speed_concat]");
+        fullParts.Add($"{string.Join("", vHudPads)}concat=n={nChunks}:v=1:a=0[v_hud_concat]");
+        fullParts.Add($"{string.Join("", aPads)}concat=n={nChunks}:v=0:a=1[a_speed_concat]");
 
-        return (string.Join(";", fullParts), "[v_speed_out]", "[a_speed_out]",
+        fullParts.Add("[v_speed_concat]setpts=PTS-STARTPTS[v_speed_out]");
+        fullParts.Add("[v_hud_concat]setpts=PTS-STARTPTS[v_hud_out]");
+        fullParts.Add("[a_speed_concat]aresample=48000:async=1:min_comp=0.01,asetpts=PTS-STARTPTS[a_speed_out]");
+
+        return (string.Join(";", fullParts), "[v_speed_out]", "[v_hud_out]", "[a_speed_out]",
             finalDuration, TimeMapper);
     }
 
-    /// <summary>
-    /// Builds the atempo filter chain for a given speed.
-    /// FFmpeg atempo limits: [0.5, 2.0] per filter. Chain for values outside.
-    /// </summary>
     public static List<string> BuildAtempoChain(double speed)
     {
         var filters = new List<string>();
@@ -392,7 +536,5 @@ public class GranularSpeedBuilder
         }
         catch { return 60.0; }
     }
-
-    private record ChunkSpec(double Start, double End, double Speed, double FreezeDur = 0,
-        int? ZoomX = null, int? ZoomY = null, int? ZoomW = null, int? ZoomH = null, string? ZoomOrigRes = null);
 }
+
