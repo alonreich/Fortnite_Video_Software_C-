@@ -67,6 +67,7 @@ public class ProcessWorker : IDisposable
     public void Cancel()
     {
         _isCanceled = true;
+        CoreLogger.Info("Process", "Cancellation requested by user. Terminating FFmpeg process tree.");
         if (_currentProcess != null)
         {
             try { _currentProcess.Kill(entireProcessTree: true); } catch { }
@@ -81,6 +82,7 @@ public class ProcessWorker : IDisposable
     {
         try
         {
+            var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var encoderMgr = new EncoderManager(HardwareStrategy, _ffmpegPath);
             if (encoderMgr.EncoderPreflightError != null)
             {
@@ -92,7 +94,7 @@ public class ProcessWorker : IDisposable
             string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_job_{jobId}");
             Directory.CreateDirectory(tempJobDir);
 
-            CoreLogger.Info("Process", $"Input Path: {InputPath}");
+            CoreLogger.Debug("Process", $"Input Path: {InputPath}");
             CoreLogger.Info("Process", $"Start Time: {StartTimeMs} ms, End Time: {EndTimeMs} ms");
             CoreLogger.Info("Process", $"Base Speed Factor: {SpeedFactor}");
             CoreLogger.Info("Process", $"Is Mobile Format: {IsMobileFormat}, Portrait Text: {PortraitText ?? "None"}");
@@ -202,10 +204,13 @@ public class ProcessWorker : IDisposable
                 string granularFilters = "";
                 string gV = "", gA = "";
                 double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
+                // ISSUE_01: keep the piecewise source→output time mapper so thumbnail
+                // extraction lands on the exact user-picked frame even with segments/freezes.
+                Func<double, double>? granularTimeMapper = null;
 
                 if (SpeedSegments != null && SpeedSegments.Count > 0)
                 {
-                    var (filterGraph, vLabel, aLabel, finalDur, _) = GranularSpeedBuilder.Build(
+                    var (filterGraph, vLabel, aLabel, finalDur, timeMapper) = GranularSpeedBuilder.Build(
                         actualExtractEndMs - actualExtractStartMs,
                         SpeedSegments,
                         SpeedFactor,
@@ -217,6 +222,7 @@ public class ProcessWorker : IDisposable
                     gV = vLabel;
                     gA = aLabel;
                     gDur = finalDur;
+                    granularTimeMapper = timeMapper;
                 }
 
                 int audioKbps = MediaProber.ChooseAudioBitrate(sourceAudioKbps, gDur, targetMb);
@@ -267,7 +273,9 @@ public class ProcessWorker : IDisposable
                 if (VolumeNormalizeDb == 0.0 && sourceHasAudio)
                 {
                     PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", 0);
-                    await PerformLoudnormPassAsync(cancellationToken);
+                    // SUSPECTED_02 fix: measure loudness over the SAME range the encoder
+                    // extracts (including fade padding), not just the bare trim range.
+                    await PerformLoudnormPassAsync(actualExtractStartMs, actualExtractEndMs, cancellationToken);
                 }
 
                 PhaseUpdate?.Invoke(2, "Encoding Video Pipeline", 0);
@@ -506,7 +514,8 @@ public class ProcessWorker : IDisposable
                 }
 
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
-                CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
+                // ISSUE_1: full filter graph (may contain temp file paths) is dev-only.
+                CoreLogger.Debug("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
@@ -565,7 +574,10 @@ public class ProcessWorker : IDisposable
                             "-movflags", "+faststart", corePath]);
 
                         string cmdLine = string.Join(" ", ffmpegArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-                        CoreLogger.Info("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+                        CoreLogger.Info("FFmpeg", $"Starting encode: encoder={currentEncoder}, mode={rcLabel}, attempt={attemptNum}.");
+                        // ISSUE_1: full command with absolute paths is dev-only; the INFO line
+                        // above ("Starting encode: encoder/mode/attempt") keeps a safe trail.
+                        CoreLogger.Debug("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
                         var psi = new ProcessStartInfo
                         {
@@ -577,19 +589,22 @@ public class ProcessWorker : IDisposable
                             CreateNoWindow = true,
                         };
 
-                        _currentProcess = Process.Start(psi);
-                        if (_currentProcess == null) return false;
+                        // ISSUE_02: keep a local reference so THIS attempt's Process is
+                        // deterministically disposed even when the retry loop continues.
+                        var proc = Process.Start(psi);
+                        if (proc == null) return false;
+                        _currentProcess = proc;
 
-                        try { ChildProcessTracker.AddProcess(_currentProcess); } catch { }
+                        try { ChildProcessTracker.AddProcess(proc); } catch { }
 
                         using var reg = cancellationToken.Register(() =>
                         {
-                            try { _currentProcess.Kill(entireProcessTree: true); } catch { }
+                            try { proc.Kill(entireProcessTree: true); } catch { }
                         });
 
-                        _ = Task.Run(async () =>
+                        var progressTask = Task.Run(async () =>
                         {
-                            using var reader = _currentProcess.StandardOutput;
+                            using var reader = proc.StandardOutput;
                             while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
                             {
                                 var line = await reader.ReadLineAsync(cancellationToken);
@@ -610,29 +625,56 @@ public class ProcessWorker : IDisposable
                             }
                         }, cancellationToken);
 
-                        _ = Task.Run(async () =>
+                        // Buffer the last N stderr lines instead of streaming every line to the shared
+                        // log. The tail is persisted at Fail level on failure (full context for backend
+                        // analysis) and only at Debug (dev-only) on success, avoiding log flooding.
+                        var stderrTail = new System.Collections.Generic.Queue<string>();
+                        const int stderrTailMax = 400;
+                        var stderrTask = Task.Run(async () =>
                         {
-                            using var reader = _currentProcess.StandardError;
+                            using var reader = proc.StandardError;
                             while (!reader.EndOfStream)
                             {
                                 string? line = await reader.ReadLineAsync(cancellationToken);
-                                if (!string.IsNullOrWhiteSpace(line))
+                                if (!string.IsNullOrWhiteSpace(line)
+                                    && !line.StartsWith("frame=") && !line.StartsWith("size="))
                                 {
-                                    if (!line.StartsWith("frame=") && !line.StartsWith("size="))
+                                    lock (stderrTail)
                                     {
-                                        CoreLogger.Append(line);
+                                        stderrTail.Enqueue(line);
+                                        if (stderrTail.Count > stderrTailMax) stderrTail.Dequeue();
                                     }
                                 }
                             }
                         }, cancellationToken);
 
-                        await _currentProcess.WaitForExitAsync(cancellationToken);
+                        try { await proc.WaitForExitAsync(cancellationToken); }
+                        catch (OperationCanceledException) { }
 
-                        if (_currentProcess.ExitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
+                        try { await Task.WhenAll(progressTask, stderrTask); }
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex) { CoreLogger.Fail("FFmpeg", $"Reader task error: {ex.Message}"); }
+
+                        string[] stderrLines;
+                        lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
+
+                        // ISSUE_02: capture the exit code, then release the process handle
+                        // for THIS attempt before any return/continue path.
+                        int exitCode = proc.ExitCode;
+                        _currentProcess = null;
+                        proc.Dispose();
+
+                        if (exitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
+                        {
+                            if (stderrLines.Length > 0)
+                                CoreLogger.Debug("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
                             return true;
+                        }
 
-                        lastError = $"FFmpeg exited with code {_currentProcess.ExitCode}";
+                        lastError = $"FFmpeg exited with code {exitCode}";
                         CoreLogger.Fail("FFmpeg", lastError);
+                        if (stderrLines.Length > 0)
+                            CoreLogger.Fail("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
 
                         if (useCuda && !_isCanceled)
                         {
@@ -651,7 +693,7 @@ public class ProcessWorker : IDisposable
                 bool sizeTargetMet = !targetMb.HasValue;
                 long finalActualSize = 0;
                 long finalTargetSize = targetMb.HasValue ? (long)(targetMb.Value * 1024 * 1024) : 0;
-                for (int attempt = 1; attempt <= 3; attempt++)
+                for (int attempt = 1; attempt <= 2; attempt++)
                 {
                     if (File.Exists(corePath)) File.Delete(corePath);
                     success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
@@ -681,10 +723,7 @@ public class ProcessWorker : IDisposable
                 if (targetMb.HasValue && !sizeTargetMet)
                 {
                     double actualMb = finalActualSize / 1024.0 / 1024.0;
-                    lastError = $"Export size target was not met. Target={targetMb.Value:F2} MB, actual={actualMb:F2} MB.";
-                    CoreLogger.Fail("FFmpeg", lastError);
-                    EmitFinished(false, lastError);
-                    return;
+                    CoreLogger.Fail("FFmpeg", $"Export size target not met after retries. Target={targetMb.Value:F2} MB, actual={actualMb:F2} MB. Delivering closest render.");
                 }
 
                 string outputDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -696,7 +735,11 @@ public class ProcessWorker : IDisposable
                 if (ThumbnailPosMs > 0)
                 {
                     string thumbnailOutput = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
-                    double extractTargetSec = Math.Max(0.0, (ThumbnailPosMs - actualExtractStartMs) / 1000.0 / Math.Max(0.001, SpeedFactor));
+                    // ISSUE_01: with granular segments/freezes the output timeline is
+                    // piecewise-warped — use the same TimeMapper the video filter uses.
+                    double extractTargetSec = granularTimeMapper != null
+                        ? Math.Max(0.0, granularTimeMapper(ThumbnailPosMs / 1000.0))
+                        : Math.Max(0.0, (ThumbnailPosMs - actualExtractStartMs) / 1000.0 / Math.Max(0.001, SpeedFactor));
                     if (introDurationSec > 0.0)
                     {
                         extractTargetSec += introDurationSec;
@@ -712,6 +755,8 @@ public class ProcessWorker : IDisposable
                     using var p = System.Diagnostics.Process.Start(psi);
                     if (p != null) await p.WaitForExitAsync(cancellationToken);
                 }
+                pipelineStopwatch.Stop();
+                CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {Path.GetFileName(finalOutput)}");
                 ProgressUpdate?.Invoke(100);
                 EmitFinished(true, finalOutput);
             }
@@ -757,7 +802,7 @@ public class ProcessWorker : IDisposable
         Finished?.Invoke(success, message);
     }
 
-    private async Task PerformLoudnormPassAsync(CancellationToken cancellationToken)
+    private async Task PerformLoudnormPassAsync(double measureStartMs, double measureEndMs, CancellationToken cancellationToken)
     {
         try
         {
@@ -765,8 +810,8 @@ public class ProcessWorker : IDisposable
             var args = new List<string>
             {
                 "-y", "-hide_banner",
-                "-ss", (StartTimeMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                "-t", ((EndTimeMs - StartTimeMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                "-ss", (measureStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                "-t", ((measureEndMs - measureStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-i", InputPath,
                 "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",
@@ -789,7 +834,7 @@ public class ProcessWorker : IDisposable
             if (process == null) return;
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
-            double totalDurationSec = (EndTimeMs - StartTimeMs) / 1000.0;
+            double totalDurationSec = (measureEndMs - measureStartMs) / 1000.0;
             
             using var reader = process.StandardError;
             while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)

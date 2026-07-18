@@ -109,8 +109,8 @@ public partial class PhaseOverlayControl : UserControl
         {
             canvas.Children.Clear();
             _particles.Clear();
-            _fighter1 = new TextBlock { Text = "ᕕ( ᐛ )ᕗ", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeight.Bold };
-            _fighter2 = new TextBlock { Text = "(ง'̀-'́)ง", Foreground = Brushes.HotPink, FontSize = 18, FontWeight = FontWeight.Bold };
+            _fighter1 = new TextBlock { Text = "ᕕ( ᐛ )ᕗ", Foreground = Brushes.White, FontSize = Infrastructure.ThemeManager.ScaledFontSize(18), FontWeight = FontWeight.Bold };
+            _fighter2 = new TextBlock { Text = "(ง'̀-'́)ง", Foreground = Brushes.HotPink, FontSize = Infrastructure.ThemeManager.ScaledFontSize(18), FontWeight = FontWeight.Bold };
             canvas.Children.Add(_fighter1);
             canvas.Children.Add(_fighter2);
             _f1X = 10;
@@ -196,7 +196,7 @@ public partial class PhaseOverlayControl : UserControl
             
             if (_rand.NextDouble() > 0.7)
             {
-                var hit = new TextBlock { Text = _rand.NextDouble() > 0.5 ? "💥" : "💨", Foreground = Brushes.Yellow, FontSize = 14 };
+                var hit = new TextBlock { Text = _rand.NextDouble() > 0.5 ? "💥" : "💨", Foreground = Brushes.Yellow, FontSize = Infrastructure.ThemeManager.ScaledFontSize(14) };
                 Canvas.SetLeft(hit, (_f1X + _f2X) / 2 + _rand.Next(-20, 20));
                 Canvas.SetTop(hit, _rand.Next(-5, 10));
                 canvas.Children.Add(hit);

@@ -22,7 +22,7 @@ namespace FortniteVideoSoftware.App.Controls
 
         private object? _savedToolTip = null;
         private bool _isTooltipSuppressed = false;
-        private CancellationTokenSource? _tooltipRestoreCts;
+        private Avalonia.Threading.DispatcherTimer? _tooltipRestoreTimer;
         
         public event EventHandler<int>? ValueChanged;
         public event EventHandler<int>? ValueChangeCompleted;
@@ -40,10 +40,6 @@ namespace FortniteVideoSoftware.App.Controls
         /// </summary>
         private void SuppressTooltipTemporarily()
         {
-            _tooltipRestoreCts?.Cancel();
-            _tooltipRestoreCts = new CancellationTokenSource();
-            var token = _tooltipRestoreCts.Token;
-
             if (!_isTooltipSuppressed)
             {
                 _savedToolTip = ToolTip.GetTip(this);
@@ -51,24 +47,28 @@ namespace FortniteVideoSoftware.App.Controls
                 _isTooltipSuppressed = true;
             }
 
-            _ = Task.Run(async () =>
+            // Reuse a single UI-thread timer instead of spawning a Task + CTS on every
+            // pointer-move. Each interaction just resets the timer (ISSUE_105).
+            if (_tooltipRestoreTimer == null)
             {
-                try
+                _tooltipRestoreTimer = new Avalonia.Threading.DispatcherTimer
                 {
-                    await Task.Delay(1200, token);
-                    if (token.IsCancellationRequested) return;
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    Interval = TimeSpan.FromMilliseconds(1200)
+                };
+                _tooltipRestoreTimer.Tick += (s, e) =>
+                {
+                    _tooltipRestoreTimer!.Stop();
+                    if (_isTooltipSuppressed)
                     {
-                        if (_isTooltipSuppressed)
-                        {
-                            ToolTip.SetTip(this, _savedToolTip);
-                            _isTooltipSuppressed = false;
-                            ValueChangeCompleted?.Invoke(this, _value);
-                        }
-                    });
-                }
-                catch (OperationCanceledException) { }
-            });
+                        ToolTip.SetTip(this, _savedToolTip);
+                        _isTooltipSuppressed = false;
+                        ValueChangeCompleted?.Invoke(this, _value);
+                    }
+                };
+            }
+
+            _tooltipRestoreTimer.Stop();
+            _tooltipRestoreTimer.Start();
         }
         
         public int Value 
@@ -235,10 +235,57 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnPointerExited(e);
         }
         
-        private static readonly SolidColorBrush _rimGradientStop0 = new SolidColorBrush(Color.Parse("#15202b"));
-        private static readonly SolidColorBrush _rimGradientStop1 = new SolidColorBrush(Color.Parse("#3e5871"));
-        private static readonly SolidColorBrush _rimGradientStop2 = new SolidColorBrush(Color.Parse("#15202b"));
-        
+        // Cached, state-independent draw resources — built once, reused every frame
+        // to avoid per-frame brush/typeface allocation during drags (ISSUE_105).
+        private static readonly Typeface _labelTypeface = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
+        private static readonly LinearGradientBrush _rimGrad = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(Color.Parse("#15202b"), 0.0),
+                new GradientStop(Color.Parse("#3e5871"), 0.5),
+                new GradientStop(Color.Parse("#15202b"), 1.0)
+            }
+        };
+        private static readonly RadialGradientBrush _faceGrad = new RadialGradientBrush
+        {
+            Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            Radius = 0.7,
+            GradientStops = new GradientStops
+            {
+                new GradientStop(Color.Parse("#3a6b6b"), 0.0),
+                new GradientStop(Color.Parse("#1e313d"), 0.4),
+                new GradientStop(Color.Parse("#0f1a0f"), 0.8),
+                new GradientStop(Color.Parse("#080c08"), 1.0)
+            }
+        };
+        private static readonly LinearGradientBrush _shadowGrad = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(Color.FromArgb(210, 0, 0, 0), 0.0),
+                new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.2),
+                new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.8),
+                new GradientStop(Color.FromArgb(210, 0, 0, 0), 1.0)
+            }
+        };
+        private static readonly RadialGradientBrush _centerGlow = new RadialGradientBrush
+        {
+            Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            Radius = 0.5,
+            GradientStops = new GradientStops
+            {
+                new GradientStop(Color.FromArgb(45, 80, 255, 239), 0.0),
+                new GradientStop(Color.FromArgb(0, 0, 0, 0), 1.0)
+            }
+        };
+
         private static readonly Pen _rimPen = new Pen(new SolidColorBrush(Color.Parse("#0d1217")), 1);
         private static readonly Pen _innerPen = new Pen(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)), 1);
         private static readonly Pen _redPen = new Pen(new SolidColorBrush(Color.Parse("#ff4d4d")), 2);
@@ -254,37 +301,11 @@ namespace FortniteVideoSoftware.App.Controls
             
             var rect = new Rect(0, 0, w, h);
             
-            var rimGrad = new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                GradientStops = new GradientStops
-                {
-                    new GradientStop(_rimGradientStop0.Color, 0.0),
-                    new GradientStop(_rimGradientStop1.Color, 0.5),
-                    new GradientStop(_rimGradientStop2.Color, 1.0)
-                }
-            };
-            
-            context.DrawRectangle(rimGrad, _rimPen, rect, 6, 6);
+            context.DrawRectangle(_rimGrad, _rimPen, rect, 6, 6);
             
             var innerRect = rect.Deflate(3);
             
-            var faceGrad = new RadialGradientBrush
-            {
-                Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                Radius = 0.7,
-                GradientStops = new GradientStops
-                {
-                    new GradientStop(Color.Parse("#3a6b6b"), 0.0),
-                    new GradientStop(Color.Parse("#1e313d"), 0.4),
-                    new GradientStop(Color.Parse("#0f1a0f"), 0.8),
-                    new GradientStop(Color.Parse("#080c08"), 1.0)
-                }
-            };
-            
-            context.DrawRectangle(faceGrad, _innerPen, innerRect, 4, 4);
+            context.DrawRectangle(_faceGrad, _innerPen, innerRect, 4, 4);
             
             using (context.PushClip(innerRect))
             {
@@ -313,19 +334,7 @@ namespace FortniteVideoSoftware.App.Controls
                 }
                 
                 var shadowRect = innerRect.Deflate(1);
-                var shadowGrad = new LinearGradientBrush
-                {
-                    StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                    EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                    GradientStops = new GradientStops
-                    {
-                        new GradientStop(Color.FromArgb(210, 0, 0, 0), 0.0),
-                        new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.2),
-                        new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.8),
-                        new GradientStop(Color.FromArgb(210, 0, 0, 0), 1.0)
-                    }
-                };
-                context.DrawRectangle(shadowGrad, null, shadowRect, 4, 4);
+                context.DrawRectangle(_shadowGrad, null, shadowRect, 4, 4);
                 
                 for (int i = _range.min; i <= _range.max; i++)
                 {
@@ -347,7 +356,7 @@ namespace FortniteVideoSoftware.App.Controls
                     
                     byte alpha = (byte)(255 * Math.Pow(opacity, 5.0));
                     
-                    var typeface = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
+                    var typeface = _labelTypeface;
                     var brush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
                     var shadowBrush = new SolidColorBrush(Color.FromArgb((byte)(alpha * 0.8), 0, 0, 0));
                     
@@ -367,18 +376,7 @@ namespace FortniteVideoSoftware.App.Controls
                 context.DrawLine(_redPen, new Point(cx, 3), new Point(cx, 11));
                 context.DrawLine(_redPen, new Point(cx, h - 11), new Point(cx, h - 3));
                 
-                var centerGlow = new RadialGradientBrush
-                {
-                    Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                    GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                    Radius = 0.5,
-                    GradientStops = new GradientStops
-                    {
-                        new GradientStop(Color.FromArgb(45, 80, 255, 239), 0.0),
-                        new GradientStop(Color.FromArgb(0, 0, 0, 0), 1.0)
-                    }
-                };
-                context.DrawRectangle(centerGlow, null, innerRect);
+                context.DrawRectangle(_centerGlow, null, innerRect);
             }
 
             if (IsFocused)

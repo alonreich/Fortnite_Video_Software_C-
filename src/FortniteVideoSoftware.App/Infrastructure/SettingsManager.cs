@@ -6,12 +6,47 @@ using Avalonia.Input;
 
 namespace FortniteVideoSoftware.App.Infrastructure;
 
+public enum ThemeMode
+{
+    FollowOS,
+    Dark,
+    Light
+}
+
+public enum FontScale
+{
+    ExtraSmall,
+    Small,
+    Medium,
+    Normal,
+    Large,
+    ExtraLarge
+}
+
+public static class FontScaleExtensions
+{
+    public static double ToMultiplier(this FontScale scale) => scale switch
+    {
+        FontScale.ExtraSmall => 0.80,
+        FontScale.Small => 0.90,
+        FontScale.Medium => 0.95,
+        FontScale.Normal => 1.00,
+        FontScale.Large => 1.12,
+        FontScale.ExtraLarge => 1.25,
+        _ => 1.00
+    };
+}
+
 public class AppSettings
 {
     public KeyBinds KeyBinds { get; set; } = new();
     public DefaultValues Defaults { get; set; } = new();
     public int Volume { get; set; } = 100;
     public string ActiveMaskOverlay { get; set; } = "Fortnite";
+
+    // Appearance
+    public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
+    public FontScale FontScale { get; set; } = FontScale.Normal;
 
     // Confirmation Dialogs
     public bool ConfirmVideoMergerRemove { get; set; } = false;
@@ -82,6 +117,12 @@ public class DefaultValues
     
     /// <summary>Whether to remember the music and video volume set in the music wizard</summary>
     public bool RememberMusicVolumes { get; set; } = true;
+
+    // ---- Granular Speed Editor defaults ----
+    /// <summary>Default zoom-in ramp: true = SLOW (gradual), false = INSTANT (hard cut).</summary>
+    public bool DefaultZoomSlow { get; set; } = false;
+    /// <summary>Default freeze-image hold duration in seconds (matches the preset buttons 0.5–3.0).</summary>
+    public double DefaultFreezeDurationS { get; set; } = 1.0;
 }
 
 [JsonSerializable(typeof(AppSettings))]
@@ -89,6 +130,8 @@ public class DefaultValues
 [JsonSerializable(typeof(DefaultValues))]
 [JsonSerializable(typeof(CheckboxDefaultBehavior))]
 [JsonSerializable(typeof(ValueDefaultBehavior))]
+[JsonSerializable(typeof(ThemeMode))]
+[JsonSerializable(typeof(FontScale))]
 public partial class SettingsJsonContext : JsonSerializerContext { }
 
 public static class SettingsManager

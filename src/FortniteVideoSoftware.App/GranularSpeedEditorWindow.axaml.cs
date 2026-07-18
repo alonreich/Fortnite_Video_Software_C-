@@ -43,9 +43,13 @@ public partial class GranularSpeedEditorWindow : Window
 
     public bool Accepted { get; private set; }
     public IReadOnlyList<SpeedSegment> ResultSegments => _segments
-        .Select(s => new SpeedSegment(s.StartMs + (int)_trimStartMs, s.EndMs + (int)_trimStartMs, s.Speed))
+        .Select(s => s with { StartMs = s.StartMs + (int)_trimStartMs, EndMs = s.EndMs + (int)_trimStartMs })
         .ToList()
         .AsReadOnly();
+
+    // §4 Zoom state (source-resolution + output format are needed to map the drawn box to FFmpeg crop).
+    private bool _isMobileFormat;
+    private string _originalResolution = "1920x1080";
     public double ResultBaseSpeed => _baseSpeed;
     public double ResultFreezeTimeMs => _freezeTimeMs;
     public double ResultFreezeDurationS => _freezeDurationS;
@@ -59,6 +63,14 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _isFreezeCameraSelected = false;
     private bool _isDraggingFreezeCamera = false;
     private int _draggingSegmentIndex = -1;
+    private enum SegDragMode { None, Move, ResizeStart, ResizeEnd }
+    private SegDragMode _segDragMode = SegDragMode.None;
+    private double _dragOrigStartMs;
+    private double _dragOrigEndMs;
+    private double _dragStartPointerMs;
+    private bool _isCanvasScrubbing;
+    private const int SegMinWidthMs = 200;
+    private const int SegGapMs = 1000;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
@@ -76,7 +88,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// The editor will only show/seek between trimStartMs and trimEndMs.
     /// Segments are stored in absolute video timestamps.
     /// </summary>
-    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0)
+    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080")
     {
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
@@ -84,6 +96,8 @@ public partial class GranularSpeedEditorWindow : Window
         _baseSpeed = baseSpeed;
         _freezeTimeMs = freezeTimeMs;
         _freezeDurationS = freezeDurationS;
+        _isMobileFormat = isMobileFormat;
+        if (!string.IsNullOrWhiteSpace(originalResolution)) _originalResolution = originalResolution;
         _selectedFreezePresetS = -1.0;
 
         InitializeComponent();
@@ -91,11 +105,38 @@ public partial class GranularSpeedEditorWindow : Window
         // Global fallback to prevent sticky segment dragging
         this.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (s, e) =>
         {
+            if (_isCanvasScrubbing)
+            {
+                _isCanvasScrubbing = false;
+                e.Pointer.Capture(null);
+            }
             if (_draggingSegmentIndex != -1)
             {
+                var finishedMode = _segDragMode;
+                int finishedIdx = _draggingSegmentIndex;
+                if (_segDragMode != SegDragMode.None && _draggingSegmentIndex < _segments.Count)
+                {
+                    var seg = _segments[_draggingSegmentIndex];
+                    RuntimeLog.Info("Granular", $"Segment #{_draggingSegmentIndex + 1} settled: rel {FormatMs(seg.StartMs)}–{FormatMs(seg.EndMs)} @ {seg.Speed:0.0}x (abs {FormatMs(seg.StartMs + _trimStartMs)}–{FormatMs(seg.EndMs + _trimStartMs)}).");
+                    SetStatus($"Segment #{_draggingSegmentIndex + 1} set to {FormatMs(seg.StartMs)}–{FormatMs(seg.EndMs)} @ {seg.Speed:0.0}x.");
+                }
+                _segDragMode = SegDragMode.None;
                 _draggingSegmentIndex = -1;
+                e.Pointer.Capture(null);
+                HideDragReadout();   // #10 hide readout when the drag settles
                 RefreshSegmentList();
                 RedrawTimeline();
+
+                // Playhead-follow: when PAUSED, snap the preview to the edited edge so
+                // the user immediately sees the exact frame the marker now sits on.
+                // During playback we never interrupt — no seek, no pause-state change.
+                if (finishedMode != SegDragMode.None && finishedIdx >= 0 && finishedIdx < _segments.Count
+                    && _videoHost?.IpcClient?.IsPaused == true)
+                {
+                    var fseg = _segments[finishedIdx];
+                    double seekRelSec = (finishedMode == SegDragMode.ResizeEnd ? fseg.EndMs : fseg.StartMs) / 1000.0;
+                    _ = SeekInternal(seekRelSec);
+                }
             }
             if (_isDraggingFreezeCamera)
             {
@@ -105,7 +146,7 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble);
 
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "GranularBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "GranularBounds");
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
         _pendingSpeed = baseSpeed;
@@ -134,6 +175,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         this.Loaded += (s, e) => InitializeMpv();
         WireUpControls();
+        WireZoomControls();
         AttachTitleBarDrag();
         RefreshSegmentList();
         UpdateDeleteButtonVisibility();
@@ -369,60 +411,164 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.SizeChanged += (s, e) => RedrawTimeline();
 
             canvas.IsHitTestVisible = true;
+            // Own all pointer input on this band so segment drags never leak through to a seek.
+            canvas.Background = Avalonia.Media.Brushes.Transparent;
+
             canvas.PointerPressed += (s, e) =>
             {
                 double dur = GetDuration();
                 if (dur <= 0) return;
                 double w = canvas.Bounds.Width;
                 if (w <= 0) return;
-                double clickX = e.GetPosition(canvas).X;
-                double clickSec = (clickX / w) * dur;
-                int clickMs = (int)(clickSec * 1000);
+                double totalMs = dur * 1000.0;
+                double msPerPx = totalMs / w;
+                double pointerMs = Math.Clamp(e.GetPosition(canvas).X * msPerPx, 0, totalMs);
+                double edgeMs = 8.0 * msPerPx;
 
-                int foundIdx = -1;
+                int hitIdx = -1;
+                SegDragMode mode = SegDragMode.None;
                 for (int i = 0; i < _segments.Count; i++)
                 {
-                    if (clickMs >= _segments[i].StartMs && clickMs <= _segments[i].EndMs)
-                    {
-                        foundIdx = i;
-                        break;
-                    }
+                    var sg = _segments[i];
+                    if (Math.Abs(pointerMs - sg.StartMs) <= edgeMs) { hitIdx = i; mode = SegDragMode.ResizeStart; break; }
+                    if (Math.Abs(pointerMs - sg.EndMs) <= edgeMs) { hitIdx = i; mode = SegDragMode.ResizeEnd; break; }
+                    if (pointerMs > sg.StartMs && pointerMs < sg.EndMs) { hitIdx = i; mode = SegDragMode.Move; break; }
                 }
 
-                if (foundIdx >= 0)
+                if (hitIdx >= 0 && mode != SegDragMode.None)
                 {
-                    _selectedSegmentIndex = foundIdx;
-                    var seg = _segments[foundIdx];
+                    _selectedSegmentIndex = hitIdx;
+                    var seg = _segments[hitIdx];
                     _pendingSpeed = seg.Speed;
 
                     var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
                     var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
                     if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
                     if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
-
                     UpdateDeleteButtonVisibility();
+
+                    _draggingSegmentIndex = hitIdx;
+                    _segDragMode = mode;
+                    _dragOrigStartMs = seg.StartMs;
+                    _dragOrigEndMs = seg.EndMs;
+                    _dragStartPointerMs = pointerMs;
+                    e.Pointer.Capture(canvas);
+                    SetStatus(mode == SegDragMode.Move
+                        ? $"Moving segment #{hitIdx + 1} — release to set."
+                        : $"Resizing segment #{hitIdx + 1} — release to set.");
+                    UpdateDragReadout(seg.StartMs, seg.EndMs);   // #10 show readout immediately
                     RedrawTimeline();
-                    SetStatus($"Selected segment #{foundIdx + 1}. Change speed to edit it.");
                     e.Handled = true;
+                    return;
                 }
-                else
+
+                if (_isFreezeCameraSelected)
                 {
-                    if (_isFreezeCameraSelected)
-                    {
-                        _isFreezeCameraSelected = false;
-                        _isDraggingFreezeCamera = false;
-                    }
-                    if (_selectedSegmentIndex >= 0)
-                    {
-                        _selectedSegmentIndex = -1;
-                        UpdateDeleteButtonVisibility();
-                        RedrawTimeline();
-                    }
-                    else if (_isFreezeCameraSelected == false)
-                    {
-                        RedrawTimeline();
-                    }
+                    _isFreezeCameraSelected = false;
+                    _isDraggingFreezeCamera = false;
                 }
+                if (_selectedSegmentIndex >= 0)
+                {
+                    _selectedSegmentIndex = -1;
+                    UpdateDeleteButtonVisibility();
+                }
+
+                // Empty area: scrub/seek by driving the underlying timeline slider value.
+                _isCanvasScrubbing = true;
+                e.Pointer.Capture(canvas);
+                var tl = this.FindControl<Slider>("GranularTimeline");
+                if (tl != null) tl.Value = (pointerMs / totalMs) * 1000.0;
+                RedrawTimeline();
+                e.Handled = true;
+            };
+
+            canvas.PointerMoved += (s, e) =>
+            {
+                double dur = GetDuration();
+                if (dur <= 0) return;
+                double w = canvas.Bounds.Width;
+                if (w <= 0) return;
+                double totalMs = dur * 1000.0;
+                double msPerPx = totalMs / w;
+                double pointerMs = Math.Clamp(e.GetPosition(canvas).X * msPerPx, 0, totalMs);
+
+                if (_isCanvasScrubbing)
+                {
+                    var tl = this.FindControl<Slider>("GranularTimeline");
+                    if (tl != null) tl.Value = (pointerMs / totalMs) * 1000.0;
+                    e.Handled = true;
+                    return;
+                }
+
+                if (_draggingSegmentIndex < 0 || _draggingSegmentIndex >= _segments.Count || _segDragMode == SegDragMode.None)
+                    return;
+
+                int idx = _draggingSegmentIndex;
+
+                // Neighbour limits are computed from the ORIGINAL positions so they stay
+                // stable through the drag and enforce the 1000ms gap ("social distance").
+                double lowerBound = 0;
+                double upperBound = totalMs;
+                for (int j = 0; j < _segments.Count; j++)
+                {
+                    if (j == idx) continue;
+                    if (_segments[j].EndMs <= _dragOrigStartMs)
+                        lowerBound = Math.Max(lowerBound, _segments[j].EndMs + SegGapMs);
+                    if (_segments[j].StartMs >= _dragOrigEndMs)
+                        upperBound = Math.Min(upperBound, _segments[j].StartMs - SegGapMs);
+                }
+
+                double newStart = _dragOrigStartMs;
+                double newEnd = _dragOrigEndMs;
+
+                if (_segDragMode == SegDragMode.Move)
+                {
+                    double width = _dragOrigEndMs - _dragOrigStartMs;
+                    double delta = pointerMs - _dragStartPointerMs;
+                    newStart = Math.Clamp(_dragOrigStartMs + delta, lowerBound, upperBound - width);
+                    newEnd = newStart + width;
+                }
+                else if (_segDragMode == SegDragMode.ResizeStart)
+                {
+                    newStart = Math.Clamp(pointerMs, lowerBound, _dragOrigEndMs - SegMinWidthMs);
+                    newEnd = _dragOrigEndMs;
+                }
+                else if (_segDragMode == SegDragMode.ResizeEnd)
+                {
+                    newEnd = Math.Clamp(pointerMs, _dragOrigStartMs + SegMinWidthMs, upperBound);
+                    newStart = _dragOrigStartMs;
+                }
+
+                // #7 Magnetic snapping: pull the moving edge to the playhead, the clip ends, or another block's edge.
+                double snapTol = 8.0 * msPerPx;
+                var snapTl = this.FindControl<Slider>("GranularTimeline");
+                double playheadMs = snapTl != null ? (snapTl.Value / 1000.0) * totalMs : -1;
+                double NearestSnap(double ms)
+                {
+                    double best = ms, bestD = snapTol;
+                    void Try(double t) { if (t < 0) return; double d = Math.Abs(ms - t); if (d < bestD) { bestD = d; best = t; } }
+                    Try(0); Try(totalMs); Try(playheadMs);
+                    for (int j = 0; j < _segments.Count; j++) { if (j == idx) continue; Try(_segments[j].StartMs); Try(_segments[j].EndMs); }
+                    return best;
+                }
+                double segWidth = newEnd - newStart;
+                if (_segDragMode == SegDragMode.Move)
+                {
+                    double sS = NearestSnap(newStart), sE = NearestSnap(newEnd);
+                    if (Math.Abs(sS - newStart) <= Math.Abs(sE - newEnd) && sS != newStart)
+                        { newStart = Math.Clamp(sS, lowerBound, upperBound - segWidth); newEnd = newStart + segWidth; }
+                    else if (sE != newEnd)
+                        { newEnd = Math.Clamp(sE, lowerBound + segWidth, upperBound); newStart = newEnd - segWidth; }
+                }
+                else if (_segDragMode == SegDragMode.ResizeStart)
+                    newStart = Math.Clamp(NearestSnap(newStart), lowerBound, newEnd - SegMinWidthMs);
+                else if (_segDragMode == SegDragMode.ResizeEnd)
+                    newEnd = Math.Clamp(NearestSnap(newEnd), newStart + SegMinWidthMs, upperBound);
+
+                _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
+                UpdateDragReadout(newStart, newEnd);   // #10 live start/end/length badge
+                RedrawTimeline();
+                e.Handled = true;
             };
         }
 
@@ -546,7 +692,7 @@ public partial class GranularSpeedEditorWindow : Window
                 if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
                 {
                     var seg = _segments[_selectedSegmentIndex];
-                    _segments[_selectedSegmentIndex] = new SpeedSegment(seg.StartMs, seg.EndMs, _pendingSpeed);
+                    _segments[_selectedSegmentIndex] = seg with { Speed = _pendingSpeed };
                     RefreshSegmentList();
                     RedrawTimeline();
                 }
@@ -771,7 +917,7 @@ public partial class GranularSpeedEditorWindow : Window
                     if (_trimEndMs > 0 && currentAbsMs > _trimEndMs) currentAbsMs = _trimEndMs;
                     _freezeTimeMs = currentAbsMs;
 
-                    _freezeDurationS = promptPreset ? 1.0 : _selectedFreezePresetS;
+                    _freezeDurationS = promptPreset ? Infrastructure.SettingsManager.Instance.Defaults.DefaultFreezeDurationS : _selectedFreezePresetS;
 
                     var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
                     var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
@@ -857,7 +1003,7 @@ public partial class GranularSpeedEditorWindow : Window
             if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
             {
                 var seg = _segments[_selectedSegmentIndex];
-                _segments[_selectedSegmentIndex] = new SpeedSegment(seg.StartMs, seg.EndMs, s);
+                _segments[_selectedSegmentIndex] = seg with { Speed = s };
                 RefreshSegmentList();
                 RedrawTimeline();
             }
@@ -874,11 +1020,24 @@ public partial class GranularSpeedEditorWindow : Window
         var deleteSegBtn = this.FindControl<Button>("DeleteSegmentBtn");
         var clearAllBtn = this.FindControl<Button>("ClearAllSegmentsBtn");
 
+        bool segSelected = _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count;
+
         if (deleteSegBtn != null)
-            deleteSegBtn.IsVisible = _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count;
+            deleteSegBtn.IsVisible = segSelected;
 
         if (clearAllBtn != null)
             clearAllBtn.IsVisible = _segments.Count > 0;
+
+        // §2 SET ZOOM visibility lock: only when a segment is selected. Losing the selection
+        // also exits any active zoom mode so the draw canvas cannot linger over nothing.
+        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        if (zoomBtn != null)
+        {
+            zoomBtn.IsVisible = segSelected;
+            if (!segSelected && _zoomModeActive) ExitZoomMode();
+        }
+        // Reflect the newly-selected segment's SLOW/INSTANT zoom mode in the checkboxes.
+        SyncZoomModeChecksFromSegment();
     }
 
     private void AddPendingSegment()
@@ -952,9 +1111,9 @@ public partial class GranularSpeedEditorWindow : Window
 
             var info = new TextBlock
             {
-                Text = $"#{idx + 1}  {FormatMs(seg.StartMs)} → {FormatMs(seg.EndMs)}\n{seg.Speed:0.0}x speed",
+                Text = $"#{idx + 1}  {FormatMs(seg.StartMs)} → {FormatMs(seg.EndMs)}\n{seg.Speed:0.0}x speed{(seg.ZoomW.HasValue ? "  [ZOOMED]" : "")}",
                 Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#e2e8f0")),
-                FontSize = 10.5,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(10.5),
                 FontFamily = new Avalonia.Media.FontFamily("Consolas"),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
@@ -964,7 +1123,7 @@ public partial class GranularSpeedEditorWindow : Window
                 Content = "✕",
                 Width = 26,
                 Height = 26,
-                FontSize = 11,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(11),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#7f1d1d")),
@@ -1149,14 +1308,22 @@ public partial class GranularSpeedEditorWindow : Window
             "absolute");
     }
 
+    // ISSUE_07: coalesce redraw requests — PointerMoved can fire several times per UI
+    // frame during drags; without this guard each move queued a FULL canvas rebuild.
+    private bool _redrawQueued;
+
     private void RedrawTimeline()
     {
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
         var scaleCanvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineScaleCanvas");
         if (canvas == null) return;
 
+        if (_redrawQueued) return;
+        _redrawQueued = true;
+
         Dispatcher.UIThread.Post(() =>
         {
+            _redrawQueued = false;
             canvas.Children.Clear();
             scaleCanvas?.Children.Clear();
             double dur = GetDuration();
@@ -1183,6 +1350,24 @@ public partial class GranularSpeedEditorWindow : Window
                 Avalonia.Controls.Canvas.SetTop(rect, 0);
                 canvas.Children.Add(rect);
 
+                // §5 Timeline feedback: a high-contrast magnifier centered on a zoomed block
+                // (does NOT alter the speed color coding).
+                if (seg.ZoomW.HasValue)
+                {
+                    double segW = Math.Max(2, x2 - x1);
+                    var zoomIcon = new TextBlock
+                    {
+                        Text = "🔍",
+                        FontSize = Infrastructure.ThemeManager.ScaledFontSize(12),
+                        Foreground = Avalonia.Media.Brushes.White,
+                        IsHitTestVisible = false
+                    };
+                    zoomIcon.Measure(Avalonia.Size.Infinity);
+                    Avalonia.Controls.Canvas.SetLeft(zoomIcon, x1 + Math.Max(0, (segW - zoomIcon.DesiredSize.Width) / 2));
+                    Avalonia.Controls.Canvas.SetTop(zoomIcon, Math.Max(0, (h - zoomIcon.DesiredSize.Height) / 2));
+                    canvas.Children.Add(zoomIcon);
+                }
+
                 if (isSelected)
                 {
                     var antsBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047"));
@@ -1202,6 +1387,12 @@ public partial class GranularSpeedEditorWindow : Window
                     Avalonia.Controls.Canvas.SetTop(borderRect, 0);
                     canvas.Children.Add(borderRect);
                     _selectedSegmentBorderRef = borderRect;
+
+                    // Selected segment gets Main-App-style grabbable START/END trim
+                    // markers (copied from MainWindow's trim marker method) so its
+                    // total length AND position can be edited directly.
+                    AddSegmentEdgeMarker(canvas, i, isStart: true,  markerX: x1, h: h, canvasWidth: w, durationSeconds: dur);
+                    AddSegmentEdgeMarker(canvas, i, isStart: false, markerX: x2, h: h, canvasWidth: w, durationSeconds: dur);
                 }
                 else
                 {
@@ -1236,7 +1427,7 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"),
                     Foreground = Avalonia.Media.Brushes.White,
-                    FontSize = 9,
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(9),
                     Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 0, 0, 0)),
                     Padding = new Thickness(2, 0),
                     IsHitTestVisible = false
@@ -1298,9 +1489,609 @@ public partial class GranularSpeedEditorWindow : Window
         });
     }
 
+    /// <summary>
+    /// Grabbable vertical edge marker for the SELECTED speed segment — visual and drag
+    /// behavior copied from the Main App's MARK START/END trim markers (24px hitbox,
+    /// 3px SeaGreen stick, SizeWestEast cursor, hover highlight).
+    /// The press routes into the EXISTING segment drag pipeline (ResizeStart/ResizeEnd,
+    /// capture to the canvas), so the 1000ms neighbour gap, 200ms minimum width, the
+    /// RuntimeLog "settled" entry, status text, segment list refresh, live preview
+    /// speed mapping, Main App recovery persistence on Accept, and the FFmpeg export
+    /// all flow through the exact same code path as block-edge resizing.
+    /// </summary>
+    private void AddSegmentEdgeMarker(Avalonia.Controls.Canvas canvas, int segIndex, bool isStart, double markerX, double h, double canvasWidth, double durationSeconds)
+    {
+        var hitBox = new Avalonia.Controls.Border
+        {
+            Width = 24,
+            Height = h,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
+            ZIndex = 110
+        };
+        var stick = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Fill = Avalonia.Media.Brushes.SeaGreen,
+            Width = 3,
+            Height = h,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        hitBox.Child = stick;
+        ToolTip.SetTip(hitBox, isStart
+            ? "Drag left/right to move this segment's START"
+            : "Drag left/right to move this segment's END");
+
+        Avalonia.Controls.Canvas.SetLeft(hitBox, markerX - 12);
+        Avalonia.Controls.Canvas.SetTop(hitBox, 0);
+
+        hitBox.PointerEntered += (_, _) => { hitBox.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(40, 46, 139, 87)); stick.Fill = Avalonia.Media.Brushes.MediumSeaGreen; };
+        hitBox.PointerExited += (_, _) => { hitBox.Background = Avalonia.Media.Brushes.Transparent; stick.Fill = Avalonia.Media.Brushes.SeaGreen; };
+
+        hitBox.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) return;
+            if (segIndex < 0 || segIndex >= _segments.Count) return;
+            var seg = _segments[segIndex];
+
+            _selectedSegmentIndex = segIndex;
+            _draggingSegmentIndex = segIndex;
+            _segDragMode = isStart ? SegDragMode.ResizeStart : SegDragMode.ResizeEnd;
+            _dragOrigStartMs = seg.StartMs;
+            _dragOrigEndMs = seg.EndMs;
+            double totalMs = durationSeconds * 1000.0;
+            _dragStartPointerMs = canvasWidth > 0
+                ? Math.Clamp((e.GetPosition(canvas).X / canvasWidth) * totalMs, 0, totalMs)
+                : 0;
+
+            // Capture to the CANVAS: the existing canvas.PointerMoved clamp/gap logic
+            // drives the drag, and the window-level PointerReleased commit fires.
+            e.Pointer.Capture(canvas);
+            SetStatus($"Resizing segment #{segIndex + 1} — release to set.");
+            e.Handled = true;
+        };
+
+        canvas.Children.Add(hitBox);
+    }
+
+    // ===================== §2–§6 Granular Segment Zoom-In =====================
+    private bool _zoomModeActive;
+    private enum ZoomDrag { None, Draw, Move, ResizeTL, ResizeTR, ResizeBL, ResizeBR }
+    private ZoomDrag _zoomDrag = ZoomDrag.None;
+    private Avalonia.Point _zoomDragStart;
+    private Avalonia.Rect _zoomStartRect;
+    private Avalonia.Rect _zoomUiRect;
+    private bool _hasZoomBox;
+    private readonly Avalonia.Controls.Shapes.Rectangle[] _zoomDim = new Avalonia.Controls.Shapes.Rectangle[4];
+    private Avalonia.Controls.Shapes.Rectangle? _zoomBoxRect;
+    private readonly Avalonia.Controls.Shapes.Rectangle[] _zoomHandles = new Avalonia.Controls.Shapes.Rectangle[4];
+    private Avalonia.Controls.Border? _zoomTutorial;
+    private DispatcherTimer? _zoomTutorialTimer;
+    private const double ZoomHandlePx = 16;           // §7A: corner grab tolerance (hitbox) — unchanged
+    private const double ZoomHandleVisualPx = 13.6;   // §7A: drawn ~15% smaller than the hitbox
+    private const double ZoomFloorW = 240.0;   // §4 absolute floor, measured in SOURCE pixels (was 320 → allows a tighter punch-in)
+    private const double ZoomFloorH = 135.0;   // keeps 16:9 (240x135); on 1920-wide source this permits ~8x max zoom (was ~6x)
+
+    // width / height. Mobile locks 2:3 (matches the portrait content area); else 16:9.
+    private double ZoomAspect => _isMobileFormat ? (2.0 / 3.0) : (16.0 / 9.0);
+
+    private void WireZoomControls()
+    {
+        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        if (zoomBtn != null) zoomBtn.Click += (_, __) => ToggleZoomMode();
+
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        if (canvas != null)
+        {
+            canvas.PointerPressed += ZoomCanvas_PointerPressed;
+            canvas.PointerMoved += ZoomCanvas_PointerMoved;
+            canvas.PointerReleased += ZoomCanvas_PointerReleased;
+        }
+
+        // SLOW / INSTANT ramp-mode selector: mutually exclusive, INSTANT default (XAML), one always on.
+        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
+        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        if (slowCb != null) slowCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: true);
+        if (instCb != null) instCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: false);
+
+        // #8 Help overlay open/close (also closes when the dim background is clicked).
+        var helpBtn = this.FindControl<Button>("HelpButton");
+        var helpClose = this.FindControl<Button>("HelpCloseButton");
+        var helpOverlay = this.FindControl<Avalonia.Controls.Grid>("HelpOverlay");
+        if (helpBtn != null) helpBtn.Click += (_, __) => { if (helpOverlay != null) helpOverlay.IsVisible = true; };
+        if (helpClose != null) helpClose.Click += (_, __) => { if (helpOverlay != null) helpOverlay.IsVisible = false; };
+        if (helpOverlay != null)
+            helpOverlay.PointerPressed += (s, e) => { if (ReferenceEquals(e.Source, helpOverlay)) helpOverlay.IsVisible = false; };
+
+        // Initialise the SLOW/INSTANT checkboxes from the global Settings default.
+        SyncZoomModeChecksFromSegment();
+
+        // #1 Show the fake mobile phone frame only when the Main App Portrait mode is on.
+        var portraitGrid = this.FindControl<Avalonia.Controls.Grid>("GranularPortraitDimmingGrid");
+        if (portraitGrid != null) portraitGrid.IsVisible = _isMobileFormat;
+    }
+
+    // #10 Live drag readout badge.
+    private void UpdateDragReadout(double startMs, double endMs)
+    {
+        var badge = this.FindControl<Border>("DragReadoutBadge");
+        var txt = this.FindControl<TextBlock>("DragReadoutText");
+        if (badge == null || txt == null) return;
+        double lenS = Math.Max(0, endMs - startMs) / 1000.0;
+        txt.Text = $"Start {FormatMs(startMs)}    End {FormatMs(endMs)}    Length {lenS:0.00}s";
+        badge.IsVisible = true;
+    }
+
+    private void HideDragReadout()
+    {
+        var badge = this.FindControl<Border>("DragReadoutBadge");
+        if (badge != null) badge.IsVisible = false;
+    }
+
+    private bool _syncingZoomChecks;
+
+    /// <summary>true when the user has selected the SLOW (gradual) zoom ramp; false = INSTANT.</summary>
+    private bool ZoomSlowSelected => this.FindControl<CheckBox>("SlowZoomCheck")?.IsChecked == true;
+
+    private void OnZoomModeChanged(bool fromSlow)
+    {
+        if (_syncingZoomChecks) return;
+        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
+        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        if (slowCb == null || instCb == null) return;
+
+        // Whichever box the user just toggled decides the mode; then force exactly-one-checked.
+        bool slow = fromSlow ? (slowCb.IsChecked == true) : (instCb.IsChecked != true);
+        _syncingZoomChecks = true;
+        slowCb.IsChecked = slow;
+        instCb.IsChecked = !slow;
+        _syncingZoomChecks = false;
+
+        // Live-apply to the selected segment if it already has a zoom box.
+        if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+        {
+            var seg = _segments[_selectedSegmentIndex];
+            if (seg.ZoomW.HasValue && seg.ZoomSlow != slow)
+            {
+                _segments[_selectedSegmentIndex] = seg with { ZoomSlow = slow };
+                RuntimeLog.Info("Granular", $"Zoom ramp mode → {(slow ? "SLOW" : "INSTANT")} on segment #{_selectedSegmentIndex + 1}.");
+                RefreshSegmentList();
+                RedrawTimeline();
+            }
+        }
+    }
+
+    /// <summary>Reflect the ramp mode into the checkboxes: an existing zoom keeps its own mode;
+    /// a segment with no zoom yet (or no selection) shows the global Settings default.</summary>
+    private void SyncZoomModeChecksFromSegment()
+    {
+        bool slow;
+        if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count
+            && _segments[_selectedSegmentIndex].ZoomW.HasValue)
+            slow = _segments[_selectedSegmentIndex].ZoomSlow;
+        else
+            slow = Infrastructure.SettingsManager.Instance.Defaults.DefaultZoomSlow;
+        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
+        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        _syncingZoomChecks = true;
+        if (slowCb != null) slowCb.IsChecked = slow;
+        if (instCb != null) instCb.IsChecked = !slow;
+        _syncingZoomChecks = false;
+    }
+
+    /// <summary>The video's actual letterboxed rect inside the overlay canvas (aspect-fit).</summary>
+    private Avalonia.Rect GetVideoDisplayRect(Avalonia.Controls.Canvas canvas)
+    {
+        var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        double srcAspect = sh > 0 ? (double)sw / sh : 16.0 / 9.0;
+        double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
+        if (cw <= 1 || ch <= 1) return new Avalonia.Rect(0, 0, Math.Max(1, cw), Math.Max(1, ch));
+        double vidW, vidH;
+        if (cw / ch > srcAspect) { vidH = ch; vidW = ch * srcAspect; }
+        else { vidW = cw; vidH = cw / srcAspect; }
+        return new Avalonia.Rect((cw - vidW) / 2.0, (ch - vidH) / 2.0, vidW, vidH);
+    }
+
+    private void ToggleZoomMode()
+    {
+        if (_selectedSegmentIndex < 0 || _selectedSegmentIndex >= _segments.Count) return;
+        if (_zoomModeActive) ExitZoomMode();
+        else EnterZoomMode();
+    }
+
+    private void EnterZoomMode()
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        if (canvas == null) return;
+
+        _zoomModeActive = true;
+        EnsureZoomVisuals(canvas);
+        canvas.IsVisible = true;
+        canvas.IsHitTestVisible = true; // editing needs pointer capture
+
+        if (zoomBtn != null)
+        {
+            zoomBtn.Content = "APPLY ZOOM-IN";
+            zoomBtn.Classes.Remove("Primary");
+            if (!zoomBtn.Classes.Contains("Success")) zoomBtn.Classes.Add("Success");
+        }
+
+        // Pre-populate from the selected segment's existing zoom (map source px -> UI).
+        var seg = _segments[_selectedSegmentIndex];
+        var vid = GetVideoDisplayRect(canvas);
+        var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        if (seg.ZoomW.HasValue && seg.ZoomH.HasValue && seg.ZoomX.HasValue && seg.ZoomY.HasValue && sw > 0 && sh > 0)
+        {
+            double sx = vid.Width / sw, sy = vid.Height / sh;
+            _zoomUiRect = new Avalonia.Rect(vid.X + seg.ZoomX.Value * sx, vid.Y + seg.ZoomY.Value * sy,
+                                            seg.ZoomW.Value * sx, seg.ZoomH.Value * sy);
+            _hasZoomBox = true;
+        }
+        else { _hasZoomBox = false; }
+
+        RenderZoomBox();
+        MaybeShowZoomTutorial(canvas);
+        SetStatus("Zoom: click-drag to draw a box; drag center to pan, corners to resize.");
+    }
+
+    private void ExitZoomMode()
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        _zoomModeActive = false;
+        _zoomDrag = ZoomDrag.None;
+        if (canvas != null) canvas.IsVisible = false;
+        HideZoomTutorial();
+        if (zoomBtn != null)
+        {
+            zoomBtn.Content = "ZOOM-IN";
+            zoomBtn.Classes.Remove("Success");
+            if (!zoomBtn.Classes.Contains("Primary")) zoomBtn.Classes.Add("Primary");
+        }
+    }
+
+    private void EnsureZoomVisuals(Avalonia.Controls.Canvas canvas)
+    {
+        if (_zoomBoxRect != null) return;
+        var dimBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000"));
+        for (int i = 0; i < 4; i++)
+        {
+            _zoomDim[i] = new Avalonia.Controls.Shapes.Rectangle { Fill = dimBrush, IsHitTestVisible = false };
+            canvas.Children.Add(_zoomDim[i]);
+        }
+        _zoomBoxRect = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047")),
+            StrokeThickness = 2,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 4, 3 },
+            Fill = Avalonia.Media.Brushes.Transparent,
+            IsHitTestVisible = false
+        };
+        canvas.Children.Add(_zoomBoxRect);
+        for (int i = 0; i < 4; i++)
+        {
+            _zoomHandles[i] = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Width = ZoomHandleVisualPx, Height = ZoomHandleVisualPx,
+                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#1e40af")), // §7A dark blue
+                Stroke = Avalonia.Media.Brushes.White, StrokeThickness = 1.5, IsHitTestVisible = false
+            };
+            canvas.Children.Add(_zoomHandles[i]);
+        }
+    }
+
+    private void RenderZoomBox()
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        if (canvas == null || _zoomBoxRect == null) return;
+        double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
+
+        if (!_hasZoomBox)
+        {
+            _zoomBoxRect.IsVisible = false;
+            foreach (var h in _zoomHandles) h.IsVisible = false;
+            for (int i = 0; i < 4; i++) if (_zoomDim[i] != null) { _zoomDim[i].Width = 0; _zoomDim[i].Height = 0; }
+            return;
+        }
+
+        var r = _zoomUiRect;
+        _zoomBoxRect.IsVisible = true;
+        _zoomBoxRect.Width = r.Width; _zoomBoxRect.Height = r.Height;
+        Avalonia.Controls.Canvas.SetLeft(_zoomBoxRect, r.X);
+        Avalonia.Controls.Canvas.SetTop(_zoomBoxRect, r.Y);
+
+        // Four dim panels around the box (spotlight cutout).
+        void Dim(int i, double x, double y, double w, double h)
+        {
+            var d = _zoomDim[i]; if (d == null) return;
+            d.Width = Math.Max(0, w); d.Height = Math.Max(0, h);
+            Avalonia.Controls.Canvas.SetLeft(d, x); Avalonia.Controls.Canvas.SetTop(d, y);
+        }
+        Dim(0, 0, 0, cw, r.Y);                          // top
+        Dim(1, 0, r.Bottom, cw, ch - r.Bottom);         // bottom
+        Dim(2, 0, r.Y, r.X, r.Height);                  // left
+        Dim(3, r.Right, r.Y, cw - r.Right, r.Height);   // right
+
+        var corners = new[] { new Avalonia.Point(r.X, r.Y), new Avalonia.Point(r.Right, r.Y),
+                              new Avalonia.Point(r.X, r.Bottom), new Avalonia.Point(r.Right, r.Bottom) };
+        for (int i = 0; i < 4; i++)
+        {
+            _zoomHandles[i].IsVisible = true;
+            Avalonia.Controls.Canvas.SetLeft(_zoomHandles[i], corners[i].X - ZoomHandleVisualPx / 2);
+            Avalonia.Controls.Canvas.SetTop(_zoomHandles[i], corners[i].Y - ZoomHandleVisualPx / 2);
+        }
+    }
+
+    private void ZoomCanvas_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    {
+        if (!_zoomModeActive || sender is not Avalonia.Controls.Canvas canvas) return;
+        if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) return;
+        HideZoomTutorial(); // §3: dismiss the tutorial the instant the user presses.
+
+        var p = e.GetPosition(canvas);
+        _zoomDragStart = p;
+        _zoomStartRect = _zoomUiRect;
+
+        if (_hasZoomBox)
+        {
+            var r = _zoomUiRect;
+            double hz = ZoomHandlePx;
+            bool NearCorner(Avalonia.Point c) => Math.Abs(p.X - c.X) <= hz && Math.Abs(p.Y - c.Y) <= hz;
+            if (NearCorner(new Avalonia.Point(r.X, r.Y))) _zoomDrag = ZoomDrag.ResizeTL;
+            else if (NearCorner(new Avalonia.Point(r.Right, r.Y))) _zoomDrag = ZoomDrag.ResizeTR;
+            else if (NearCorner(new Avalonia.Point(r.X, r.Bottom))) _zoomDrag = ZoomDrag.ResizeBL;
+            else if (NearCorner(new Avalonia.Point(r.Right, r.Bottom))) _zoomDrag = ZoomDrag.ResizeBR;
+            else if (r.Contains(p)) { _zoomDrag = ZoomDrag.Move; canvas.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand); }
+            else _zoomDrag = ZoomDrag.Draw;
+        }
+        else _zoomDrag = ZoomDrag.Draw;
+
+        e.Pointer.Capture(canvas);
+        e.Handled = true;
+    }
+
+    /// <summary>§7B/§7C: cursor to show while hovering (not dragging) the zoom rubber-band.</summary>
+    private Avalonia.Input.StandardCursorType ZoomHoverCursor(Avalonia.Point p)
+    {
+        if (_hasZoomBox)
+        {
+            var r = _zoomUiRect;
+            double hz = ZoomHandlePx;
+            bool Near(Avalonia.Point c) => Math.Abs(p.X - c.X) <= hz && Math.Abs(p.Y - c.Y) <= hz;
+            // Corners → the universal diagonal resize cursors.
+            if (Near(new Avalonia.Point(r.X, r.Y)) || Near(new Avalonia.Point(r.Right, r.Bottom)))
+                return Avalonia.Input.StandardCursorType.TopLeftCorner;   // ↖↘
+            if (Near(new Avalonia.Point(r.Right, r.Y)) || Near(new Avalonia.Point(r.X, r.Bottom)))
+                return Avalonia.Input.StandardCursorType.TopRightCorner;  // ↗↙
+            // Inside → draggable (hand).
+            if (r.Contains(p)) return Avalonia.Input.StandardCursorType.Hand;
+        }
+        return Avalonia.Input.StandardCursorType.Cross; // empty space → draw a new box
+    }
+
+    private void ZoomCanvas_PointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
+    {
+        if (!_zoomModeActive || sender is not Avalonia.Controls.Canvas canvas) return;
+
+        // §7B/§7C: when not actively dragging, give live cursor feedback so the user can tell
+        // the box centre is draggable (hand) and the corners are resizable (diagonal arrows).
+        if (_zoomDrag == ZoomDrag.None)
+        {
+            canvas.Cursor = new Avalonia.Input.Cursor(ZoomHoverCursor(e.GetPosition(canvas)));
+            return;
+        }
+
+        var vid = GetVideoDisplayRect(canvas);
+        var p = e.GetPosition(canvas);
+        double aspect = ZoomAspect;
+
+        // Minimum UI size derived from the SOURCE-pixel floor (keeps both 320w and 180h satisfied under aspect lock).
+        double scale = vid.Width / Math.Max(1, GetSourceW());
+        double minW = Math.Max(ZoomFloorW, ZoomFloorH * aspect) * scale;
+        double minH = minW / aspect;
+
+        if (_zoomDrag == ZoomDrag.Draw || _zoomDrag == ZoomDrag.ResizeBR || _zoomDrag == ZoomDrag.ResizeTR
+            || _zoomDrag == ZoomDrag.ResizeBL || _zoomDrag == ZoomDrag.ResizeTL)
+        {
+            // Anchor = the corner opposite the one being dragged (Draw anchors at the press point).
+            Avalonia.Point anchor = _zoomDrag switch
+            {
+                ZoomDrag.ResizeBR => _zoomStartRect.TopLeft,
+                ZoomDrag.ResizeTR => new Avalonia.Point(_zoomStartRect.X, _zoomStartRect.Bottom),
+                ZoomDrag.ResizeBL => new Avalonia.Point(_zoomStartRect.Right, _zoomStartRect.Y),
+                ZoomDrag.ResizeTL => _zoomStartRect.BottomRight,
+                _ => _zoomDragStart
+            };
+            double w = Math.Abs(p.X - anchor.X);
+            double h = w / aspect;
+            if (w < minW) { w = minW; h = minH; }
+            double x = p.X >= anchor.X ? anchor.X : anchor.X - w;
+            double y = p.Y >= anchor.Y ? anchor.Y : anchor.Y - h;
+            _zoomUiRect = ClampToVideo(new Avalonia.Rect(x, y, w, h), vid, aspect, minW, minH);
+            _hasZoomBox = true;
+        }
+        else if (_zoomDrag == ZoomDrag.Move)
+        {
+            double dx = p.X - _zoomDragStart.X, dy = p.Y - _zoomDragStart.Y;
+            double nx = Math.Clamp(_zoomStartRect.X + dx, vid.X, vid.Right - _zoomStartRect.Width);
+            double ny = Math.Clamp(_zoomStartRect.Y + dy, vid.Y, vid.Bottom - _zoomStartRect.Height);
+            _zoomUiRect = new Avalonia.Rect(nx, ny, _zoomStartRect.Width, _zoomStartRect.Height);
+        }
+
+        RenderZoomBox();
+        e.Handled = true;
+    }
+
+    private void ZoomCanvas_PointerReleased(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        if (sender is Avalonia.Controls.Canvas canvas) { e.Pointer.Capture(null); canvas.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Cross); }
+        if (!_zoomModeActive) return;
+        bool wasDraw = _zoomDrag == ZoomDrag.Draw;
+        bool wasResize = _zoomDrag is ZoomDrag.ResizeTL or ZoomDrag.ResizeTR or ZoomDrag.ResizeBL or ZoomDrag.ResizeBR;
+        _zoomDrag = ZoomDrag.None;
+        if (!_hasZoomBox) return;
+        CommitZoomToSegment(wasDraw ? "Created" : wasResize ? "Resized" : "Moved");
+        e.Handled = true;
+    }
+
+    /// <summary>Clamp a candidate box into the video rect, preserving aspect and floor.</summary>
+    private Avalonia.Rect ClampToVideo(Avalonia.Rect r, Avalonia.Rect vid, double aspect, double minW, double minH)
+    {
+        double w = Math.Min(r.Width, vid.Width);
+        double h = w / aspect;
+        if (h > vid.Height) { h = vid.Height; w = h * aspect; }
+        if (w < minW) { w = minW; h = minH; }
+        double x = Math.Clamp(r.X, vid.X, vid.Right - w);
+        double y = Math.Clamp(r.Y, vid.Y, vid.Bottom - h);
+        return new Avalonia.Rect(x, y, w, h);
+    }
+
+    private int GetSourceW() => FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution).w;
+
+    private static int Even(int v) => v % 2 == 0 ? v : v - 1;
+
+    private void CommitZoomToSegment(string action)
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        if (canvas == null || _selectedSegmentIndex < 0 || _selectedSegmentIndex >= _segments.Count) return;
+        var vid = GetVideoDisplayRect(canvas);
+        var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        if (vid.Width < 1 || vid.Height < 1 || sw <= 0 || sh <= 0) return;
+
+        double sx = sw / vid.Width, sy = sh / vid.Height;
+        int zx = Even(Math.Clamp((int)Math.Round((_zoomUiRect.X - vid.X) * sx), 0, sw - 2));
+        int zy = Even(Math.Clamp((int)Math.Round((_zoomUiRect.Y - vid.Y) * sy), 0, sh - 2));
+        int zw = Even(Math.Clamp((int)Math.Round(_zoomUiRect.Width * sx), 2, sw - zx));
+        int zh = Even(Math.Clamp((int)Math.Round(_zoomUiRect.Height * sy), 2, sh - zy));
+
+        // §6 Absolute Sync Guarantee: destructively overwrite the segment so FFmpeg always sees the latest box.
+        var seg = _segments[_selectedSegmentIndex];
+        bool slow = ZoomSlowSelected;
+        _segments[_selectedSegmentIndex] = seg with
+        {
+            ZoomX = zx, ZoomY = zy, ZoomW = zw, ZoomH = zh, ZoomOrigRes = $"{sw}x{sh}", ZoomSlow = slow
+        };
+
+        RuntimeLog.Info("Granular", $"Zoom {action} on segment #{_selectedSegmentIndex + 1} (start {FormatMs(seg.StartMs)}): X={zx} Y={zy} W={zw} H={zh} src={sw}x{sh} mobile={_isMobileFormat} ramp={(slow ? "SLOW" : "INSTANT")}.");
+        RefreshSegmentList();
+        RedrawTimeline();
+    }
+
+    // ---- §3 Onboarding tutorial (show at most 3 times, ever) ----
+    private static string ZoomTutorialCounterPath()
+        => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "FortniteVideoSoftware", "Settings", "zoom_tutorial.txt");
+
+    private static int ReadZoomTutorialCount()
+    {
+        try { return int.TryParse(System.IO.File.ReadAllText(ZoomTutorialCounterPath()).Trim(), out int n) ? n : 0; }
+        catch { return 0; }
+    }
+
+    private static void WriteZoomTutorialCount(int n)
+    {
+        try
+        {
+            string path = ZoomTutorialCounterPath();
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            System.IO.File.WriteAllText(path, n.ToString());
+        }
+        catch { }
+    }
+
+    private void MaybeShowZoomTutorial(Avalonia.Controls.Canvas canvas)
+    {
+        if (ReadZoomTutorialCount() >= 5) return;
+        WriteZoomTutorialCount(ReadZoomTutorialCount() + 1);
+
+        if (_zoomTutorial == null)
+        {
+            _zoomTutorial = new Avalonia.Controls.Border
+            {
+                Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#B0000000")),
+                BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047")),
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(20, 12),
+                IsHitTestVisible = false,
+                Child = new TextBlock
+                {
+                    Text = "CLICK AND DRAG TO DRAW ZOOM BOX",
+                    Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#fde047")),
+                    FontWeight = Avalonia.Media.FontWeight.Bold,
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(16)
+                }
+            };
+            canvas.Children.Add(_zoomTutorial);
+        }
+        _zoomTutorial.IsVisible = true;
+        _zoomTutorial.Opacity = 1;
+
+        // The overlay canvas was just switched from collapsed to visible, so canvas.Bounds is
+        // still 0 synchronously here; combined with the canvas's ClipToBounds this clipped the
+        // banner to nothing (why the tutorial appeared to never show). Measure/position it and
+        // start the dismiss countdown AFTER the next layout pass, when Bounds is real.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_zoomTutorial == null || !_zoomModeActive) return;
+            _zoomTutorial.Measure(Avalonia.Size.Infinity);
+            double tw = _zoomTutorial.DesiredSize.Width, th = _zoomTutorial.DesiredSize.Height;
+            Avalonia.Controls.Canvas.SetLeft(_zoomTutorial, Math.Max(0, (canvas.Bounds.Width - tw) / 2));
+            Avalonia.Controls.Canvas.SetTop(_zoomTutorial, Math.Max(0, (canvas.Bounds.Height - th) / 2));
+
+            _zoomTutorialTimer?.Stop();
+            _zoomTutorialTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.5) };
+            _zoomTutorialTimer.Tick += (_, __) => HideZoomTutorial();
+            _zoomTutorialTimer.Start();
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void HideZoomTutorial()
+    {
+        _zoomTutorialTimer?.Stop();
+        _zoomTutorialTimer = null;
+        if (_zoomTutorial != null) { _zoomTutorial.IsVisible = false; }
+    }
+
+    /// <summary>§5 Live playhead sync: show the yellow box only while the caret is inside a zoomed segment.</summary>
+    private void UpdateZoomPlayheadOverlay()
+    {
+        if (_zoomModeActive) return; // editing takes precedence
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        if (canvas == null || _videoHost?.IpcClient == null) return;
+
+        double tRelMs = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
+        SpeedSegment? active = null;
+        foreach (var s in _segments)
+            if (s.ZoomW.HasValue && tRelMs >= s.StartMs && tRelMs <= s.EndMs) { active = s; break; }
+
+        if (active == null) { if (canvas.IsVisible) { canvas.IsVisible = false; } return; }
+
+        EnsureZoomVisuals(canvas);
+        var vid = GetVideoDisplayRect(canvas);
+        var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        if (sw <= 0 || sh <= 0) return;
+        double scx = vid.Width / sw, scy = vid.Height / sh;
+        _zoomUiRect = new Avalonia.Rect(vid.X + active.ZoomX!.Value * scx, vid.Y + active.ZoomY!.Value * scy,
+                                        active.ZoomW!.Value * scx, active.ZoomH!.Value * scy);
+        _hasZoomBox = true;
+        canvas.IsVisible = true;
+        canvas.IsHitTestVisible = false; // read-only preview must not swallow pointer input
+        RenderZoomBox();
+        foreach (var h in _zoomHandles) h.IsVisible = false; // read-only preview: no handles
+    }
+
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
+
+        // Keep the source resolution exact from mpv itself (most reliable) for zoom coordinate mapping.
+        if (_videoHost.IpcClient.VideoWidth > 0 && _videoHost.IpcClient.VideoHeight > 0)
+        {
+            string liveRes = $"{_videoHost.IpcClient.VideoWidth}x{_videoHost.IpcClient.VideoHeight}";
+            if (liveRes != _originalResolution) _originalResolution = liveRes;
+        }
+        UpdateZoomPlayheadOverlay();
 
         double t = _videoHost.IpcClient.CurrentTime;
         double fullDur = _videoHost.IpcClient.Duration;
@@ -1514,121 +2305,23 @@ public partial class GranularSpeedEditorWindow : Window
 
         e.Cancel = true;
         FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
-
-        try
-        {
-            string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
-            string settingsDir = System.IO.Path.Combine(appData, "FortniteVideoSoftware", "Settings");
-            System.IO.Directory.CreateDirectory(settingsDir);
-            string boundsFile = System.IO.Path.Combine(settingsDir, "Bounds.json");
-            
-            var state = System.IO.File.Exists(boundsFile)
-                ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(boundsFile)) ?? new System.Text.Json.Nodes.JsonObject()
-                : new System.Text.Json.Nodes.JsonObject();
-
-            state["GranularWidth"] = this.Bounds.Width;
-            state["GranularHeight"] = this.Bounds.Height;
-            state["GranularX"] = this.Position.X;
-            state["GranularY"] = this.Position.Y;
-
-            System.IO.File.WriteAllText(boundsFile, state.ToJsonString());
-        }
-        catch { }
+        // ISSUE_03: legacy second write to Bounds.json (keys GranularWidth/Height/X/Y)
+        // removed — nothing ever read those keys, and the raw File.WriteAllText raced
+        // the mutexed atomic SessionState store that SaveBoundsSync (above) uses.
 
         this.Hide();
 
-        RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds async.");
+        RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
         _playbackTimer?.Stop();
-        _marchingAntsTimer?.Stop();
 
-        try
-        {
-
-
-            if (_videoHost?.IpcClient != null)
-            {
-                await _videoHost.IpcClient.SendCommandAsync("stop");
-            }
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Fail("Granular", $"Error saving state during close: {ex.Message}");
-        }
-        finally
-        {
-            _isSafeToClose = true;
-            this.Close();
-        }
-    }
-
-    
-    private void OnGlobalMasterVolumeChanged(int volume)
-    {
-        if (_videoHost?.IpcClient != null)
-        {
-            _ = _videoHost.IpcClient.SetPropertyAsync("volume", volume.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-    }
-
-    protected override async void OnOpened(EventArgs e)
-    {
-        base.OnOpened(e);
-        
-        try
-        {
-            string appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
-            string settingsDir = System.IO.Path.Combine(appData, "FortniteVideoSoftware", "Settings");
-            string boundsFile = System.IO.Path.Combine(settingsDir, "Bounds.json");
-            
-            double targetW = 1600;
-            double targetH = 840;
-            double targetX = double.NaN;
-            double targetY = double.NaN;
-
-            if (System.IO.File.Exists(boundsFile))
-            {
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(boundsFile));
-                if (state != null)
-                {
-                    targetW = state["GranularWidth"]?.GetValue<double>() ?? targetW;
-                    targetH = state["GranularHeight"]?.GetValue<double>() ?? targetH;
-                    targetX = state["GranularX"]?.GetValue<double>() ?? double.NaN;
-                    targetY = state["GranularY"]?.GetValue<double>() ?? double.NaN;
-                }
-            }
-
-            var screens = this.Screens.All.ToList();
-            var screen = !double.IsNaN(targetX) && !double.IsNaN(targetY)
-                ? screens.FirstOrDefault(s => s.WorkingArea.Intersects(new Avalonia.PixelRect((int)targetX, (int)targetY, Math.Max(1, (int)Math.Ceiling(targetW)), Math.Max(1, (int)Math.Ceiling(targetH)))))
-                : null;
-            screen ??= this.Screens.ScreenFromVisual(this) ?? this.Screens.Primary ?? screens.FirstOrDefault();
-            if (screen != null)
-            {
-                double workW = screen.WorkingArea.Width;
-                double workH = screen.WorkingArea.Height;
-                targetW = System.Math.Min(System.Math.Max(320, targetW), System.Math.Max(1, workW - 40));
-                targetH = System.Math.Min(System.Math.Max(240, targetH), System.Math.Max(1, workH - 40));
-
-                this.Width = targetW;
-                this.Height = targetH;
-                
-                if (!double.IsNaN(targetX) && !double.IsNaN(targetY))
-                {
-                    int widthPx = Math.Max(1, (int)Math.Ceiling(targetW));
-                    int heightPx = Math.Max(1, (int)Math.Ceiling(targetH));
-                    int pxX = Math.Max(screen.WorkingArea.X, Math.Min((int)targetX, screen.WorkingArea.Right - widthPx));
-                    int pxY = Math.Max(screen.WorkingArea.Y, Math.Min((int)targetY, screen.WorkingArea.Bottom - heightPx));
-                    this.Position = new Avalonia.PixelPoint(pxX, pxY);
-                    this.WindowStartupLocation = WindowStartupLocation.Manual;
-                }
-                else
-                {
-                    this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                }
-            }
-        }
-        catch { }
-
+        // The initial close was cancelled so bounds could be saved synchronously first.
+        // We MUST now actually close: mark safe and re-invoke Close on the next dispatcher
+        // turn (so this cancelled closing event fully unwinds first). Without this the window
+        // only hides — it never closes, ShowDialog()'s await never returns, and the caller's
+        // result continuation (which persists the edited speed/zoom/freeze segments into
+        // _speedSegments) never runs, silently discarding EVERY granular edit at export.
+        _isSafeToClose = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(Close);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -1639,9 +2332,18 @@ public partial class GranularSpeedEditorWindow : Window
         _playbackTimer?.Stop();
         _marchingAntsTimer?.Stop();
         _freezePulseTimer?.Stop();
+        _zoomTutorialTimer?.Stop();
         _videoHost?.Dispose();
         _videoHost = null;
         base.OnClosed(e);
+    }
+
+    private void OnGlobalMasterVolumeChanged(int masterVolumePercentage)
+    {
+        if (_videoHost?.IpcClient != null)
+        {
+            _ = _videoHost.IpcClient.SetPropertyAsync("volume", masterVolumePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     private void AttachTitleBarDrag()
@@ -1652,9 +2354,7 @@ public partial class GranularSpeedEditorWindow : Window
             titleBar.IsHitTestVisible = true;
             titleBar.DoubleTapped += (s, e) =>
             {
-                this.WindowState = this.WindowState == Avalonia.Controls.WindowState.Maximized 
-                    ? Avalonia.Controls.WindowState.Normal 
-                    : Avalonia.Controls.WindowState.Maximized;
+                this.WindowState = this.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
                 e.Handled = true;
             };
             titleBar.PointerPressed += (s, e) =>
@@ -1667,5 +2367,3 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 }
-
-

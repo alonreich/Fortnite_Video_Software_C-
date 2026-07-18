@@ -170,6 +170,11 @@ public partial class MainWindow : Window
         this.AddHandler(DragDrop.DragLeaveEvent, OnVideoDragLeave);
         this.AddHandler(DragDrop.DropEvent, OnVideoDrop);
 
+        // WM_DROPFILES fallback: guarantees Explorer drag & drop works (including onto
+        // the video preview box) even when OLE drag & drop is blocked, e.g. when the
+        // app runs elevated. See Win32FileDropInterop for the full explanation.
+        Win32FileDropInterop.Attach(this, paths => _ = HandleExternalFileDropAsync(paths));
+
         var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
         if (overlay != null)
         {
@@ -220,6 +225,7 @@ public partial class MainWindow : Window
         }, RoutingStrategies.Tunnel);
 
         SettingsManager.Load();
+        ThemeManager.ApplyFromSettings();
         FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay);
 
         var settingsBtn = this.FindControl<MenuItem>("MenuSettingsBtn");
@@ -302,7 +308,7 @@ public partial class MainWindow : Window
 
         UpdateTooltips();
 
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "MainWindowBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MainWindowBounds");
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
 
@@ -418,14 +424,21 @@ public partial class MainWindow : Window
 
                 SetTimelinePopupsVisible(false);
 
+                bool isMobileForZoom = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+                var zoomIpc = ActiveVideoHost?.IpcClient;
+                string zoomSrcRes = (zoomIpc != null && zoomIpc.VideoWidth > 0 && zoomIpc.VideoHeight > 0)
+                    ? $"{zoomIpc.VideoWidth}x{zoomIpc.VideoHeight}"
+                    : "1920x1080";
                 var editor = new GranularSpeedEditorWindow(
                     _loadedVideoPath,
                     _trimStartMs,
-                    _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
+                    _trimEndMs > 0 ? _trimEndMs : (zoomIpc?.Duration ?? 0) * 1000,
                     _speedSegments,
                     _baseSpeed,
                     _freezeTimeMs,
-                    _freezeDurationS);
+                    _freezeDurationS,
+                    isMobileForZoom,
+                    zoomSrcRes);
 
                 await editor.ShowDialog(this);
 
@@ -454,6 +467,9 @@ public partial class MainWindow : Window
                     InvalidateVoiceOverRecordingForTimingChange();
                     UpdateEstimatedQuality();
                     UpdateTimelineMarkers();
+                    // Persist edited segments immediately so a crash/force-kill right
+                    // after closing the editor cannot lose the new positions/lengths.
+                    SaveRecoveryState();
                 }
             };
         }
@@ -663,10 +679,9 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                if (ActiveVideoHost?.IpcClient != null)
-                {
-                    _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
-                }
+                // Marking END must never interrupt playback: the playhead is already at
+                // the marked frame, and if the video is playing it keeps playing
+                // uninterrupted (previously this force-paused the video).
 
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
@@ -756,11 +771,12 @@ public partial class MainWindow : Window
                 }
             };
 
-            var speakerHitBox = this.FindControl<Border>("SpeakerHitBox");
+            // SpeakerHitBox is a Button: Click covers mouse AND native Enter/Space keyboard
+            // activation, so a separate KeyDown hook would double-toggle the mute.
+            var speakerHitBox = this.FindControl<Button>("SpeakerHitBox");
             if (speakerHitBox != null)
             {
-                speakerHitBox.PointerPressed += SpeakerIcon_PointerPressed;
-                speakerHitBox.KeyDown += SpeakerIcon_KeyDown;
+                speakerHitBox.Click += SpeakerIcon_Click;
             }
 
             volumeSlider.PointerReleased += (s, e) =>
@@ -873,11 +889,14 @@ public partial class MainWindow : Window
         var teammatesCb = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
+        var spectatingCb = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        if (spectatingCb != null) spectatingCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
+
         var enableFadeCb = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
         if (enableFadeCb != null) enableFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
         var portraitTextInput = this.FindControl<TextBox>("PortraitTextInput");
-        if (portraitTextInput != null) portraitTextInput.TextChanged += (s, e) => { UpdatePortraitOverlay(); SaveRecoveryState(); };
+        if (portraitTextInput != null) portraitTextInput.TextChanged += (s, e) => { UpdatePortraitOverlay(); ScheduleRecoveryStateSave(); };
 
         var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
         if (addMemeCb != null)
@@ -906,7 +925,7 @@ public partial class MainWindow : Window
         var volSliderForRecovery = this.FindControl<Slider>("VolumeSlider");
         if (volSliderForRecovery != null) volSliderForRecovery.PropertyChanged += (s, e) =>
         {
-            if (e.Property == Slider.ValueProperty) SaveRecoveryState();
+            if (e.Property == Slider.ValueProperty) ScheduleRecoveryStateSave();
         };
 
         UpdateTooltips();
@@ -932,7 +951,9 @@ public partial class MainWindow : Window
                 if (shouldRestore)
                 {
                     RuntimeLog.Info("RECOVERY", "User chose to restore previous session.");
+                    _recovery.ActivateSafeMode();
                     await RestoreRecoveryStateAsync();
+                    _recovery.DeactivateSafeMode();
                 }
                 else
                 {
@@ -943,6 +964,20 @@ public partial class MainWindow : Window
 
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
+
+            // ISSUE_9: consume the crop-tool return handshake. The crop configuration was
+            // already refreshed from the active profile during startup (ApplyProfile above),
+            // so acknowledge the handoff in the log. The preserve-keys filter below then
+            // clears the flag intentionally.
+            try
+            {
+                if (state.TryGetPropertyValue("returned_from_crop_tool", out var rfct) && rfct?.GetValue<bool>() == true)
+                {
+                    RuntimeLog.Info("HANDOFF", "Returned from Crop Tools. Crop overlay configuration reloaded from the active profile.");
+                }
+            }
+            catch { }
+
             var newObj = new System.Text.Json.Nodes.JsonObject();
             var preserveKeys = new[] { "schema_version", "MainWindowBounds", "PreviewMonitorWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
             foreach (var key in preserveKeys) {
@@ -954,6 +989,15 @@ public partial class MainWindow : Window
 
             await InitializeHardwareScanAsync();
             UpdatePortraitOverlay();
+
+            // "Open With" from Windows Explorer: Program.cs stashed the file path
+            // passed on the command line. Load it now that the UI is fully ready.
+            string? pendingOpenWith = OpenWithLaunch.PendingVideoPath;
+            if (!string.IsNullOrEmpty(pendingOpenWith))
+            {
+                OpenWithLaunch.PendingVideoPath = null;
+                await LoadVideoIntoEditorAsync(pendingOpenWith, "opened-with");
+            }
         };
 
     }
@@ -1012,7 +1056,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SpeakerIcon_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private void SpeakerIcon_Click(object? sender, RoutedEventArgs e)
     {
         ToggleMuteFromSpeakerIcon();
     }
@@ -1170,9 +1214,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        foreach (var file in files)
+        await HandleExternalFileDropAsync(files.Select(f => f.Path.LocalPath).ToArray());
+    }
+
+    /// <summary>
+    /// Shared entry point for externally dropped files (Avalonia OLE drop and the
+    /// WM_DROPFILES fallback). Loads the first supported video straight into the
+    /// preview player, exactly as if it had been uploaded.
+    /// </summary>
+    private async Task HandleExternalFileDropAsync(string[] paths)
+    {
+        foreach (var path in paths)
         {
-            string path = file.Path.LocalPath;
             if (IsSupportedVideoPath(path))
             {
                 await LoadVideoIntoEditorAsync(path, "dropped");
@@ -1189,10 +1242,14 @@ public partial class MainWindow : Window
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel == null) return;
 
+        // Multi-select is intentionally allowed even though the main editor only works
+        // on one video at a time: it lets users manage files (e.g. delete several at
+        // once) inside the picker window for convenience. When more than one file is
+        // selected, the file with the most recent modified date/time is loaded.
         var options = new Avalonia.Platform.Storage.FilePickerOpenOptions
         {
-            Title = "Open Video",
-            AllowMultiple = false,
+            Title = "Open Video (select multiple — the newest file is loaded)",
+            AllowMultiple = true,
             FileTypeFilter = new[] { new Avalonia.Platform.Storage.FilePickerFileType("Video Files") { Patterns = new[] { "*.mp4", "*.mkv", "*.avi", "*.mov" } } }
         };
 
@@ -1263,7 +1320,19 @@ public partial class MainWindow : Window
 
         if (files.Count > 0)
         {
-            string selectedPath = files[0].Path.LocalPath;
+            // The main editor handles a single video: of everything the user marked,
+            // load the file with the latest modified date/time (most recent recording).
+            string selectedPath = files
+                .Select(f => f.Path.LocalPath)
+                .Where(File.Exists)
+                .OrderByDescending(p => { try { return File.GetLastWriteTimeUtc(p); } catch { return DateTime.MinValue; } })
+                .FirstOrDefault() ?? files[0].Path.LocalPath;
+
+            if (files.Count > 1)
+            {
+                RuntimeLog.Info("UI", $"User marked {files.Count} files; loading newest by modified time: {selectedPath}");
+            }
+
             try
             {
                 string dir = Path.GetDirectoryName(selectedPath) ?? "";
@@ -1534,6 +1603,9 @@ public partial class MainWindow : Window
 
         var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammates != null) teammates.IsEnabled = true;
+
+        var spectatingToggle = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        if (spectatingToggle != null) spectatingToggle.IsEnabled = true;
 
         var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
         if (enableFade != null) enableFade.IsEnabled = true;
@@ -1826,10 +1898,10 @@ public partial class MainWindow : Window
         {
             w.VideoContainerControl.Child = null;
 
-            var parentGrid = this.FindControl<Grid>("VideoHostParentGrid");
+            var parentGrid = this.FindControl<Grid>("MainVideoGrid");
             if (parentGrid != null)
             {
-                _videoHost.Margin = new Avalonia.Thickness(0, 0, 0, 52);
+                _videoHost.Margin = new Avalonia.Thickness(0);
                 parentGrid.Children.Insert(0, _videoHost);
             }
         }
@@ -1864,6 +1936,14 @@ public partial class MainWindow : Window
             else if (_videoHost.Parent is Avalonia.Controls.Decorator decorator)
             {
                 decorator.Child = null;
+            }
+            else if (_videoHost.Parent is Avalonia.Controls.ContentControl cc)
+            {
+                cc.Content = null;
+            }
+            else if (_videoHost.Parent is Avalonia.Controls.Control controlParent && controlParent.Parent is Avalonia.Controls.Panel gp)
+            {
+                gp.Children.Remove(_videoHost);
             }
         }
 
@@ -2251,7 +2331,7 @@ public partial class MainWindow : Window
                     var tickText = new TextBlock {
                         Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"),
                         Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 255, 255, 255)),
-                        FontSize = 9
+                        FontSize = Infrastructure.ThemeManager.ScaledFontSize(9)
                     };
                     Avalonia.Controls.Canvas.SetLeft(tickText, ClampLabelLeft(tx + 2, 36));
                     Avalonia.Controls.Canvas.SetTop(tickText, 0);
@@ -2295,7 +2375,7 @@ public partial class MainWindow : Window
                 
                 canvas.Children.Add(startHitBox);
 
-                var startText = new TextBlock { Text = "START", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
+                var startText = new TextBlock { Text = "START", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = Infrastructure.ThemeManager.ScaledFontSize(9), FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
                 if (scaleCanvas != null)
                 {
                     Avalonia.Controls.Canvas.SetLeft(startText, ClampLabelLeft(startX + 5, 36));
@@ -2323,13 +2403,22 @@ public partial class MainWindow : Window
                     }
                 };
 
-                startHitBox.PointerReleased += (s,e) => { 
+                startHitBox.PointerReleased += (s,e) => {
                     if (_draggingStartMarker) {
-                        _draggingStartMarker = false; 
-                        e.Pointer.Capture(null); 
-                        
+                        _draggingStartMarker = false;
+                        e.Pointer.Capture(null);
+
                         SetTrimStart(_trimStartMs);
-                        
+                        RuntimeLog.Info("UI", $"Trim START marker dragged to {TimeSpan.FromMilliseconds(_trimStartMs):hh\\:mm\\:ss\\.ff}.");
+
+                        // Playhead-follow: when PAUSED, snap the caret to the new START
+                        // so the user sees the exact marked frame. During playback we
+                        // never interrupt — no seek, no pause-state change.
+                        if (ActiveVideoHost?.IpcClient?.IsPaused == true)
+                        {
+                            _ = SeekInternal(_trimStartMs / 1000.0);
+                        }
+
                         var markStartBtn = this.FindControl<Avalonia.Controls.Button>("MarkStartButton");
                         if (markStartBtn != null) markStartBtn.Content = "START: " + FormatTime(TimeSpan.FromMilliseconds(_trimStartMs));
                         PlayUiSound();
@@ -2368,7 +2457,7 @@ public partial class MainWindow : Window
                 };
                 canvas.Children.Add(endHitBox);
 
-                var endText = new TextBlock { Text = "END", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = 9, FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
+                var endText = new TextBlock { Text = "END", Foreground = Avalonia.Media.Brushes.SeaGreen, FontSize = Infrastructure.ThemeManager.ScaledFontSize(9), FontWeight = Avalonia.Media.FontWeight.Bold, Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#80000000")), Padding = new Avalonia.Thickness(2,0) };
                 if (scaleCanvas != null)
                 {
                     Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(endX - 28, 28));
@@ -2399,6 +2488,16 @@ public partial class MainWindow : Window
                     if (_draggingEndMarker) {
                         _draggingEndMarker = false;
                         e.Pointer.Capture(null);
+                        RuntimeLog.Info("UI", $"Trim END marker dragged to {TimeSpan.FromMilliseconds(_trimEndMs):hh\\:mm\\:ss\\.ff}.");
+
+                        // Playhead-follow: when PAUSED, snap the caret to the new END
+                        // so the user sees the exact marked frame. During playback we
+                        // never interrupt — no seek, no pause-state change.
+                        if (ActiveVideoHost?.IpcClient?.IsPaused == true)
+                        {
+                            _ = SeekInternal(_trimEndMs / 1000.0);
+                        }
+
                         var markEndBtn = this.FindControl<Avalonia.Controls.Button>("MarkEndButton");
                         if (markEndBtn != null) markEndBtn.Content = "END: " + FormatTime(TimeSpan.FromMilliseconds(_trimEndMs));
                         PlayUiSound();
@@ -2459,7 +2558,7 @@ public partial class MainWindow : Window
                 if (bottomCanvas != null) bottomCanvas.Children.Add(musicRect);
                 else canvas.Children.Add(musicRect);
 
-                var startNoteText = new TextBlock { Text = "♪", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 52, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Width = 52, TextAlignment = Avalonia.Media.TextAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 }, IsHitTestVisible = false };
+                var startNoteText = new TextBlock { Text = "♪", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = Infrastructure.ThemeManager.ScaledFontSize(52), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Width = 52, TextAlignment = Avalonia.Media.TextAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 }, IsHitTestVisible = false };
                 var startStick = new Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 40, Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), IsHitTestVisible = false };
                 
                 var startHitBox = new Avalonia.Controls.Border {
@@ -2501,7 +2600,7 @@ public partial class MainWindow : Window
                 musicStartBorder.ZIndex = 100;
                 canvas.Children.Add(musicStartBorder);
 
-                var endNoteText = new TextBlock { Text = "♪", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = 52, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Width = 52, TextAlignment = Avalonia.Media.TextAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 }, IsHitTestVisible = false };
+                var endNoteText = new TextBlock { Text = "♪", FontFamily = new Avalonia.Media.FontFamily("Segoe UI Symbol"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), FontSize = Infrastructure.ThemeManager.ScaledFontSize(52), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Width = 52, TextAlignment = Avalonia.Media.TextAlignment.Center, Effect = new Avalonia.Media.DropShadowDirectionEffect { Color = Avalonia.Media.Colors.Black, BlurRadius = 4, Opacity = 0.8 }, IsHitTestVisible = false };
                 var endStick = new Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 40, Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255, 255, 105, 180)), IsHitTestVisible = false };
                 
                 var endHitBox = new Avalonia.Controls.Border {
@@ -3492,10 +3591,13 @@ public partial class MainWindow : Window
             }
             
             worker.HardwareStrategy = hwMode;
-            worker.IsMobileFormat = this.FindControl<CheckBox>("MobileCheckbox")?.IsChecked ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
+            // Legacy "MobileCheckbox" ghost lookup removed — no such control exists in
+            // MainWindow.axaml; PortraitModeCheckbox is the sole source of truth.
+            worker.IsMobileFormat = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
             worker.IsBossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false;
             worker.EnableFades = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true;
             worker.ShowTeammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false;
+            worker.ShowSpectating = this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false;
 
             var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
             if (addMemeCb != null && addMemeCb.IsChecked == true)
@@ -3980,6 +4082,31 @@ public partial class MainWindow : Window
         ShowTacticalFeedback("Voice Over recording cleared after timing changed");
     }
 
+    private Avalonia.Threading.DispatcherTimer? _recoveryDebounceTimer;
+
+    /// <summary>
+    /// Debounced recovery save for high-frequency UI changes (volume drags, typing).
+    /// Coalesces rapid changes into a single disk write ~600ms after the last change,
+    /// instead of a full serialize + fsync on every value tick (ISSUE_104).
+    /// </summary>
+    private void ScheduleRecoveryStateSave()
+    {
+        if (_recoveryDebounceTimer == null)
+        {
+            _recoveryDebounceTimer = new Avalonia.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(600)
+            };
+            _recoveryDebounceTimer.Tick += (s, e) =>
+            {
+                _recoveryDebounceTimer!.Stop();
+                SaveRecoveryState();
+            };
+        }
+        _recoveryDebounceTimer.Stop();
+        _recoveryDebounceTimer.Start();
+    }
+
     private void SaveRecoveryState()
     {
         if (_isRestoring) return;
@@ -4015,6 +4142,7 @@ public partial class MainWindow : Window
                 ["portraitMode"] = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true,
                 ["bossHp"] = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false,
                 ["showTeammates"] = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
+                ["showSpectating"] = this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
                 ["enableFade"] = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
                 ["addMeme"] = this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false,
                 ["memeFile"] = this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem?.ToString() ?? "",
@@ -4046,19 +4174,26 @@ public partial class MainWindow : Window
                 state["voiceOverTakes"] = voiceTakeArray;
             }
 
-            RuntimeLog.Info("RECOVERY", "Preparing crash recovery state dump...");
-            if (_freezeTimeMs >= 0)
-                RuntimeLog.Info("RECOVERY", $"Crash Recovery Prep: Serialized Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
-
             var segArray = new System.Text.Json.Nodes.JsonArray();
             foreach (var seg in _speedSegments)
             {
-                segArray.Add(new System.Text.Json.Nodes.JsonObject
+                var segObj = new System.Text.Json.Nodes.JsonObject
                 {
                     ["startMs"] = seg.StartMs,
                     ["endMs"] = seg.EndMs,
                     ["speed"] = seg.Speed
-                });
+                };
+                // Persist the optional zoom so spatial edits survive a crash.
+                if (seg.ZoomW.HasValue)
+                {
+                    segObj["zoomX"] = seg.ZoomX;
+                    segObj["zoomY"] = seg.ZoomY;
+                    segObj["zoomW"] = seg.ZoomW;
+                    segObj["zoomH"] = seg.ZoomH;
+                    segObj["zoomOrigRes"] = seg.ZoomOrigRes;
+                    segObj["zoomSlow"] = seg.ZoomSlow;
+                }
+                segArray.Add(segObj);
             }
             state["speedSegments"] = segArray;
 
@@ -4151,7 +4286,13 @@ public partial class MainWindow : Window
                         _speedSegments.Add(new SpeedSegment(
                             segObj["startMs"]?.GetValue<double>() ?? 0,
                             segObj["endMs"]?.GetValue<double>() ?? 0,
-                            segObj["speed"]?.GetValue<double>() ?? 1.0));
+                            segObj["speed"]?.GetValue<double>() ?? 1.0,
+                            segObj["zoomX"]?.GetValue<int>(),
+                            segObj["zoomY"]?.GetValue<int>(),
+                            segObj["zoomW"]?.GetValue<int>(),
+                            segObj["zoomH"]?.GetValue<int>(),
+                            segObj["zoomOrigRes"]?.GetValue<string>(),
+                            segObj["zoomSlow"]?.GetValue<bool>() ?? false));
                     }
                 }
             }
@@ -4209,6 +4350,10 @@ public partial class MainWindow : Window
             bool showTeammates = state["showTeammates"]?.GetValue<bool>() ?? false;
             var teammatesCbRestore = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
             if (teammatesCbRestore != null) teammatesCbRestore.IsChecked = showTeammates;
+
+            bool showSpectating = state["showSpectating"]?.GetValue<bool>() ?? false;
+            var spectatingCbRestore = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+            if (spectatingCbRestore != null) spectatingCbRestore.IsChecked = showSpectating;
 
             var enableFadeCbRestore = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
             if (enableFadeCbRestore != null && state.ContainsKey("enableFade"))
@@ -4384,13 +4529,13 @@ public partial class MainWindow : Window
             try
             {
                 string json = System.IO.File.ReadAllText(files[0].Path.LocalPath);
-                
+
                 var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(json);
                 if (state == null) throw new InvalidOperationException("File is empty or invalid JSON.");
                 if (state["schema_version"] == null) throw new InvalidOperationException("Missing schema_version lock. This is not a valid Fortnite Video Software configuration file.");
-                
+
                 System.IO.File.WriteAllText(_paths.SessionStateFile, json);
-                
+
                 NativeDialog.ShowInfo("Configuration successfully restored!\n\nThe application will now close to apply changes. Please restart it manually.");
 
                 Environment.Exit(0);
@@ -4403,5 +4548,4 @@ public partial class MainWindow : Window
         }
     }
 }
-
-
+             

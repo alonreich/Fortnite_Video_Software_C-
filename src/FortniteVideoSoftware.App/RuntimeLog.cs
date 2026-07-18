@@ -15,10 +15,16 @@ public static class RuntimeLog
     private static bool _exitRegistered;
     private static string _appName = "[MAIN APP]";
     private const long MaxLogSize = 10 * 1024 * 1024;
+    // ISSUE_4: retention limits — keep at most 5 rotated logs, no more than ~50 MB of them
+    // in total, and none older than 14 days (whichever limit trims first).
+    private const int MaxOldLogs = 5;
+    private const long MaxTotalOldBytes = 50L * 1024 * 1024;
+    private static readonly TimeSpan MaxOldAge = TimeSpan.FromDays(14);
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
     private static readonly BlockingCollection<string> _logQueue = new(10000);
     private static long _estimatedSize = -1;
+    private static long _droppedCount;
     private static readonly string _sessionId = Guid.NewGuid().ToString("N")[..8];
     private static Task? _processTask;
 
@@ -35,25 +41,30 @@ public static class RuntimeLog
         {
             if (_cachedLogPath != null) return _cachedLogPath;
 
-            string? devLogDir = Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR");
-            if (!string.IsNullOrWhiteSpace(devLogDir))
+            lock (Sync)
             {
-                Directory.CreateDirectory(devLogDir);
-                _cachedLogPath = Path.Combine(devLogDir, "Fortnite_Video_Software_DEV.log");
+                if (_cachedLogPath != null) return _cachedLogPath;
+
+                string? devLogDir = Environment.GetEnvironmentVariable("FVS_DEV_LOG_DIR");
+                if (!string.IsNullOrWhiteSpace(devLogDir))
+                {
+                    Directory.CreateDirectory(devLogDir);
+                    _cachedLogPath = Path.Combine(devLogDir, "Fortnite_Video_Software_DEV.log");
+                    return _cachedLogPath;
+                }
+
+                if (DeploymentFootprint.IsRunningFromInstallPath())
+                {
+                    var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
+                    paths.EnsureWritableDirectories();
+                    _cachedLogPath = Path.Combine(paths.LogsDirectory, "Fortnite_Video_Software.log");
+                }
+                else
+                {
+                    _cachedLogPath = DeploymentFootprint.InstallReportPath;
+                }
                 return _cachedLogPath;
             }
-
-            if (DeploymentFootprint.IsRunningFromInstallPath())
-            {
-                var paths = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault();
-                paths.EnsureWritableDirectories();
-                _cachedLogPath = Path.Combine(paths.LogsDirectory, "Fortnite_Video_Software.log");
-            }
-            else
-            {
-                _cachedLogPath = DeploymentFootprint.InstallReportPath;
-            }
-            return _cachedLogPath;
         }
     }
 
@@ -92,6 +103,7 @@ public static class RuntimeLog
             if (!_exitRegistered)
             {
                 AppDomain.CurrentDomain.ProcessExit += (s, e) => {
+                    SafeWrite($"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] SHUTDOWN - Process exiting (PID: {Environment.ProcessId}, Session: {_sessionId})." + Environment.NewLine);
                     WriteExitSeparator();
                     try { _logQueue.CompleteAdding(); } catch { }
                     _processTask?.Wait(3000);
@@ -121,6 +133,16 @@ public static class RuntimeLog
         Write("INFO", step, detail);
     }
 
+    /// <summary>
+    /// Verbose diagnostics (full commands, full file paths). Persisted only in dev mode
+    /// so the normal production log does not expose sensitive paths and commands.
+    /// </summary>
+    public static void Debug(string step, string detail)
+    {
+        if (!IsDevMode) return;
+        Write("DEBUG", step, detail);
+    }
+
     public static void Success(string step, string detail)
     {
         Write("SUCCESS", step, detail);
@@ -128,19 +150,18 @@ public static class RuntimeLog
 
     public static void Fail(string step, string detail)
     {
-        UiSoundEffect.PlayError();
         Write("FAIL", step, detail);
     }
 
     public static void AppendRaw(string line)
     {
         SafeWrite(line + Environment.NewLine);
-        LogAppended?.Invoke(line);
+        // ISSUE_2: a throwing live-log listener must never disturb the code writing the log.
+        try { LogAppended?.Invoke(line); } catch { }
     }
 
     public static void Fail(string step, Exception exception)
     {
-        UiSoundEffect.PlayError();
         Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");
     }
 
@@ -153,14 +174,20 @@ public static class RuntimeLog
 
         string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
         SafeWrite(line);
-        LogAppended?.Invoke(line.TrimEnd());
+        // ISSUE_2: a throwing live-log listener must never disturb the code writing the log.
+        try { LogAppended?.Invoke(line.TrimEnd()); } catch { }
     }
 
     private static void SafeWrite(string text)
     {
         if (!_logQueue.IsAddingCompleted)
         {
-            try { _logQueue.TryAdd(text); } catch { }
+            try
+            {
+                if (!_logQueue.TryAdd(text))
+                    Interlocked.Increment(ref _droppedCount);
+            }
+            catch { }
         }
     }
 
@@ -187,6 +214,12 @@ public static class RuntimeLog
             
             string combinedText = sb.ToString();
 
+            long dropped = Interlocked.Exchange(ref _droppedCount, 0);
+            if (dropped > 0)
+            {
+                combinedText = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {dropped} log line(s) dropped due to queue saturation.{Environment.NewLine}" + combinedText;
+            }
+
             bool acquired = false;
             try
             {
@@ -203,11 +236,16 @@ public static class RuntimeLog
 
                 var fi = new FileInfo(LogPath);
                 _estimatedSize = fi.Exists ? fi.Length : 0;
+                long incomingBytes = Encoding.UTF8.GetByteCount(combinedText);
 
-                if (_estimatedSize >= MaxLogSize)
+                // Rotate BEFORE writing when this batch would push the file past the cap,
+                // so a single active log file never grows meaningfully beyond MaxLogSize.
+                if (_estimatedSize + incomingBytes >= MaxLogSize)
                 {
-                    string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeSeconds()}.old";
-                    try 
+                    // ISSUE_3: millisecond timestamp + GUID guarantees a unique name even when
+                    // two of the apps rotate in the same second, so rotation never silently fails.
+                    string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeMilliseconds()}.{Guid.NewGuid():N}.old";
+                    try
                     {
                         if (File.Exists(LogPath))
                         {
@@ -222,7 +260,7 @@ public static class RuntimeLog
                 using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
                 using var sw = new StreamWriter(fs, new UTF8Encoding(false));
                 sw.Write(combinedText);
-                _estimatedSize += Encoding.UTF8.GetByteCount(combinedText);
+                _estimatedSize += incomingBytes;
             }
             catch (Exception)
             {
@@ -247,9 +285,20 @@ public static class RuntimeLog
                                    .OrderByDescending(f => f.CreationTimeUtc)
                                    .ToList();
 
-            for (int i = 5; i < oldLogs.Count; i++)
+            // ISSUE_4: trim by count, total size, AND age (whichever hits first).
+            DateTime cutoff = DateTime.UtcNow - MaxOldAge;
+            long runningTotal = 0;
+            for (int i = 0; i < oldLogs.Count; i++)
             {
-                try { oldLogs[i].Delete(); } catch { }
+                FileInfo f = oldLogs[i];
+                runningTotal += f.Length;
+                bool overCount = i >= MaxOldLogs;
+                bool overSize = runningTotal > MaxTotalOldBytes;
+                bool tooOld = f.CreationTimeUtc < cutoff;
+                if (overCount || overSize || tooOld)
+                {
+                    try { f.Delete(); } catch { }
+                }
             }
         }
         catch { }

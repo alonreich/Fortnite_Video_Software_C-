@@ -100,9 +100,12 @@ public class MobileFilterBuilder
                 Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
 
                 Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
-                Frac maxLyBase = new(CoordinateConstants.TargetH - rh, 1);
-                Frac uiPadBottomScaled = new Frac(CoordinateConstants.UIPaddingBottom, 1) * backendScale;
-                Frac maxLy = maxLyBase - uiPadBottomScaled;
+                // ISSUE_4: the internal-space Y range 0..TargetH-rh already maps 1:1 to the
+                // content area (content 1620 × 32/27 = 1920). Subtracting bottom padding
+                // here double-applied it and pushed bottom-placed elements ~150 final px
+                // above their previewed position. The UI clamp (ClampOverlayPosition) is
+                // the single source of truth for the allowed placement range.
+                Frac maxLy = new(CoordinateConstants.TargetH - rh, 1);
 
                 int lx = CoordinateMath.ScaleRound(
                     Frac.FromDouble(0) > lxRaw ? Frac.FromDouble(0) :
@@ -145,56 +148,15 @@ public class MobileFilterBuilder
         return (string.Join(";", parts), "[v_final]");
     }
 
-    private static int[] GetRect(JsonObject coords, string section, string key)
-    {
-        var sectionObj = coords[section]?.AsObject();
-        if (sectionObj == null) return [0, 0, 0, 0];
-        var node = sectionObj[key];
-        if (node is JsonArray arr && arr.Count >= 4)
-            return [arr[0]!.GetValue<int>(), arr[1]!.GetValue<int>(), arr[2]!.GetValue<int>(), arr[3]!.GetValue<int>()];
-        return [0, 0, 0, 0];
-    }
-
+    // NOTE: layer registration lives in MobileFilterBuilderExtensions.RegisterLayer below.
+    // A private duplicate that previously lived here was dead code (the instance-syntax
+    // call in Build binds the extension method) and was removed (ISSUE_11).
     public record LayerSpec(
         string Name, string ConfKey,
         int[] UiRect,
         double Scale,
         (double x, double y) Pos,
         int Z);
-
-    private static void RegisterLayer(
-        List<LayerSpec> activeLayers,
-        JsonObject coords,
-        string name, string confKey, string cropKey1080, string ovKey)
-    {
-        int[] rect = GetRect(coords, "crops_1080p", cropKey1080);
-        var scalesObj = coords["scales"]?.AsObject();
-        double scale = 1.0;
-        if (scalesObj != null && scalesObj.ContainsKey(confKey))
-        {
-            try { scale = (double)scalesObj[confKey]!; } catch { try { scale = double.Parse(scalesObj[confKey]!.ToString()); } catch { } }
-        }
-
-        var overlaysObj = coords["overlays"]?.AsObject();
-        double posX = 0, posY = CoordinateConstants.UIPaddingTop;
-        if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
-        {
-            try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch { } }
-            try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch { } }
-        }
-
-        var zOrdersObj = coords["z_orders"]?.AsObject();
-        int z = 50;
-        if (zOrdersObj != null && zOrdersObj.ContainsKey(ovKey))
-        {
-            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch { }
-        }
-
-        if (rect.Length >= 4 && rect[0] >= 1 && rect[1] >= 1)
-        {
-            activeLayers.Add(new LayerSpec(name, confKey, rect, scale, (posX, posY), z));
-        }
-    }
 
     public static (string filterChain, string outputLabel) BuildMobileFilter(
         JsonObject mobileCoords,

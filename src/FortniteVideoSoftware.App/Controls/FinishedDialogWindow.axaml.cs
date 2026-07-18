@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using System;
@@ -33,6 +34,24 @@ public partial class FinishedDialogWindow : Window
         {
             txt.Text = $"File successfully saved to:\n{path}";
         }
+    }
+
+    /// <summary>
+    /// ISSUE_01: this window removes the OS title bar (ExtendClientAreaTitleBarHeightHint="0"),
+    /// so without this handler the user cannot move the dialog at all.
+    /// Dragging starts anywhere on the background EXCEPT interactive controls (buttons).
+    /// </summary>
+    private void OnRootPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || e.ClickCount >= 2) return;
+        // Do not steal presses aimed at interactive controls.
+        var el = e.Source as StyledElement;
+        while (el != null)
+        {
+            if (el is Button) return;
+            el = el.Parent;
+        }
+        try { BeginMoveDrag(e); } catch { }
     }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e)

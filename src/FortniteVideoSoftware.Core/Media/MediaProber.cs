@@ -39,7 +39,7 @@ public class MediaProber
                 CreateNoWindow = true,
             };
 
-            CoreLogger.Info("FFprobe", $"Command: {_ffprobePath} {psi.Arguments}");
+            CoreLogger.Debug("FFprobe", $"Command: {_ffprobePath} {psi.Arguments}");
 
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffprobe.");
             
@@ -168,6 +168,39 @@ public class MediaProber
         return 192;
     }
 
+    /// <summary>
+    /// Returns the source video stream bitrate in kbps. Falls back to the container
+    /// bitrate minus a nominal audio bitrate when the stream tag is missing.
+    /// </summary>
+    public async Task<double> GetVideoBitrateKbpsAsync()
+    {
+        var data = await ProbeAsync();
+        var streams = data["streams"]?.AsArray();
+        if (streams != null)
+        {
+            foreach (var stream in streams)
+            {
+                if (stream?["codec_type"]?.ToString() == "video")
+                {
+                    int br = ParseInt(stream["bit_rate"]);
+                    if (br > 0) return br / 1000.0;
+                }
+            }
+        }
+        var format = data["format"]?.AsObject();
+        if (format != null)
+        {
+            int br = ParseInt(format["bit_rate"]);
+            if (br > 0)
+            {
+                // Container bitrate includes audio; subtract a nominal audio bitrate.
+                double audioKbps = await GetAudioBitrateAsync();
+                return Math.Max(0, (br / 1000.0) - audioKbps);
+            }
+        }
+        return 0;
+    }
+
     private int ParseInt(JsonNode? node)
     {
         if (node == null) return 0;
@@ -213,10 +246,12 @@ public class MediaProber
         if (!targetMb.HasValue || durationSec <= 0) return 0;
 
         double targetBytes = targetMb.Value * 1024 * 1024;
-        double audioBytesPerSec = audioKbps * 1024 / 8;
+        // ISSUE_08: FFmpeg's "k" in kbps is 1000, not 1024 — use decimal kilo for
+        // bitrate<->bytes conversions so first-attempt sizes center on the target.
+        double audioBytesPerSec = audioKbps * 1000.0 / 8.0;
         double audioTotalBytes = audioBytesPerSec * durationSec;
         double videoBudgetBytes = targetBytes - audioTotalBytes;
-        double videoKbps = (videoBudgetBytes * 8 / 1024) / durationSec;
+        double videoKbps = (videoBudgetBytes * 8.0 / 1000.0) / durationSec;
 
         double qualityMult = qualityLevel switch
         {

@@ -21,6 +21,79 @@ public static class WindowBoundsHelper
         catch { }
     }
 
+    /// <summary>
+    /// Full window-state persistence: loads saved bounds at construction, re-applies
+    /// the position right after the window opens (the OS/per-monitor DPI handshake can
+    /// silently move a freshly shown window — the main cause of "my window keeps
+    /// resetting"), and saves continuously (debounced) on every move/resize/state
+    /// change so bounds survive crashes and force-kills, not just clean closes.
+    /// Positions spanning multiple displays (e.g. 70% on display 1, 30% on display 2)
+    /// are preserved as-is: bounds are only reset when the window would be COMPLETELY
+    /// off every connected screen (e.g. a monitor was unplugged).
+    /// </summary>
+    public static void Track(Window window, string key)
+    {
+        PixelPoint? appliedPosition = null;
+        try
+        {
+            var store = new Core.Ipc.StateTransferStore();
+            var state = store.LoadSync();
+            ApplyBounds(window, state, key);
+            if (window.WindowStartupLocation == WindowStartupLocation.Manual)
+            {
+                appliedPosition = window.Position;
+            }
+        }
+        catch { }
+
+        bool opened = false;
+        Avalonia.Threading.DispatcherTimer? debounce = null;
+
+        void ScheduleSave()
+        {
+            if (!opened) return;
+            if (debounce == null)
+            {
+                debounce = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                debounce.Tick += (_, _) =>
+                {
+                    debounce!.Stop();
+                    SaveBoundsSync(window, key);
+                };
+            }
+            debounce.Stop();
+            debounce.Start();
+        }
+
+        window.Opened += (_, _) =>
+        {
+            try
+            {
+                // Re-assert the saved position AFTER the window is shown: Windows may
+                // have adjusted it during Show() due to per-monitor DPI scaling.
+                if (appliedPosition.HasValue && window.WindowState == WindowState.Normal
+                    && window.Position != appliedPosition.Value)
+                {
+                    window.Position = appliedPosition.Value;
+                }
+            }
+            catch { }
+            opened = true;
+        };
+
+        window.PositionChanged += (_, _) => ScheduleSave();
+        window.SizeChanged += (_, _) => ScheduleSave();
+        window.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Window.WindowStateProperty) ScheduleSave();
+        };
+        window.Closing += (_, _) =>
+        {
+            try { debounce?.Stop(); } catch { }
+            SaveBoundsSync(window, key);
+        };
+    }
+
     public static async Task LoadBoundsAsync(Window window, string key)
     {
         try

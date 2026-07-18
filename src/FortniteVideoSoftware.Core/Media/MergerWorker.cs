@@ -63,6 +63,8 @@ public class MergerWorker : IDisposable
                 double totalDuration = 0;
                 var fileDurations = new double[InputFiles.Count];
                 var fileHasAudio = new bool[InputFiles.Count];
+                double peakSourceVideoBitrateKbps = 0;
+                double durationWeightedBitrateKbps = 0;
                 for (int fi = 0; fi < InputFiles.Count; fi++)
                 {
                     var prober = new MediaProber(_ffprobePath, InputFiles[fi]);
@@ -70,12 +72,30 @@ public class MergerWorker : IDisposable
                     bool hasAudio = await prober.HasAudioAsync();
                     fileDurations[fi] = dur;
                     fileHasAudio[fi] = hasAudio;
-                    CoreLogger.Info("Merger", $"  [{fi + 1}] {InputFiles[fi]} — {dur:F2}s, audio={hasAudio}");
+                    // ISSUE_1: production log shows only the file name; the full path is dev-only.
+                    CoreLogger.Info("Merger", $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, audio={hasAudio}");
+                    CoreLogger.Debug("Merger", $"  [{fi + 1}] full path: {InputFiles[fi]}");
                     totalDuration += dur;
+
+                    // Probe source video bitrate so the lossless path can cap output to the
+                    // source quality instead of an uncapped CQ re-encode that bloats the file.
+                    try
+                    {
+                        double srcVbit = await prober.GetVideoBitrateKbpsAsync();
+                        if (srcVbit > 0)
+                        {
+                            peakSourceVideoBitrateKbps = Math.Max(peakSourceVideoBitrateKbps, srcVbit);
+                            durationWeightedBitrateKbps += srcVbit * Math.Max(0.1, dur);
+                        }
+                    }
+                    catch { }
                 }
 
                 if (totalDuration == 0) totalDuration = 10.0;
-                CoreLogger.Info("Merger", $"Total combined duration: {totalDuration:F2}s");
+                double averageSourceVideoBitrateKbps = totalDuration > 0
+                    ? durationWeightedBitrateKbps / totalDuration
+                    : peakSourceVideoBitrateKbps;
+                CoreLogger.Info("Merger", $"Total combined duration: {totalDuration:F2}s, peak src video bitrate: {peakSourceVideoBitrateKbps:F0} kbps, avg: {averageSourceVideoBitrateKbps:F0} kbps");
 
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
@@ -105,7 +125,11 @@ public class MergerWorker : IDisposable
                         ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
                         : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
 
-                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)}[v{i}]");
+                    // Issue: concat requires a single common frame rate. Sources of mixed fps
+                    // (e.g. 30 + 60) previously joined without CFR normalization while the encoder
+                    // GOP assumed 60 (GetCodecFlags fps="60"), risking stutter/VFR at clip joins.
+                    // Enforce fps=60 AFTER the speed setpts (same order as the main export path).
+                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:round=near[v{i}]");
                     double clipDur = fileDurations[i] > 0 ? fileDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
@@ -169,6 +193,8 @@ public class MergerWorker : IDisposable
                 string filterScript = string.Join(";", filters.Where(p => !string.IsNullOrEmpty(p)));
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
+                // ISSUE_1: full filter graph (may contain temp file paths) is dev-only.
+                CoreLogger.Debug("FFmpeg MERGE", $"Filter Script Content:\n{filterScript}");
 
                 var encoderMgr = new EncoderManager("GPU", _ffmpegPath);
                 string currentEncoder = encoderMgr.GetInitialEncoder(true);
@@ -176,13 +202,47 @@ public class MergerWorker : IDisposable
                 int cqValue = QualityPercent >= 100 ? 15 : Math.Max(15, 35 - (int)((QualityPercent - 5) * 20.0 / 95.0));
                 int qualityLevel = QualityPercent >= 100 ? 3 : (QualityPercent >= 50 ? 2 : 1);
 
+                // LOSSLESS CAP (issue 11): a merge is a concatenation, so the output must not
+                // exceed the COMBINED size of the source videos. Output size ≈ bitrate × total
+                // duration, and the combined source size ≈ (duration-weighted AVERAGE source
+                // bitrate) × total duration. The previous code anchored to the PEAK single-clip
+                // bitrate, which applied the busiest clip's rate to the ENTIRE timeline and
+                // inflated the file well beyond the sum of inputs (forcing users down to ~40%
+                // just to hit the right size, wrecking quality). We now anchor the VBR TARGET to
+                // the duration-weighted AVERAGE (so total size ≈ sum of inputs, matching the UI's
+                // "Est. Output" for Lossless) and grant short-term headroom up to the PEAK via
+                // -maxrate so high-motion scenes keep their quality without raising the average.
+                int? losslessBitrateKbps = null;
+                int losslessMaxrateKbps = 0;
+                if (QualityPercent >= 100 && averageSourceVideoBitrateKbps > 0)
+                {
+                    losslessBitrateKbps = Math.Max(800, (int)Math.Min(EncoderManager.MaxBitrateKbps, averageSourceVideoBitrateKbps));
+                    losslessMaxrateKbps = Math.Max(losslessBitrateKbps.Value, (int)Math.Min(EncoderManager.MaxBitrateKbps, peakSourceVideoBitrateKbps));
+                    CoreLogger.Info("Merger", $"Lossless target bitrate {losslessBitrateKbps} kbps (avg), maxrate {losslessMaxrateKbps} kbps (peak) — output size will track the combined source size.");
+                }
+
                 string corePath = Path.Combine(tempJobDir, "merged_output.mp4");
                 string? successOutputPath = null;
                 string lastErrorMsg = "FFmpeg render failed.";
 
                 while (true)
                 {
-                    var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, null, totalDuration / Math.Max(0.1, SpeedFactor), "60", qualityLevel, false);
+                    var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, losslessBitrateKbps, totalDuration / Math.Max(0.1, SpeedFactor), "60", qualityLevel, false);
+
+                    // Issue 11: in Lossless mode GetCodecFlags sets -b:v == -maxrate == avg. Raise
+                    // ONLY the -maxrate/-bufsize to the peak so VBR keeps the average (≈ combined
+                    // source size) while allowing complex clips to spike. -b:v (the average target)
+                    // is deliberately left at the average so total size ≈ sum of inputs.
+                    if (QualityPercent >= 100 && losslessMaxrateKbps > 0)
+                    {
+                        for (int ci = 0; ci < codecArgs.Count - 1; ci++)
+                        {
+                            if (codecArgs[ci] == "-maxrate")
+                                codecArgs[ci + 1] = $"{losslessMaxrateKbps}k";
+                            else if (codecArgs[ci] == "-bufsize")
+                                codecArgs[ci + 1] = $"{Math.Min(EncoderManager.MaxBitrateKbps, losslessMaxrateKbps * 2)}k";
+                        }
+                    }
 
                     if (QualityPercent < 100)
                     {
@@ -204,7 +264,9 @@ public class MergerWorker : IDisposable
                     attemptArgs.Add(corePath);
 
                     CoreLogger.Info("FFmpeg", $"Executing merge with encoder {currentEncoder} ({rcLabel}).");
-                    CoreLogger.Info("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
+                    // ISSUE_1: full command with absolute paths is dev-only; the INFO line
+                    // above ("Executing merge with encoder …") keeps a safe trail.
+                    CoreLogger.Debug("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
 
                     bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, totalDuration / Math.Max(0.1, SpeedFactor), cancellationToken);
 
@@ -360,7 +422,8 @@ public class MergerWorker : IDisposable
     private async Task<bool> ExecuteFFmpegAsync(List<string> cmdArgs, double totalDuration, CancellationToken cancellationToken)
     {
         string cmdLine = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-        CoreLogger.Info("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+        // ISSUE_1: full command with absolute paths is dev-only.
+        CoreLogger.Debug("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
         var psi = new ProcessStartInfo
         {
@@ -402,17 +465,23 @@ public class MergerWorker : IDisposable
             }
         }, cancellationToken);
 
+        // Buffer the last N stderr lines instead of streaming every line to the shared log.
+        // The tail is persisted at Fail level on failure and only at Debug (dev-only) on success.
+        var stderrTail = new System.Collections.Generic.Queue<string>();
+        const int stderrTailMax = 400;
         var stderrTask = Task.Run(async () =>
         {
             using var reader = _currentProcess.StandardError;
             while (!reader.EndOfStream)
             {
                 string? line = await reader.ReadLineAsync(cancellationToken);
-                if (!string.IsNullOrWhiteSpace(line))
+                if (!string.IsNullOrWhiteSpace(line)
+                    && !line.StartsWith("frame=") && !line.StartsWith("size="))
                 {
-                    if (!line.StartsWith("frame=") && !line.StartsWith("size="))
+                    lock (stderrTail)
                     {
-                        CoreLogger.Append(line);
+                        stderrTail.Enqueue(line);
+                        if (stderrTail.Count > stderrTailMax) stderrTail.Dequeue();
                     }
                 }
             }
@@ -438,7 +507,22 @@ public class MergerWorker : IDisposable
             CoreLogger.Fail("Merger", $"Reader task error: {ex.Message}");
         }
 
-        return _currentProcess.ExitCode == 0;
+        int exitCode = _currentProcess.ExitCode;
+        CoreLogger.Info("FFmpeg MERGE", $"Process exited with code {exitCode}.");
+
+        string[] stderrLines;
+        lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
+        if (exitCode != 0)
+        {
+            if (stderrLines.Length > 0)
+                CoreLogger.Fail("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+        }
+        else if (stderrLines.Length > 0)
+        {
+            CoreLogger.Debug("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+        }
+
+        return exitCode == 0;
     }
 
     private void EmitFinished(bool success, string message)

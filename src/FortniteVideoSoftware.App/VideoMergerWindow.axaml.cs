@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -66,10 +67,14 @@ public partial class VideoMergerWindow : Window
     private readonly Dictionary<string, Task<VideoFileFingerprint?>> _videoFingerprintTasks = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.SemaphoreSlim _videoHashSemaphore = new(1, 1);
 
+    // Serializes external drop processing (OLE + WM_DROPFILES) so two simultaneous
+    // drops can't interleave their async validation/dialogs and corrupt VideoQueue.
+    private readonly System.Threading.SemaphoreSlim _externalDropGate = new(1, 1);
+
     public VideoMergerWindow()
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "VideoMergerBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "VideoMergerBounds");
 
         _ffprobePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
         if (!System.IO.File.Exists(_ffprobePath))
@@ -92,6 +97,11 @@ public partial class VideoMergerWindow : Window
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         this.Closed += (s, e) => { FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged; };
+
+        // WM_DROPFILES fallback: guarantees Explorer drag & drop into the video queue
+        // works even when OLE drag & drop is blocked (e.g. elevated process).
+        // See Win32FileDropInterop for the full explanation.
+        Win32FileDropInterop.Attach(this, paths => _ = AddExternalVideosAsync(paths));
     }
 
     private void InitializeControls()
@@ -254,56 +264,44 @@ public partial class VideoMergerWindow : Window
         var menuRemoveSelected = this.FindControl<MenuItem>("MenuRemoveSelected");
         if (menuRemoveSelected != null)
         {
-            menuRemoveSelected.Click += (s, e) =>
+            menuRemoveSelected.Click += async (s, e) =>
             {
                 if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerRemove)
                 {
-                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuRemoveSelected)?.Hide();
                     ExecuteRemoveSelected();
                 }
                 else
                 {
-                    Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(menuRemoveSelected);
+                    var dlg = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+                    dlg.SetTitle("Remove Selected");
+                    dlg.SetMessage("Remove the selected video(s) from the queue?\nThis cannot be undone.");
+                    dlg.SetButtonText("YES, REMOVE", "CANCEL");
+                    await dlg.ShowDialog(this);
+                    if (dlg.Result)
+                        ExecuteRemoveSelected();
                 }
-            };
-        }
-        
-        var confirmMenuRemoveBtn = this.FindControl<Button>("ConfirmMenuRemoveButton");
-        if (confirmMenuRemoveBtn != null)
-        {
-            confirmMenuRemoveBtn.Click += (s, e) =>
-            {
-                if (menuRemoveSelected != null)
-                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuRemoveSelected)?.Hide();
-                ExecuteRemoveSelected();
             };
         }
 
         var menuClearAll = this.FindControl<MenuItem>("MenuClearAll");
         if (menuClearAll != null)
         {
-            menuClearAll.Click += (s, e) =>
+            menuClearAll.Click += async (s, e) =>
             {
                 if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerClearAll)
                 {
-                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuClearAll)?.Hide();
                     VideoQueue.Clear();
                 }
                 else
                 {
-                    Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(menuClearAll);
+                    var dlg = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+                    dlg.SetTitle("Clear All");
+                    dlg.SetMessage("Remove ALL videos from the queue and start over?\nThis cannot be undone.");
+                    dlg.SetButtonText("YES, CLEAR ALL", "CANCEL");
+                    await dlg.ShowDialog(this);
+                    if (dlg.Result)
+                        VideoQueue.Clear();
                 }
-            };
-        }
-        
-        var confirmMenuClearAllBtn = this.FindControl<Button>("ConfirmMenuClearAllButton");
-        if (confirmMenuClearAllBtn != null)
-        {
-            confirmMenuClearAllBtn.Click += (s, e) =>
-            {
-                if (menuClearAll != null)
-                    Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(menuClearAll)?.Hide();
-                VideoQueue.Clear();
             };
         }
 
@@ -583,17 +581,8 @@ public partial class VideoMergerWindow : Window
         if (fbBtn != null) fbBtn.IsEnabled = hasVideo;
     }
 
-    /// <summary>
-    /// ISSUE_008: Keyboard handler for speaker mute toggle.
-    /// </summary>
-    private void SpeakerHitBox_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
-    {
-        if (e.Key == Avalonia.Input.Key.Enter || e.Key == Avalonia.Input.Key.Space)
-        {
-            ToggleMute();
-            e.Handled = true;
-        }
-    }
+    // ISSUE_08: SpeakerHitBox_KeyDown removed — SpeakerHitBox is now a real Button,
+    // which natively activates on Enter/Space via its Click event.
 
     private void ApplySpeedPreset(double speed)
     {
@@ -612,6 +601,13 @@ public partial class VideoMergerWindow : Window
         _ = UpdateQualityProbeAsync(System.Threading.CancellationToken.None, version);
     }
 
+    /// <summary>
+    /// Captures an immutable copy of VideoQueue on the UI thread. Async probing methods
+    /// iterate over this snapshot instead of the live ObservableCollection so that a
+    /// concurrent drag & drop can't mutate the collection mid-enumeration.
+    /// </summary>
+    private List<string> SnapshotVideoQueue() => new(VideoQueue);
+
     private async Task UpdateQualityProbeAsync(System.Threading.CancellationToken cancellationToken, int probeVersion)
     {
         var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
@@ -620,7 +616,12 @@ public partial class VideoMergerWindow : Window
 
         int qualityPercent = (qs.Value + 1) * 5;
 
-        if (VideoQueue.Count == 0)
+        // Snapshot once on the UI thread. The async probe below yields frequently, and a
+        // concurrent drop can mutate VideoQueue mid-enumeration, throwing
+        // InvalidOperationException("Collection was modified").
+        var queueSnapshot = SnapshotVideoQueue();
+
+        if (queueSnapshot.Count == 0)
         {
             label.Text = qualityPercent >= 100 ? "100% — Lossless" : $"{qualityPercent}%";
             label.Foreground = Avalonia.Media.Brush.Parse("#c5dcf2");
@@ -631,21 +632,21 @@ public partial class VideoMergerWindow : Window
         {
             label.Text = "100% — Lossless";
             label.Foreground = Avalonia.Media.Brush.Parse("#2ecc71");
-            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion);
+            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion, queueSnapshot);
             return;
         }
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion);
+            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion, queueSnapshot);
             cancellationToken.ThrowIfCancellationRequested();
             if (probeVersion != _probeVersion) return;
 
             int lowestW = 1920, lowestH = 1080;
             double lowestBitrate = _cachedLowestBitrate;
 
-            foreach (var path in VideoQueue)
+            foreach (var path in queueSnapshot)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (probeVersion != _probeVersion) return;
@@ -746,14 +747,16 @@ public partial class VideoMergerWindow : Window
     /// <summary>
     /// Probes all videos for duration, file size, and bitrate.
     /// Caches results for quality and size estimation.
+    /// <paramref name="queueSnapshot"/> is an immutable snapshot of VideoQueue captured
+    /// on the UI thread to avoid concurrent-modification exceptions during async probing.
     /// </summary>
-    private async Task ProbeAndUpdateSizeAsync(int qualityPercent, System.Threading.CancellationToken cancellationToken, int probeVersion)
+    private async Task ProbeAndUpdateSizeAsync(int qualityPercent, System.Threading.CancellationToken cancellationToken, int probeVersion, List<string> queueSnapshot)
     {
         double totalDurationSec = 0;
         double totalSourceSizeBytes = 0;
         double lowestBitrate = double.MaxValue;
 
-        foreach (var path in VideoQueue)
+        foreach (var path in queueSnapshot)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (probeVersion != _probeVersion) return;
@@ -851,8 +854,7 @@ public partial class VideoMergerWindow : Window
             : $"Est. Output: ~{estimatedMB:F0} MB";
 
         sizeLabel.Text = sizeText;
-        var sizeLabel2 = this.FindControl<TextBlock>("EstimatedSizeText2");
-        if (sizeLabel2 != null) sizeLabel2.Text = sizeText;
+        // ISSUE_09: EstimatedSizeText2 removed from XAML — the estimate is shown once (EstimatedSizeText).
     }
 
     private void UpdateSpeedLabel()
@@ -905,8 +907,9 @@ public partial class VideoMergerWindow : Window
                 }
             };
 
-            var speakerHitBox = this.FindControl<Border>("SpeakerHitBox");
-            if (speakerHitBox != null) speakerHitBox.PointerPressed += (s, e) => ToggleMute();
+            // ISSUE_08: SpeakerHitBox is now a Button; Click covers mouse + Enter/Space keyboard activation.
+            var speakerHitBox = this.FindControl<Button>("SpeakerHitBox");
+            if (speakerHitBox != null) speakerHitBox.Click += (s, e) => ToggleMute();
 
             volumeSlider.PointerReleased += (s, e) =>
             {
@@ -1307,9 +1310,12 @@ public partial class VideoMergerWindow : Window
             var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
             int qualityPercent = qs != null ? (qs.Value + 1) * 5 : 100;
 
+            // Snapshot the queue once. The loop below awaits (probes), and a concurrent
+            // drop would otherwise mutate VideoQueue mid-enumeration (InvalidOperationException).
+            var mergeQueueSnapshot = SnapshotVideoQueue();
             bool allPortrait = true;
             bool allLandscape = true;
-            foreach (var path in VideoQueue)
+            foreach (var path in mergeQueueSnapshot)
             {
                 if (!System.IO.File.Exists(path)) continue;
                 var prober = new FortniteVideoSoftware.Core.Media.MediaProber(_ffprobePath, path);
@@ -1529,7 +1535,7 @@ public partial class VideoMergerWindow : Window
     {
         if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown) return;
         var fEl = Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
-        if (fEl is Avalonia.Controls.Border sb && sb.Name == "SpeakerHitBox" && e.Key == Avalonia.Input.Key.Space) return;
+        if (fEl is Avalonia.Controls.Button sb && sb.Name == "SpeakerHitBox" && e.Key == Avalonia.Input.Key.Space) return;
 
         if (e.Key == Avalonia.Input.Key.Space)
         {
@@ -1603,7 +1609,7 @@ public partial class VideoMergerWindow : Window
             double tx = (t / duration) * canvasWidth;
             if (t > 0.001 && duration - t > 0.001)
             {
-                var tickText = new TextBlock { Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 255, 255, 255)), FontSize = 9 };
+                var tickText = new TextBlock { Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 255, 255, 255)), FontSize = Infrastructure.ThemeManager.ScaledFontSize(9) };
                 Avalonia.Controls.Canvas.SetLeft(tickText, Math.Max(0, Math.Min(Math.Max(0, canvasWidth - 36), tx + 2)));
                 Avalonia.Controls.Canvas.SetTop(tickText, 0);
                 scaleCanvas.Children.Add(tickText);
@@ -1732,6 +1738,14 @@ public partial class VideoMergerWindow : Window
     private void VideoList_DragOver(object? sender, Avalonia.Input.DragEventArgs e)
     {
         if (e.Data.Contains("VideoItem")) { e.DragEffects = Avalonia.Input.DragDropEffects.Move; SetVideoListDragState(true); ShowDropIndicator(e); }
+        // External files dragged in from Windows Explorer: accept them so users can
+        // throw a bunch of video files into the queue at once (same as Upload Files).
+        else if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.GetFiles()?.Any() == true)
+        {
+            e.DragEffects = Avalonia.Input.DragDropEffects.Copy;
+            SetVideoListDragState(true);
+            HideDropIndicator();
+        }
         else { e.DragEffects = Avalonia.Input.DragDropEffects.None; SetVideoListDragState(false); HideDropIndicator(); }
     }
 
@@ -1756,22 +1770,90 @@ public partial class VideoMergerWindow : Window
             var videoList = this.FindControl<ListBox>("VideoList");
             if (videoList != null) foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>()) container.Opacity = 1.0;
         }
+        else
+        {
+            // External files dropped from Windows Explorer.
+            var dropped = e.Data.GetFiles();
+            if (dropped != null)
+            {
+                _ = AddExternalVideosAsync(dropped.Select(f => f.Path.LocalPath).ToArray());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds externally provided video files (Explorer drag &amp; drop via OLE or the
+    /// WM_DROPFILES fallback) to the queue with the exact same validation and
+    /// duplicate detection as the Upload Files button.
+    /// </summary>
+    private async Task AddExternalVideosAsync(string[] paths)
+    {
+        // Serialize drop processing. Explorer/OLE and the WM_DROPFILES fallback can both
+        // fire for the same drop, and two concurrent AddExternalVideosAsync calls would
+        // interleave their async duplicate checks + dialogs and corrupt VideoQueue.
+        await _externalDropGate.WaitAsync();
+        try
+        {
+            await AddExternalVideosCoreAsync(paths);
+        }
+        finally
+        {
+            _externalDropGate.Release();
+        }
+    }
+
+    private async Task AddExternalVideosCoreAsync(string[] paths)
+    {
+        int addedCount = 0;
+        int skippedCount = 0;
+        int unsupportedCount = 0;
+
+        foreach (var rawPath in paths)
+        {
+            string ext = System.IO.Path.GetExtension(rawPath).ToLowerInvariant();
+            if (ext is not (".mp4" or ".mkv" or ".avi" or ".mov"))
+            {
+                unsupportedCount++;
+                continue;
+            }
+
+            string path = NormalizeVideoPath(rawPath);
+            if (!await ShouldAddVideoToQueueAsync(path))
+            {
+                skippedCount++;
+                continue;
+            }
+
+            VideoQueue.Add(path);
+            addedCount++;
+        }
+
+        if (addedCount > 0)
+        {
+            var vl = this.FindControl<ListBox>("VideoList");
+            if (vl != null && vl.SelectedIndex < 0 && VideoQueue.Count > 0) vl.SelectedIndex = 0;
+        }
+
+        string status = addedCount == 0 && skippedCount == 0 && unsupportedCount > 0
+            ? "Drop MP4, MKV, AVI, or MOV files."
+            : skippedCount > 0 || unsupportedCount > 0
+                ? $"{addedCount} video file(s) added. {skippedCount + unsupportedCount} file(s) skipped."
+                : $"{addedCount} video file(s) added.";
+        SetQueueStatus(status, addedCount == 0);
+        RuntimeLog.Info("UI", $"Added {addedCount} external video file(s) via drag & drop.");
     }
 
     private int ComputeDropIndex(Avalonia.Input.DragEventArgs e)
     {
         var videoList = this.FindControl<ListBox>("VideoList");
-        if (videoList == null || VideoQueue.Count == 0) return 0;
+        if (videoList == null) return 0;
+        var pos = e.GetPosition(videoList);
         var containers = videoList.GetRealizedContainers().Cast<ListBoxItem>().ToList();
-        if (containers.Count == 0) return VideoQueue.Count;
-        foreach (var container in containers)
+        for (int idx = 0; idx < containers.Count; idx++)
         {
-            if (container.DataContext is not string dc) continue;
-            int idx = VideoQueue.IndexOf(dc);
-            if (idx < 0) continue;
-            var bounds = container.Bounds;
-            var pos = e.GetPosition(videoList);
-            if (pos.Y >= bounds.Top && pos.Y <= bounds.Bottom)
+            var bounds = containers[idx].Bounds;
+            if (pos.X >= bounds.Left && pos.X <= bounds.Right &&
+                pos.Y >= bounds.Top && pos.Y <= bounds.Bottom)
             {
                 double midY = bounds.Top + bounds.Height / 2.0;
                 return pos.Y < midY ? idx : idx + 1;

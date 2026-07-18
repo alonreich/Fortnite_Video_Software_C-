@@ -69,6 +69,7 @@ public sealed class RecoveryManager
         {
         }
 
+        CoreLogger.Info("Recovery", "Previous session did not shut down cleanly (crash detected). Recovery state is available to restore.");
         return true;
     }
 
@@ -99,6 +100,27 @@ public sealed class RecoveryManager
         {
             _paths.EnsureWritableDirectories();
             File.WriteAllText(_paths.SafeModeSentinelFile, string.Empty);
+            CoreLogger.Info("Recovery", "Safe mode activated to prevent a crash loop.");
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("Recovery", $"Failed to activate safe mode: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Clears the safe-mode sentinel. Called after a recovery restore completes
+    /// successfully so that genuine later crashes in this session remain recoverable.
+    /// </summary>
+    public void DeactivateSafeMode()
+    {
+        try
+        {
+            if (File.Exists(_paths.SafeModeSentinelFile))
+            {
+                File.Delete(_paths.SafeModeSentinelFile);
+            }
+            CoreLogger.Info("Recovery", "Safe mode deactivated after successful recovery.");
         }
         catch
         {
@@ -112,9 +134,11 @@ public sealed class RecoveryManager
             _paths.EnsureWritableDirectories();
             string lockData = $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}";
             File.WriteAllText(_paths.AppSessionLockFile, lockData);
+            CoreLogger.Info("Recovery", $"Session lock acquired (PID {Environment.ProcessId}).");
         }
-        catch
+        catch (Exception ex)
         {
+            CoreLogger.Fail("Recovery", $"Failed to acquire session lock: {ex.Message}");
         }
     }
 
@@ -138,6 +162,7 @@ public sealed class RecoveryManager
             }
 
             ClearState();
+            CoreLogger.Info("Recovery", "Session lock and recovery state cleaned up on normal shutdown.");
         }
         catch
         {
@@ -163,6 +188,7 @@ public sealed class RecoveryManager
             {
                 File.Delete(_paths.AppSessionLockFile);
             }
+            CoreLogger.Info("Recovery", "Session lock released for process handoff (recovery state preserved).");
         }
         catch
         {
@@ -194,8 +220,9 @@ public sealed class RecoveryManager
                     _latestCommittedSave = sequence.Value;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                CoreLogger.Fail("Recovery", $"Failed to save recovery state: {ex.Message}");
             }
         }
     }
@@ -209,10 +236,14 @@ public sealed class RecoveryManager
 
         try
         {
-            return AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
+            var state = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
+            if (state != null)
+                CoreLogger.Info("Recovery", "Recovery state loaded for restore.");
+            return state;
         }
-        catch
+        catch (Exception ex)
         {
+            CoreLogger.Fail("Recovery", $"Failed to load recovery state: {ex.Message}");
             return null;
         }
     }

@@ -9,9 +9,6 @@ using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.App.Infrastructure;
 using System;
 using System.Collections.Generic;
-
-using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace FortniteVideoSoftware.App.Controls;
@@ -27,11 +24,15 @@ public partial class SettingsWindow : Window
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
     private string _pendingMusicFolder = "";
 
+    private string _pendingMaskOverlay = "";
+    private ThemeMode _pendingThemeMode = ThemeMode.FollowOS;
+    private FontScale _pendingFontScale = FontScale.Normal;
+
     public SettingsWindow()
     {
         InitializeComponent();
         DataContext = this;
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "SettingsBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "SettingsBounds");
 
         _pendingDefaults = new DefaultValues
         {
@@ -49,13 +50,19 @@ public partial class SettingsWindow : Window
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
             AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
             AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening,
-            RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes
+            RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes,
+            DefaultZoomSlow = SettingsManager.Instance.Defaults.DefaultZoomSlow,
+            DefaultFreezeDurationS = SettingsManager.Instance.Defaults.DefaultFreezeDurationS
         };
+
+        _pendingThemeMode = SettingsManager.Instance.ThemeMode;
+        _pendingFontScale = SettingsManager.Instance.FontScale;
 
         LoadCurrentKeybinds();
         BuildKeyBindsUi();
         BuildDefaultsUi();
         BuildMaskOverlayUi();
+        BuildAppearanceUi();
 
         ConfirmVideoMergerRemove = SettingsManager.Instance.ConfirmVideoMergerRemove;
         ConfirmVideoMergerClearAll = SettingsManager.Instance.ConfirmVideoMergerClearAll;
@@ -116,6 +123,48 @@ public partial class SettingsWindow : Window
         _pendingKeys["AggressiveVolumeDown"] = kb.AggressiveVolumeDown;
     }
 
+    private void BuildAppearanceUi()
+    {
+        var fontCombo = this.FindControl<ComboBox>("FontScaleComboBox");
+        if (fontCombo != null)
+        {
+            fontCombo.ItemsSource = new List<string>
+            {
+                "Extra Small",
+                "Small",
+                "Medium",
+                "Normal",
+                "Large",
+                "Extra Large"
+            };
+            fontCombo.SelectedIndex = (int)_pendingFontScale;
+
+            fontCombo.SelectionChanged += (s, e) =>
+            {
+                _pendingFontScale = (FontScale)fontCombo.SelectedIndex;
+                ThemeManager.ApplyFontScale(_pendingFontScale);
+            };
+        }
+
+        var themeCombo = this.FindControl<ComboBox>("ThemeComboBox");
+        if (themeCombo != null)
+        {
+            themeCombo.ItemsSource = new List<string>
+            {
+                "Follow OS Theme",
+                "Dark Theme",
+                "Light Theme"
+            };
+            themeCombo.SelectedIndex = (int)_pendingThemeMode;
+
+            themeCombo.SelectionChanged += (s, e) =>
+            {
+                _pendingThemeMode = (ThemeMode)themeCombo.SelectedIndex;
+                ThemeManager.ApplyTheme(_pendingThemeMode);
+            };
+        }
+    }
+
     private void BuildKeyBindsUi()
     {
         var panel = this.FindControl<StackPanel>("KeyBindsPanel");
@@ -146,7 +195,7 @@ public partial class SettingsWindow : Window
             var text = new TextBlock 
             { 
                 Text = description, 
-                Foreground = Brushes.White,
+                Foreground = this.TryFindResource("AppTextPrimaryBrush", out var brush) ? brush as IBrush : Brushes.White,
                 VerticalAlignment = VerticalAlignment.Center
             };
             
@@ -204,8 +253,6 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private string _pendingMaskOverlay = "";
-
     private void BuildMaskOverlayUi()
     {
         _pendingMaskOverlay = SettingsManager.Instance.ActiveMaskOverlay;
@@ -227,7 +274,7 @@ public partial class SettingsWindow : Window
         }
     }
 
-        private void BuildDefaultsUi()
+    private void BuildDefaultsUi()
     {
         var panel = this.FindControl<StackPanel>("DefaultsPanel");
         if (panel == null) return;
@@ -255,6 +302,32 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Enable Fade-In/Out", _pendingDefaults.EnableFadeBehavior, v => _pendingDefaults.EnableFadeBehavior = v));
+
+        // ---- Granular Speed Editor defaults section ----
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Speed Editor",
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            Margin = new Thickness(0, 16, 0, 2)
+        });
+
+        var zoomCombo = new ComboBox { Width = 170, HorizontalAlignment = HorizontalAlignment.Right };
+        zoomCombo.ItemsSource = new List<string> { "Instant (hard cut)", "Slow (gradual)" };
+        zoomCombo.SelectedIndex = _pendingDefaults.DefaultZoomSlow ? 1 : 0;
+        zoomCombo.SelectionChanged += (_, _) => _pendingDefaults.DefaultZoomSlow = zoomCombo.SelectedIndex == 1;
+        panel.Children.Add(MakeSimpleRow("Default Zoom-In Type", zoomCombo));
+
+        var freezeVals = new[] { 0.5, 1.0, 1.5, 2.0, 2.5, 3.0 };
+        var freezeCombo = new ComboBox { Width = 170, HorizontalAlignment = HorizontalAlignment.Right };
+        freezeCombo.ItemsSource = new List<string> { "0.5s", "1.0s", "1.5s", "2.0s", "2.5s", "3.0s" };
+        int fi = Array.FindIndex(freezeVals, v => Math.Abs(v - _pendingDefaults.DefaultFreezeDurationS) < 0.01);
+        freezeCombo.SelectedIndex = fi >= 0 ? fi : 1;
+        freezeCombo.SelectionChanged += (_, _) =>
+        {
+            if (freezeCombo.SelectedIndex >= 0 && freezeCombo.SelectedIndex < freezeVals.Length)
+                _pendingDefaults.DefaultFreezeDurationS = freezeVals[freezeCombo.SelectedIndex];
+        };
+        panel.Children.Add(MakeSimpleRow("Default Freeze Duration", freezeCombo));
 
         try
         {
@@ -295,10 +368,19 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private Grid MakeSimpleRow(string label, Control control)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 170"), Margin = new Thickness(0, 0, 0, 5) };
+        var text = new TextBlock { Text = label, Foreground = this.TryFindResource("AppTextPrimaryBrush", out var brush) ? brush as IBrush : Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 0); Grid.SetColumn(control, 1);
+        grid.Children.Add(text); grid.Children.Add(control);
+        return grid;
+    }
+
     private Grid MakeBehaviorCheckboxRow(string label, CheckboxDefaultBehavior initialBehavior, Action<CheckboxDefaultBehavior> onToggle)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 160"), Margin = new Thickness(0, 0, 0, 5) };
-        var text = new TextBlock { Text = label, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        var text = new TextBlock { Text = label, Foreground = this.TryFindResource("AppTextPrimaryBrush", out var brush) ? brush as IBrush : Brushes.White, VerticalAlignment = VerticalAlignment.Center };
         var combo = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Right };
         combo.ItemsSource = new List<string> { "Always Off", "Always On", "Remember Last Choice" };
         combo.SelectedIndex = (int)initialBehavior;
@@ -312,7 +394,7 @@ public partial class SettingsWindow : Window
     private Grid MakeValueBehaviorRow(string label, ValueDefaultBehavior initialBehavior, Action<ValueDefaultBehavior> onToggle, Control valueControl)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*, 170, Auto"), Margin = new Thickness(0, 0, 0, 5) };
-        var text = new TextBlock { Text = label, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        var text = new TextBlock { Text = label, Foreground = this.TryFindResource("AppTextPrimaryBrush", out var brush) ? brush as IBrush : Brushes.White, VerticalAlignment = VerticalAlignment.Center };
         var combo = new ComboBox { Width = 160, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,0,10,0) };
         combo.ItemsSource = new List<string> { "Fixed Value", "Remember Last Choice" };
         combo.SelectedIndex = (int)initialBehavior;
@@ -363,6 +445,11 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmCropToolReset = ConfirmCropToolReset;
         SettingsManager.Instance.ConfirmCropToolDelete = ConfirmCropToolDelete;
 
+        SettingsManager.Instance.ThemeMode = _pendingThemeMode;
+        SettingsManager.Instance.FontScale = _pendingFontScale;
+        ThemeManager.ApplyTheme(_pendingThemeMode);
+        ThemeManager.ApplyFontScale(_pendingFontScale);
+
         if (_pendingMaskOverlay != SettingsManager.Instance.ActiveMaskOverlay)
         {
             MaskOverlayManager.ApplyProfile(_pendingMaskOverlay);
@@ -386,7 +473,6 @@ public partial class SettingsWindow : Window
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-
     }
 
     protected override async void OnClosing(WindowClosingEventArgs e)
@@ -440,5 +526,3 @@ public partial class SettingsWindow : Window
         }
     }
 }
-
-

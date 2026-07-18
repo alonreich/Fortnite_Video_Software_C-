@@ -27,7 +27,7 @@
                         <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="12" MinWidth="0">
 
                             <!-- Video preview -->
-                            <Border Name="VideoAreaBorder" Grid.Row="0" Background="Black" CornerRadius="6" ClipToBounds="True">
+                            <Border Name="VideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
                                 <Grid>
                                     <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                     <!-- Playhead overlay (optional) -->
@@ -63,7 +63,7 @@
                                                                 </Ellipse>
 
                                                                 <!-- Mic Icon -->
-                                                                <Path Name="MicIcon" Fill="{DynamicResource AppTextPrimaryBrush}" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                                <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
                                                                 <Border Name="MicFocusRing" CornerRadius="45" BorderBrush="Transparent" BorderThickness="0" Margin="1" IsHitTestVisible="False"/>
                                                             </Grid>
                                                         </ControlTemplate>
@@ -94,7 +94,7 @@
                                                 <Style Selector="Button.recording:pointerover /template/ Ellipse#InnerGlow">
                                                     <Setter Property="Fill" Value="{DynamicResource AppDangerBrush}"/>
                                                 </Style>
-                                                <!-- Pressed State -->
+                                                <!-- Pressed State with clear dimming feedback (ISSUE_15) -->
                                                 <Style Selector="Button:pressed /template/ Ellipse#InnerGlow">
                                                     <Setter Property="Margin" Value="8"/>
                                                 </Style>
@@ -104,8 +104,8 @@
                                         <!-- Recording Indicator & EQ -->
                                         <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="0,0,20,0">
                                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                                <Ellipse Name="RecordingLight" Width="16" Height="16" Fill="{DynamicResource AppDangerBrush}" Opacity="0.2"/>
-                                                <TextBlock Name="RecordingStatusText" Text="READY" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="16" FontWeight="Bold"/>
+                                                <Ellipse Name="RecordingLight" Width="16" Height="16" ToolTip.Tip="Recording indicator: Red = recording, Green = idle" Fill="{DynamicResource AppDangerBrush}" Opacity="0.2"/>
+                                                <TextBlock Name="RecordingStatusText" Text="READY" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold"/>
                                             </StackPanel>
                                             
                                             <!-- EQ Meter -->
@@ -115,12 +115,12 @@
                                         </StackPanel>
 
                                         <!-- Play Pause -->
-                                        <Button Name="PlayPauseButton" Classes="Secondary" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
+                                        <Button Name="PlayPauseButton" Classes="Success" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
                                             <Panel Width="16" Height="16">
-                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppTextPrimaryBrush}"/>
+                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
                                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppTextPrimaryBrush}"/>
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppTextPrimaryBrush}"/>
+                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
                                                 </StackPanel>
                                             </Panel>
                                         </Button>
@@ -138,13 +138,13 @@
                                                 <Border Name="ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
                                                         <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
-                                                        <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="10" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                                 <!-- We can generate Images via code or just a Canvas -->
                                                 <Canvas Name="ThumbnailCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                 <!-- Playhead Marker -->
-                                                <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
                                                 <Border Name="ThumbPlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
                                             </Grid>
 
@@ -154,11 +154,11 @@
                                                 <Border Name="WaveformLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
                                                         <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppInfoBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
-                                                        <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="10" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                                 <Canvas Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-                                                <TextBlock Name="WaveformFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="10" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <TextBlock Name="WaveformFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
                                                 <Border Name="WavePlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
                                             </Grid>
                                         </Grid>
@@ -171,18 +171,18 @@
                         <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15" MinWidth="260" MaxWidth="340">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Orientation="Vertical" Spacing="15">
-                                <TextBlock Text="VOICE DETECTION" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
-                                <TextBlock Text="Scanning for candidate voice-frequency ranges..." Name="ProbingStatusText" FontSize="12" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                <TextBlock Text="VOICE DETECTION" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Text="Scanning for candidate voice-frequency ranges..." Name="ProbingStatusText" FontSize="{DynamicResource AppFontSize12}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
                                 <StackPanel Orientation="Vertical" Spacing="5">
-                                    <TextBlock Text="MICROPHONE" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                    <TextBlock Text="MICROPHONE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
                                     <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
                                 </StackPanel>
                                 
                                 <StackPanel Orientation="Vertical" Spacing="5">
-                                    <TextBlock Text="VOICE MUTING FILTERS" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                    <TextBlock Text="VOICE MUTING FILTERS" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
                                     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
                                         <Panel>
-                                            <TextBlock Text="Scan audio to unlock voice frequencies" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="{Binding !#MuteMaleCb.IsVisible}" />
+                                            <TextBlock Text="Scan audio to unlock voice frequencies" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="{Binding !#MuteMaleCb.IsVisible}" />
                                             <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
                                                 <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
                                                 <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
@@ -192,7 +192,7 @@
                                     </Border>
                                 </StackPanel>
                                 
-                                <TextBlock Text="Frequency muting can also reduce nearby game sounds." FontSize="10" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                <TextBlock Text="Frequency muting can also reduce nearby game sounds." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             </ScrollViewer>
                         </Border>
@@ -201,7 +201,7 @@
                     <!-- BOTTOM ROW (Apply / Cancel) -->
                     <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource AppBorderBrush}" Padding="12,12,12,12">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
                                 <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
                                 <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>

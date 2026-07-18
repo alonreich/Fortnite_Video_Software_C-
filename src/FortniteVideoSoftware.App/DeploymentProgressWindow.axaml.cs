@@ -1,5 +1,7 @@
 #nullable disable
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using System;
@@ -83,6 +85,24 @@ namespace FortniteVideoSoftware.App
         private void OnFinishClick(object sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             Close();
+        }
+
+        /// <summary>
+        /// ISSUE_01: this window removes the OS title bar (ExtendClientAreaTitleBarHeightHint="0"),
+        /// so without this handler the user cannot move the setup window at all.
+        /// Dragging starts anywhere on the background EXCEPT interactive controls
+        /// (Finish button, selectable log TextBox).
+        /// </summary>
+        private void OnRootPointerPressed(object sender, PointerPressedEventArgs e)
+        {
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || e.ClickCount >= 2) return;
+            var el = e.Source as StyledElement;
+            while (el != null)
+            {
+                if (el is Button || el is TextBox) return;
+                el = el.Parent;
+            }
+            try { BeginMoveDrag(e); } catch { }
         }
 
         public void UpdateStatus(string status)

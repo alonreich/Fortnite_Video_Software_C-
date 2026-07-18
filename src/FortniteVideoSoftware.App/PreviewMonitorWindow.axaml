@@ -5,6 +5,7 @@
         x:Class="FortniteVideoSoftware.App.PreviewMonitorWindow"
         Title="Preview Monitor"
         Width="1280" Height="750"
+        MinWidth="480" MinHeight="300"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
         ShowInTaskbar="True"
@@ -21,7 +22,7 @@
 
                 <Grid Grid.Row="1" ClipToBounds="True">
                     <!-- The Container where the SINGLE MpvVideoView instance will be transplanted -->
-                    <Border Name="VideoContainer" />
+                    <Border Name="VideoContainer"><TextBlock Text="Waiting for preview..." Foreground="{DynamicResource AppTextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize16}"/></Border>
 
                     <UserControl Name="PortraitSimulatorOverlay" IsVisible="False" IsHitTestVisible="False">
                         <controls:PhoneFrameMockup Name="PhoneFrame" />

@@ -40,7 +40,6 @@
       <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\mpv.com" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffmpeg.exe" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffprobe.exe" />
-      <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffplay.exe" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\av*.dll" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\sw*.dll" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\postproc*.dll" />

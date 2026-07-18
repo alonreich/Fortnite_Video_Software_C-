@@ -270,8 +270,9 @@ public sealed class StateTransferStore
 
         if (SubprocessStateKeys.Contains(key))
         {
-            if (value is not JsonObject)
+            if (value is not JsonObject subprocessState)
                 throw new InvalidDataException($"Invalid session_state subprocess object for '{key}'.");
+            ValidateSubprocessState(key, subprocessState);
             return;
         }
 
@@ -281,6 +282,25 @@ public sealed class StateTransferStore
         }
 
         throw new InvalidDataException($"Unknown or unvalidated session_state property: '{key}'.");
+    }
+
+    private static void ValidateSubprocessState(string key, JsonObject state)
+    {
+        // Schema-agnostic structural validation: these subprocess payloads have no
+        // fixed business schema at this layer, so validate integrity rather than fields.
+        // Every entry must have a non-empty key, and a schema_version (if present) must
+        // be a positive integer — mirroring the top-level session_state contract.
+        foreach (KeyValuePair<string, JsonNode?> property in state)
+        {
+            if (string.IsNullOrEmpty(property.Key))
+                throw new InvalidDataException($"Invalid empty property key inside subprocess object '{key}'.");
+        }
+
+        if (state.TryGetPropertyValue("schema_version", out JsonNode? version) && version != null)
+        {
+            if (!TryGetInt(version, out int schemaVersion) || schemaVersion < 1)
+                throw new InvalidDataException($"Invalid schema_version inside subprocess object '{key}'.");
+        }
     }
 
     private static void ValidateBoundsObject(string key, JsonObject bounds)

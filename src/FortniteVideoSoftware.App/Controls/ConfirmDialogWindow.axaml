@@ -1,8 +1,12 @@
+<!-- ISSUE_06: WindowStartupLocation="CenterOwner" below is an INTENTIONAL exception to the
+     suite-wide "no CenterOwner" rule. That rule targets the 8 persisted windows tracked by
+     WindowBoundsHelper. This is a transient, non-persisted modal confirm, so centering on its
+     parent is the correct, expected placement. Do not convert to Manual. -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.Controls.ConfirmDialogWindow"
         Title="Confirm"
-        Width="560" Height="380"
+        MinWidth="420" MinHeight="280" SizeToContent="WidthAndHeight"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="False"
         WindowStartupLocation="CenterOwner"
@@ -17,12 +21,12 @@
                 </Border>
 
                 <Border Grid.Row="1" Padding="25,20">
-                    <TextBlock Name="MessageText" Text="" Foreground="#cbd5e1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center"/>
+                    <TextBlock Name="MessageText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center"/>
                 </Border>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,0,0,25">
-                    <Button Name="YesBtn" Classes="Danger" Content="YES, ADD IT" Width="150" Height="38" Cursor="Hand"/>
-                    <Button Name="NoBtn" Classes="Primary" Content="NO, SKIP IT" Width="150" Height="38" Cursor="Hand"/>
+                    <Button Name="YesBtn" Classes="Success" Content="YES" MinWidth="130" MinHeight="34" Cursor="Hand"/>
+                    <Button Name="NoBtn" Classes="Secondary" Content="NO" MinWidth="130" MinHeight="34" Cursor="Hand"/>
                 </StackPanel>
             </Grid>
         </Border>

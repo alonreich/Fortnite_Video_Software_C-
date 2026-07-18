@@ -120,7 +120,7 @@ public partial class VoiceOverWindow : Window
     {
         InitializeComponent();
         CacheControls();
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, BoundsKey);
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, BoundsKey);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         Closing += OnWindowClosing;
         AttachTitleBarDrag();

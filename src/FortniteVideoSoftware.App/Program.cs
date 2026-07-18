@@ -11,6 +11,7 @@ if (DeploymentLifecycle.ShouldHandle(args))
 
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.InfoAction = RuntimeLog.Info;
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.FailAction = RuntimeLog.Fail;
+FortniteVideoSoftware.Core.Infrastructure.CoreLogger.DebugAction = RuntimeLog.Debug;
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
@@ -52,6 +53,17 @@ return exitCode;
 static async Task<int> RunAsync(string[] args)
 {
     string command = args.FirstOrDefault() ?? "run-ui";
+
+    // Windows Explorer "Open With" / file-association launches pass the video file
+    // path as the first argument. Without this check the path fell through to the
+    // command switch below, hit PrintUsage and the process exited silently
+    // ("nothing happens"). Detect it, stash it, and boot the normal UI instead.
+    if (OpenWithLaunch.IsVideoFilePath(command))
+    {
+        OpenWithLaunch.PendingVideoPath = System.IO.Path.GetFullPath(command);
+        RuntimeLog.Info("OPEN WITH", $"Launched with video file argument: {OpenWithLaunch.PendingVideoPath}");
+        return await RunUiAsync(args);
+    }
 
     try
     {

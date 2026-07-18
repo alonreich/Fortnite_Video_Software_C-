@@ -1,38 +1,40 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         x:Class="FortniteVideoSoftware.App.DeploymentProgressWindow"
         Title="Fortnite Video Software Setup"
         Width="720" Height="480"
+        MinWidth="560" MinHeight="360"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="0"
         Background="{DynamicResource AppSurfaceBrush}"
         Topmost="True"
         ShowInTaskbar="True"
         CanResize="True">
-    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="#38bdf8" BorderThickness="2" Margin="8">
+    <!-- ISSUE_01: window has no OS title bar; the background surface is the drag handle -->
+    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="{DynamicResource AppInfoBrush}" BorderThickness="2" Margin="8" PointerPressed="OnRootPointerPressed">
         <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
             <TextBlock Name="TitleText"
                        Grid.Row="0"
                        Text="Installing Fortnite Video Software"
-                       Foreground="#38bdf8"
-                       FontSize="20"
+                       Foreground="{DynamicResource AppInfoBrush}"
+                       FontSize="{DynamicResource AppFontSize20}"
                        FontWeight="Bold"
                        HorizontalAlignment="Center"
                        Margin="0,0,0,8"/>
             <TextBlock Name="LogPathText"
                        Grid.Row="1"
                        Text=""
-                       Foreground="#94a3b8"
-                       FontSize="11"
+                       Foreground="{DynamicResource AppTextMutedBrush}"
+                       FontSize="{DynamicResource AppFontSize11}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,8"/>
-            <TextBox Name="LogTextBox"
+            <TextBox Name="LogTextBox" Watermark="Waiting for log output..."
                      Grid.Row="2"
                      Background="{DynamicResource AppSurfaceBrush}"
                      BorderThickness="0"
-                     Foreground="#cbd5e1"
+                     Foreground="{DynamicResource AppTextPrimaryBrush}"
                      FontFamily="Consolas,Courier New,monospace"
-                     FontSize="12"
+                     FontSize="{DynamicResource AppFontSize12}"
                      IsReadOnly="True"
                      TextWrapping="Wrap"
                      AcceptsReturn="True"
@@ -40,14 +42,14 @@
             <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,12,0,4">
                 <TextBlock Name="PhaseText"
                            Text="Initializing..."
-                           Foreground="#94a3b8"
-                           FontSize="12"
+                           Foreground="{DynamicResource AppTextMutedBrush}"
+                           FontSize="{DynamicResource AppFontSize12}"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
                 <TextBlock Name="PercentageText"
                            Grid.Column="1"
                            Text="0%"
-                           Foreground="White"
+                           Foreground="{DynamicResource AppTextPrimaryBrush}"
                            FontWeight="Bold"
                            VerticalAlignment="Center"
                            Margin="12,0,0,0"/>
@@ -58,7 +60,7 @@
                          Minimum="0"
                          Maximum="100"
                          Value="0"
-                         Foreground="#38bdf8"
+                         Foreground="{DynamicResource AppInfoBrush}"
                          Background="{DynamicResource AppPanelBrush}"
                          Margin="0,0,0,12"/>
             <Button Name="FinishButton"
@@ -66,8 +68,8 @@
                     Classes="Success"
                     Content="Finish"
                     HorizontalAlignment="Center"
-                    Width="120"
-                   
+                    MinWidth="120"
+
                     IsVisible="False"
                    
                     FontWeight="Bold"

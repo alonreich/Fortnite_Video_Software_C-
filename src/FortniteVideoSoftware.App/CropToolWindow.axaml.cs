@@ -116,7 +116,7 @@ public partial class CropToolWindow : Window
         _initialVideoPath = string.IsNullOrWhiteSpace(initialVideoPath) ? null : initialVideoPath;
 
         InitializeComponent();
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "CropToolBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "CropToolBounds");
         FindControls();
         AttachTitleBarDrag();
         WireEvents();
@@ -200,7 +200,7 @@ public partial class CropToolWindow : Window
         ButtonClick("MagicWandButton", (_, _) => ShowMagicWandCandidates());
         ButtonClick("BackToVideoButton", (_, _) => ShowVideoPanel());
         ButtonClick("PlayPauseButton", async (_, _) => await TogglePlayPauseAsync());
-        ButtonClick("AddSelectionButton", (_, _) => AddCurrentSelection());
+        ButtonClick("AddSelectionButton", async (_, _) => await AddCurrentSelection());
         
         ButtonClick("DeleteMenuButton", (_, _) =>
         {
@@ -325,6 +325,21 @@ public partial class CropToolWindow : Window
             {
                 if (combo.SelectedItem is string selected && selected != FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay)
                 {
+                    // ISSUE_2: switching profiles overwrites the shared conf and wipes the
+                    // composer. Never discard unsaved work without asking. Reverting the
+                    // selection below cannot recurse: the equality guard above short-circuits.
+                    if (_dirty && _items.Count > 0)
+                    {
+                        bool discard = NativeDialog.ShowQuestion(
+                            "You have unsaved mask changes.\n\nSwitching profiles will discard them.\n\nClick Yes to discard the changes and switch, or No to stay on the current profile.",
+                            "Unsaved Changes");
+                        if (!discard)
+                        {
+                            combo.SelectedItem = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay;
+                            return;
+                        }
+                    }
+
                     FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(selected);
                     ResetWorkingState();
                     _ = LoadExistingPlaceholdersAsync();
@@ -340,22 +355,40 @@ public partial class CropToolWindow : Window
             btn.Click += async (s, e) =>
             {
                 var newName = txt.Text?.Trim();
-                if (!string.IsNullOrWhiteSpace(newName))
+                if (string.IsNullOrWhiteSpace(newName)) return;
+
+                // ISSUE_6: profile names become file names — validate before any disk work.
+                var safeName = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.SanitizeProfileName(newName);
+                if (safeName == null)
                 {
+                    SetStatus("Invalid profile name. Avoid characters like \\ / : * ? \" < > |.");
+                    return;
+                }
+
+                try
+                {
+                    // ISSUE_8: create the new profile (which switches the active profile)
+                    // BEFORE saving, so SaveConfigAsync syncs the current layout into the
+                    // NEW profile and the old profile keeps its untouched baseline.
+                    FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.CreateNewProfile(safeName);
                     if (_items.Count > 0)
                     {
                         await SaveConfigAsync();
                     }
-                    
-                    FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.CreateNewProfile(newName);
+
                     if (combo != null)
                     {
                         var updatedProfiles = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.GetAvailableProfiles();
                         combo.ItemsSource = updatedProfiles;
-                        combo.SelectedItem = newName;
+                        combo.SelectedItem = safeName;
                     }
                     txt.Text = "";
-                    SetStatus("New overlay created: " + newName);
+                    SetStatus("New overlay created: " + safeName);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("CROP", $"Create profile failed: {ex.Message}");
+                    SetStatus("Could not create the profile. See runtime log.");
                 }
             };
         }
@@ -612,16 +645,40 @@ public partial class CropToolWindow : Window
     {
         _snapshotPath = path;
 
-        await Task.Run(() =>
+        bool wantComposerBg = _composerBackgroundImage != null;
+
+        // ISSUE_2: decode, scale and PNG-encode off the UI thread so the window stays
+        // responsive on large (1440p/4K) snapshots. Only the Source assignments below,
+        // after the await, touch UI controls (on the UI thread).
+        var (snapshotBitmap, composerBitmap, composerPreviewPath) = await Task.Run(() =>
         {
-            using SKBitmap bitmap = SKBitmap.Decode(path) ?? throw new IOException("Could not decode snapshot.");
-            _snapshotWidth = bitmap.Width;
-            _snapshotHeight = bitmap.Height;
-            _originalResolution = $"{_snapshotWidth}x{_snapshotHeight}";
+            using (SKBitmap bitmap = SKBitmap.Decode(path) ?? throw new IOException("Could not decode snapshot."))
+            {
+                _snapshotWidth = bitmap.Width;
+                _snapshotHeight = bitmap.Height;
+                _originalResolution = $"{_snapshotWidth}x{_snapshotHeight}";
+            }
+
+            Bitmap snap;
+            using (var snapStream = File.OpenRead(path))
+                snap = new Bitmap(snapStream);
+
+            Bitmap? bg = null;
+            string? previewPath = null;
+            if (wantComposerBg)
+            {
+                previewPath = CreateComposerBackgroundPreview(path);
+                using var bgStream = File.OpenRead(previewPath);
+                bg = new Bitmap(bgStream);
+            }
+
+            return (snap, bg, previewPath);
         });
 
-        using var fs = File.OpenRead(path);
-        var snapshotBitmap = new Bitmap(fs);
+        if (composerPreviewPath != null)
+        {
+            _tempFiles.Add(composerPreviewPath);
+        }
 
         if (_snapshotImage != null)
         {
@@ -636,12 +693,9 @@ public partial class CropToolWindow : Window
             _sourceCanvas.Height = _snapshotHeight;
         }
 
-        if (_composerBackgroundImage != null)
+        if (composerBitmap != null && _composerBackgroundImage != null)
         {
-            string previewPath = CreateComposerBackgroundPreview(path);
-            _tempFiles.Add(previewPath);
-            using var bgStream = File.OpenRead(previewPath);
-            _composerBackgroundImage.Source = new Bitmap(bgStream);
+            _composerBackgroundImage.Source = composerBitmap;
         }
 
         ClearSourceSelection();
@@ -896,7 +950,7 @@ public partial class CropToolWindow : Window
         }
     }
 
-    private void AddCurrentSelection()
+    private async Task AddCurrentSelection()
     {
         if (_sourceSelection == null || string.IsNullOrWhiteSpace(_snapshotPath))
         {
@@ -933,7 +987,9 @@ public partial class CropToolWindow : Window
                 return;
             }
 
-            string cropPath = CropSnapshotRegionForExportPreview(_snapshotPath, sourceRect, role.Key);
+            // ISSUE_2: the crop decodes the full (possibly 4K) snapshot; run it off the UI thread.
+            string snapshotPath = _snapshotPath;
+            string cropPath = await Task.Run(() => CropSnapshotRegionForExportPreview(snapshotPath, sourceRect, role.Key));
             _tempFiles.Add(cropPath);
 
             CropEditorItem? existing = _items.FirstOrDefault(i => i.RoleKey == role.Key);
@@ -947,7 +1003,10 @@ public partial class CropToolWindow : Window
             int height = initialSize.height;
 
             int initialX = role.DefaultX >= 0 ? (int)role.DefaultX : contentRect.x;
-            int initialY = role.DefaultY >= 0 ? (int)role.DefaultY : contentRect.y;
+            // ISSUE_7: contentRect.y is content-space (0..1620); overlay positions are
+            // portrait-space (150..1770). Add the 150px text-strip offset so the new
+            // element spawns exactly over its source location.
+            int initialY = role.DefaultY >= 0 ? (int)role.DefaultY : contentRect.y + CoordinateConstants.UIPaddingTop;
 
             (int x, int y) = ClampOverlay(initialX, initialY, width, height);
 
@@ -1055,7 +1114,7 @@ public partial class CropToolWindow : Window
         {
             Text = "",
             Foreground = Brushes.White,
-            FontSize = 18,
+            FontSize = Infrastructure.ThemeManager.ScaledFontSize(18),
             FontWeight = FontWeight.Bold,
             TextAlignment = TextAlignment.Center,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
@@ -1316,34 +1375,35 @@ public partial class CropToolWindow : Window
 
     private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
+        // ISSUE_1: The scale denominator MUST be the same crops_1080p width that
+        // SaveConfigAsync stores, because the exporter computes
+        // rw = storedCropW × scale × backendScale (MobileFilterBuilder.Build).
+        // Using any other width base makes the exported mask a different size
+        // than the preview showed.
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
             _originalResolution);
 
-        var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
-            (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
-            _originalResolution,
-            roleKey != null ? HudConfig.CropDriftType(roleKey) : null);
-
-        var trueContentRect = CoordinateMath.TransformToContentAreaInt(
-            (exportRect.x, exportRect.y, exportRect.w, exportRect.h),
-            _originalResolution);
-
-        int contentW = Math.Max(2, trueContentRect.w);
-        int contentH = Math.Max(2, trueContentRect.h);
+        int contentW = Math.Max(2, contentRect.w);
+        int contentH = Math.Max(2, contentRect.h);
 
         double maxDesW = Math.Max(MinItemSize, desiredWidth);
-        Frac scaleFrac = Frac.FromDouble(maxDesW / contentW);
-        if (scaleFrac < Frac.FromDouble(0.0001)) scaleFrac = Frac.FromDouble(0.0001);
+        // ISSUE_10: HudConfig.Sanitize rounds the stored scale to 4 decimals on load,
+        // so preview math must use the identical 4-decimal value or EvenCeil can flip.
+        double quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / contentW), 4, MidpointRounding.AwayFromZero);
+        Frac scaleFrac = Frac.FromDouble(quantizedScale);
 
         Frac backendScale = CoordinateConstants.BackendScale;
         int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentW, 1) * scaleFrac * backendScale));
-        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(rw * contentH, contentW)));
+        // ISSUE_1 (pixel-perfect): height must use the IDENTICAL basis the exporter uses
+        // (MobileFilterBuilder.Build: rh = EvenCeil(contentH * scale * backendScale)).
+        // Deriving rh from the already-even-ceiled rw diverged from export by up to ~2px.
+        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentH, 1) * scaleFrac * backendScale));
 
         int width = CoordinateMath.ScaleRound(new Frac(rw, 1) / backendScale);
         int height = CoordinateMath.ScaleRound(new Frac(rh, 1) / backendScale);
 
-        return (width, height, (double)width / contentW);
+        return (width, height, quantizedScale);
     }
 
     private void SelectItem(CropEditorItem? item, bool updateLayerList = true)
@@ -1501,7 +1561,7 @@ public partial class CropToolWindow : Window
                 {
                     Text = role.DisplayName,
                     Foreground = Brushes.LightGreen,
-                    FontSize = 13,
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(13),
                     FontWeight = FontWeight.Bold,
                     IsHitTestVisible = false,
                     IsVisible = visible,
@@ -1625,11 +1685,11 @@ public partial class CropToolWindow : Window
                 {
                     summaryContent.Children.Clear();
                     var headerModBorder = new Border { Background = SolidColorBrush.Parse("#1e10b981"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
-                    headerModBorder.Child = new TextBlock { Text = "  MODIFIED ELEMENTS", Foreground = SolidColorBrush.Parse("#10b981"), FontWeight = FontWeight.Bold, FontSize = 14 };
+                    headerModBorder.Child = new TextBlock { Text = "  MODIFIED ELEMENTS", Foreground = SolidColorBrush.Parse("#10b981"), FontWeight = FontWeight.Bold, FontSize = Infrastructure.ThemeManager.ScaledFontSize(14) };
                     summaryContent.Children.Add(headerModBorder);
                     foreach(var item in _items)
                     {
-                        summaryContent.Children.Add(new TextBlock { Text = $"  ✓  {item.DisplayName}", Foreground = SolidColorBrush.Parse("#94a3b8"), FontSize = 16 });
+                        summaryContent.Children.Add(new TextBlock { Text = $"  ✓  {item.DisplayName}", Foreground = SolidColorBrush.Parse("#94a3b8"), FontSize = Infrastructure.ThemeManager.ScaledFontSize(16) });
                     }
                     
                     var existingKeys = _items.Select(x => x.RoleKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1639,11 +1699,11 @@ public partial class CropToolWindow : Window
                     {
                         summaryContent.Children.Add(new Border { Height = 20 });
                         var headerUnBorder = new Border { Background = SolidColorBrush.Parse("#1e9ca3af"), Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
-                        headerUnBorder.Child = new TextBlock { Text = "  UNTOUCHED (DEFAULTS)", Foreground = SolidColorBrush.Parse("#9ca3af"), FontWeight = FontWeight.Bold, FontSize = 14 };
+                        headerUnBorder.Child = new TextBlock { Text = "  UNTOUCHED (DEFAULTS)", Foreground = SolidColorBrush.Parse("#9ca3af"), FontWeight = FontWeight.Bold, FontSize = Infrastructure.ThemeManager.ScaledFontSize(14) };
                         summaryContent.Children.Add(headerUnBorder);
                         foreach(var u in untouched)
                         {
-                            summaryContent.Children.Add(new TextBlock { Text = $"  •  {u.DisplayName}", Foreground = SolidColorBrush.Parse("#9ca3af"), FontSize = 15 });
+                            summaryContent.Children.Add(new TextBlock { Text = $"  •  {u.DisplayName}", Foreground = SolidColorBrush.Parse("#9ca3af"), FontSize = Infrastructure.ThemeManager.ScaledFontSize(15) });
                         }
                     }
                 }

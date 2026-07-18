@@ -32,7 +32,8 @@
                             BorderBrush="{DynamicResource AppPanelBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="16,10">
-                        <Grid RowDefinitions="20,20,8">
+                        <!-- ISSUE_05: Auto rows (were fixed 20/20/8px) so scaled fonts never clip the wizard labels -->
+                        <Grid RowDefinitions="Auto,Auto,Auto">
                             <ProgressBar Name="WizardProgress"
                                          Grid.Row="0"
                                          Minimum="0"
@@ -43,20 +44,20 @@
                                        Grid.Row="1"
                                        Text="Goal: Upload Video"
                                        Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                       FontSize="12"
+                                       FontSize="{DynamicResource AppFontSize12}"
                                        FontWeight="Bold" />
                             <TextBlock Name="StatusLabel"
                                        Grid.Row="2"
                                        Text=""
                                        Foreground="{DynamicResource AppTextMutedBrush}"
-                                       FontSize="10" />
+                                       FontSize="{DynamicResource AppFontSize10}" />
                         </Grid>
                     </Border>
 
-                    <Grid Name="VideoPanel" Grid.Row="1" Background="Black">
+                    <Grid Name="VideoPanel" Grid.Row="1" Background="{DynamicResource AppVideoSurfaceBrush}">
                         <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                         <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
-                            <TextBlock Text="⚠️" FontSize="16" Foreground="{DynamicResource AppWarningBrush}" />
+                            <TextBlock Text="⚠️" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" />
                         </Border>
                         <Border Name="UploadHint"
                                 HorizontalAlignment="Center"
@@ -68,7 +69,7 @@
                                 Padding="34,20">
                             <TextBlock Text="UPLOAD VIDEO"
                                        Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                       FontSize="28"
+                                       FontSize="{DynamicResource AppFontSize28}"
                                        FontWeight="Bold" />
                         </Border>
                     </Grid>
@@ -82,7 +83,7 @@
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       Background="{DynamicResource AppSurfaceBrush}">
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Black">
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource AppVideoSurfaceBrush}">
                                 <Image Name="SnapshotImage" Stretch="Uniform" />
                                 <Canvas Name="SourceCanvas"
                                         HorizontalAlignment="Stretch"
@@ -100,20 +101,18 @@
                                 Padding="12,6">
                             <Grid ColumnDefinitions="Auto,*,Auto">
                                 <StackPanel Grid.Column="0" MinWidth="220">
-                                    <DataValidationErrors>
-                                        <TextBox Name="RoleTextBox"
-                                                 Watermark="Element Name (e.g. Ammo)"
-                                                 HorizontalAlignment="Stretch"
-                                                 Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                                 Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
-                                    </DataValidationErrors>
+                                    <TextBox Name="RoleTextBox"
+                                             Watermark="Element Name (e.g. Ammo)"
+                                             HorizontalAlignment="Stretch"
+                                             Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
                                 </StackPanel>
                                 <TextBlock Name="SelectionInfo"
                                            Grid.Column="1"
                                            Text="Draw a box around a HUD element, then assign its role."
                                            Foreground="{DynamicResource AppTextPrimaryBrush}"
                                            VerticalAlignment="Center"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource AppFontSize11}"
                                            Margin="12,0,12,0" />
                                 <Button Name="AddSelectionButton"
                                         Grid.Column="2"
@@ -136,15 +135,16 @@
                             <TextBlock Name="CurrentTimeLabel"
                                        Grid.Column="0"
                                        Text="00:00"
-                                       Foreground="White"
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                        VerticalAlignment="Center"
-                                       Width="64"
-                                       FontSize="10"
+                                       MinWidth="64"
+                                       FontSize="{DynamicResource AppFontSize10}"
                                        Margin="0,0,8,0" />
                             <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" ClipToBounds="False">
                                 <StackPanel Orientation="Vertical">
                                     <Canvas Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
-                                    <Grid Height="32" ClipToBounds="False">
+                                    <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
+                                    <Grid Height="44" ClipToBounds="False">
                                         <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
                                         <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
                                             <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
@@ -153,7 +153,7 @@
                                                         <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
                                                     </Transitions>
                                                 </Border.Transitions>
-                                                <TextBlock Name="PlayheadBadgeText" Text="00:00:00" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <TextBlock Name="PlayheadBadgeText" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Border>
                                         </Canvas>
                                     </Grid>
@@ -162,11 +162,11 @@
                             <TextBlock Name="TotalTimeLabel"
                                        Grid.Column="2"
                                        Text="00:00"
-                                       Foreground="White"
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                        VerticalAlignment="Center"
-                                       Width="64"
+                                       MinWidth="64"
                                        TextAlignment="Right"
-                                       FontSize="10"
+                                       FontSize="{DynamicResource AppFontSize10}"
                                        Margin="8,0,0,0" />
                         </Grid>
                     </Border>
@@ -185,7 +185,7 @@
                             </StackPanel>
                             
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                <Button Name="PlayPauseButton" Classes="Secondary" Content="PLAY" MinWidth="110" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
+                                <Button Name="PlayPauseButton" Classes="Primary" Content="PLAY" MinWidth="110" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
                                 <Button Name="ReturnButton" Classes="Secondary" Content="RETURN" MinWidth="110" ToolTip.Tip="Close this tool and go back to the main menu." />
                                 <Border Width="1" Height="20" Background="{DynamicResource AppBorderBrush}" Margin="8,0" />
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -193,7 +193,7 @@
                                         <Button.Flyout>
                                             <Flyout Placement="Top">
                                                 <StackPanel Spacing="8" Margin="8">
-                                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="12" FontWeight="Bold" />
+                                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
                                                     <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" HorizontalAlignment="Stretch" />
                                                 </StackPanel>
                                             </Flyout>
@@ -209,19 +209,20 @@
                         Background="{DynamicResource AppPanelBrush}"
                         BorderBrush="{DynamicResource AppBorderBrush}"
                         BorderThickness="1,0,0,0">
-                    <Grid RowDefinitions="Auto,42,*,46">
+                    <!-- ISSUE_02: Auto rows (were fixed 42/46) so scaled fonts never clip the toolbar controls -->
+                    <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Border Grid.Row="0"
                             Background="{DynamicResource AppSurfaceBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="12,6">
                         <Grid ColumnDefinitions="Auto, *, Auto, Auto">
-                            <TextBlock Text="Active Profile:" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="11"/>
+                            <TextBlock Text="Active Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize11}"/>
                             <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" HorizontalAlignment="Stretch" ToolTip.Tip="Select an existing mask overlay profile."/>
                             <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" HorizontalAlignment="Stretch" MinWidth="130">
-                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="11" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
+                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
                             </StackPanel>
-                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="10" />
+                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="{DynamicResource AppFontSize10}" />
                         </Grid>
                     </Border>
                     <Border Grid.Row="1"
@@ -233,7 +234,7 @@
                             <CheckBox Name="ShowPlaceholders"
                                       Grid.Column="0"
                                       Content="Show Existing Crops"
-                                      Foreground="White"
+                                      Foreground="{DynamicResource AppTextPrimaryBrush}"
                                       IsChecked="False"
                                       ToolTip.Tip="Toggle the visibility of previously saved crops on the canvas."
                                       VerticalAlignment="Center" />
@@ -249,7 +250,7 @@
                             <CheckBox Name="SnapToggle"
                                       Grid.Column="3"
                                       Content="Snap"
-                                      Foreground="White"
+                                      Foreground="{DynamicResource AppTextPrimaryBrush}"
                                       IsChecked="True"
                                       VerticalAlignment="Center"
                                       ToolTip.Tip="Turn the 'Magnetic Pull' on or off. Blue lines will always help you align things." />
@@ -257,21 +258,29 @@
                                     Grid.Column="5"
                                     Classes="Success"
                                     Content="FINISH &amp; SAVE"
-                                    Width="120"
+                                    MinWidth="120"
                                     ToolTip.Tip="Save all your work permanently to the computer."
                                     IsEnabled="False" />
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Row="2" ColumnDefinitions="*,90,180">
+                    <!-- ISSUE_02: middle column Auto (was fixed 90) so the Undo/Redo buttons never clip at larger font scale -->
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,180">
                         <Border Grid.Column="0"
                                 Background="{DynamicResource AppVideoRailBrush}"
                                 ClipToBounds="True">
-                            <Grid>
+                            <!-- ISSUE_5: the composer works in absolute portrait pixels (1080x1920).
+                                 The Viewbox scales the whole fixed-size surface uniformly, so item
+                                 coordinates, the background reference, and the letterbox stay in
+                                 exact 1:1 alignment at any window size or DPI. Pointer positions
+                                 obtained via GetPosition(PortraitCanvas) are automatically
+                                 transformed back into 1080x1920 space by Avalonia. -->
+                            <Viewbox Stretch="Uniform">
+                            <Grid Width="1080" Height="1920">
                                 <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
                                 <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.22" />
                                 
-                                <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" AutomationProperties.Name="Portrait crop layout canvas" />
+                                <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
 
                                 <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
                                     <Grid.Transitions>
@@ -303,6 +312,7 @@
                                     <Rectangle Grid.Row="2" Fill="Black" />
                                 </Grid>
                             </Grid>
+                            </Viewbox>
                         </Border>
 
                         <StackPanel Grid.Column="1"
@@ -314,13 +324,13 @@
                             <Button Name="UndoButton"
                                     Classes="Secondary"
                                     Content="⮪ UNDO"
-                                    Width="90"
+                                    MinWidth="90"
                                     ToolTip.Tip="Undo your last mistake."
                                     IsEnabled="False" />
                             <Button Name="RedoButton"
-                                    Classes="Primary"
+                                    Classes="Secondary"
                                     Content="REDO ⮫"
-                                    Width="90"
+                                    MinWidth="90"
                                     ToolTip.Tip="Redo what you just undid."
                                     IsEnabled="False" />
                         </StackPanel>
@@ -330,22 +340,23 @@
                                 BorderBrush="{DynamicResource AppBorderBrush}"
                                 BorderThickness="1,0,0,0"
                                 Padding="8">
-                            <Grid RowDefinitions="20,*">
+                            <!-- ISSUE_02: Auto header row (was fixed 20) so the LAYERS label never clips at larger font scale -->
+                            <Grid RowDefinitions="Auto,*">
                                 <TextBlock Grid.Row="0"
                                            Text="LAYERS"
-                                           Foreground="#94a3b8"
-                                           FontSize="10"
+                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                           FontSize="{DynamicResource AppFontSize10}"
                                            FontWeight="Bold" />
                                 <ListBox Name="LayerList"
                                          Grid.Row="1"
                                          Background="Transparent"
-                                         Foreground="White"
-                                         FontSize="11" />
+                                         Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                         FontSize="{DynamicResource AppFontSize11}" />
                                 <TextBlock Name="EmptyLayersText"
                                            Grid.Row="1"
                                            Text="No layers added yet."
                                            Foreground="{DynamicResource AppTextMutedBrush}"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource AppFontSize11}"
                                            FontStyle="Italic"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -365,20 +376,20 @@
                             <Button Name="LowerButton"
                                     Classes="Secondary"
                                     Content="MOVE DOWN"
-                                    Width="110"
+                                    MinWidth="110"
                                     ToolTip.Tip="Move selected layer down"
                                     IsEnabled="False" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Name="DeleteMenuButton"
                                         Classes="Danger"
                                         Content="DELETE"
-                                        Width="90"
+                                        MinWidth="90"
                                         ToolTip.Tip="Throw this piece into the trash."
                                         IsEnabled="False">
                                     <Button.Flyout>
                                         <Flyout Placement="Top">
                                             <StackPanel Spacing="8" Margin="8">
-                                                <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="12" FontWeight="Bold" />
+                                                <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
                                                 <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" />
                                             </StackPanel>
                                         </Flyout>
@@ -388,7 +399,7 @@
                             <Button Name="RaiseButton"
                                     Classes="Secondary"
                                     Content="MOVE UP"
-                                    Width="110"
+                                    MinWidth="110"
                                     ToolTip.Tip="Move selected layer up"
                                     IsEnabled="False" />
                         </StackPanel>
@@ -400,9 +411,9 @@
             <!-- Overlays -->
             <Grid Name="ThinkingOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-                    <Path Data="M12 2v2a8 8 0 1 0 8 8h2a10 10 0 1 1-10-10z" Fill="#38bdf8" Width="60" Height="60" Stretch="Uniform" HorizontalAlignment="Center" />
-                    <Border Background="#cc0f172a" CornerRadius="10" Padding="20">
-                        <TextBlock Text="Please wait while processing" FontSize="20" FontWeight="Bold" Foreground="White" />
+                    <Path Data="M12 2v2a8 8 0 1 0 8 8h2a10 10 0 1 1-10-10z" Fill="{DynamicResource AppInfoBrush}" Width="60" Height="60" Stretch="Uniform" HorizontalAlignment="Center" />
+                    <Border Background="{DynamicResource AppOverlayBrush}" CornerRadius="10" Padding="20">
+                        <TextBlock Text="Please wait while processing" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
                     </Border>
                 </StackPanel>
             </Grid>
@@ -411,16 +422,17 @@
                 <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" MinWidth="400" MaxWidth="800" MinHeight="300" MaxHeight="800" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
                     <StackPanel Spacing="20">
                         <StackPanel Orientation="Horizontal" Spacing="20">
-                            <TextBlock Text="✓" FontSize="60" Foreground="#10b981" />
+                            <TextBlock Text="✓" FontSize="{DynamicResource AppFontSize60}" Foreground="{DynamicResource AppSuccessBrush}" />
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="SUCCESS" FontSize="28" FontWeight="ExtraBold" Foreground="White" />
-                                <TextBlock Text="Configuration deployed safely." FontSize="16" Foreground="#94a3b8" />
+                                <TextBlock Text="SUCCESS" FontSize="{DynamicResource AppFontSize28}" FontWeight="ExtraBold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Text="Configuration deployed safely." FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppTextMutedBrush}" />
                             </StackPanel>
                         </StackPanel>
-                        <ScrollViewer Height="250">
+                        <!-- ISSUE_05: MaxHeight (was fixed Height) so summary content is never squeezed at larger font scales -->
+                        <ScrollViewer MaxHeight="250">
                             <StackPanel Name="SummaryContent" Spacing="10" />
                         </ScrollViewer>
-                        <TextBlock Text="Automatically returning to main app..." FontSize="14" FontWeight="Bold" Foreground="#38bdf8" HorizontalAlignment="Center" Margin="0,20,0,0" />
+                        <TextBlock Text="Automatically returning to main app..." FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppInfoBrush}" HorizontalAlignment="Center" Margin="0,20,0,0" />
                     </StackPanel>
                 </Border>
             </Grid>

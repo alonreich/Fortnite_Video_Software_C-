@@ -19,7 +19,7 @@ public partial class PreviewMonitorWindow : Window
 #if DEBUG
         this.AttachDevTools();
 #endif
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "PreviewMonitorWindowBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "PreviewMonitorWindowBounds");
     }
 
     private void InitializeComponent()

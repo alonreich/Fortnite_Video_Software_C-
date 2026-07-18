@@ -20,14 +20,14 @@
                         <Border Height="150" Background="Black" VerticalAlignment="Bottom" />
                         <Image Name="PortraitImage" Height="105" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,42,0,0" />
                         <Grid Height="150" VerticalAlignment="Top" Margin="30,12,30,0">
-                            <TextBlock Text="9:41" Foreground="White" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                            <TextBlock Text="9:41" Foreground="White" FontSize="{DynamicResource AppFontSize28}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="24" Margin="0,5,0,0">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
                                     <Border Background="White" Width="3.5" Height="7" CornerRadius="1" VerticalAlignment="Bottom"/>
                                     <Border Background="White" Width="3.5" Height="10" CornerRadius="1" VerticalAlignment="Bottom"/>
                                     <Border Background="White" Width="3.5" Height="14" CornerRadius="1" VerticalAlignment="Bottom"/>
                                     <Border Background="#66FFFFFF" Width="3.5" Height="18" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                    <TextBlock Text="5G" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
+                                    <TextBlock Text="5G" Foreground="White" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
                                 </StackPanel>
                                 <Grid Width="22" Height="18" VerticalAlignment="Bottom" Margin="0,0,0,2">
                                     <Path Data="M 1,4 C 7,-1 15,-1 21,4" Stroke="#66FFFFFF" StrokeThickness="3" StrokeLineCap="Round" />

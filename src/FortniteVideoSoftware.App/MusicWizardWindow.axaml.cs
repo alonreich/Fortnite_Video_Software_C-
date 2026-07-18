@@ -120,7 +120,7 @@ public partial class MusicWizardWindow : Window
 
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.WindowBoundsHelper.LoadBoundsSync(this, "MusicWizardBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MusicWizardBounds");
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += (s, e) =>
         {
@@ -1849,7 +1849,7 @@ public partial class MusicWizardWindow : Window
 
                 Text = TimeSpan.FromSeconds(t).ToString(@"m\:ss"),
 
-                FontSize = 9,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(9),
 
                 Foreground = Avalonia.Media.Brushes.Gray,
 
@@ -1929,7 +1929,7 @@ public partial class MusicWizardWindow : Window
 
                 Text = TimeSpan.FromSeconds(t).ToString(@"m\:ss"),
 
-                FontSize = 9,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(9),
 
                 Foreground = Avalonia.Media.Brushes.Gray,
 
@@ -2561,7 +2561,7 @@ public partial class MusicWizardWindow : Window
 
                     Foreground = Avalonia.Media.Brushes.White,
 
-                    FontSize = 11,
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(11),
 
                     FontWeight = Avalonia.Media.FontWeight.SemiBold
 

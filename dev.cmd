@@ -51,10 +51,7 @@ goto :EOF
 
 :WATCH
 echo Cleaning project to ensure watch mode doesn't get stuck...
-if exist "src\FortniteVideoSoftware.App\bin" rd /s /q "src\FortniteVideoSoftware.App\bin"
-if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
-if exist "src\FortniteVideoSoftware.Core\bin" rd /s /q "src\FortniteVideoSoftware.Core\bin"
-if exist "src\FortniteVideoSoftware.Core\obj" rd /s /q "src\FortniteVideoSoftware.Core\obj"
+call :NUKE_BUILD
 dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summary >nul
 
 echo Starting HOT RELOAD watch mode...
@@ -65,14 +62,14 @@ dotnet watch run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% -- run-ui
 goto :EOF
 
 :RUN
-echo Running Debug single launch (Incremental)...
-if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
+echo Running Debug single launch (full clean)...
+call :NUKE_BUILD
 dotnet run --project "%PROJECT%" -c %CONFIG% -r %RUNTIME% -- run-ui
 goto :EOF
 
 :BUILD
-echo Building Debug no run (Incremental)...
-if exist "src\FortniteVideoSoftware.App\obj" rd /s /q "src\FortniteVideoSoftware.App\obj"
+echo Building Debug no run (full clean)...
+call :NUKE_BUILD
 dotnet build "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summary
 goto :EOF
 
@@ -102,4 +99,18 @@ if exist "%FVS_DEV_LOG_DIR%" (
     echo [DEV] Clearing previous dev logs in %FVS_DEV_LOG_DIR%...
     del /q "%FVS_DEV_LOG_DIR%\*" 2>nul
 )
+goto :EOF
+
+REM ═══════════════════════════════════════════════════════════════════════
+REM Subroutine: Nuke ALL build caches so no stale binary or XAML is ever shown.
+REM Shuts the persistent Roslyn build server and deletes bin/ + obj/ for every
+REM project. Guarantees the very next build is fully from source.
+REM ═══════════════════════════════════════════════════════════════════════
+:NUKE_BUILD
+echo [DEV] Wiping build caches (bin/obj + build server) for a guaranteed-fresh build...
+dotnet build-server shutdown >nul 2>nul
+if exist "src\FortniteVideoSoftware.App\bin"  rd /s /q "src\FortniteVideoSoftware.App\bin"
+if exist "src\FortniteVideoSoftware.App\obj"  rd /s /q "src\FortniteVideoSoftware.App\obj"
+if exist "src\FortniteVideoSoftware.Core\bin" rd /s /q "src\FortniteVideoSoftware.Core\bin"
+if exist "src\FortniteVideoSoftware.Core\obj" rd /s /q "src\FortniteVideoSoftware.Core\obj"
 goto :EOF

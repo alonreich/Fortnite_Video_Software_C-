@@ -44,6 +44,8 @@ public partial class AvaloniaApp : Application
     public override void OnFrameworkInitializationCompleted()
     {
         FortniteVideoSoftware.Core.Media.VideoRenderMode.Initialize();
+        Infrastructure.SettingsManager.Load();
+        Infrastructure.ThemeManager.ApplyFromSettings();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
