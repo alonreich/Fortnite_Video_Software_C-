@@ -421,7 +421,8 @@ public partial class CropToolWindow : Window
 
         _isMpvStarted = true;
         string mpvPath = ResolveBinaryPath("mpv.exe", "frontend");
-        RuntimeLog.Info("CROP", $"Using MPV at: {mpvPath}");
+        RuntimeLog.Info("CROP", $"Using MPV: {IOPath.GetFileName(mpvPath)}");
+        RuntimeLog.Debug("CROP", $"Using MPV path: {mpvPath}");
         await _videoHost.StartMpvProcessAsync(mpvPath);
     }
 
@@ -628,7 +629,8 @@ public partial class CropToolWindow : Window
 
             File.Move(tempOutput, output);
             _tempFiles.Add(output);
-            RuntimeLog.Info("CROP", $"Snapshot captured: {output} at {seconds:F3}s from {_videoPath}");
+            RuntimeLog.Info("CROP", $"Snapshot captured: {IOPath.GetFileName(output)} at {seconds:F3}s from {IOPath.GetFileName(_videoPath)}");
+            RuntimeLog.Debug("CROP", $"Snapshot path: {output}; source video path: {_videoPath}");
             await LoadSnapshotAsync(output);
             ShowSnapshotPanel();
         }
@@ -1386,35 +1388,27 @@ public partial class CropToolWindow : Window
 
     private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
+        // The editor canvas is 1080x1920 portrait UI space, while export composes
+        // HUD layers in 1280x1920 internal space before final scaling/padding.
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
             _originalResolution);
 
-        var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
-            (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
-            _originalResolution,
-            HudConfig.CropDriftType(roleKey ?? ""));
-
-        var (_, _, _, _, videoScale) = CoordinateMath.ScalePlan(_originalResolution);
-
-        int baselineRw = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.w, 1) * videoScale * Frac.One));
+        int contentW = Math.Max(2, contentRect.w);
+        int contentH = Math.Max(2, contentRect.h);
 
         double maxDesW = Math.Max(MinItemSize, desiredWidth);
-        double quantizedScale;
-        if (Math.Abs(maxDesW - baselineRw) < 0.1)
-        {
-            quantizedScale = 1.0;
-        }
-        else
-        {
-            quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / baselineRw), 4, MidpointRounding.AwayFromZero);
-        }
+        double quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / contentW), 4, MidpointRounding.AwayFromZero);
         Frac scaleFrac = Frac.FromDouble(quantizedScale);
 
-        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.w, 1) * videoScale * scaleFrac));
-        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.h, 1) * videoScale * scaleFrac));
+        Frac backendScale = CoordinateConstants.BackendScale;
+        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentW, 1) * scaleFrac * backendScale));
+        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentH, 1) * scaleFrac * backendScale));
 
-        return (rw, rh, quantizedScale);
+        int width = CoordinateMath.ScaleRound(new Frac(rw, 1) / backendScale);
+        int height = CoordinateMath.ScaleRound(new Frac(rh, 1) / backendScale);
+
+        return (width, height, quantizedScale);
     }
 
     private void SelectItem(CropEditorItem? item, bool updateLayerList = true)
@@ -1759,7 +1753,8 @@ public partial class CropToolWindow : Window
                         if (System.IO.File.Exists(oldB)) System.IO.File.Move(oldB, newB, true);
                     }
                     System.IO.File.Copy(confPath, $"{confPath}.bak1", true);
-                    RuntimeLog.Info("CROP", $"Rotation backup created: {confPath}.bak1");
+                    RuntimeLog.Info("CROP", $"Rotation backup created: {IOPath.GetFileName(confPath)}.bak1");
+                    RuntimeLog.Debug("CROP", $"Rotation backup path: {confPath}.bak1");
                 }
             }
             catch (Exception backupErr)

@@ -416,7 +416,8 @@ public partial class SettingsWindow : Window
                 SettingsManager.Save();
                 if (pathBox != null) pathBox.Text = newPath;
                 if (statusText != null) statusText.Text = "";
-                RuntimeLog.Info("Memes", $"Meme directory changed to: {newPath}");
+                RuntimeLog.Info("Memes", $"Meme directory changed to: {System.IO.Path.GetFileName(newPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))}");
+                RuntimeLog.Debug("Memes", $"Meme directory changed to: {newPath}");
                 MemeDirectory.NotifyChanged(); // §3 State Update → MainWindow re-scan
             }
             catch (UnauthorizedAccessException ex)
@@ -424,14 +425,16 @@ public partial class SettingsWindow : Window
                 SettingsManager.Instance.MemeDirectoryPath = lastKnownGood;
                 if (pathBox != null) pathBox.Text = MemeDirectory.GetActive();
                 if (statusText != null) statusText.Text = "⚠ That folder can't be read (access denied). Keeping the previous folder.";
-                RuntimeLog.Fail("Memes", $"Meme directory change blocked (UnauthorizedAccess): {newPath} — {ex.Message}");
+                RuntimeLog.Fail("Memes", $"Meme directory change blocked (UnauthorizedAccess): {System.IO.Path.GetFileName(newPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))} — {ex.Message}");
+                RuntimeLog.Debug("Memes", $"Meme directory change blocked full path: {newPath}");
             }
             catch (Exception ex)
             {
                 SettingsManager.Instance.MemeDirectoryPath = lastKnownGood;
                 if (pathBox != null) pathBox.Text = MemeDirectory.GetActive();
                 if (statusText != null) statusText.Text = "⚠ That folder can't be used. Keeping the previous folder.";
-                RuntimeLog.Fail("Memes", $"Meme directory change failed: {newPath} — {ex.Message}");
+                RuntimeLog.Fail("Memes", $"Meme directory change failed: {System.IO.Path.GetFileName(newPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))} — {ex.Message}");
+                RuntimeLog.Debug("Memes", $"Meme directory change failed full path: {newPath}");
             }
         };
     }

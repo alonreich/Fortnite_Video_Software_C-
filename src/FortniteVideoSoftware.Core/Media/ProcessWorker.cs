@@ -52,6 +52,7 @@ public class ProcessWorker : IDisposable
     public double VoiceOverMuteFemaleHz { get; set; }
     public double VoiceOverMuteChildHz { get; set; }
     public bool AutoVoiceNormalization { get; set; } = true;
+    public bool AutoSpikeFlattening { get; set; } = true;
 
     public bool VoiceOverMuteMale { get; set; }
     public bool VoiceOverMuteFemale { get; set; }
@@ -83,7 +84,7 @@ public class ProcessWorker : IDisposable
         try
         {
             var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var encoderMgr = new EncoderManager(HardwareStrategy, _ffmpegPath);
+            var encoderMgr = await Task.Run(() => new EncoderManager(HardwareStrategy, _ffmpegPath), cancellationToken).ConfigureAwait(false);
             if (encoderMgr.EncoderPreflightError != null)
             {
                 EmitFinished(false, encoderMgr.EncoderPreflightError);
@@ -114,7 +115,8 @@ public class ProcessWorker : IDisposable
             {
                 foreach (var track in MusicTracks)
                 {
-                    CoreLogger.Info("Process", $"Music Selected: {track.Path} | Start Time: {track.Offset}s | Duration: {track.Duration}s");
+                    CoreLogger.Info("Process", $"Music Selected: {Path.GetFileName(track.Path)} | Start Time: {track.Offset}s | Duration: {track.Duration}s");
+                    CoreLogger.Debug("Process", $"Music Path: {track.Path}");
                 }
                 if (MusicConfig != null)
                 {
@@ -577,6 +579,12 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
+                if (AutoSpikeFlattening)
+                {
+                    coreFilters.Add($"{aOutputFinal}alimiter=limit=-1.5dB:level_in=1:level_out=1[a_flattened]");
+                    aOutputFinal = "[a_flattened]";
+                }
+
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
                 // ISSUE_1: full filter graph (may contain temp file paths) is dev-only.
                 CoreLogger.Debug("FFmpeg", $"Filter Script Content:\n{filterScript}");
@@ -841,7 +849,8 @@ public class ProcessWorker : IDisposable
         }
         catch (Exception ex)
         {
-            CoreLogger.Fail("Process", $"Pipeline failed with exception: {ex}");
+            CoreLogger.Fail("Process", $"Pipeline failed with exception: {ex.Message}");
+            CoreLogger.Debug("Process", $"Pipeline failed with exception detail: {ex}");
             EmitFinished(false, ex.Message);
         }
     }
@@ -893,7 +902,8 @@ public class ProcessWorker : IDisposable
             };
 
             string cmdLine = string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-            CoreLogger.Info("Loudnorm", $"Executing pass 1: {_ffmpegPath} {cmdLine}");
+            CoreLogger.Info("Loudnorm", "Executing pass 1.");
+            CoreLogger.Debug("Loudnorm", $"Executing pass 1: {_ffmpegPath} {cmdLine}");
 
             var psi = new ProcessStartInfo
             {

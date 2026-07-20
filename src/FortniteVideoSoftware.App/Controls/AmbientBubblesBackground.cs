@@ -127,8 +127,8 @@ public sealed class AmbientBubblesBackground : Control
         b.WobbleAmount = (0.2 + _rng.NextDouble() * 1.0) / 400.0;
         b.Seed = _rng.NextDouble() * Math.PI * 2;
         
-        // Softer opacity for better realism, but high enough to actually be visible
-        b.Opacity = b.Size > 20.0 ? 0.08 + _rng.NextDouble() * 0.08 : 0.15 + _rng.NextDouble() * 0.15;
+        // Softer opacity for better realism, but high enough to actually be visible (5-10%)
+        b.Opacity = 0.05 + _rng.NextDouble() * 0.05;
     }
 
     public override void Render(DrawingContext context)
@@ -151,15 +151,31 @@ public sealed class AmbientBubblesBackground : Control
             double cx = b.X * w;
             double cy = b.Y * h;
 
-            // Draw sharp glass outer rim
-            double thickness = Math.Max(0.8, b.Size * 0.03); // Delicate glass rim
-            var bubbleStroke = new ImmutableSolidColorBrush(Color.FromArgb((byte)(alpha * 255), 255, 255, 255));
-            context.DrawEllipse(null, new ImmutablePen(bubbleStroke, thickness), new Point(cx, cy), b.Size, b.Size);
+            // 3D Soft Bokeh Bubble (Radial Gradient)
+            var bubbleGradient = new ImmutableRadialGradientBrush(
+                new[] {
+                    new ImmutableGradientStop(0.0, Color.FromArgb(0, 255, 255, 255)),
+                    new ImmutableGradientStop(0.7, Color.FromArgb((byte)(alpha * 80), 255, 255, 255)),
+                    new ImmutableGradientStop(1.0, Color.FromArgb((byte)(alpha * 255), 255, 255, 255))
+                },
+                center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                gradientOrigin: new RelativePoint(0.3, 0.3, RelativeUnit.Relative),
+                radius: 0.5);
+
+            context.DrawEllipse(bubbleGradient, null, new Point(cx, cy), b.Size, b.Size);
             
-            // 3D Glass Specular Reflection: Sharp, offset highlight (identitical to FluidVolumeSlider)
-            var hiOpacity = Math.Min(1.0, alpha + 0.4);
-            var hiBrush = new ImmutableSolidColorBrush(Color.FromArgb((byte)(hiOpacity * 255), 255, 255, 255));
-            context.DrawEllipse(hiBrush, null, new Point(cx - b.Size * 0.3, cy - b.Size * 0.3), b.Size * 0.35, b.Size * 0.35);
+            // 3D Specular Highlight for fluid glass feel
+            var hiOpacity = Math.Min(1.0, alpha + 0.2);
+            var hiBrush = new ImmutableRadialGradientBrush(
+                new[] {
+                    new ImmutableGradientStop(0.0, Color.FromArgb((byte)(hiOpacity * 255), 255, 255, 255)),
+                    new ImmutableGradientStop(1.0, Color.FromArgb(0, 255, 255, 255))
+                },
+                center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                gradientOrigin: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                radius: 0.5);
+                
+            context.DrawEllipse(hiBrush, null, new Point(cx - b.Size * 0.35, cy - b.Size * 0.35), b.Size * 0.25, b.Size * 0.25);
         }
     }
 }

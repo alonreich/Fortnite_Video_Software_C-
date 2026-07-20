@@ -30,12 +30,33 @@ public class MusicTrackItem
 
     public string FilePath { get; set; } = string.Empty;
 
+    public string Title { get; set; } = string.Empty;
+
+    public string Artist { get; set; } = string.Empty;
+
+    public string Album { get; set; } = string.Empty;
+
     public string DurationText { get; set; } = "";
 
     public string SizeText { get; set; } = "";
 
     public double DurationSec { get; set; } = 0.0;
 
+    public long LastModifiedTicks { get; set; } = 0;
+
+    public bool IsRecent { get; set; }
+
+    public string PinText => IsRecent ? "RECENT" : "";
+
+}
+
+
+public class MusicQueueItem
+{
+    public int Order { get; set; }
+    public string OrderText => $"{Order}.";
+    public string Name { get; set; } = string.Empty;
+    public string DurationText { get; set; } = "";
 }
 
 
@@ -43,6 +64,7 @@ public class MusicWizardResult
 {
     public string MusicFilePath { get; set; } = string.Empty;
     public System.Collections.Generic.List<string> MusicFilePaths { get; set; } = new();
+    public System.Collections.Generic.List<double> MusicDurationsSeconds { get; set; } = new();
     public double OffsetSeconds { get; set; } = 0.0;
     public double SongStartSeconds
     {
@@ -71,6 +93,8 @@ public partial class MusicWizardWindow : Window
 {
 
     public ObservableCollection<MusicTrackItem> AvailableTracks { get; } = new();
+
+    public ObservableCollection<MusicQueueItem> AutoFillQueueItems { get; } = new();
 
     public MusicWizardResult? Result { get; private set; }
 
@@ -104,6 +128,11 @@ public partial class MusicWizardWindow : Window
     private string? _lastLoadedTrackPath;
     private string? _lastConfiguredTrackPath;
     private readonly System.Collections.Generic.List<string> _pendingAutoFillMusicPaths = new();
+    private readonly System.Collections.Generic.List<MusicTrackItem> _allTracks = new();
+    private readonly System.Collections.Generic.HashSet<string> _recentMusicPaths = new(StringComparer.OrdinalIgnoreCase);
+    private string _musicSearchText = string.Empty;
+    private string _musicSortMode = "Name";
+    private bool _autoFillUseVisibleTracks = true;
     private CancellationTokenSource? _phase3LoadCts;
     private int _phase3LoadVersion;
     private bool _phase3Ready;
@@ -169,11 +198,30 @@ public partial class MusicWizardWindow : Window
 
     private void SharedInit()
     {
+        if (FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.RememberMusicVolumes)
+        {
+            try
+            {
+                var state = new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).LoadSync();
+                var vSlider = this.FindControl<Avalonia.Controls.Slider>("VideoVolSlider");
+                var mSlider = this.FindControl<Avalonia.Controls.Slider>("MusicVolSlider");
+
+                if (vSlider != null && state.TryGetPropertyValue("WizardVideoVolume", out var vvNode) && vvNode != null)
+                    vSlider.Value = vvNode.GetValue<double>();
+
+                if (mSlider != null && state.TryGetPropertyValue("WizardMusicVolume", out var mvNode) && mvNode != null)
+                    mSlider.Value = mvNode.GetValue<double>();
+            }
+            catch { }
+        }
+
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
 
         this.Closing += (s, e) => {
             WindowBoundsHelper.SaveBoundsSync(this, "MusicWizardBounds");
         };
+
+        LoadRecentMusicPins();
 
         var listbox = this.FindControl<ListBox>("MusicListBox");
 
@@ -205,14 +253,75 @@ public partial class MusicWizardWindow : Window
 
         }
 
+        var queueList = this.FindControl<ListBox>("AutoFillQueueList");
+        if (queueList != null)
+        {
+            queueList.ItemsSource = AutoFillQueueItems;
+        }
+
+        var searchBox = this.FindControl<TextBox>("MusicSearchBox");
+        if (searchBox != null)
+        {
+            searchBox.TextChanged += (s, e) =>
+            {
+                _musicSearchText = searchBox.Text ?? string.Empty;
+                ApplyTrackFilterAndSort();
+            };
+            searchBox.KeyDown += OnMusicSearchKeyDown;
+            Dispatcher.UIThread.Post(() => searchBox.Focus(), DispatcherPriority.Input);
+        }
+
+        var clearSearchBtn = this.FindControl<Button>("ClearSearchBtn");
+        if (clearSearchBtn != null)
+        {
+            clearSearchBtn.Click += (s, e) =>
+            {
+                if (searchBox != null)
+                {
+                    searchBox.Text = string.Empty;
+                    searchBox.Focus();
+                }
+            };
+        }
+
+        var sortCombo = this.FindControl<ComboBox>("MusicSortComboBox");
+        if (sortCombo != null)
+        {
+            sortCombo.SelectionChanged += (s, e) =>
+            {
+                if (sortCombo.SelectedItem is ComboBoxItem item && item.Content != null)
+                {
+                    _musicSortMode = item.Content.ToString() ?? "Name";
+                    ApplyTrackFilterAndSort();
+                }
+            };
+        }
+
 
         AddHandler(DragDrop.DropEvent, OnFileDrop);
 
         var loopCheck = this.FindControl<CheckBox>("LoopMusicCheckBox");
         if (loopCheck != null)
         {
-            loopCheck.IsCheckedChanged += (s, e) => UpdateCoverageBar();
+            loopCheck.IsCheckedChanged += (s, e) =>
+            {
+                UpdateCoverageBar();
+                UpdateAutoFillQueuePreview();
+            };
         }
+
+        var visibleOnlyCheck = this.FindControl<CheckBox>("AutoFillVisibleOnlyCheckBox");
+        if (visibleOnlyCheck != null)
+        {
+            visibleOnlyCheck.IsCheckedChanged += (s, e) =>
+            {
+                _autoFillUseVisibleTracks = visibleOnlyCheck.IsChecked ?? true;
+            };
+        }
+
+        this.FindControl<Button>("QueueMoveUpBtn")!.Click += (s, e) => MoveQueuedTrack(-1);
+        this.FindControl<Button>("QueueMoveDownBtn")!.Click += (s, e) => MoveQueuedTrack(1);
+        this.FindControl<Button>("QueueRemoveBtn")!.Click += (s, e) => RemoveSelectedQueuedTrack();
 
         var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
         if (autoFillBtn != null)
@@ -221,24 +330,7 @@ public partial class MusicWizardWindow : Window
             {
                 if (_selectedTrack != null)
                 {
-                    _pendingAutoFillMusicPaths.Clear();
-                    _pendingAutoFillMusicPaths.Add(_selectedTrack.FilePath);
-
-                    double targetDuration = GetPhase3VideoDurationSeconds();
-                    double coveredDuration = Math.Max(0, _selectedTrack.DurationSec - _songStartSeconds);
-                    foreach (var track in AvailableTracks.Where(t => t.FilePath != _selectedTrack.FilePath))
-                    {
-                        _pendingAutoFillMusicPaths.Add(track.FilePath);
-                        coveredDuration += Math.Max(1.0, track.DurationSec);
-                        if (coveredDuration >= targetDuration)
-                        {
-                            break;
-                        }
-                    }
-
-                    autoFillBtn.Content = $"Auto-Filled {_pendingAutoFillMusicPaths.Count} Songs";
-                    ShowToast($"Auto-filled {_pendingAutoFillMusicPaths.Count} songs.");
-                    DrawPhase3TimelineScale();
+                    BuildAutoFillQueue();
                 }
             };
         }
@@ -741,16 +833,334 @@ public partial class MusicWizardWindow : Window
     private void OnTrackSelected(MusicTrackItem? track)
     {
         _selectedTrack = track;
-        _pendingAutoFillMusicPaths.Clear();
-        var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
-        if (autoFillBtn != null)
-        {
-            autoFillBtn.Content = "Auto-Fill Remaining Time with Random Songs";
-        }
+        ResetAutoFillQueueState();
         UpdateNextButtonState();
         UpdateFinalPlacementSummary();
         UpdatePreviewControlsState();
         UpdateCoverageBar();
+    }
+
+    private void OnMusicSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        var listbox = this.FindControl<ListBox>("MusicListBox");
+        if (listbox == null) return;
+
+        if (e.Key == Key.Escape)
+        {
+            if (sender is TextBox searchBox)
+                searchBox.Text = string.Empty;
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Down || e.Key == Key.Up)
+        {
+            if (AvailableTracks.Count == 0) return;
+            int currentIndex = listbox.SelectedIndex;
+            int nextIndex = e.Key == Key.Down
+                ? Math.Min(AvailableTracks.Count - 1, currentIndex + 1)
+                : Math.Max(0, currentIndex <= 0 ? 0 : currentIndex - 1);
+            listbox.SelectedIndex = nextIndex;
+            if (listbox.SelectedItem != null)
+                listbox.ScrollIntoView(listbox.SelectedItem);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter)
+        {
+            if (listbox.SelectedItem == null && AvailableTracks.Count > 0)
+                listbox.SelectedIndex = 0;
+            if (listbox.SelectedItem != null && _currentStep == 1)
+                OnNextClicked(listbox, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
+
+    private void ApplyTrackFilterAndSort()
+    {
+        string selectedPath = _selectedTrack?.FilePath ?? string.Empty;
+        var visible = SortTracks(_allTracks.Where(t => TrackMatchesSearch(t, _musicSearchText))).ToList();
+
+        AvailableTracks.Clear();
+        foreach (var track in visible)
+            AvailableTracks.Add(track);
+
+        var listbox = this.FindControl<ListBox>("MusicListBox");
+        if (listbox != null)
+        {
+            var selectedVisibleTrack = visible.FirstOrDefault(t =>
+                string.Equals(t.FilePath, selectedPath, StringComparison.OrdinalIgnoreCase));
+            if (selectedVisibleTrack != null)
+            {
+                listbox.SelectedItem = selectedVisibleTrack;
+            }
+            else if (!string.IsNullOrEmpty(selectedPath))
+            {
+                listbox.SelectedItem = null;
+                OnTrackSelected(null);
+            }
+        }
+
+        UpdateMusicEmptyState();
+        UpdateMusicResultCount();
+    }
+
+    private System.Collections.Generic.IEnumerable<MusicTrackItem> SortTracks(System.Collections.Generic.IEnumerable<MusicTrackItem> tracks)
+    {
+        return _musicSortMode switch
+        {
+            "Newest" => tracks
+                .OrderByDescending(t => t.IsRecent)
+                .ThenByDescending(t => t.LastModifiedTicks)
+                .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase),
+            "Shortest" => tracks
+                .OrderByDescending(t => t.IsRecent)
+                .ThenBy(t => t.DurationSec <= 0 ? double.MaxValue : t.DurationSec)
+                .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase),
+            "Longest" => tracks
+                .OrderByDescending(t => t.IsRecent)
+                .ThenByDescending(t => t.DurationSec)
+                .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase),
+            _ => tracks
+                .OrderByDescending(t => t.IsRecent)
+                .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private static bool TrackMatchesSearch(MusicTrackItem track, string rawQuery)
+    {
+        string query = NormalizeSearchQuery(rawQuery);
+        if (query.Length == 0)
+            return true;
+
+        return ContainsIgnoreCase(track.Title, query)
+            || ContainsIgnoreCase(Path.GetFileNameWithoutExtension(track.Name), query)
+            || ContainsIgnoreCase(track.Name, query)
+            || ContainsIgnoreCase(track.Artist, query)
+            || ContainsIgnoreCase(track.Album, query);
+    }
+
+    private static string NormalizeSearchQuery(string query)
+    {
+        return (query ?? string.Empty).Trim().Replace("*", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static bool ContainsIgnoreCase(string source, string query)
+    {
+        return !string.IsNullOrEmpty(source) &&
+            source.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateMusicResultCount()
+    {
+        var countText = this.FindControl<TextBlock>("MusicResultCountText");
+        if (countText == null) return;
+
+        if (_allTracks.Count == 0)
+        {
+            countText.Text = "0 songs";
+        }
+        else if (AvailableTracks.Count == _allTracks.Count)
+        {
+            countText.Text = $"{_allTracks.Count} songs";
+        }
+        else
+        {
+            countText.Text = $"{AvailableTracks.Count} of {_allTracks.Count} songs";
+        }
+    }
+
+    private System.Collections.Generic.List<MusicTrackItem> GetAutoFillSourceTracks()
+    {
+        var source = _autoFillUseVisibleTracks ? AvailableTracks : SortTracks(_allTracks);
+        return source
+            .Where(t => !string.IsNullOrWhiteSpace(t.FilePath) && File.Exists(t.FilePath))
+            .ToList();
+    }
+
+    private void BuildAutoFillQueue()
+    {
+        if (_selectedTrack == null)
+            return;
+
+        _pendingAutoFillMusicPaths.Clear();
+        _pendingAutoFillMusicPaths.Add(_selectedTrack.FilePath);
+
+        double targetDuration = GetPhase3VideoDurationSeconds();
+        double coveredDuration = Math.Max(0, _selectedTrack.DurationSec - _songStartSeconds);
+        foreach (var track in GetAutoFillSourceTracks().Where(t =>
+            !string.Equals(t.FilePath, _selectedTrack.FilePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            _pendingAutoFillMusicPaths.Add(track.FilePath);
+            coveredDuration += Math.Max(1.0, track.DurationSec);
+            if (coveredDuration >= targetDuration)
+                break;
+        }
+
+        UpdateAutoFillQueuePreview();
+        UpdateCoverageBar();
+        UpdateFinalPlacementSummary();
+        DrawPhase3TimelineScale();
+
+        var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
+        if (autoFillBtn != null)
+            autoFillBtn.Content = $"Auto-Filled {_pendingAutoFillMusicPaths.Count} Songs";
+        ShowToast($"Auto-filled {_pendingAutoFillMusicPaths.Count} songs.");
+    }
+
+    private void ResetAutoFillQueueState()
+    {
+        _pendingAutoFillMusicPaths.Clear();
+        AutoFillQueueItems.Clear();
+        var queuePanel = this.FindControl<Grid>("AutoFillQueuePanel");
+        if (queuePanel != null)
+            queuePanel.IsVisible = false;
+        var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
+        if (autoFillBtn != null)
+            autoFillBtn.Content = "Auto-Fill Remaining Time";
+        UpdateAutoFillQueuePreview();
+    }
+
+    private void UpdateAutoFillQueuePreview()
+    {
+        AutoFillQueueItems.Clear();
+
+        var queuePanel = this.FindControl<Grid>("AutoFillQueuePanel");
+        bool hasQueue = _pendingAutoFillMusicPaths.Count > 0;
+        if (queuePanel != null)
+            queuePanel.IsVisible = hasQueue;
+
+        if (!hasQueue)
+        {
+            var remainingText = this.FindControl<TextBlock>("AutoFillRemainingText");
+            if (remainingText != null)
+                remainingText.Text = "";
+            return;
+        }
+
+        double coveredDuration = 0.0;
+        for (int i = 0; i < _pendingAutoFillMusicPaths.Count; i++)
+        {
+            string path = _pendingAutoFillMusicPaths[i];
+            var track = FindTrackByPath(path);
+            double offset = i == 0 ? _songStartSeconds : 0.0;
+            double duration = Math.Max(0, (track?.DurationSec ?? 0.0) - offset);
+            coveredDuration += duration;
+            AutoFillQueueItems.Add(new MusicQueueItem
+            {
+                Order = i + 1,
+                Name = track?.Name ?? Path.GetFileName(path),
+                DurationText = duration > 0 ? FormatSeconds(duration) : "loading"
+            });
+        }
+
+        double targetDuration = GetPhase3VideoDurationSeconds();
+        double remaining = Math.Max(0, targetDuration - coveredDuration);
+        var summaryText = this.FindControl<TextBlock>("AutoFillQueueSummaryText");
+        if (summaryText != null)
+            summaryText.Text = $"QUEUE: {AutoFillQueueItems.Count} song(s)";
+        var uncoveredText = this.FindControl<TextBlock>("AutoFillRemainingText");
+        if (uncoveredText != null)
+            uncoveredText.Text = remaining <= 0.01
+                ? "Coverage complete."
+                : $"{FormatSeconds(remaining)} still uncovered.";
+    }
+
+    private void MoveQueuedTrack(int direction)
+    {
+        var queueList = this.FindControl<ListBox>("AutoFillQueueList");
+        if (queueList == null || queueList.SelectedIndex <= 0)
+        {
+            ShowToast("Select an auto-fill song after the first track.");
+            return;
+        }
+
+        int oldIndex = queueList.SelectedIndex;
+        int newIndex = Math.Clamp(oldIndex + direction, 1, _pendingAutoFillMusicPaths.Count - 1);
+        if (newIndex == oldIndex)
+            return;
+
+        string path = _pendingAutoFillMusicPaths[oldIndex];
+        _pendingAutoFillMusicPaths.RemoveAt(oldIndex);
+        _pendingAutoFillMusicPaths.Insert(newIndex, path);
+        UpdateAutoFillQueuePreview();
+        queueList.SelectedIndex = newIndex;
+        UpdateCoverageBar();
+        UpdateFinalPlacementSummary();
+        DrawPhase3TimelineScale();
+    }
+
+    private void RemoveSelectedQueuedTrack()
+    {
+        var queueList = this.FindControl<ListBox>("AutoFillQueueList");
+        if (queueList == null || queueList.SelectedIndex <= 0)
+        {
+            ShowToast("Select an auto-fill song after the first track.");
+            return;
+        }
+
+        int removedIndex = queueList.SelectedIndex;
+        _pendingAutoFillMusicPaths.RemoveAt(removedIndex);
+        UpdateAutoFillQueuePreview();
+        if (_pendingAutoFillMusicPaths.Count > 1)
+            queueList.SelectedIndex = Math.Min(removedIndex, _pendingAutoFillMusicPaths.Count - 1);
+        UpdateCoverageBar();
+        UpdateFinalPlacementSummary();
+        DrawPhase3TimelineScale();
+    }
+
+    private MusicTrackItem? FindTrackByPath(string path)
+    {
+        return _allTracks.FirstOrDefault(track =>
+            string.Equals(track.FilePath, path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void LoadRecentMusicPins()
+    {
+        try
+        {
+            var state = new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).LoadSync();
+            if (state["RecentMusicPaths"] is System.Text.Json.Nodes.JsonArray recentArray)
+            {
+                foreach (var node in recentArray)
+                {
+                    string? path = node?.GetValue<string>();
+                    if (!string.IsNullOrWhiteSpace(path))
+                        _recentMusicPaths.Add(path);
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void SaveRecentMusicPins(System.Collections.Generic.IEnumerable<string> selectedPaths)
+    {
+        try
+        {
+            var orderedPaths = selectedPaths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Concat(_recentMusicPaths)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(20)
+                .ToList();
+
+            _recentMusicPaths.Clear();
+            foreach (string path in orderedPaths)
+                _recentMusicPaths.Add(path);
+
+            var recentArray = new System.Text.Json.Nodes.JsonArray();
+            foreach (string path in orderedPaths)
+                recentArray.Add(System.Text.Json.Nodes.JsonValue.Create(path));
+
+            new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)
+                .UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["RecentMusicPaths"] = recentArray
+                });
+        }
+        catch { }
     }
 
     private void HandleSongOffsetKeyDown(KeyEventArgs e)
@@ -779,7 +1189,7 @@ public partial class MusicWizardWindow : Window
             return;
         }
 
-        _pendingAutoFillMusicPaths.Clear();
+        ResetAutoFillQueueState();
         _previewCurrentOffset = _songStartSeconds;
         var lbl = this.FindControl<TextBlock>("OffsetLabel");
         if (lbl != null) lbl.Text = $"Song begins at {FormatSeconds(_songStartSeconds)}";
@@ -980,13 +1390,15 @@ public partial class MusicWizardWindow : Window
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             double timelineStartSec = _trimStartMs / 1000.0;
             double timelineEndSec = timelineStartSec + GetPhase3VideoDurationSeconds();
+            var resultMusicPaths = _pendingAutoFillMusicPaths.Count > 0
+                ? new System.Collections.Generic.List<string>(_pendingAutoFillMusicPaths)
+                : new System.Collections.Generic.List<string> { _selectedTrack?.FilePath ?? "" };
 
             Result = new MusicWizardResult
             {
                 MusicFilePath = _selectedTrack?.FilePath ?? "",
-                MusicFilePaths = _pendingAutoFillMusicPaths.Count > 0
-                    ? new System.Collections.Generic.List<string>(_pendingAutoFillMusicPaths)
-                    : new System.Collections.Generic.List<string> { _selectedTrack?.FilePath ?? "" },
+                MusicFilePaths = resultMusicPaths,
+                MusicDurationsSeconds = resultMusicPaths.Select(GetKnownTrackDurationSeconds).ToList(),
                 OffsetSeconds = _songStartSeconds,
                 TimelineStartSeconds = timelineStartSec,
                 TimelineEndSeconds = timelineEndSec,
@@ -998,7 +1410,9 @@ public partial class MusicWizardWindow : Window
                 LoopMusic = this.FindControl<CheckBox>("LoopMusicCheckBox")?.IsChecked ?? false
             };
 
-            RuntimeLog.Success("MUSIC_WIZARD", $"Wizard completed. Track: {Result.MusicFilePath}, SongStart: {Result.OffsetSeconds:F2}s, Timeline: {Result.TimelineStartSeconds:F2}-{Result.TimelineEndSeconds:F2}s, Ducking: {Result.EnableDucking}, Carving: {Result.EnableCarving}, VideoVol: {Result.VideoVolume}, MusicVol: {Result.MusicVolume}");
+            SaveRecentMusicPins(resultMusicPaths);
+            RuntimeLog.Success("MUSIC_WIZARD", $"Wizard completed. Track: {Path.GetFileName(Result.MusicFilePath)}, SongStart: {Result.OffsetSeconds:F2}s, Timeline: {Result.TimelineStartSeconds:F2}-{Result.TimelineEndSeconds:F2}s, Ducking: {Result.EnableDucking}, Carving: {Result.EnableCarving}, VideoVol: {Result.VideoVolume}, MusicVol: {Result.MusicVolume}");
+            RuntimeLog.Debug("MUSIC_WIZARD", $"Wizard completed track path: {Result.MusicFilePath}");
             _isSafeToClose = true;
 
             Close();
@@ -1012,6 +1426,23 @@ public partial class MusicWizardWindow : Window
 
         UpdateNextButtonState();
 
+    }
+
+    private double GetKnownTrackDurationSeconds(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return 0.0;
+        if (_selectedTrack != null &&
+            string.Equals(_selectedTrack.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+            _trackDuration > 0)
+        {
+            return _trackDuration;
+        }
+
+        var item = AvailableTracks.FirstOrDefault(track =>
+            string.Equals(track.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        item ??= _allTracks.FirstOrDefault(track =>
+            string.Equals(track.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        return item?.DurationSec > 0 ? item.DurationSec : 0.0;
     }
 
 
@@ -1381,6 +1812,7 @@ public partial class MusicWizardWindow : Window
 
     private void SaveWizardVolumes()
     {
+        if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.RememberMusicVolumes) return;
         try
         {
             var videoVolSlider = this.FindControl<Avalonia.Controls.Slider>("VideoVolSlider");
@@ -1426,7 +1858,10 @@ public partial class MusicWizardWindow : Window
             ? "Music is trimmed at the video end."
             : $"Only {FormatSeconds(audibleMusic)} of music remains after this song point.";
 
-        label.Text = $"Song starts at {FormatSeconds(_songStartSeconds)}. Video range is {FormatSeconds(trimStartSec)} to {FormatSeconds(trimEndSec)}. {endText}";
+        string queueText = _pendingAutoFillMusicPaths.Count > 1
+            ? $" Auto-Fill queue has {_pendingAutoFillMusicPaths.Count} songs."
+            : "";
+        label.Text = $"Song starts at {FormatSeconds(_songStartSeconds)}. Video range is {FormatSeconds(trimStartSec)} to {FormatSeconds(trimEndSec)}. {endText}{queueText}";
     }
 
     private void UpdateCoverageBar()
@@ -1434,7 +1869,7 @@ public partial class MusicWizardWindow : Window
         if (!_isMergerMode) return;
 
         double videoDuration = GetPhase3VideoDurationSeconds();
-        double audibleMusic = GetAudibleMusicDurationSeconds();
+        double audibleMusic = GetQueuedMusicCoverageSeconds();
 
         var loopCheck = this.FindControl<CheckBox>("LoopMusicCheckBox");
         bool loopEnabled = loopCheck?.IsChecked ?? false;
@@ -1485,6 +1920,22 @@ public partial class MusicWizardWindow : Window
                 warningText.Text = $"WARNING: Your music covers {coveragePercent:0}% of the video. The last {FormatSeconds(uncovered)} will have NO music. Add more songs, enable looping, or continue anyway.";
             }
         }
+    }
+
+    private double GetQueuedMusicCoverageSeconds()
+    {
+        if (_pendingAutoFillMusicPaths.Count == 0)
+            return GetAudibleMusicDurationSeconds();
+
+        double covered = 0.0;
+        for (int i = 0; i < _pendingAutoFillMusicPaths.Count; i++)
+        {
+            var track = FindTrackByPath(_pendingAutoFillMusicPaths[i]);
+            double offset = i == 0 ? _songStartSeconds : 0.0;
+            covered += Math.Max(0, (track?.DurationSec ?? 0.0) - offset);
+        }
+
+        return Math.Min(GetPhase3VideoDurationSeconds(), covered);
     }
 
     private void UpdatePreviewControlsState()
@@ -2181,6 +2632,8 @@ public partial class MusicWizardWindow : Window
         else
         {
             UpdateFinalPlacementSummary();
+            UpdateAutoFillQueuePreview();
+            UpdateCoverageBar();
             UpdatePlayhead();
         }
     }
@@ -2238,25 +2691,37 @@ public partial class MusicWizardWindow : Window
 
                 Name = Path.GetFileName(path),
 
+                Title = Path.GetFileNameWithoutExtension(path),
+
                 FilePath = path,
 
                 DurationText = "Loading...",
 
-                SizeText = ""
+                SizeText = "",
+
+                LastModifiedTicks = File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0,
+
+                IsRecent = _recentMusicPaths.Contains(path)
 
             };
 
 
-            AvailableTracks.Clear();
+            _allTracks.Clear();
 
-            AvailableTracks.Add(track);
+            _allTracks.Add(track);
+
+            var searchBox = this.FindControl<TextBox>("MusicSearchBox");
+            if (searchBox != null)
+                searchBox.Text = string.Empty;
+            ApplyTrackFilterAndSort();
 
             var listbox = this.FindControl<ListBox>("MusicListBox");
 
             if (listbox != null) listbox.SelectedIndex = 0;
 
 
-            RuntimeLog.Info("MUSIC_WIZARD", $"File dropped: {path}");
+            RuntimeLog.Info("MUSIC_WIZARD", $"File dropped: {Path.GetFileName(path)}");
+            RuntimeLog.Debug("MUSIC_WIZARD", $"Dropped music path: {path}");
 
             _ = ProbeTrackInfoAsync(track);
 
@@ -2416,6 +2881,7 @@ public partial class MusicWizardWindow : Window
 
     {
 
+        _allTracks.Clear();
         AvailableTracks.Clear();
 
         if (Directory.Exists(directoryPath))
@@ -2429,6 +2895,7 @@ public partial class MusicWizardWindow : Window
             foreach (var f in files)
 
             {
+                var fileInfo = new FileInfo(f);
 
                 var item = new MusicTrackItem
 
@@ -2436,15 +2903,21 @@ public partial class MusicWizardWindow : Window
 
                     Name = Path.GetFileName(f),
 
+                    Title = Path.GetFileNameWithoutExtension(f),
+
                     FilePath = f,
 
                     DurationText = "Loading...",
 
-                    SizeText = ""
+                    SizeText = "",
+
+                    LastModifiedTicks = fileInfo.LastWriteTimeUtc.Ticks,
+
+                    IsRecent = _recentMusicPaths.Contains(f)
 
                 };
 
-                AvailableTracks.Add(item);
+                _allTracks.Add(item);
 
                 _ = ProbeTrackInfoAsync(item);
 
@@ -2452,7 +2925,7 @@ public partial class MusicWizardWindow : Window
 
         }
 
-        UpdateMusicEmptyState();
+        ApplyTrackFilterAndSort();
 
     }
 
@@ -2461,6 +2934,9 @@ public partial class MusicWizardWindow : Window
         var emptyText = this.FindControl<TextBlock>("EmptyMusicListText");
         if (emptyText != null)
         {
+            emptyText.Text = _allTracks.Count == 0
+                ? "No music files found. Change folder or drop an audio file here."
+                : "No songs match the current search.";
             emptyText.IsVisible = AvailableTracks.Count == 0;
         }
     }
@@ -2527,18 +3003,24 @@ public partial class MusicWizardWindow : Window
 
                 {
 
-                    var idx = AvailableTracks.IndexOf(item);
-
-                    if (idx >= 0)
-
+                    if (_musicSortMode == "Shortest" || _musicSortMode == "Longest")
                     {
-
-
-                        var tmp = AvailableTracks[idx];
-
-                        AvailableTracks[idx] = tmp;
-
+                        ApplyTrackFilterAndSort();
                     }
+                    else
+                    {
+                        var idx = AvailableTracks.IndexOf(item);
+
+                        if (idx >= 0)
+                        {
+                            var tmp = AvailableTracks[idx];
+
+                            AvailableTracks[idx] = tmp;
+                        }
+                    }
+
+                    UpdateAutoFillQueuePreview();
+                    UpdateCoverageBar();
 
                 });
 

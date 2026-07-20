@@ -47,12 +47,23 @@
                         <Panel>
 
                             <!-- STEP 1: Track Selection -->
-                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,*">
+                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,Auto,*">
                                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,10">
                                     <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center"/>
                                     <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
-                                <Grid Grid.Row="1">
+                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
+                                    <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Name="ClearSearchBtn" Content="X" Classes="Secondary" MinWidth="36" Margin="8,0,0,0" HorizontalContentAlignment="Center" ToolTip.Tip="Clear search"/>
+                                    <ComboBox Grid.Column="2" Name="MusicSortComboBox" MinWidth="150" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center">
+                                        <ComboBoxItem Content="Name"/>
+                                        <ComboBoxItem Content="Newest"/>
+                                        <ComboBoxItem Content="Shortest"/>
+                                        <ComboBoxItem Content="Longest"/>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="3" Name="MusicResultCountText" Text="0 songs" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </Grid>
+                                <Grid Grid.Row="2">
                                     <ListBox Name="MusicListBox" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
                                         <ListBox.Styles>
                                             <Style Selector="ListBoxItem">
@@ -64,9 +75,11 @@
                                         <ListBox.ItemTemplate>
                                             <DataTemplate x:DataType="local:MusicTrackItem">
                                                 <Border Padding="5,2" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
-                                                    <Grid ColumnDefinitions="*, Auto">
-                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,60,0"/>
+                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding PinText}" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="2" Text="{CompiledBinding SizeText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                                        <TextBlock Grid.Column="3" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,20,0"/>
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -137,8 +150,31 @@
                                                     <!-- Loop Toggle -->
                                                     <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" IsChecked="False" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
 
-                                                    <!-- Auto-Fill Button -->
-                                                    <Button Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time with Random Songs" HorizontalAlignment="Left" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Automatically add random songs from your music folder to cover any remaining silence in the video."/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Grid.Column="0" Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time" HorizontalAlignment="Left" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Automatically add songs from your music folder to cover remaining silence in the video."/>
+                                                        <CheckBox Grid.Column="1" Name="AutoFillVisibleOnlyCheckBox" Content="Use visible search results for Auto-Fill" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" ToolTip.Tip="When enabled, Auto-Fill uses the current search and sort results."/>
+                                                    </Grid>
+
+                                                    <Grid Name="AutoFillQueuePanel" RowDefinitions="Auto,Auto,Auto" IsVisible="False">
+                                                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,6">
+                                                            <TextBlock Grid.Column="0" Name="AutoFillQueueSummaryText" Text="QUEUE" Foreground="{DynamicResource AppAccentBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center"/>
+                                                            <Button Grid.Column="1" Name="QueueMoveUpBtn" Classes="Secondary" Content="Up" MinWidth="54" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center"/>
+                                                            <Button Grid.Column="2" Name="QueueMoveDownBtn" Classes="Secondary" Content="Down" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0"/>
+                                                            <Button Grid.Column="3" Name="QueueRemoveBtn" Classes="Danger" Content="Remove" MinWidth="74" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0"/>
+                                                        </Grid>
+                                                        <ListBox Grid.Row="1" Name="AutoFillQueueList" Height="96" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                                            <ListBox.ItemTemplate>
+                                                                <DataTemplate x:DataType="local:MusicQueueItem">
+                                                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,2">
+                                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding OrderText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" Width="32"/>
+                                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" TextTrimming="CharacterEllipsis"/>
+                                                                        <TextBlock Grid.Column="2" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" Margin="10,0,0,0"/>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ListBox.ItemTemplate>
+                                                        </ListBox>
+                                                        <TextBlock Grid.Row="2" Name="AutoFillRemainingText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" Margin="0,5,0,0"/>
+                                                    </Grid>
                                                 </StackPanel>
                                             </Border>
                                         </StackPanel>

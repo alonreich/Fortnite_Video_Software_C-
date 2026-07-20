@@ -26,6 +26,7 @@ public class MergerWorker : IDisposable
     public TargetAspectRatio OutputRatio { get; set; } = TargetAspectRatio.Landscape16x9;
 
     public int QualityPercent { get; set; } = 100;
+    public bool AutoSpikeFlattening { get; set; } = true;
 
     public MergerWorker(ApplicationPaths? paths = null)
     {
@@ -97,9 +98,11 @@ public class MergerWorker : IDisposable
                     : peakSourceVideoBitrateKbps;
                 CoreLogger.Info("Merger", $"Total combined duration: {totalDuration:F2}s, peak src video bitrate: {peakSourceVideoBitrateKbps:F0} kbps, avg: {averageSourceVideoBitrateKbps:F0} kbps");
 
+                double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
+                double outputDuration = totalDuration / speedFactor;
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
-                var effectiveMusicTracks = await BuildEffectiveMusicTracksAsync(totalDuration);
+                var effectiveMusicTracks = await BuildEffectiveMusicTracksAsync(outputDuration);
 
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
@@ -119,8 +122,6 @@ public class MergerWorker : IDisposable
                 string aInputs = "";
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
-                    double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
-                    
                     string scaleFilter = OutputRatio == TargetAspectRatio.Portrait9x16
                         ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
                         : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
@@ -167,13 +168,13 @@ public class MergerWorker : IDisposable
                     if (MusicConfig != null && !MusicConfig.ContainsKey("timeline_start_sec"))
                     {
                         MusicConfig["timeline_start_sec"] = 0.0;
-                        MusicConfig["timeline_end_sec"] = totalDuration;
+                        MusicConfig["timeline_end_sec"] = outputDuration;
                     }
 
                     var (duckChains, finalDuckingLabel) = AudioFilterChain.Build(
                         musicConfig: MusicConfig,
                         videoStartTime: 0,
-                        videoEndTime: totalDuration,
+                        videoEndTime: outputDuration,
                         speedFactor: 1.0,
                         disableFades: false,
                         vfadeInD: 0,
@@ -181,7 +182,7 @@ public class MergerWorker : IDisposable
                         sampleRate: 48000,
                         musicTracks: effectiveMusicTracks,
                         musicStartIndex: musicInputIndex,
-                        totalProjectDuration: totalDuration,
+                        totalProjectDuration: outputDuration,
                         mainAudioLabel: aOutputLabel,
                         volumeNormalizeDb: 0.0
                     );
@@ -190,13 +191,19 @@ public class MergerWorker : IDisposable
                     finalAudioLabel = finalDuckingLabel;
                 }
 
+                if (AutoSpikeFlattening)
+                {
+                    filters.Add($"{finalAudioLabel}alimiter=limit=-1.5dB:level_in=1:level_out=1[a_flattened]");
+                    finalAudioLabel = "[a_flattened]";
+                }
+
                 string filterScript = string.Join(";", filters.Where(p => !string.IsNullOrEmpty(p)));
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
                 // ISSUE_1: full filter graph (may contain temp file paths) is dev-only.
                 CoreLogger.Debug("FFmpeg MERGE", $"Filter Script Content:\n{filterScript}");
 
-                var encoderMgr = new EncoderManager("GPU", _ffmpegPath);
+                var encoderMgr = await Task.Run(() => new EncoderManager("GPU", _ffmpegPath), cancellationToken).ConfigureAwait(false);
                 string currentEncoder = encoderMgr.GetInitialEncoder(true);
 
                 int cqValue = QualityPercent >= 100 ? 15 : Math.Max(15, 35 - (int)((QualityPercent - 5) * 20.0 / 95.0));
@@ -227,7 +234,7 @@ public class MergerWorker : IDisposable
 
                 while (true)
                 {
-                    var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, losslessBitrateKbps, totalDuration / Math.Max(0.1, SpeedFactor), "60", qualityLevel, false);
+                    var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, losslessBitrateKbps, outputDuration, "60", qualityLevel, false);
 
                     // Issue 11: in Lossless mode GetCodecFlags sets -b:v == -maxrate == avg. Raise
                     // ONLY the -maxrate/-bufsize to the peak so VBR keeps the average (≈ combined
@@ -273,7 +280,7 @@ public class MergerWorker : IDisposable
                     // above ("Executing merge with encoder …") keeps a safe trail.
                     CoreLogger.Debug("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
 
-                    bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, totalDuration / Math.Max(0.1, SpeedFactor), cancellationToken);
+                    bool attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, outputDuration, cancellationToken);
 
                     if (attemptSuccess && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                     {
@@ -336,7 +343,8 @@ public class MergerWorker : IDisposable
         }
         catch (Exception ex)
         {
-            CoreLogger.Fail("Merger", $"Merge pipeline failed with exception: {ex}");
+            CoreLogger.Fail("Merger", $"Merge pipeline failed with exception: {ex.Message}");
+            CoreLogger.Debug("Merger", $"Merge pipeline failed with exception detail: {ex}");
             EmitFinished(false, ex.Message);
         }
     }

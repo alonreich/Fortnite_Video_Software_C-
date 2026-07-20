@@ -137,7 +137,7 @@
 
                 <Border Grid.Column="1" CornerRadius="4" Background="{DynamicResource AppVideoRailBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="0,8" VerticalAlignment="Stretch" Margin="2,10,2,10" ClipToBounds="False" ZIndex="9999">
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Center" Margin="0">
-                        <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
+                        <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" IsVisible="False" />
                         <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
                              Rollback to the previous standard Slider: old_code\volume_slider_rollback\ROLLBACK_INSTRUCTIONS.txt -->
                         <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />

@@ -46,7 +46,8 @@ TaskScheduler.UnobservedTaskException += (s, e) =>
     }
     e.SetObserved();
 };
-RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={Environment.ProcessPath}; args={string.Join(" ", args)}");
+RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={System.IO.Path.GetFileName(Environment.ProcessPath ?? "FortniteVideoSoftware.exe")}; args_count={args.Length}");
+RuntimeLog.Debug("PROCESS START", $"exe={Environment.ProcessPath}; args={string.Join(" ", args)}");
 
 // Fold any Windows Event Viewer crash entries for this app (native fast-fails that never
 // reached our log) into the .log file. Main-app launch only, so the 3 sibling processes
@@ -80,7 +81,8 @@ static async Task<int> RunAsync(string[] args)
     if (OpenWithLaunch.IsVideoFilePath(command))
     {
         OpenWithLaunch.PendingVideoPath = System.IO.Path.GetFullPath(command);
-        RuntimeLog.Info("OPEN WITH", $"Launched with video file argument: {OpenWithLaunch.PendingVideoPath}");
+        RuntimeLog.Info("OPEN WITH", $"Launched with video file argument: {System.IO.Path.GetFileName(OpenWithLaunch.PendingVideoPath)}");
+        RuntimeLog.Debug("OPEN WITH", $"Full launched video path: {OpenWithLaunch.PendingVideoPath}");
         return await RunUiAsync(args);
     }
 
@@ -132,19 +134,23 @@ static async Task<int> BootstrapAsync(bool showDialog)
 {
     RuntimeLog.Info("BOOTSTRAP", "Resolving application paths.");
     ApplicationPaths paths = ApplicationPaths.CreateDefault();
-    RuntimeLog.Success("PATHS RESOLVED", $"programData={paths.ProgramDataRoot}; tempLog={RuntimeLog.LogPath}");
+    RuntimeLog.Success("PATHS RESOLVED", "ProgramData, temp, and log paths resolved.");
+    RuntimeLog.Debug("PATHS RESOLVED", $"programData={paths.ProgramDataRoot}; tempLog={RuntimeLog.LogPath}");
 
     RuntimeLog.Info("BOOTSTRAP", "Ensuring writable ProgramData directories.");
     paths.EnsureWritableDirectories();
-    RuntimeLog.Success("PROGRAMDATA READY", $"logs={paths.LogsDirectory}; temp={paths.TempDirectory}");
+    RuntimeLog.Success("PROGRAMDATA READY", "Writable ProgramData directories are ready.");
+    RuntimeLog.Debug("PROGRAMDATA READY", $"logs={paths.LogsDirectory}; temp={paths.TempDirectory}");
 
     RuntimeLog.Info("BOOTSTRAP", "Loading session_state.json through named mutex.");
     JsonObject state = await new StateTransferStore(paths).LoadAsync();
-    RuntimeLog.Success("SESSION STATE READY", $"path={paths.SessionStateFile}; properties={state.Count}");
+    RuntimeLog.Success("SESSION STATE READY", $"properties={state.Count}");
+    RuntimeLog.Debug("SESSION STATE READY", $"path={paths.SessionStateFile}; properties={state.Count}");
 
     RuntimeLog.Info("BOOTSTRAP", "Loading crops_coordinations.conf through named mutex.");
     JsonObject crops = await new CropConfigStore(paths).LoadAsync();
-    RuntimeLog.Success("CROP CONFIG READY", $"path={paths.CropCoordinatesFile}; schema={crops["schema_version"]}");
+    RuntimeLog.Success("CROP CONFIG READY", $"schema={crops["schema_version"]}");
+    RuntimeLog.Debug("CROP CONFIG READY", $"path={paths.CropCoordinatesFile}; schema={crops["schema_version"]}");
 
     RuntimeLog.Info("BOOTSTRAP", "Checking Phase 1 executable health.");
     RuntimeLog.Success("BOOTSTRAP COMPLETE", "Core IPC/config layer is available. Avalonia UI is ready.");
@@ -187,7 +193,8 @@ static async Task<int> ReadStateAsync()
 static async Task<int> WriteStateAsync(string[] args)
 {
     string source = args.FirstOrDefault() ?? "manual";
-    RuntimeLog.Info("WRITE STATE", $"source={source}");
+    RuntimeLog.Info("WRITE STATE", $"source={System.IO.Path.GetFileName(source)}");
+    RuntimeLog.Debug("WRITE STATE", $"source={source}");
     JsonObject payload = new()
     {
         ["source"] = source,

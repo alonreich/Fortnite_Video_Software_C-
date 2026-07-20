@@ -80,12 +80,7 @@ public class MobileFilterBuilder
             parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
-
-            parts.Add($"[main_base]scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
-                      $"flags=lanczos," +
-                      $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
-                      $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
-            currV = "[v_padded]";
+            currV = "[main_base]";
 
             for (int i = 0; i < activeLayers.Count; i++)
             {
@@ -99,15 +94,27 @@ public class MobileFilterBuilder
                 int sx = sourceRect.x, sy = sourceRect.y, sw = sourceRect.w, sh = sourceRect.h;
 
                 Frac scaleFrac = Frac.FromDouble(layer.Scale);
-                var (_, _, _, _, videoScale) = CoordinateMath.ScalePlan(originalResolution);
-                
+                Frac backendScale = CoordinateConstants.BackendScale;
                 int rw = Math.Max(2, CanvasMath.EvenCeil(
-                    new Frac(sw, 1) * videoScale * scaleFrac));
+                    new Frac(layer.UiRect[0], 1) * scaleFrac * backendScale));
                 int rh = Math.Max(2, CanvasMath.EvenCeil(
-                    new Frac(sh, 1) * videoScale * scaleFrac));
+                    new Frac(layer.UiRect[1], 1) * scaleFrac * backendScale));
 
-                int lx = CoordinateMath.ScaleRound(Frac.FromDouble(layer.Pos.x));
-                int ly = CoordinateMath.ScaleRound(Frac.FromDouble(layer.Pos.y));
+                var pos = layer.Pos;
+                Frac lxRaw = Frac.FromDouble(pos.x) * backendScale;
+                Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
+
+                Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
+                // The internal-space Y range 0..TargetH-rh maps to the 1620px
+                // content area after final scaling and top padding.
+                Frac maxLy = new(CoordinateConstants.TargetH - rh, 1);
+
+                int lx = CoordinateMath.ScaleRound(
+                    Frac.Zero > lxRaw ? Frac.Zero :
+                    (lxRaw > maxLx ? maxLx : lxRaw));
+                int ly = CoordinateMath.ScaleRound(
+                    Frac.Zero > lyRaw ? Frac.Zero :
+                    (lyRaw > maxLy ? maxLy : lyRaw));
 
                 parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
                           $"scale=w={rw}:h={rh}:flags=lanczos," +
@@ -123,13 +130,14 @@ public class MobileFilterBuilder
             parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
-
-            parts.Add($"[main_base]scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
-                      $"flags=lanczos," +
-                      $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
-                      $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
-            currV = "[v_padded]";
+            currV = "[main_base]";
         }
+
+        parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                  $"flags=lanczos," +
+                  $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
+                  $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
+        currV = "[v_padded]";
 
         if (!string.IsNullOrEmpty(txtInputLabel))
         {

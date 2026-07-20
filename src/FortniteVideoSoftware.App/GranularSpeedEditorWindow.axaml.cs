@@ -261,7 +261,8 @@ public partial class GranularSpeedEditorWindow : Window
             }
             else
             {
-                RuntimeLog.Info("Granular", $"Using MPV at: {mpvPath}");
+                RuntimeLog.Info("Granular", $"Using MPV: {System.IO.Path.GetFileName(mpvPath)}");
+                RuntimeLog.Debug("Granular", $"Using MPV path: {mpvPath}");
             }
             await _videoHost.StartMpvProcessAsync(mpvPath);
 

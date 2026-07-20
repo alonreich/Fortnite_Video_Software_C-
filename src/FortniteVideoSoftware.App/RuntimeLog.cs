@@ -184,7 +184,8 @@ public static class RuntimeLog
 
     public static void Fail(string step, Exception exception)
     {
-        Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");
+        Write("FAIL", step, $"{exception.GetType().Name}: {exception.Message}");
+        Debug(step, $"{exception.GetType().Name}: {exception.Message}{Environment.NewLine}{exception}");
     }
 
     private static void Write(string level, string step, string detail)

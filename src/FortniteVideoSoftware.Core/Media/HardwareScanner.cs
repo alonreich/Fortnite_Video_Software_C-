@@ -23,7 +23,8 @@ public static class HardwareScanner
         try
         {
             var hwaccels = await GetAvailableHwaccelsAsync(ffmpegPath, watchdog.Token);
-            CoreLogger.Info("Hardware", $"FFmpeg hardware scan using: {ffmpegPath}");
+            CoreLogger.Info("Hardware", $"FFmpeg hardware scan using: {Path.GetFileName(ffmpegPath)}");
+            CoreLogger.Debug("Hardware", $"FFmpeg hardware scan path: {ffmpegPath}");
             CoreLogger.Info("Hardware", $"Available FFmpeg hwaccels: {(hwaccels.Count == 0 ? "none" : string.Join(", ", hwaccels))}");
             foreach (var mode in Priority)
             {

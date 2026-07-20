@@ -69,7 +69,6 @@ public partial class VideoMergerWindow : Window
     private System.Threading.CancellationTokenSource? _probeCts;
 
     private readonly object _videoFingerprintLock = new();
-    private readonly Dictionary<string, VideoFileFingerprint> _videoFingerprintCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Task<VideoFileFingerprint?>> _videoFingerprintTasks = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.SemaphoreSlim _videoHashSemaphore = new(1, 1);
 
@@ -406,13 +405,6 @@ public partial class VideoMergerWindow : Window
         UpdateQueueState();
         InvalidateMusicIfStale();
         DebouncedQualityProbe();
-
-        if (e.NewItems == null) return;
-        foreach (var item in e.NewItems)
-        {
-            if (item is string path)
-                StartVideoFingerprintWarmup(path);
-        }
     }
 
     private void MoveVideo(int direction)
@@ -1115,11 +1107,6 @@ public partial class VideoMergerWindow : Window
         return dlg.Result;
     }
 
-    private void StartVideoFingerprintWarmup(string path)
-    {
-        _ = GetOrStartVideoFingerprintAsync(path);
-    }
-
     private Task<VideoFileFingerprint?> GetOrStartVideoFingerprintAsync(string path)
     {
         string normalizedPath = NormalizeVideoPath(path);
@@ -1128,23 +1115,16 @@ public partial class VideoMergerWindow : Window
 
         lock (_videoFingerprintLock)
         {
-            if (_videoFingerprintCache.TryGetValue(normalizedPath, out var cached) &&
-                cached.SizeBytes == sizeBytes &&
-                cached.LastWriteUtc == lastWriteUtc)
-            {
-                return Task.FromResult<VideoFileFingerprint?>(cached);
-            }
-
             if (_videoFingerprintTasks.TryGetValue(normalizedPath, out var existingTask))
                 return existingTask;
 
-            var task = CreateAndCacheVideoFingerprintAsync(normalizedPath);
+            var task = CreateVideoFingerprintAsync(normalizedPath);
             _videoFingerprintTasks[normalizedPath] = task;
             return task;
         }
     }
 
-    private async Task<VideoFileFingerprint?> CreateAndCacheVideoFingerprintAsync(string path)
+    private async Task<VideoFileFingerprint?> CreateVideoFingerprintAsync(string path)
     {
         try
         {
@@ -1158,14 +1138,7 @@ public partial class VideoMergerWindow : Window
                 if (!TryGetVideoFileSnapshot(path, out long sizeBytes, out DateTime lastWriteUtc))
                     return null;
 
-                var fingerprint = new VideoFileFingerprint(path, sizeBytes, lastWriteUtc, sha256);
-                lock (_videoFingerprintLock)
-                {
-                    _videoFingerprintCache[path] = fingerprint;
-                }
-
-                RuntimeLog.Info("VideoMerger", $"Cached fingerprint for {Path.GetFileName(path)}.");
-                return fingerprint;
+                return new VideoFileFingerprint(path, sizeBytes, lastWriteUtc, sha256);
             }
             finally
             {
@@ -1346,11 +1319,11 @@ public partial class VideoMergerWindow : Window
                 targetRatio = dialog.Result ? FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Portrait9x16 : FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
             }
 
-            var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio };
+            var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening };
             _activeMergerWorker = worker;
 
             var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
-            double currentMainVol = 1.0;
+            double currentMainVol = volSlider != null ? volSlider.Value / 100.0 : 1.0;
 
             if (_musicResult != null)
             {
@@ -1362,6 +1335,9 @@ public partial class VideoMergerWindow : Window
 
                 if (musicPaths.Count > 0)
                 {
+                    double speedFactor = _baseSpeed > 0.01 ? _baseSpeed : 1.0;
+                    double timelineStartSec = _musicResult.TimelineStartSeconds / speedFactor;
+                    double timelineEndSec = _musicResult.TimelineEndSeconds / speedFactor;
                     for (int i = 0; i < musicPaths.Count; i++)
                     {
                         double offsetSeconds = i == 0 ? _musicResult.OffsetSeconds : 0.0;
@@ -1378,8 +1354,8 @@ public partial class VideoMergerWindow : Window
                         ["main_vol"] = currentMainVol,
                         ["music_vol"] = _musicResult.MusicVolume,
                         ["carving_enabled"] = _musicResult.EnableCarving,
-                        ["timeline_start_sec"] = _musicResult.TimelineStartSeconds,
-                        ["timeline_end_sec"] = _musicResult.TimelineEndSeconds,
+                        ["timeline_start_sec"] = timelineStartSec,
+                        ["timeline_end_sec"] = Math.Max(timelineStartSec + 0.01, timelineEndSec),
                         ["loop_music"] = _musicResult.LoopMusic
                     };
                 }
@@ -1422,7 +1398,7 @@ public partial class VideoMergerWindow : Window
                 });
             };
 
-            await worker.RunAsync(_mergeCts.Token);
+            await Task.Run(() => worker.RunAsync(_mergeCts.Token), _mergeCts.Token);
         }
         catch (Exception ex)
         {

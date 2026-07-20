@@ -908,7 +908,8 @@ public partial class MainWindow : Window
                     _musicWizardResult = wizard.Result;
                     NormalizeMusicPlacement(_musicWizardResult);
 
-                    RuntimeLog.Info("UI", $"User added music via wizard: {_musicWizardResult.MusicFilePath}, ducking={_musicWizardResult.EnableDucking}");
+                    RuntimeLog.Info("UI", $"User added music via wizard: {Path.GetFileName(_musicWizardResult.MusicFilePath)}, ducking={_musicWizardResult.EnableDucking}");
+                    RuntimeLog.Debug("UI", $"Music path added via wizard: {_musicWizardResult.MusicFilePath}");
 
                     SetMusicButtonActive(true);
 
@@ -989,8 +990,9 @@ public partial class MainWindow : Window
             if (memeCb.SelectedItem is MemeItem sel)
             {
                 RuntimeLog.Info("Memes",
-                    $"MemeSelected: type={(sel.IsImage ? "image" : "video")}, path={sel.FullPath}, " +
+                    $"MemeSelected: type={(sel.IsImage ? "image" : "video")}, file={sel.FileName}, " +
                     $"width={sel.Width}, height={sel.Height}, aspect={sel.AspectRatio:0.###}");
+                RuntimeLog.Debug("Memes", $"MemeSelected full path: {sel.FullPath}");
             }
 
             SaveRecoveryState();
@@ -1098,9 +1100,23 @@ public partial class MainWindow : Window
 
     private string ResolveMemeFfprobePath()
     {
-        string baseDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        string p = Path.Combine(baseDir, "backend", "ffprobe.exe");
-        return File.Exists(p) ? p : "ffprobe.exe";
+        return BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries");
+    }
+
+    private async Task<double> ProbeMusicDurationSecondsAsync(string musicPath)
+    {
+        if (string.IsNullOrWhiteSpace(musicPath) || !File.Exists(musicPath))
+            return 0.0;
+
+        try
+        {
+            var prober = new MediaProber(ResolveMemeFfprobePath(), musicPath);
+            return await prober.GetDurationAsync();
+        }
+        catch
+        {
+            return 0.0;
+        }
     }
 
     /// <summary>§1 scan + §2 guardrail: rebuilds the meme list from the ACTIVE directory with
@@ -1117,7 +1133,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            RuntimeLog.Fail("Memes", $"Meme directory scan failed for '{memeFolder}': {ex.Message}");
+            RuntimeLog.Fail("Memes", $"Meme directory scan failed for '{Path.GetFileName(memeFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}': {ex.Message}");
+            RuntimeLog.Debug("Memes", $"Meme directory scan failed full path: {memeFolder}");
             _memeItems = new List<MemeItem>();
         }
 
@@ -3943,7 +3960,8 @@ public partial class MainWindow : Window
                     if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
                     if (success)
                     {
-                        RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
+                        RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {Path.GetFileName(message)}");
+                        RuntimeLog.Debug("Process", $"Video processing output path: {message}");
                         ShowTacticalFeedback("Processing complete");
                         PlayUiSound();
                         var dlg = new FortniteVideoSoftware.App.Controls.FinishedDialogWindow();
@@ -3961,7 +3979,11 @@ public partial class MainWindow : Window
                     }
                     else
                     {
-                        RuntimeLog.Fail("Process", $"Video processing failed: {message}");
+                        string safeMessage = message.Contains(@":\", StringComparison.Ordinal) || message.Contains(":/", StringComparison.Ordinal)
+                            ? "details are available in debug log"
+                            : message;
+                        RuntimeLog.Fail("Process", $"Video processing failed: {safeMessage}");
+                        RuntimeLog.Debug("Process", $"Video processing failure detail: {message}");
                         ShowTacticalFeedback("Processing failed");
                         PlayUiSound();
                     }
@@ -3985,6 +4007,7 @@ public partial class MainWindow : Window
             worker.SpeedFactor = _baseSpeed;
             worker.ThumbnailPosMs = _thumbnailSet ? _thumbnailPosMs : 0;
             worker.AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization;
+            worker.AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening;
             if (_voiceOverResult != null)
             {
                 worker.VoiceOverWavPath = _voiceOverResult.VoiceOverWavPath;
@@ -4058,7 +4081,25 @@ public partial class MainWindow : Window
                 for (int i = 0; i < musicPaths.Count; i++)
                 {
                     double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
-                    worker.MusicTracks.Add(new MusicTrack(musicPaths[i], offset, dur, startDelay, applyFadeOut));
+                    double knownDuration = i < _musicWizardResult.MusicDurationsSeconds.Count
+                        ? _musicWizardResult.MusicDurationsSeconds[i]
+                        : (i == 0 ? _musicWizardResult.MusicDurationSeconds : 0.0);
+                    if (knownDuration <= 0)
+                    {
+                        knownDuration = await ProbeMusicDurationSecondsAsync(musicPaths[i]);
+                    }
+
+                    double availableDuration = knownDuration > 0
+                        ? Math.Max(0.0, knownDuration - offset)
+                        : dur;
+                    double takeDuration = Math.Min(dur, availableDuration);
+                    if (takeDuration <= 0.01)
+                        continue;
+
+                    worker.MusicTracks.Add(new MusicTrack(musicPaths[i], offset, takeDuration, startDelay, applyFadeOut));
+                    dur -= takeDuration;
+                    if (dur <= 0.01)
+                        break;
                 }
 
                 worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
@@ -4069,6 +4110,17 @@ public partial class MainWindow : Window
                     ["music_vol"] = _musicWizardResult.MusicVolume,
                     ["carving_enabled"] = _musicWizardResult.EnableCarving
                 };
+            }
+            else
+            {
+                var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
+                if (volSlider != null)
+                {
+                    worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["main_vol"] = volSlider.Value / 100.0
+                    };
+                }
             }
 
             if (!string.IsNullOrEmpty(worker.MemeFile) && worker.MusicTracks != null && worker.MusicTracks.Count > 0 && _keepMusicDuringMeme.HasValue)
@@ -4471,7 +4523,8 @@ public partial class MainWindow : Window
                     }
                     catch (Exception ex)
                     {
-                        CoreLogger.Fail("MainWindow", $"Failed to load VoiceOver preview take '{take.Path}': {ex.Message}");
+                        CoreLogger.Fail("MainWindow", $"Failed to load VoiceOver preview take '{Path.GetFileName(take.Path)}': {ex.Message}");
+                        CoreLogger.Debug("MainWindow", $"Failed to load VoiceOver preview take path '{take.Path}': {ex}");
                     }
                 }
             }
@@ -4640,10 +4693,19 @@ public partial class MainWindow : Window
                         pathsArray.Add(System.Text.Json.Nodes.JsonValue.Create(path));
                     }
                 }
+                var durationsArray = new System.Text.Json.Nodes.JsonArray();
+                if (_musicWizardResult.MusicDurationsSeconds != null)
+                {
+                    foreach (var durationSec in _musicWizardResult.MusicDurationsSeconds)
+                    {
+                        durationsArray.Add(System.Text.Json.Nodes.JsonValue.Create(durationSec));
+                    }
+                }
                 state["musicResult"] = new System.Text.Json.Nodes.JsonObject
                 {
                     ["musicFilePath"] = _musicWizardResult.MusicFilePath,
                     ["musicFilePaths"] = pathsArray,
+                    ["musicDurationsSeconds"] = durationsArray,
                     ["offsetSeconds"] = _musicWizardResult.OffsetSeconds,
                     ["timelineStartSeconds"] = _musicWizardResult.TimelineStartSeconds,
                     ["timelineEndSeconds"] = _musicWizardResult.TimelineEndSeconds,
@@ -4651,7 +4713,8 @@ public partial class MainWindow : Window
                     ["enableDucking"] = _musicWizardResult.EnableDucking,
                     ["enableCarving"] = _musicWizardResult.EnableCarving,
                     ["videoVolume"] = _musicWizardResult.VideoVolume,
-                    ["musicVolume"] = _musicWizardResult.MusicVolume
+                    ["musicVolume"] = _musicWizardResult.MusicVolume,
+                    ["loopMusic"] = _musicWizardResult.LoopMusic
                 };
             }
 
@@ -4767,7 +4830,8 @@ public partial class MainWindow : Window
                     EnableDucking = musicObj["enableDucking"]?.GetValue<bool>() ?? true,
                     EnableCarving = musicObj["enableCarving"]?.GetValue<bool>() ?? true,
                     VideoVolume = musicObj["videoVolume"]?.GetValue<double>() ?? 1.0,
-                    MusicVolume = musicObj["musicVolume"]?.GetValue<double>() ?? 1.0
+                    MusicVolume = musicObj["musicVolume"]?.GetValue<double>() ?? 1.0,
+                    LoopMusic = musicObj["loopMusic"]?.GetValue<bool>() ?? false
                 };
                 if (musicObj["musicFilePaths"] is System.Text.Json.Nodes.JsonArray pathsArr)
                 {
@@ -4775,6 +4839,14 @@ public partial class MainWindow : Window
                     {
                         var path = node?.ToString();
                         if (!string.IsNullOrEmpty(path)) _musicWizardResult.MusicFilePaths.Add(path);
+                    }
+                }
+                if (musicObj["musicDurationsSeconds"] is System.Text.Json.Nodes.JsonArray durationsArr)
+                {
+                    foreach (var node in durationsArr)
+                    {
+                        if (node != null && double.TryParse(node.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double durationSec))
+                            _musicWizardResult.MusicDurationsSeconds.Add(durationSec);
                     }
                 }
                 NormalizeMusicPlacement(_musicWizardResult);
@@ -4845,7 +4917,8 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    RuntimeLog.Fail("Memes", $"Recovery meme skipped — file no longer exists: {restoreTarget}");
+                    RuntimeLog.Fail("Memes", $"Recovery meme skipped — file no longer exists: {Path.GetFileName(restoreTarget)}");
+                    RuntimeLog.Debug("Memes", $"Recovery meme missing full path: {restoreTarget}");
                 }
             }
 
@@ -4928,7 +5001,8 @@ public partial class MainWindow : Window
                     }
                 }
 
-                RuntimeLog.Success("RECOVERY", $"Session restored. Video={videoPath}, Trim={_trimStartMs}ms-{_trimEndMs}ms, Segments={_speedSegments.Count}, GranularActive={_isGranularSpeedActive}, MusicActive={_isMusicActive}");
+                RuntimeLog.Success("RECOVERY", $"Session restored. Video={Path.GetFileName(videoPath)}, Trim={_trimStartMs}ms-{_trimEndMs}ms, Segments={_speedSegments.Count}, GranularActive={_isGranularSpeedActive}, MusicActive={_isMusicActive}");
+                RuntimeLog.Debug("RECOVERY", $"Session restored video path: {videoPath}");
                 ShowTacticalFeedback("Previous session restored after crash");
             }
             else
@@ -5023,4 +5097,3 @@ public partial class MainWindow : Window
         }
     }
 }
-             

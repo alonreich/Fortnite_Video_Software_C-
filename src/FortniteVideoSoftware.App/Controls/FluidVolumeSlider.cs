@@ -338,7 +338,7 @@ public class FluidVolumeSlider : Slider
     private void GetTubeMetrics(out double tubeX, out double tubeY, out double tubeWidth, out double tubeHeight)
     {
         // Dynamically scale the tube to fill the available control width, leaving room for the stick overhang
-        tubeWidth = Math.Max(20.0, Bounds.Width - StickOverhang * 2 - 4.0); 
+        tubeWidth = Math.Max(18.0, (Bounds.Width - StickOverhang * 2 - 4.0) * 0.9); 
         tubeX = (Bounds.Width - tubeWidth) / 2.0;
         tubeY = VerticalPad;
         tubeHeight = Math.Max(0, Bounds.Height - VerticalPad * 2);
@@ -430,11 +430,11 @@ public class FluidVolumeSlider : Slider
                 return fluidY + off * dynamicAmp;
             }
 
-            // 3D Fluid Meniscus (Surface Tension)
+            // 3D Fluid Meniscus (Surface Tension) - Soft Glow
             double meniscusHeight = radius * 0.5;
             var meniscusRect = new Rect(tubeX + 1.5, fluidY - meniscusHeight / 2.0, tubeWidth - 3, meniscusHeight);
-            var meniscusStroke = new ImmutableSolidColorBrush(Color.FromArgb(140, 255, 255, 255));
-            var meniscusFill = new ImmutableSolidColorBrush(Color.FromArgb(40, centerColor.R, centerColor.G, centerColor.B));
+            var meniscusStroke = new ImmutableSolidColorBrush(Color.FromArgb(160, centerColor.R, centerColor.G, centerColor.B));
+            var meniscusFill = new ImmutableSolidColorBrush(Color.FromArgb(80, centerColor.R, centerColor.G, centerColor.B));
             context.DrawEllipse(meniscusFill, new ImmutablePen(meniscusStroke, 1.2), meniscusRect.Center, meniscusRect.Width / 2.0, meniscusRect.Height / 2.0);
 
             // Hollow Refractive Bubbles.
@@ -541,25 +541,10 @@ public class FluidVolumeSlider : Slider
     // ------------------------------------------------------------------
     private static void GetThermalColors(double volume, out Color center, out Color edge)
     {
-        double t;
-        if (volume <= 30)
-        {
-            t = volume / 30.0;
-            center = LerpColor(Color.Parse("#FF003C"), Color.Parse("#FFA700"), t);
-            edge = LerpColor(Color.Parse("#330000"), Color.Parse("#441100"), t);
-        }
-        else if (volume <= 70)
-        {
-            t = (volume - 30) / 40.0;
-            center = LerpColor(Color.Parse("#FFA700"), Color.Parse("#00FF66"), t);
-            edge = LerpColor(Color.Parse("#441100"), Color.Parse("#003311"), t);
-        }
-        else
-        {
-            t = (volume - 70) / 30.0;
-            center = LerpColor(Color.Parse("#00FF66"), Color.Parse("#00D2FF"), t);
-            edge = LerpColor(Color.Parse("#003311"), Color.Parse("#002855"), t);
-        }
+        // Smooth gradient from Cyan to Purple based on volume
+        double t = volume / 100.0;
+        center = LerpColor(Color.Parse("#00D2FF"), Color.Parse("#8A2BE2"), t); // Cyan to BlueViolet
+        edge = LerpColor(Color.Parse("#002855"), Color.Parse("#2B0055"), t);
     }
 
     private static Color LerpColor(Color a, Color b, double t)
