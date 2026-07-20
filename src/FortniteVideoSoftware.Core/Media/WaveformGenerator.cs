@@ -30,6 +30,7 @@ public static class WaveformGenerator
 
             using var process = Process.Start(psi);
             if (process == null) return null;
+            ChildProcessTracker.AddProcess(process);
 
             Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);

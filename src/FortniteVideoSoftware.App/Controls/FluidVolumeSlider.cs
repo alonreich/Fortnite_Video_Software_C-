@@ -54,6 +54,8 @@ public class FluidVolumeSlider : Slider
     private double _velocity;
     private double _stickBend;
     private double _bendVelocity;
+    private double _ghostBend;
+    private double _ghostBendVelocity;
     private double _releaseTimeSeconds = -10;
     private bool _isDragging;
     private double _turbulence = 0.02;
@@ -80,43 +82,28 @@ public class FluidVolumeSlider : Slider
 
     // ---- Cached immutable drawing resources ----
     private static readonly ImmutableSolidColorBrush s_white = new(Colors.White);
-    private static readonly IBrush s_glassBrush = new ImmutableLinearGradientBrush(
-        new[]
-        {
-            new ImmutableGradientStop(0.0, Color.Parse("#020203")),
-            new ImmutableGradientStop(0.5, Color.Parse("#0d0d12")),
-            new ImmutableGradientStop(1.0, Color.Parse("#020203")),
-        },
-        startPoint: new RelativePoint(0, 0.5, RelativeUnit.Relative),
-        endPoint: new RelativePoint(1, 0.5, RelativeUnit.Relative));
-    private static readonly IBrush s_fluidBrush = new ImmutableLinearGradientBrush(
-        new[]
-        {
-            new ImmutableGradientStop(0.0, Color.Parse("#001824")),
-            new ImmutableGradientStop(0.5, Color.Parse("#006699")),
-            new ImmutableGradientStop(1.0, Color.Parse("#001824")),
-        },
-        startPoint: new RelativePoint(0, 0.5, RelativeUnit.Relative),
-        endPoint: new RelativePoint(1, 0.5, RelativeUnit.Relative));
+    
+    // Dynamic brushes for fluid and glass will be generated per-frame
+
     private static readonly IBrush s_innerShadowBrush = new ImmutableLinearGradientBrush(
         new[]
         {
-            new ImmutableGradientStop(0.0, Color.Parse("#66000000")),
+            new ImmutableGradientStop(0.0, Color.Parse("#a6000000")),
             new ImmutableGradientStop(0.18, Color.Parse("#00000000")),
             new ImmutableGradientStop(0.82, Color.Parse("#00000000")),
-            new ImmutableGradientStop(1.0, Color.Parse("#66000000")),
+            new ImmutableGradientStop(1.0, Color.Parse("#a6000000")),
         },
         startPoint: new RelativePoint(0.5, 0, RelativeUnit.Relative),
         endPoint: new RelativePoint(0.5, 1, RelativeUnit.Relative));
     private static readonly ImmutableSolidColorBrush s_specularLeft = new(Colors.White, 0.16);
     private static readonly ImmutableSolidColorBrush s_specularRight = new(Colors.White, 0.07);
-    private static readonly ImmutablePen s_stickGlowPen = new(new ImmutableSolidColorBrush(Color.Parse("#3300ffff")), 6);
-    private static readonly ImmutablePen s_stickPen = new(new ImmutableSolidColorBrush(Color.Parse("#00ffff")), 2);
     private static readonly ImmutablePen s_markerDarkPen = new(new ImmutableSolidColorBrush(Color.Parse("#59000000")), 1);
     private static readonly ImmutablePen s_markerLightPen = new(new ImmutableSolidColorBrush(Color.Parse("#2effffff")), 1);
     private static readonly ImmutableSolidColorBrush s_markerTextBrush = new(Colors.White, 0.30);
     private static readonly ImmutableSolidColorBrush s_shadowTextBrush = new(Colors.Black, 0.85);
     private static readonly Typeface s_typeface = new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
+
+    protected override Type StyleKeyOverride => typeof(FluidVolumeSlider);
 
     public FluidVolumeSlider()
     {
@@ -214,15 +201,20 @@ public class FluidVolumeSlider : Slider
         double targetBend = 0;
         if (_isDragging)
         {
-            targetBend = Math.Clamp((_targetVolume - _currentVolume) * -1.5, -40, 40);
+            targetBend = Math.Clamp((_targetVolume - _currentVolume) * -2.5, -60, 60);
         }
 
-        double bendSpring = _isDragging ? 0.08 : 0.05;
-        double bendFriction = _isDragging ? 0.86 : 0.92;
+        double bendSpring = _isDragging ? 0.04 : 0.025;
+        double bendFriction = _isDragging ? 0.90 : 0.96;
         double bendAccel = (targetBend - _stickBend) * bendSpring;
         _bendVelocity += bendAccel;
         _bendVelocity *= bendFriction;
         _stickBend += _bendVelocity;
+
+        double ghostAccel = (_stickBend - _ghostBend) * 0.08;
+        _ghostBendVelocity += ghostAccel;
+        _ghostBendVelocity *= 0.85;
+        _ghostBend += _ghostBendVelocity;
 
         // Agitation: rolling boil while dragging / fast moves, simmer at rest.
         if (_isDragging || Math.Abs(_velocity) > 0.1)
@@ -269,7 +261,7 @@ public class FluidVolumeSlider : Slider
         b.Y = randomY
             ? surfaceNorm + _rng.NextDouble() * Math.Max(0.001, 1.0 - surfaceNorm)
             : 1.02;
-        b.Size = 0.8 + _rng.NextDouble() * 2.4;
+        b.Size = 1.4 + _rng.NextDouble() * 3.6;
         b.BaseSpeed = (0.05 + _rng.NextDouble() * 0.2) / 100.0;
         b.WobbleSpeed = 0.5 + _rng.NextDouble() * 2.2;
         b.WobbleAmount = (0.1 + _rng.NextDouble() * 0.6) / 220.0;
@@ -345,11 +337,15 @@ public class FluidVolumeSlider : Slider
     // ------------------------------------------------------------------
     private void GetTubeMetrics(out double tubeX, out double tubeY, out double tubeWidth, out double tubeHeight)
     {
-        tubeWidth = TubeWidth;
+        // Dynamically scale the tube to fill the available control width, leaving room for the stick overhang
+        tubeWidth = Math.Max(20.0, Bounds.Width - StickOverhang * 2 - 4.0); 
         tubeX = (Bounds.Width - tubeWidth) / 2.0;
         tubeY = VerticalPad;
         tubeHeight = Math.Max(0, Bounds.Height - VerticalPad * 2);
     }
+
+    private StreamGeometry? _cachedCapsule;
+    private double _lastTubeX = -1, _lastTubeY = -1, _lastTubeWidth = -1, _lastTubeHeight = -1;
 
     public override void Render(DrawingContext context)
     {
@@ -360,16 +356,44 @@ public class FluidVolumeSlider : Slider
         double centerX = tubeX + radius;
 
         // --- Glass tube: vertical capsule (fully rounded semi-circle caps top + bottom) ---
-        var capsule = new StreamGeometry();
-        using (var gc = capsule.Open())
+        if (_cachedCapsule == null || _lastTubeX != tubeX || _lastTubeY != tubeY || _lastTubeWidth != tubeWidth || _lastTubeHeight != tubeHeight)
         {
-            gc.BeginFigure(new Point(tubeX, tubeY + radius), true);
-            gc.ArcTo(new Point(tubeX + tubeWidth, tubeY + radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise);
-            gc.LineTo(new Point(tubeX + tubeWidth, tubeY + tubeHeight - radius));
-            gc.ArcTo(new Point(tubeX, tubeY + tubeHeight - radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise);
-            gc.EndFigure(true);
+            _cachedCapsule = new StreamGeometry();
+            using (var gc = _cachedCapsule.Open())
+            {
+                gc.BeginFigure(new Point(tubeX, tubeY + radius), true);
+                gc.ArcTo(new Point(tubeX + tubeWidth, tubeY + radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise);
+                gc.LineTo(new Point(tubeX + tubeWidth, tubeY + tubeHeight - radius));
+                gc.ArcTo(new Point(tubeX, tubeY + tubeHeight - radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise);
+                gc.EndFigure(true);
+            }
+            _lastTubeX = tubeX; _lastTubeY = tubeY; _lastTubeWidth = tubeWidth; _lastTubeHeight = tubeHeight;
         }
-        context.DrawGeometry(s_glassBrush, null, capsule);
+        var capsule = _cachedCapsule;
+
+        GetThermalColors(_currentVolume, out Color centerColor, out Color edgeColor);
+
+        // Volumetric core lighting
+        var fluidBrush = new ImmutableRadialGradientBrush(
+            new[] {
+                new ImmutableGradientStop(0.0, centerColor),
+                new ImmutableGradientStop(1.0, edgeColor),
+            },
+            center: new RelativePoint(0.5, 0.7, RelativeUnit.Relative),
+            gradientOrigin: new RelativePoint(0.5, 0.7, RelativeUnit.Relative),
+            radius: 1.0);
+
+        Color glassCenter = LerpColor(Color.Parse("#0d0d12"), centerColor, 0.15);
+        var glassBrush = new ImmutableLinearGradientBrush(
+            new[] {
+                new ImmutableGradientStop(0.0, Color.Parse("#000000")),
+                new ImmutableGradientStop(0.5, glassCenter),
+                new ImmutableGradientStop(1.0, Color.Parse("#000000")),
+            },
+            startPoint: new RelativePoint(0, 0.5, RelativeUnit.Relative),
+            endPoint: new RelativePoint(1, 0.5, RelativeUnit.Relative));
+
+        context.DrawGeometry(glassBrush, null, capsule);
 
         double fluidY = tubeY + tubeHeight - _currentVolume / 100.0 * tubeHeight;
         double now = NowSeconds;
@@ -392,7 +416,7 @@ public class FluidVolumeSlider : Slider
                 gc.LineTo(new Point(tubeX, tubeY + tubeHeight));
                 gc.EndFigure(true);
             }
-            context.DrawGeometry(s_fluidBrush, null, fluid);
+            context.DrawGeometry(fluidBrush, null, fluid);
 
             double SurfaceY(double x)
             {
@@ -406,26 +430,55 @@ public class FluidVolumeSlider : Slider
                 return fluidY + off * dynamicAmp;
             }
 
-            // Bubbles.
+            // 3D Fluid Meniscus (Surface Tension)
+            double meniscusHeight = radius * 0.5;
+            var meniscusRect = new Rect(tubeX + 1.5, fluidY - meniscusHeight / 2.0, tubeWidth - 3, meniscusHeight);
+            var meniscusStroke = new ImmutableSolidColorBrush(Color.FromArgb(140, 255, 255, 255));
+            var meniscusFill = new ImmutableSolidColorBrush(Color.FromArgb(40, centerColor.R, centerColor.G, centerColor.B));
+            context.DrawEllipse(meniscusFill, new ImmutablePen(meniscusStroke, 1.2), meniscusRect.Center, meniscusRect.Width / 2.0, meniscusRect.Height / 2.0);
+
+            // Hollow Refractive Bubbles.
             foreach (var b in _bubbles)
             {
                 double bx = tubeX + b.X * tubeWidth;
                 double by = tubeY + b.Y * tubeHeight;
-                if (by < fluidY - 2) continue; // never render above the fluid surface
+                if (by < fluidY + b.Size + 2) continue; // never render above the fluid meniscus
                 double opacity = b.Opacity * (0.5 + _turbulence * 0.5);
-                var brush = new ImmutableSolidColorBrush(Colors.White, opacity);
-                context.DrawEllipse(brush, null, new Point(bx, by), b.Size, b.Size);
-                // tiny highlight for a 3D look
-                var hi = new ImmutableSolidColorBrush(Colors.White, Math.Min(1.0, opacity + 0.25));
-                context.DrawEllipse(hi, null, new Point(bx - b.Size * 0.25, by - b.Size * 0.25), b.Size * 0.3, b.Size * 0.3);
+                
+                var bubbleStroke = new ImmutableSolidColorBrush(Color.FromArgb((byte)(opacity * 255), 255, 255, 255));
+                context.DrawEllipse(null, new ImmutablePen(bubbleStroke, 0.8), new Point(bx, by), b.Size, b.Size);
+                
+                var hi = new ImmutableSolidColorBrush(Color.FromArgb((byte)(Math.Min(1.0, opacity + 0.4) * 255), 255, 255, 255));
+                context.DrawEllipse(hi, null, new Point(bx - b.Size * 0.3, by - b.Size * 0.3), b.Size * 0.35, b.Size * 0.35);
             }
+
+            // Thick glass base refraction
+            var baseGlassRect = new Rect(tubeX + 2, tubeY + tubeHeight - radius + 1, tubeWidth - 4, radius - 2);
+            context.DrawEllipse(new ImmutableSolidColorBrush(Color.FromArgb(200, 0, 0, 0)), null, baseGlassRect.Center, baseGlassRect.Width / 2.0, baseGlassRect.Height / 2.0);
 
             // Inner shadow (deep multi-stop shading top/bottom of the glass).
             context.DrawGeometry(s_innerShadowBrush, null, capsule);
 
-            // Specular highlights along the curved left/right edges.
-            context.DrawRectangle(s_specularLeft, null, new RoundedRect(new Rect(tubeX + 1.5, tubeY + radius * 0.6, 2.4, tubeHeight - radius * 1.2), 1.2));
-            context.DrawRectangle(s_specularRight, null, new RoundedRect(new Rect(tubeX + tubeWidth - 3.6, tubeY + radius * 0.8, 1.8, tubeHeight - radius * 1.6), 0.9));
+            // Hyper-Realistic Glossy Glass Reflections.
+            var leftGlare = new ImmutableLinearGradientBrush(
+                new[] {
+                    new ImmutableGradientStop(0.0, Color.FromArgb(240, 255, 255, 255)),
+                    new ImmutableGradientStop(0.3, Color.FromArgb(120, 255, 255, 255)),
+                    new ImmutableGradientStop(1.0, Color.FromArgb(0, 255, 255, 255))
+                },
+                startPoint: new RelativePoint(0, 0, RelativeUnit.Relative),
+                endPoint: new RelativePoint(1, 0, RelativeUnit.Relative));
+            context.DrawRectangle(leftGlare, null, new RoundedRect(new Rect(tubeX + 1.5, tubeY + radius * 0.6, 3.5, tubeHeight - radius * 1.2), 1.2));
+
+            var rightGlare = new ImmutableLinearGradientBrush(
+                new[] {
+                    new ImmutableGradientStop(0.0, Color.FromArgb(0, 255, 255, 255)),
+                    new ImmutableGradientStop(0.7, Color.FromArgb(20, 255, 255, 255)),
+                    new ImmutableGradientStop(1.0, Color.FromArgb(120, 255, 255, 255))
+                },
+                startPoint: new RelativePoint(0, 0, RelativeUnit.Relative),
+                endPoint: new RelativePoint(1, 0, RelativeUnit.Relative));
+            context.DrawRectangle(rightGlare, null, new RoundedRect(new Rect(tubeX + tubeWidth - 3.6, tubeY + radius * 0.8, 2.0, tubeHeight - radius * 1.6), 0.9));
 
             // 25 / 50 / 75 markers painted on the glass (3D: dark line + light line).
             for (int m = 25; m <= 75; m += 25)
@@ -449,8 +502,22 @@ public class FluidVolumeSlider : Slider
             gc.QuadraticBezierTo(new Point(centerX, fluidY + _stickBend), new Point(centerX + stickHalf, fluidY));
             gc.EndFigure(false);
         }
-        context.DrawGeometry(null, s_stickGlowPen, stick);
-        context.DrawGeometry(null, s_stickPen, stick);
+
+        var ghostStick = new StreamGeometry();
+        using (var gc = ghostStick.Open())
+        {
+            gc.BeginFigure(new Point(centerX - stickHalf, fluidY), false);
+            gc.QuadraticBezierTo(new Point(centerX, fluidY + _ghostBend), new Point(centerX + stickHalf, fluidY));
+            gc.EndFigure(false);
+        }
+
+        var stickGlowPen = new ImmutablePen(new ImmutableSolidColorBrush(Color.FromArgb(51, centerColor.R, centerColor.G, centerColor.B)), 6);
+        var stickPen = new ImmutablePen(new ImmutableSolidColorBrush(centerColor), 2);
+        var ghostPen = new ImmutablePen(new ImmutableSolidColorBrush(Color.FromArgb(76, centerColor.R, centerColor.G, centerColor.B)), 1.5);
+
+        context.DrawGeometry(null, ghostPen, ghostStick);
+        context.DrawGeometry(null, stickGlowPen, stick);
+        context.DrawGeometry(null, stickPen, stick);
 
         // --- Percentage text inside the tube (white + heavy dark drop shadow) ---
         string label = ((int)Math.Round(_targetVolume)).ToString(CultureInfo.InvariantCulture) + "%";
@@ -467,5 +534,41 @@ public class FluidVolumeSlider : Slider
         context.DrawText(shadow, new Point(textX + 1, textY - 1));
         context.DrawText(shadow, new Point(textX - 1, textY - 1));
         context.DrawText(ft, new Point(textX, textY));
+    }
+
+    // ------------------------------------------------------------------
+    //  Dynamic Colors Helpers
+    // ------------------------------------------------------------------
+    private static void GetThermalColors(double volume, out Color center, out Color edge)
+    {
+        double t;
+        if (volume <= 30)
+        {
+            t = volume / 30.0;
+            center = LerpColor(Color.Parse("#FF003C"), Color.Parse("#FFA700"), t);
+            edge = LerpColor(Color.Parse("#330000"), Color.Parse("#441100"), t);
+        }
+        else if (volume <= 70)
+        {
+            t = (volume - 30) / 40.0;
+            center = LerpColor(Color.Parse("#FFA700"), Color.Parse("#00FF66"), t);
+            edge = LerpColor(Color.Parse("#441100"), Color.Parse("#003311"), t);
+        }
+        else
+        {
+            t = (volume - 70) / 30.0;
+            center = LerpColor(Color.Parse("#00FF66"), Color.Parse("#00D2FF"), t);
+            edge = LerpColor(Color.Parse("#003311"), Color.Parse("#002855"), t);
+        }
+    }
+
+    private static Color LerpColor(Color a, Color b, double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        return Color.FromArgb(
+            (byte)(a.A + (b.A - a.A) * t),
+            (byte)(a.R + (b.R - a.R) * t),
+            (byte)(a.G + (b.G - a.G) * t),
+            (byte)(a.B + (b.B - a.B) * t));
     }
 }

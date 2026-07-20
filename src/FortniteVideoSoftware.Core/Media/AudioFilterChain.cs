@@ -204,9 +204,7 @@ public class AudioFilterChain
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");
 
-        chain.Add($"{bgMusicLabel}asplit=2[mus_base][mus_to_filter]");
-        chain.Add("[mus_base]lowpass=f=150[mus_low]");
-        chain.Add("[mus_to_filter]highpass=f=150[mus_high]");
+        chain.Add($"{bgMusicLabel}acrossover=split=150[mus_low][mus_high]");
 
         double dThresh = GetDouble(musicConfig, "ducking_threshold", 0.15);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", 2.5);

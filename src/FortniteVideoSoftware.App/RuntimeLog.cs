@@ -250,7 +250,12 @@ public static class RuntimeLog
                 {
                     if (!_logQueue.IsAddingCompleted)
                     {
-                        try { _logQueue.TryAdd(combinedText); } catch { }
+                        try 
+                        { 
+                            if (!_logQueue.TryAdd(combinedText))
+                                Interlocked.Increment(ref _droppedCount);
+                        } 
+                        catch { }
                     }
                     Thread.Sleep(500);
                     continue;

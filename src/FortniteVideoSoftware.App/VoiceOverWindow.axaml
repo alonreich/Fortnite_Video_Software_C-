@@ -56,14 +56,18 @@
                                                                 <Ellipse Margin="15,8,15,50" Opacity="0.3">
                                                                     <Ellipse.Fill>
                                                                         <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                                                                            <GradientStop Color="White" Offset="0" />
-                                                                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                                                                            <GradientStop Color="{DynamicResource AppSurfaceBrush}" Offset="0" />
+                                                                            <GradientStop Color="Transparent" Offset="1" />
                                                                         </LinearGradientBrush>
                                                                     </Ellipse.Fill>
                                                                 </Ellipse>
 
                                                                 <!-- Mic Icon -->
-                                                                <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Width="36" Height="36" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,2" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                                <Viewbox Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <Canvas Width="24" Height="24">
+                                                                        <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                                                    </Canvas>
+                                                                </Viewbox>
                                                                 <Border Name="MicFocusRing" CornerRadius="45" BorderBrush="Transparent" BorderThickness="0" Margin="1" IsHitTestVisible="False"/>
                                                             </Grid>
                                                         </ControlTemplate>
@@ -115,7 +119,7 @@
                                         </StackPanel>
 
                                         <!-- Play Pause -->
-                                        <Button Name="PlayPauseButton" Classes="Success" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
+                                        <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
                                             <Panel Width="16" Height="16">
                                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
                                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -181,12 +185,12 @@
                                 <StackPanel Orientation="Vertical" Spacing="5">
                                     <TextBlock Text="VOICE MUTING FILTERS" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
                                     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
-                                        <Panel>
+                                        <Panel MinHeight="100">
                                             <TextBlock Text="Scan audio to unlock voice frequencies" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="{Binding !#MuteMaleCb.IsVisible}" />
                                             <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
-                                                <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
-                                                <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
-                                                <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
+                                                <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteMale, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
+                                                <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteFemale, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
+                                                <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteChild, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
                                             </StackPanel>
                                         </Panel>
                                     </Border>
@@ -204,7 +208,7 @@
                             <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
                                 <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
-                                <Button Name="ApplyButton" Classes="Primary" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>
+                                <Button Name="ApplyButton" Classes="Success" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>
                             </StackPanel>
                         </Grid>
                     </Border>

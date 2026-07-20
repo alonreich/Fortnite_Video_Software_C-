@@ -68,6 +68,15 @@ public sealed class MpvVideoView : Control, IDisposable
     private int _cachedHeight;
     private readonly object _renderLock = new object();
 
+    // CRASH FIX (0xC0000005 in mpv_render_context_render): with hwdec=cuda/nvdec the render
+    // context uses CUDA<->OpenGL interop, which is THREAD-AFFINE — it must be driven from ONE
+    // consistent thread. The old code dispatched every frame via Task.Run onto arbitrary
+    // thread-pool threads, which faults the NVIDIA driver (worst on high-fps streams). All
+    // rendering now runs on this single dedicated thread instead.
+    private System.Threading.Thread? _renderThread;
+    private readonly System.Threading.AutoResetEvent _renderSignal = new(false);
+    private volatile bool _renderThreadRunning;
+
 
     private int _renderTextureW;
     private int _renderTextureH;
@@ -137,6 +146,10 @@ public sealed class MpvVideoView : Control, IDisposable
 
     private void ReleaseHardwareInteropResources()
     {
+        // Stop the dedicated render thread before tearing down interop (mirrors Dispose).
+        _renderThreadRunning = false;
+        try { _renderSignal.Set(); } catch { }
+
         lock (_renderLock)
         {
             ReleaseRenderTexture();
@@ -343,7 +356,16 @@ public sealed class MpvVideoView : Control, IDisposable
         WglInterop.glGenTextures(SwapChainSize, _glTextures);
 
         RegisterRenderUpdateCallback();
-        
+
+        // Start the single dedicated render thread that owns all mpv_render_context_render calls.
+        _renderThreadRunning = true;
+        _renderThread = new System.Threading.Thread(RenderThreadLoop)
+        {
+            IsBackground = true,
+            Name = "MpvRenderThread"
+        };
+        _renderThread.Start();
+
         WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
     }
 
@@ -453,11 +475,29 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 if (Interlocked.Exchange(ref _isUpdateQueued, 1) == 0)
                 {
-                    Task.Run(UpdateSurface);
+                    // Wake the single dedicated render thread (see field comment) instead of
+                    // Task.Run — CUDA/GL interop render must not hop across thread-pool threads.
+                    if (_renderThreadRunning) _renderSignal.Set();
                 }
             }
         }
         catch { }
+    }
+
+    /// <summary>
+    /// The one and only thread that ever calls <see cref="UpdateSurface"/> (and therefore
+    /// mpv_render_context_render). AutoResetEvent coalesces bursts, mirroring the old
+    /// _isUpdateQueued gate. UpdateSurface releases the GL context each pass, so Dispose can
+    /// still take _renderLock and free GL resources without fighting this thread for the context.
+    /// </summary>
+    private void RenderThreadLoop()
+    {
+        while (_renderThreadRunning)
+        {
+            _renderSignal.WaitOne();
+            if (!_renderThreadRunning) break;
+            try { UpdateSurface(); } catch { }
+        }
     }
 
     private unsafe void RegisterRenderUpdateCallback()
@@ -865,6 +905,14 @@ public sealed class MpvVideoView : Control, IDisposable
 
     public void Dispose()
     {
+        // Stop the dedicated render thread FIRST so it cannot call into mpv while we free the
+        // render context below. We deliberately do NOT Join under _renderLock: the render loop
+        // takes _renderLock inside UpdateSurface, so if a render is in flight Dispose simply
+        // waits on the lock, then frees; the loop's next pass sees _renderContext==0 and the
+        // cleared running flag and exits on its own. This avoids a Join/lock deadlock.
+        _renderThreadRunning = false;
+        try { _renderSignal.Set(); } catch { }
+
         lock (_renderLock)
         {
             ReleaseRenderTexture();

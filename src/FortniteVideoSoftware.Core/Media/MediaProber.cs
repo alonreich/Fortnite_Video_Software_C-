@@ -42,6 +42,7 @@ public class MediaProber
             CoreLogger.Debug("FFprobe", $"Command: {_ffprobePath} {psi.Arguments}");
 
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffprobe.");
+            ChildProcessTracker.AddProcess(proc);
             
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             try
@@ -253,20 +254,7 @@ public class MediaProber
         double videoBudgetBytes = targetBytes - audioTotalBytes;
         double videoKbps = (videoBudgetBytes * 8.0 / 1000.0) / durationSec;
 
-        double qualityMult = qualityLevel switch
-        {
-            <= 0 => 0.5,
-            1 => 0.7,
-            _ => 1.0,
-        };
 
-        videoKbps *= qualityMult;
-
-        var (outW, outH) = CoordinateMath.GetResolutionInts(outputResolution);
-        int maxPixels = outW * outH;
-        int refPixels = 1920 * 1080;
-        double resRatio = (double)maxPixels / refPixels;
-        if (resRatio < 1) videoKbps *= resRatio;
 
         return Math.Max(300, Math.Min(EncoderManager.MaxBitrateKbps, (int)videoKbps));
     }

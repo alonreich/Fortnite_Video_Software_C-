@@ -53,6 +53,38 @@ public class AppSettings
     public bool ConfirmVideoMergerClearAll { get; set; } = false;
     public bool ConfirmCropToolReset { get; set; } = true;
     public bool ConfirmCropToolDelete { get; set; } = true;
+
+    /// <summary>
+    /// Meme System §1/§3: the unified meme asset directory. Empty = use the default
+    /// (MyVideos\Fortnite Video Software\Memes). Changed via Settings → Meme folder.
+    /// Always resolve through <see cref="MemeDirectory.GetActive"/> — never read this raw.
+    /// </summary>
+    public string MemeDirectoryPath { get; set; } = "";
+}
+
+/// <summary>
+/// Meme System §1: single source of truth for the ACTIVE meme directory.
+/// Default is MyVideos\Fortnite Video Software\Memes, overridable via Settings.
+/// </summary>
+public static class MemeDirectory
+{
+    /// <summary>Raised after the user successfully changes the meme directory in Settings, so
+    /// the MainWindow can silently re-scan and rebuild the MemeComboBox (§3 State Update).</summary>
+    public static event Action? Changed;
+    public static void NotifyChanged() { try { Changed?.Invoke(); } catch { } }
+
+    public static string GetDefault() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+        "Fortnite Video Software", "Memes");
+
+    /// <summary>Resolves the active directory (settings override or default) and ensures it exists.</summary>
+    public static string GetActive()
+    {
+        string configured = SettingsManager.Instance.MemeDirectoryPath;
+        string dir = string.IsNullOrWhiteSpace(configured) ? GetDefault() : configured;
+        try { Directory.CreateDirectory(dir); } catch { }
+        return dir;
+    }
 }
 
 public class KeyBinds

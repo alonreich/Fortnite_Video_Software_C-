@@ -66,6 +66,19 @@
                                 </Grid>
                             </StackPanel>
                         </TabItem>
+                        <TabItem Header="Memes">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="700">
+                                <TextBlock Text="Meme Folder" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="All your meme videos and pictures live in one folder. The app scans this folder to fill the meme list on the main screen. You can open it to add your own files, or move it somewhere else entirely." />
+                                <TextBlock Text="Current meme folder:" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                <TextBox Name="MemeFolderTextBox" IsReadOnly="True" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="The folder the app currently scans for memes."/>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Name="OpenMemeFolderBtn" Classes="Secondary" Content="OPEN FOLDER" MinWidth="130" Cursor="Hand" ToolTip.Tip="Open the meme folder in Windows Explorer."/>
+                                    <Button Name="ChangeMemeFolderBtn" Classes="Primary" Content="CHANGE FOLDER..." MinWidth="150" Cursor="Hand" ToolTip.Tip="Pick a different folder to keep your memes in."/>
+                                </StackPanel>
+                                <TextBlock Name="MemeFolderStatusText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </TabItem>
                         <TabItem Header="Key Binds">
                             <Grid RowDefinitions="*, Auto">
                                 <ScrollViewer Grid.Row="0">

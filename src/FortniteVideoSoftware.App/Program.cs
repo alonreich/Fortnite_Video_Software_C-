@@ -16,9 +16,11 @@ FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.A
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
 
-// Capture fatal NATIVE crashes (0xC0000005 access violations in libmpv / the GL driver,
-// etc.) into our own log — the managed handlers below never fire for those.
-NativeCrashHandler.Install();
+// NOTE: a native vectored-exception handler was intentionally REMOVED here. .NET uses hardware
+// access violations (0xC0000005) internally for implicit null-reference checks, so a process-wide
+// VEH fires on ordinary managed execution; doing managed work inside it corrupts the runtime
+// (ExecutionEngineException / 0x80131506). Native crashes are captured safely and retroactively
+// by the startup Event Viewer digest (CrashLogDigest) instead.
 
 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
 {

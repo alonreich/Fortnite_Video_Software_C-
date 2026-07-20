@@ -22,6 +22,30 @@ public partial class VoiceOverWindow : Window
 {
     private const string BoundsKey = "VoiceOverWindowBounds";
 
+    public static readonly Avalonia.StyledProperty<bool> IsMuteMaleProperty =
+        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteMale), false);
+    public bool IsMuteMale
+    {
+        get => GetValue(IsMuteMaleProperty);
+        set => SetValue(IsMuteMaleProperty, value);
+    }
+
+    public static readonly Avalonia.StyledProperty<bool> IsMuteFemaleProperty =
+        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteFemale), false);
+    public bool IsMuteFemale
+    {
+        get => GetValue(IsMuteFemaleProperty);
+        set => SetValue(IsMuteFemaleProperty, value);
+    }
+
+    public static readonly Avalonia.StyledProperty<bool> IsMuteChildProperty =
+        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteChild), false);
+    public bool IsMuteChild
+    {
+        get => GetValue(IsMuteChildProperty);
+        set => SetValue(IsMuteChildProperty, value);
+    }
+
     private MpvVideoView? _videoHost;
     private VoiceRecorder? _recorder;
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
@@ -683,6 +707,9 @@ public partial class VoiceOverWindow : Window
         if (_thumbLoadingOverlay != null) _thumbLoadingOverlay.IsVisible = true;
         if (_waveformLoadingOverlay != null) _waveformLoadingOverlay.IsVisible = true;
 
+        string localVideoPath = _videoPath ?? "";
+        double localTrimStart = _trimStartSec;
+
         var thumbTask = Task.Run(async () =>
         {
             string? tempPng = null;
@@ -695,7 +722,7 @@ public partial class VoiceOverWindow : Window
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpeg,
-                    Arguments = $"-y -hide_banner -loglevel error -hwaccel auto -ss {_trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {durationSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i \"{_videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
+                    Arguments = $"-y -hide_banner -loglevel error -hwaccel auto -ss {localTrimStart.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {durationSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i \"{localVideoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 };
@@ -716,7 +743,7 @@ public partial class VoiceOverWindow : Window
             try
             {
                 return await FortniteVideoSoftware.Core.Media.WaveformGenerator.GenerateWaveformImageAsync(
-                        ffmpeg, _videoPath, 1200, 60, _trimStartSec, durationSec, token);
+                        ffmpeg, localVideoPath, 1200, 60, localTrimStart, durationSec, token);
             }
             catch (Exception ex)
             {

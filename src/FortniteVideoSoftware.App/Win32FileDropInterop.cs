@@ -34,6 +34,9 @@ public static class Win32FileDropInterop
     [DllImport("comctl32.dll", SetLastError = true)]
     private static extern bool SetWindowSubclass(nint hWnd, SubclassProc pfnSubclass, nuint uIdSubclass, nuint dwRefData);
 
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern bool RemoveWindowSubclass(nint hWnd, SubclassProc pfnSubclass, nuint uIdSubclass);
+
     [DllImport("comctl32.dll")]
     private static extern nint DefSubclassProc(nint hWnd, uint uMsg, nint wParam, nint lParam);
 
@@ -118,6 +121,11 @@ public static class Win32FileDropInterop
                 if (SetWindowSubclass(hwnd, proc, 1, 0))
                 {
                     RuntimeLog.Info("DND", $"WM_DROPFILES fallback attached to '{window.Title}'.");
+                    window.Closed += (s, ev) =>
+                    {
+                        RemoveWindowSubclass(hwnd, proc, 1);
+                        _keepAlive.Remove(proc);
+                    };
                 }
             }
             catch (Exception ex)

@@ -52,6 +52,7 @@
                     </Grid.RowDefinitions>
 
                     <local:MpvVideoView Name="VideoHost" IsVisible="False" Grid.Row="0" />
+                    <TextBlock Name="RdpWarningOverlay" Text="RDP SESSION" Foreground="{DynamicResource AppDangerBrush}" Opacity="0.5" FontSize="{DynamicResource AppFontSize60}" FontWeight="Black" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20" IsHitTestVisible="False" IsVisible="False" ZIndex="1" />
 
                     <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}"
                             Background="{DynamicResource AppOverlayBrush}"
@@ -96,11 +97,11 @@
                             <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip the clock.
                                  ISSUE_06: slider row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler. -->
                             <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0" />
-                            <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="14, 44" ClipToBounds="False">
-                                <Canvas Grid.Row="0" Name="TimelineScaleCanvas" IsHitTestVisible="False" HorizontalAlignment="Stretch" />
-                                <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
-                                <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="True" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" Cursor="Hand">
-                                    <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
+                            <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
+                                <Canvas Grid.Row="0" Name="TimelineScaleCanvas" IsHitTestVisible="False" HorizontalAlignment="Stretch" MinHeight="14" />
+                                <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
+                                <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="True" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand">
+                                    <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Top="-32">
                                         <Border.Transitions>
                                             <Transitions>
                                                 <DoubleTransition Property="Opacity" Duration="0:0:0.5"/>
@@ -134,12 +135,12 @@
                             ZIndex="9999" ToolTip.Tip="Pop out the video player into its own separate floating window so you can move it around." />
                 </Grid>
 
-                <Border Grid.Column="1" CornerRadius="4" Background="{DynamicResource AppVideoRailBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="0,8" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
+                <Border Grid.Column="1" CornerRadius="4" Background="{DynamicResource AppVideoRailBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="0,8" VerticalAlignment="Stretch" Margin="2,10,2,10" ClipToBounds="False" ZIndex="9999">
                     <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Center" Margin="0">
                         <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
                         <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
                              Rollback to the previous standard Slider: old_code\volume_slider_rollback\ROLLBACK_INSTRUCTIONS.txt -->
-                        <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" Width="46" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
+                        <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
                         <Button Grid.Row="2" Name="SpeakerHitBox" MinWidth="35" MinHeight="35" Background="Transparent" BorderThickness="0" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
                             <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="{DynamicResource AppInfoBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                         </Button>
@@ -160,7 +161,7 @@
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartButton" Classes="Primary" Focusable="True" Content="MARK START" Padding="16,8" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Cut out everything before this point. The final video will start exactly here."/>
-                        <Button Name="PlayPauseButton" Classes="Success" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Margin="0,0,30,0">
+                        <Button Name="PlayPauseButton" Classes="Primary" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -222,7 +223,7 @@
         </Grid>
 
         <!-- RIGHT PANEL: Utility & Plugins -->
-        <Border Grid.Column="1" MinWidth="170" MaxWidth="300" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
+        <Border Grid.Column="1" MinWidth="170" MaxWidth="300" Background="Transparent" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Grid RowDefinitions="Auto, Auto, *, Auto">
                     <!-- Row 0: File Ops -->
@@ -236,7 +237,23 @@
                                 <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
                             </StackPanel>
                         </Button>
-                        <TextBlock Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="{DynamicResource AppSuccessBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="5">
+                            <TextBlock Name="HardwareStatusLabel" Text="HW: Scanning..." Foreground="{DynamicResource AppSuccessBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
+                            <Button Name="RdpWarningButton" IsVisible="False" Background="Transparent" Padding="0" Cursor="Hand" ToolTip.Tip="Click for details">
+                                <Path Fill="{DynamicResource AppDangerBrush}" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16"/>
+                                <Button.Flyout>
+                                    <Flyout Placement="Bottom">
+                                        <StackPanel Spacing="10" MaxWidth="300">
+                                            <TextBlock Text="RDP SESSION DETECTED: YOUR GRAPHICS CARD IS ASLEEP!" FontWeight="Bold" Foreground="{DynamicResource AppDangerBrush}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="You are connected via Remote Desktop. Windows turns off your GPU during Remote Desktop to save data, making this app extremely slow." TextWrapping="Wrap"/>
+                                            <TextBlock Text="HOW TO FIX THIS (On the HOST machine):" FontWeight="Bold"/>
+                                            <TextBlock Text="1. Click Start, type 'gpedit.msc' and hit Enter.&#x0a;2. Go to: Computer Configuration -> Administrative Templates -> Windows Components -> Remote Desktop Services -> Remote Desktop Session Host -> Remote Session Environment.&#x0a;3. Double-click 'Use hardware graphics adapters for all Remote Desktop Services sessions'. Set to 'Enabled'.&#x0a;4. Double-click 'Prioritize H.264/AVC 444 Graphics mode for Remote Desktop connections'. Set to 'Enabled'.&#x0a;5. Restart the computer." TextWrapping="Wrap"/>
+                                            <Button Name="RdpFixButton" Classes="Danger" Content="Auto-Fix: Enable GPU Policy (Requires Admin)" HorizontalAlignment="Stretch" FontWeight="Bold" Click="RdpFixButton_Click" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Row 1: Overlays -->
@@ -253,7 +270,7 @@
                                     <StackPanel Spacing="5">
                                         <Grid ColumnDefinitions="*, Auto">
                                             <TextBlock Text="Portrait (9:16)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                            <ToggleSwitch Name="PortraitModeCheckbox" Cursor="Hand" IsChecked="True" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
+                                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsPortraitMode, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
                                         </Grid>
                                         <TextBox Name="PortraitTextInput" Text="{Binding $parent[local:MainWindow].OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="40" MaxHeight="100" FontSize="{DynamicResource AppFontSize14}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
                                     </StackPanel>
@@ -267,17 +284,17 @@
                                         
                                         <Grid ColumnDefinitions="*, Auto">
                                             <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="BossHpCheckbox" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
+                                            <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsBossHp, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
                                         </Grid>
 
                                         <Grid ColumnDefinitions="*, Auto">
                                             <TextBlock Text="Teammate HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="TeammatesCheckbox" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
+                                            <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsTeammates, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
                                         </Grid>
 
                                         <Grid ColumnDefinitions="*, Auto">
                                             <TextBlock Text="Spectating Eye" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="SpectatingCheckbox" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
+                                            <ToggleSwitch Name="SpectatingCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsSpectating, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -290,13 +307,13 @@
 
                                         <Grid ColumnDefinitions="*, Auto">
                                             <TextBlock Text="Enable Fade" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="EnableFadeCheckbox" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
+                                            <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsEnableFade, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
                                         </Grid>
 
                                         <StackPanel Spacing="5">
                                             <Grid ColumnDefinitions="*, Auto">
                                                 <TextBlock Text="Add MEME" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                                <ToggleSwitch Name="AddMemeCheckbox" Cursor="Hand" IsChecked="False" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
+                                                <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsAddMeme, Mode=TwoWay}" Cursor="Hand" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="0" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
                                             </Grid>
                                             <ComboBox Name="MemeComboBox" HorizontalAlignment="Stretch" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" ToolTip.Tip="Choose which meme effect to display over your video." />
                                         </StackPanel>

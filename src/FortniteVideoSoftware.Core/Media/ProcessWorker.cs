@@ -94,6 +94,7 @@ public class ProcessWorker : IDisposable
             string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_job_{jobId}");
             Directory.CreateDirectory(tempJobDir);
 
+            CoreLogger.Info("Process", $"Input Video: {Path.GetFileName(InputPath)}");
             CoreLogger.Debug("Process", $"Input Path: {InputPath}");
             CoreLogger.Info("Process", $"Start Time: {StartTimeMs} ms, End Time: {EndTimeMs} ms");
             CoreLogger.Info("Process", $"Base Speed Factor: {SpeedFactor}");
@@ -168,8 +169,10 @@ public class ProcessWorker : IDisposable
                 int memeHeight = 0;
                 bool memeIsImage = false;
                 bool memeHasAudio = false;
-                if (!string.IsNullOrEmpty(MemeFile) && File.Exists(MemeFile))
+                if (!string.IsNullOrEmpty(MemeFile))
                 {
+                    if (!File.Exists(MemeFile)) MemeFile = null;
+                    else {
                     string memeExt = Path.GetExtension(MemeFile).ToLowerInvariant();
                     memeIsImage = memeExt is ".png" or ".jpg" or ".jpeg";
 
@@ -191,6 +194,7 @@ public class ProcessWorker : IDisposable
 
                     padEndHumanSec = 0;
                     sourcePadEndSec = 0;
+                    }
                 }
 
                 double actualExtractStartMs = StartTimeMs - (sourcePadStartSec * 1000.0);
@@ -203,11 +207,11 @@ public class ProcessWorker : IDisposable
                 {
                     var eqFilters = new List<string>();
                     if (VoiceOverMuteMale && VoiceOverMuteMaleHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteMaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteMaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
                     if (VoiceOverMuteFemale && VoiceOverMuteFemaleHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteFemaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteFemaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
                     if (VoiceOverMuteChild && VoiceOverMuteChildHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteChildHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:width_type=o:width=1.5:g=-20");
+                        eqFilters.Add($"equalizer=f={VoiceOverMuteChildHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
 
                     if (eqFilters.Count > 0)
                     {
@@ -331,14 +335,14 @@ public class ProcessWorker : IDisposable
                 }
                 else
                 {
-                    string cfrFilter = $"fps={targetFps}:round=near";
-                    coreFilters.Add($"[0:v]setpts='(PTS-STARTPTS)/{SpeedFactor:F4}',{cfrFilter}[v_stabilized]");
+                    string cfrFilter = $"fps={targetFps}:start_time=0:round=near";
+                    coreFilters.Add($"[0:v]setpts='PTS/{SpeedFactor:F4}',{cfrFilter}[v_stabilized]");
                     vStabilizedPad = "[v_stabilized]";
 
                     if (sourceHasAudio)
                     {
                         var atempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        coreFilters.Add($"{baseAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS,{atempo}[a_prepared_base]");
+                        coreFilters.Add($"{baseAudioLabel}aresample=48000:async=1,asetpts=PTS,{atempo}[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
                     else
@@ -357,18 +361,33 @@ public class ProcessWorker : IDisposable
 
                     double rawGameLufs = -14.0 - VolumeNormalizeDb;
                     rawGameLufs = Math.Clamp(rawGameLufs, -70.0, -5.0);
-                    string voLoudnorm = $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5";
+                    string voLoudnorm = AutoVoiceNormalization ? $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5" : "anull";
 
                     for (int t = 0; t < effectiveTakes.Count; t++)
                     {
                         var take = effectiveTakes[t];
                         int inputIdx = voBaseIndex + t;
-                        int delayMs = (int)(take.StartSec * 1000);
+                        // POSITION FIX: take.StartSec is the ABSOLUTE source timestamp where the
+                        // user started recording. The old code used it directly as the output
+                        // delay, so a voiceover recorded at (say) 66.9s into the source was pushed
+                        // 66.9s into an ~11s clip — i.e. off the end, silent. Map it into the
+                        // OUTPUT timeline instead: the granular time-mapper when speed segments
+                        // exist, else (source − extract-start)/speed for the plain sped path
+                        // (extract-start already accounts for the fade pre-roll).
+                        double voStartOutSec = granularTimeMapper != null
+                            ? granularTimeMapper(take.StartSec)
+                            : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
+                        int delayMs = Math.Max(0, (int)Math.Round(voStartOutSec * 1000.0));
                         string delayLabel = $"[vo_delayed_{t}]";
                         string mixedLabel = $"[a_mixed_vo_{t}]";
 
-                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},adelay={delayMs}|{delayMs}{delayLabel}");
-                        coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2{mixedLabel}");
+                        // SPEED-MATCH: the voice is recorded against a real-time (1.0x) preview, so
+                        // it must be sped by the export SpeedFactor to stay locked to the sped
+                        // video — otherwise it starts aligned but drifts progressively behind.
+                        // atempo goes BEFORE adelay so the positioning delay is not time-scaled.
+                        string voAtempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
+                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},{voAtempo},adelay={delayMs}|{delayMs}{delayLabel}");
+                        coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0{mixedLabel}");
                         aPreparedPad = mixedLabel;
                     }
                 }
@@ -379,7 +398,7 @@ public class ProcessWorker : IDisposable
                     currentALabel = finalALabel;
                     foreach (var part in audioChains)
                     {
-                        coreFilters.Add(part.Replace("[0:a]", aPreparedPad));
+                        coreFilters.Add(part.Replace(sourceHasAudio ? baseAudioLabel : "[0:a]", aPreparedPad));
                     }
                 }
 
@@ -407,6 +426,12 @@ public class ProcessWorker : IDisposable
                         coreFilters.Add($"{vStabilizedPad}{string.Join(",", vFades)}[v_faded]");
                         vStabilizedPad = "[v_faded]";
 
+                        if (!string.IsNullOrEmpty(gVHud))
+                        {
+                            coreFilters.Add($"{gVHud}{string.Join(",", vFades)}[gVHud_faded]");
+                            gVHud = "[gVHud_faded]";
+                        }
+
                         coreFilters.Add($"{currentALabel}{string.Join(",", aFades)}[a_faded]");
                         currentALabel = "[a_faded]";
                     }
@@ -414,16 +439,31 @@ public class ProcessWorker : IDisposable
 
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
-                    int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
-                    int loopFrames = Math.Max(0, introFrames - 1);
+                    // A/V SYNC: hold the still with tpad (extends by DURATION) instead of
+                    // loop=loop=N (extends by frame COUNT). loop runs at the SOURCE frame rate,
+                    // so on a 120fps clip N frames spanned only half the intended time — the
+                    // intro video came out ~half the audio-silence length and shifted the whole
+                    // clip out of sync. tpad's stop_duration is frame-rate-independent.
                     coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
                                    $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
-                                   $"loop=loop={loopFrames}:size=1:start=0," +
-                                   $"fps={targetFps}:round=near," +
+                                   $"tpad=stop_mode=clone:stop_duration={introDurationSec:F4}," +
+                                   $"fps={targetFps}:start_time=0:round=near," +
                                    $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_same_frame]");
                     coreFilters.Add($"{vStabilizedPad}setsar=1[v_main_after_intro]");
                     coreFilters.Add("[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro]");
                     vStabilizedPad = "[v_with_intro]";
+
+                    if (!string.IsNullOrEmpty(gVHud))
+                    {
+                        coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
+                                       $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
+                                       $"tpad=stop_mode=clone:stop_duration={introDurationSec:F4}," +
+                                       $"fps={targetFps}:start_time=0:round=near," +
+                                       $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_hud_same_frame]");
+                        coreFilters.Add($"{gVHud}setsar=1[gVHud_after_intro]");
+                        coreFilters.Add("[v_intro_hud_same_frame][gVHud_after_intro]concat=n=2:v=1:a=0[gVHud_with_intro]");
+                        gVHud = "[gVHud_with_intro]";
+                    }
                 }
 
                 if (introDurationSec > 0)
@@ -436,18 +476,30 @@ public class ProcessWorker : IDisposable
 
                 if (IsMobileFormat)
                 {
+                    string finalMainPad = vStabilizedPad;
+                    string finalHudPad = gVHud;
+                    if (string.IsNullOrEmpty(finalHudPad))
+                    {
+                        coreFilters.Add($"{vStabilizedPad}split=2[v_mob_main][v_mob_hud]");
+                        finalMainPad = "[v_mob_main]";
+                        finalHudPad = "[v_mob_hud]";
+                    }
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
-                        vStabilizedPad, string.IsNullOrEmpty(gVHud) ? vStabilizedPad : gVHud, mobileCoords, IsBossHp, ShowTeammates, ShowSpectating,
+                        finalMainPad, finalHudPad, mobileCoords, IsBossHp, ShowTeammates, ShowSpectating,
                         textInputLabel, false, OriginalResolution);
                     coreFilters.Add(mobileChain);
                     vOutputPad = mobileOut;
                 }
                 else
                 {
+                    if (!string.IsNullOrEmpty(gVHud))
+                    {
+                        coreFilters.Add($"{gVHud}nullsink");
+                    }
                     vOutputPad = vStabilizedPad;
                 }
 
-                coreFilters.Add($"{vOutputPad}fps={targetFps}:round=near," +
+                coreFilters.Add($"{vOutputPad}fps={targetFps}:start_time=0:round=near," +
                                $"setpts=N/({targetFps})/TB[v_render_out]");
 
                 string vOutputFinal = "[v_render_out]";
@@ -463,7 +515,7 @@ public class ProcessWorker : IDisposable
                     string memeScale =
                         $"scale={canvas}:force_original_aspect_ratio=decrease," +
                         $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
-                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,fps={targetFps}:round=near";
+                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,fps={targetFps}:start_time=0:round=near";
 
                     // §7 Only reference the meme's own audio pad when it actually has an audio stream.
                     string memeAudio = "aresample=48000:async=1";
@@ -536,9 +588,10 @@ public class ProcessWorker : IDisposable
                 bool success = false;
                 string lastError = "Render failed.";
 
+                string? lastSuccessfulEncoder = null;
                 async Task<bool> RunFfmpegOnce(bool useCuda, int? requestedBitrate, int attemptNum)
                 {
-                    string currentEncoder = encoderMgr.GetInitialEncoder(useCuda);
+                    string currentEncoder = lastSuccessfulEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
 
                     while (true)
                     {
@@ -686,6 +739,7 @@ public class ProcessWorker : IDisposable
 
                         if (exitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                         {
+                            lastSuccessfulEncoder = currentEncoder;
                             if (stderrLines.Length > 0)
                                 CoreLogger.Debug("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
                             return true;

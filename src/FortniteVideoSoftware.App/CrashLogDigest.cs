@@ -69,7 +69,9 @@ internal static class CrashLogDigest
                 {
                     // Application Error / WER logs every app on the machine, so keep only ours.
                     if (block.IndexOf("FortniteVideoSoftware", StringComparison.OrdinalIgnoreCase) < 0
-                        && block.IndexOf(exe, StringComparison.OrdinalIgnoreCase) < 0)
+                        && block.IndexOf(exe, StringComparison.OrdinalIgnoreCase) < 0
+                        && block.IndexOf("ffmpeg.exe", StringComparison.OrdinalIgnoreCase) < 0
+                        && block.IndexOf("ffprobe.exe", StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
 
                     RuntimeLog.Fail("EVENTLOG CRASH", Condense(block));

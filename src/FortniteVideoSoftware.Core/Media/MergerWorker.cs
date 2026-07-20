@@ -129,7 +129,7 @@ public class MergerWorker : IDisposable
                     // (e.g. 30 + 60) previously joined without CFR normalization while the encoder
                     // GOP assumed 60 (GetCodecFlags fps="60"), risking stutter/VFR at clip joins.
                     // Enforce fps=60 AFTER the speed setpts (same order as the main export path).
-                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:round=near[v{i}]");
+                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near[v{i}]");
                     double clipDur = fileDurations[i] > 0 ? fileDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
@@ -142,7 +142,7 @@ public class MergerWorker : IDisposable
                     }
                     else
                     {
-                        filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={clipDur.ToString("F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}]");
+                        filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={(clipDur / speedFactor).ToString("F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}]");
                     }
                     vInputs += $"[v{i}]";
                     aInputs += $"[a{i}]";
@@ -248,9 +248,14 @@ public class MergerWorker : IDisposable
                     {
                         for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
-                            if (codecArgs[ci] == "-cq")
+                            if (codecArgs[ci] == "-cq" || codecArgs[ci] == "-crf" || codecArgs[ci] == "-global_quality" || codecArgs[ci] == "-qp_i")
                             {
                                 codecArgs[ci + 1] = cqValue.ToString();
+                                if (codecArgs[ci] == "-qp_i")
+                                {
+                                    if (ci + 3 < codecArgs.Count && codecArgs[ci + 2] == "-qp_p") codecArgs[ci + 3] = cqValue.ToString();
+                                    if (ci + 5 < codecArgs.Count && codecArgs[ci + 4] == "-qp_b") codecArgs[ci + 5] = cqValue.ToString();
+                                }
                                 break;
                             }
                         }
@@ -435,6 +440,7 @@ public class MergerWorker : IDisposable
             CreateNoWindow = true,
         };
 
+        _currentProcess?.Dispose();
         _currentProcess = Process.Start(psi);
         if (_currentProcess == null)
             return false;

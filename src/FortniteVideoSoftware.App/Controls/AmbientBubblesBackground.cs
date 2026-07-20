@@ -8,56 +8,39 @@ using System.Diagnostics;
 namespace FortniteVideoSoftware.App.Controls;
 
 /// <summary>
-/// Very gentle ambient "live wallpaper" bubble layer, echoing the FluidVolumeSlider's
-/// bubble particle system across the app's theme background.
-///
-/// Design constraints (deliberate — do not "enhance"):
-///  - EXTREMELY subtle: max ~7% opacity, tiny sizes, slow drift. It must never
-///    compete with real UI content or distract from editing.
-///  - Fully decoupled animation (RequestAnimationFrame + fixed 30Hz timestep),
-///    matching the FluidVolumeSlider pattern: no layout passes are ever triggered,
-///    only render invalidation, and only while the control is effectively visible.
-///  - IsHitTestVisible is hard-disabled: the layer can never steal pointer input.
-///  - No caching/memoization of app data — purely stateless visual particles.
+/// Ambient "underwater" anomaly background layer.
+/// Extremely randomized bubbles mimicking the 3D hollow refractive style 
+/// of the FluidVolumeSlider, creating a deep-sea atmosphere.
 /// </summary>
 public sealed class AmbientBubblesBackground : Control
 {
-    private const int BubbleCount = 12;               // sparse on purpose
-    private const double PhysicsHz = 30.0;            // gentle half-rate physics
+    private const int BubbleCount = 35; // Dense enough to feel underwater, but spread out
+    private const double PhysicsHz = 60.0;
     private const double FixedDeltaSeconds = 1.0 / PhysicsHz;
-    private const double RenderIntervalSeconds = 1.0 / 30.0; // cap paints at ~30fps
 
     private readonly Bubble[] _bubbles = new Bubble[BubbleCount];
     private readonly Random _rng = new();
     private readonly Stopwatch _clock = new();
     private double _lastFrameSeconds;
-    private double _lastRenderSeconds;
     private double _accumulator;
     private bool _running;
 
     private sealed class Bubble
     {
-        public double X;            // 0..1 across the control
-        public double Y;            // 0..1 from the top (rises toward 0)
-        public double Size;         // radius in px
-        public double BaseSpeed;    // normalized rise per physics step
+        public double X;
+        public double Y;
+        public double Size;
+        public double BaseSpeed;
         public double WobbleSpeed;
         public double WobbleAmount;
         public double Seed;
-        public double Opacity;      // peak opacity (very low)
+        public double Opacity;
     }
-
-    // Soft info-blue reads gently on BOTH the dark slate and light surfaces,
-    // unlike pure white (invisible on light) or black (harsh on dark).
-    private static readonly ImmutableSolidColorBrush s_bubbleBrush =
-        new(Color.Parse("#38bdf8"));
-    private static readonly ImmutableSolidColorBrush s_specularBrush =
-        new(Colors.White);
 
     public AmbientBubblesBackground()
     {
         IsHitTestVisible = false;
-        ClipToBounds = true;
+        ClipToBounds = false; // Allow bubbles to drift over/under adjacent panels naturally
 
         for (int i = 0; i < BubbleCount; i++)
         {
@@ -73,7 +56,6 @@ public sealed class AmbientBubblesBackground : Control
         base.OnAttachedToVisualTree(e);
         _clock.Restart();
         _lastFrameSeconds = 0;
-        _lastRenderSeconds = 0;
         _accumulator = 0;
         _running = true;
         TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnAnimationFrame);
@@ -91,21 +73,18 @@ public sealed class AmbientBubblesBackground : Control
         if (!_running) return;
 
         double now = NowSeconds;
-        double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25); // clamp hitches
+        double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25);
         _lastFrameSeconds = now;
         _accumulator += frameDelta;
 
-        // Fixed timestep: identical drift on 60/144/240Hz/VRR monitors.
         while (_accumulator >= FixedDeltaSeconds)
         {
             StepPhysics(now);
             _accumulator -= FixedDeltaSeconds;
         }
 
-        // Throttled repaint keeps the ambient layer near-free on the GPU.
-        if (IsEffectivelyVisible && now - _lastRenderSeconds >= RenderIntervalSeconds)
+        if (IsEffectivelyVisible)
         {
-            _lastRenderSeconds = now;
             InvalidateVisual();
         }
 
@@ -118,9 +97,12 @@ public sealed class AmbientBubblesBackground : Control
         {
             b.Y -= b.BaseSpeed;
             b.X += Math.Sin(b.Y * 7.0 + now * b.WobbleSpeed + b.Seed) * b.WobbleAmount;
-            b.X = Math.Clamp(b.X, 0.02, 0.98);
+            
+            // Seamless horizontal wrapping
+            if (b.X < -0.1) b.X = 1.1;
+            if (b.X > 1.1) b.X = -0.1;
 
-            if (b.Y < -0.05)
+            if (b.Y < -0.15)
             {
                 ResetBubble(b, randomY: false);
             }
@@ -129,14 +111,24 @@ public sealed class AmbientBubblesBackground : Control
 
     private void ResetBubble(Bubble b, bool randomY)
     {
-        b.X = 0.03 + _rng.NextDouble() * 0.94;
-        b.Y = randomY ? _rng.NextDouble() : 1.05;
-        b.Size = 2.0 + _rng.NextDouble() * 5.0;                  // 2–7 px radius
-        b.BaseSpeed = (0.55 + _rng.NextDouble() * 1.2) / 1000.0; // ~30–90s full climb
-        b.WobbleSpeed = 0.25 + _rng.NextDouble() * 0.9;
-        b.WobbleAmount = (0.05 + _rng.NextDouble() * 0.30) / 400.0;
+        b.X = -0.1 + _rng.NextDouble() * 1.2;
+        b.Y = randomY ? -0.1 + _rng.NextDouble() * 1.3 : 1.15 + _rng.NextDouble() * 0.2;
+
+        // Extremely randomized "anomalies" - reduced maximum sizes so they don't look broken
+        double anomalyRoll = _rng.NextDouble();
+        if (anomalyRoll > 0.96) b.Size = 25.0 + _rng.NextDouble() * 15.0; // Massive rare anomaly
+        else if (anomalyRoll > 0.85) b.Size = 12.0 + _rng.NextDouble() * 12.0; // Large chunk
+        else b.Size = 3.0 + _rng.NextDouble() * 10.0; // Standard ambient particles
+
+        // Larger bubbles rise faster, but overall speed is very slow
+        b.BaseSpeed = (0.1 + _rng.NextDouble() * (b.Size / 15.0)) / 1000.0; 
+        
+        b.WobbleSpeed = 0.2 + _rng.NextDouble() * 0.8;
+        b.WobbleAmount = (0.2 + _rng.NextDouble() * 1.0) / 400.0;
         b.Seed = _rng.NextDouble() * Math.PI * 2;
-        b.Opacity = 0.025 + _rng.NextDouble() * 0.045;           // peak 2.5–7%
+        
+        // Softer opacity for better realism, but high enough to actually be visible
+        b.Opacity = b.Size > 20.0 ? 0.08 + _rng.NextDouble() * 0.08 : 0.15 + _rng.NextDouble() * 0.15;
     }
 
     public override void Render(DrawingContext context)
@@ -149,25 +141,25 @@ public sealed class AmbientBubblesBackground : Control
 
         foreach (var b in _bubbles)
         {
-            if (b.Y > 1.02 || b.Y < -0.02) continue;
+            if (b.Y > 1.25 || b.Y < -0.25) continue;
 
-            // Fade in near the bottom and dissolve near the top — no popping.
-            double edgeFade = Math.Clamp(Math.Min((1.02 - b.Y) * 6.0, b.Y * 6.0), 0, 1);
+            // Only fade in at the bottom. Do not fade out at the top so it doesn't look cut off under the menu!
+            double edgeFade = Math.Clamp((1.2 - b.Y) * 5.0, 0, 1);
             double alpha = b.Opacity * edgeFade;
             if (alpha <= 0.001) continue;
 
             double cx = b.X * w;
             double cy = b.Y * h;
 
-            using (context.PushOpacity(alpha))
-            {
-                context.DrawEllipse(s_bubbleBrush, null, new Point(cx, cy), b.Size, b.Size);
-                // Tiny off-center specular glint (mirrors the volume-tube bubbles).
-                context.DrawEllipse(
-                    s_specularBrush, null,
-                    new Point(cx - b.Size * 0.30, cy - b.Size * 0.30),
-                    b.Size * 0.28, b.Size * 0.28);
-            }
+            // Draw sharp glass outer rim
+            double thickness = Math.Max(0.8, b.Size * 0.03); // Delicate glass rim
+            var bubbleStroke = new ImmutableSolidColorBrush(Color.FromArgb((byte)(alpha * 255), 255, 255, 255));
+            context.DrawEllipse(null, new ImmutablePen(bubbleStroke, thickness), new Point(cx, cy), b.Size, b.Size);
+            
+            // 3D Glass Specular Reflection: Sharp, offset highlight (identitical to FluidVolumeSlider)
+            var hiOpacity = Math.Min(1.0, alpha + 0.4);
+            var hiBrush = new ImmutableSolidColorBrush(Color.FromArgb((byte)(hiOpacity * 255), 255, 255, 255));
+            context.DrawEllipse(hiBrush, null, new Point(cx - b.Size * 0.3, cy - b.Size * 0.3), b.Size * 0.35, b.Size * 0.35);
         }
     }
 }

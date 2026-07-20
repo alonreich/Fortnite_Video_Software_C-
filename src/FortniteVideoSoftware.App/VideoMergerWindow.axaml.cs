@@ -31,10 +31,17 @@ public partial class VideoMergerWindow : Window
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
     private double? _nextSeekTarget = null;
-    private bool _isUserDraggingSlider = false;
     private bool _isTimerUpdatingSlider = false;
     private bool _isTimelineDrawn = false;
     public ObservableCollection<string> VideoQueue { get; } = new();
+
+    public static readonly Avalonia.StyledProperty<bool> HasVideosProperty =
+        Avalonia.AvaloniaProperty.Register<VideoMergerWindow, bool>(nameof(HasVideos), false);
+    public bool HasVideos
+    {
+        get => GetValue(HasVideosProperty);
+        set => SetValue(HasVideosProperty, value);
+    }
 
     private MusicWizardResult? _musicResult;
 
@@ -46,7 +53,6 @@ public partial class VideoMergerWindow : Window
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
 
     private double _baseSpeed = 1.0;
-    private double _lastAppliedSpeed = 1.0;
     private double _previousVolume = 100;
 
     private string? _outputDirectory;
@@ -70,10 +76,12 @@ public partial class VideoMergerWindow : Window
     // Serializes external drop processing (OLE + WM_DROPFILES) so two simultaneous
     // drops can't interleave their async validation/dialogs and corrupt VideoQueue.
     private readonly System.Threading.SemaphoreSlim _externalDropGate = new(1, 1);
+    private readonly FortniteVideoSoftware.Core.Infrastructure.RecoveryManager _recovery = new FortniteVideoSoftware.Core.Infrastructure.RecoveryManager(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault());
 
     public VideoMergerWindow()
     {
         InitializeComponent();
+        _recovery.AcquireLock();
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "VideoMergerBounds");
 
         _ffprobePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
@@ -1342,7 +1350,7 @@ public partial class VideoMergerWindow : Window
             _activeMergerWorker = worker;
 
             var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
-            double currentMainVol = volSlider != null ? volSlider.Value / 100.0 : 1.0;
+            double currentMainVol = 1.0;
 
             if (_musicResult != null)
             {
@@ -1658,6 +1666,7 @@ public partial class VideoMergerWindow : Window
 
     private void ReturnToMainApp()
     {
+        _recovery.ReleaseLockOnly();
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)

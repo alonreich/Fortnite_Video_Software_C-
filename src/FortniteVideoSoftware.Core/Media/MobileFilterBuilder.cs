@@ -80,7 +80,12 @@ public class MobileFilterBuilder
             parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
-            currV = "[main_base]";
+
+            parts.Add($"[main_base]scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                      $"flags=lanczos," +
+                      $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
+                      $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
+            currV = "[v_padded]";
 
             for (int i = 0; i < activeLayers.Count; i++)
             {
@@ -94,30 +99,15 @@ public class MobileFilterBuilder
                 int sx = sourceRect.x, sy = sourceRect.y, sw = sourceRect.w, sh = sourceRect.h;
 
                 Frac scaleFrac = Frac.FromDouble(layer.Scale);
-                Frac backendScale = CoordinateConstants.BackendScale;
+                var (_, _, _, _, videoScale) = CoordinateMath.ScalePlan(originalResolution);
+                
                 int rw = Math.Max(2, CanvasMath.EvenCeil(
-                    new Frac(layer.UiRect[0], 1) * scaleFrac * backendScale));
+                    new Frac(sw, 1) * videoScale * scaleFrac));
                 int rh = Math.Max(2, CanvasMath.EvenCeil(
-                    new Frac(layer.UiRect[1], 1) * scaleFrac * backendScale));
+                    new Frac(sh, 1) * videoScale * scaleFrac));
 
-                var pos = layer.Pos;
-                Frac lxRaw = Frac.FromDouble(pos.x) * backendScale;
-                Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
-
-                Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
-                // ISSUE_4: the internal-space Y range 0..TargetH-rh already maps 1:1 to the
-                // content area (content 1620 × 32/27 = 1920). Subtracting bottom padding
-                // here double-applied it and pushed bottom-placed elements ~150 final px
-                // above their previewed position. The UI clamp (ClampOverlayPosition) is
-                // the single source of truth for the allowed placement range.
-                Frac maxLy = new(CoordinateConstants.TargetH - rh, 1);
-
-                int lx = CoordinateMath.ScaleRound(
-                    Frac.FromDouble(0) > lxRaw ? Frac.FromDouble(0) :
-                    (lxRaw > maxLx ? maxLx : lxRaw));
-                int ly = CoordinateMath.ScaleRound(
-                    Frac.FromDouble(0) > lyRaw ? Frac.FromDouble(0) :
-                    (lyRaw > maxLy ? maxLy : lyRaw));
+                int lx = CoordinateMath.ScaleRound(Frac.FromDouble(layer.Pos.x));
+                int ly = CoordinateMath.ScaleRound(Frac.FromDouble(layer.Pos.y));
 
                 parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
                           $"scale=w={rw}:h={rh}:flags=lanczos," +
@@ -133,14 +123,13 @@ public class MobileFilterBuilder
             parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
                       $"force_original_aspect_ratio=increase:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
-            currV = "[main_base]";
-        }
 
-        parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
-                  $"flags=lanczos," +
-                  $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
-                  $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
-        currV = "[v_padded]";
+            parts.Add($"[main_base]scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                      $"flags=lanczos," +
+                      $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
+                      $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
+            currV = "[v_padded]";
+        }
 
         if (!string.IsNullOrEmpty(txtInputLabel))
         {

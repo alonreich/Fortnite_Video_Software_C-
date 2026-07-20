@@ -54,8 +54,8 @@ public class EncoderManager
             }
             else if (upper == "GPU" || upper == "AUTO")
             {
-                PrimaryEncoder = EncoderPreference.FirstOrDefault(encoder =>
-                    encoder != "libx264" && (AvailableEncoders.Count == 0 || AvailableEncoders.Contains(encoder))) ?? "libx264";
+                PrimaryEncoder = AvailableEncoders.Count == 0 ? "libx264" : EncoderPreference.FirstOrDefault(encoder =>
+                    encoder != "libx264" && AvailableEncoders.Contains(encoder)) ?? "libx264";
                 ForcedCpu = PrimaryEncoder == "libx264";
             }
             else
@@ -174,7 +174,8 @@ public class EncoderManager
                 return (flags, $"CPU ({cpuPreset}/CRF{crf})");
             }
             int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-            flags.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{kbps}k", "-bufsize", $"{VbvBufKbps(kbps)}k"]);
+            int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
+            flags.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
             return (flags, $"CPU ({cpuPreset}/{kbps}k)");
         }
 
@@ -203,7 +204,8 @@ public class EncoderManager
             if (videoBitrateKbps.HasValue)
             {
                 int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{kbps}k", "-bufsize", $"{VbvBufKbps(kbps)}k"]);
+                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
+                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
                 rcLabel = $"NVENC {nvPreset}/{multipass} ({(sizeLocked ? "CBR" : "VBR")})";
             }
             else
@@ -224,7 +226,13 @@ public class EncoderManager
             if (videoBitrateKbps.HasValue)
             {
                 int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{kbps}k", "-bufsize", $"{VbvBufKbps(kbps)}k"]);
+                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
+                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+            }
+            else
+            {
+                string cqVal = qualityLevel <= 1 ? "22" : "19";
+                vcodec.AddRange(["-qp_i", cqVal, "-qp_p", cqVal, "-qp_b", cqVal]);
             }
             rcLabel = $"AMD AMF {amfQuality}";
         }
@@ -239,7 +247,13 @@ public class EncoderManager
             if (videoBitrateKbps.HasValue)
             {
                 int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{kbps}k", "-bufsize", $"{VbvBufKbps(kbps)}k"]);
+                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
+                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+            }
+            else
+            {
+                string cqVal = qualityLevel <= 1 ? "25" : "20";
+                vcodec.AddRange(["-global_quality", cqVal]);
             }
             rcLabel = $"Intel QSV {qsvPreset}";
         }

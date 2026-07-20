@@ -23,7 +23,7 @@
         <Grid Grid.Row="0" ColumnDefinitions="*, 280">
 
             <!-- LEFT: Video preview + timeline -->
-            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
+            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto, Auto" Margin="12">
 
                 <!-- Video preview -->
                 <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
@@ -57,8 +57,41 @@
                     </Grid>
                 </Border>
 
-                <!-- Timeline (item 5: black backdrop + tick grid so it reads like the Main App scrubber) -->
-                <Border Grid.Row="1" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,10,10,15" ClipToBounds="False">
+                <!-- ROW 1: ACTION RIBBON (Contextual Tools) -->
+                <Border Grid.Row="1" Background="{DynamicResource AppPanelBrush}" CornerRadius="6" Padding="10" Margin="10,10,10,5">
+                    <Grid ColumnDefinitions="*, *">
+                        <!-- LEFT: Freeze Controls -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Button Name="FreezeImageToggle" Classes="Primary" MinWidth="120" ToolTip.Tip="Freeze frame at current playhead">
+                                <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
+                                    <TextBlock Name="FreezeImageToggleText" Text=" FREEZE IMAGE " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="4,0,4,0" />
+                                </StackPanel>
+                            </Button>
+                            <StackPanel Name="FreezePresetsPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze for 0.5s"/>
+                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze for 1.0s"/>
+                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze for 1.5s"/>
+                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze for 2.0s"/>
+                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze for 2.5s"/>
+                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <!-- RIGHT: Zoom Controls -->
+                        <Panel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" MinHeight="30" MinWidth="240">
+                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding #ZoomSegmentBtn.IsVisible}">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <CheckBox Name="SlowZoomCheck" Content="Slow" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Slow zoom-in/out: eases in over up to 1 second."/>
+                                    <CheckBox Name="InstantZoomCheck" Content="Instant" IsChecked="True" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Instant zoom-in/out: snaps to the box immediately."/>
+                                </StackPanel>
+                                <Button Name="ZoomSegmentBtn" Classes="Primary" Content="ZOOM-IN" MinWidth="100" HorizontalAlignment="Right" IsVisible="False" ToolTip.Tip="Draw a zoom (punch-in) box on the selected speed segment"/>
+                            </StackPanel>
+                        </Panel>
+                    </Grid>
+                </Border>
+
+                <!-- ROW 2: Timeline -->
+                <Border Grid.Row="2" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,5,10,10" ClipToBounds="False">
                 <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                     <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip the clocks -->
                     <TextBlock Name="GranularTimeElapsed" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0" />
@@ -76,50 +109,11 @@
                 </Grid>
                 </Border>
 
-                <!-- Playback controls: FREEZE + duration presets (left) · transport (center) · ZOOM-IN (right) -->
-                <Grid Grid.Row="2" Margin="0,5,0,10" ColumnDefinitions="Auto,*,Auto">
-                    <!-- LEFT: Freeze image button with its duration presets neatly stacked UNDERNEATH it (2 rows of 3, like the speed presets) -->
-                    <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="4" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button Name="FreezeImageToggle" Classes="Primary" MinWidth="140" HorizontalAlignment="Left" ToolTip.Tip="Freeze frame at current playhead">
-                            <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                                <TextBlock Name="FreezeImageToggleText" Text=" FREEZE IMAGE " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="6,0,6,0" />
-                                <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" RenderTransform="translateY(5px)" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                            </StackPanel>
-                        </Button>
-                        <!-- Freeze duration presets in a neat 2x3 grid directly under the button -->
-                        <StackPanel Name="FreezePresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" Spacing="3" HorizontalAlignment="Left">
-                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
-                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze frame for 0.5 seconds"/>
-                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze frame for 1.0 seconds"/>
-                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze frame for 1.5 seconds"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
-                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze frame for 2.0 seconds"/>
-                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze frame for 2.5 seconds"/>
-                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze frame for 3.0 seconds"/>
-                            </StackPanel>
-                        </StackPanel>
-                        <TextBlock Name="FreezeHintLabel" Text="👆 PICK FREEZE TIME" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Left" Margin="0,2,0,0" IsVisible="False">
-                            <TextBlock.Transitions>
-                                <Transitions>
-                                    <DoubleTransition Property="Opacity" Duration="0:0:0.6"/>
-                                </Transitions>
-                            </TextBlock.Transitions>
-                        </TextBlock>
-                        <TextBlock Name="FreezeHintLabelBottom" Text="☝ PICK FREEZE TIME" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Left" Margin="0,0,0,0" IsVisible="False">
-                            <TextBlock.Transitions>
-                                <Transitions>
-                                    <DoubleTransition Property="Opacity" Duration="0:0:0.6"/>
-                                </Transitions>
-                            </TextBlock.Transitions>
-                        </TextBlock>
-                    </StackPanel>
-
-                    <!-- CENTER: transport -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- ROW 3: Transport -->
+                <Grid Grid.Row="3" Margin="0,5,0,10" HorizontalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartBtn" Classes="Primary" Content="MARK START" MinWidth="90" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
-                        <Button Name="GranularPlayPause" Classes="Success" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
+                        <Button Name="GranularPlayPause" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
                             <Panel Width="16" Height="16">
                                 <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
                                 <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -130,28 +124,10 @@
                         </Button>
                         <Button Name="MarkEndBtn" Classes="Primary" Content="MARK END" MinWidth="90" ToolTip.Tip="Mark the end of your clip"/>
                     </StackPanel>
-
-                    <!-- RIGHT: Zoom-in (moved here from the bottom row; only visible when a segment is selected)
-                         with the SLOW / INSTANT ramp-mode selector directly underneath. -->
-                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="3">
-                        <Button Name="ZoomSegmentBtn" Classes="Primary" Content="ZOOM-IN" MinWidth="140" IsVisible="False" HorizontalAlignment="Right" ToolTip.Tip="Draw a zoom (punch-in) box on the selected speed segment"/>
-                        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding #ZoomSegmentBtn.IsVisible}">
-                            <CheckBox Name="SlowZoomCheck" Content="Slow" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Slow zoom-in/out: the camera eases in over up to 1 second (min 0.5s) of footage before the zoom, and eases back out after it."/>
-                            <CheckBox Name="InstantZoomCheck" Content="Instant" IsChecked="True" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Instant zoom-in/out: the zoom snaps to the box immediately at the start and releases immediately at the end."/>
-                        </StackPanel>
-                    </StackPanel>
                 </Grid>
 
-                <!-- Bottom Row: Speed presets + slider + Clear All -->
-                <Grid Grid.Row="3" Margin="0,10,0,0">
-                    <!-- Right side: DELETE SEGMENT (top) over CLEAR ALL SEGMENTS (bottom), anchored bottom-right -->
-                    <StackPanel Orientation="Vertical" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Bottom">
-                        <Button Name="DeleteSegmentBtn" Classes="Secondary" Content="DELETE SEGMENT" MinWidth="180" HorizontalAlignment="Right" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding #ClearAllSegmentsBtn.IsVisible}">
-                            <TextBlock Text="⚠️ This cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" />
-                            <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" MinWidth="180" ToolTip.Tip="Remove all speed segments"/>
-                        </StackPanel>
-                    </StackPanel>
+                <!-- ROW 4: Speed presets + slider -->
+                <Grid Grid.Row="4" Margin="0,10,0,0">
 
                     <!-- Center: Speed presets + slider -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
@@ -181,7 +157,7 @@
 
             <!-- RIGHT: Segments List -->
             <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="12">
-                <Grid RowDefinitions="Auto, Auto, Auto, *">
+                <Grid RowDefinitions="Auto, Auto, Auto, *, Auto">
                     <!-- Header: title + Help button (#8) -->
                     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,5">
                         <TextBlock Grid.Column="0" Text="SPEED SEGMENTS" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize13}" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -210,6 +186,10 @@
                     <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
                         <StackPanel Name="SegmentsPanel" Spacing="2"/>
                     </ScrollViewer>
+                    <StackPanel Grid.Row="4" Orientation="Vertical" Spacing="8" Margin="0,15,0,0" HorizontalAlignment="Stretch">
+                        <Button Name="DeleteSegmentBtn" Classes="Secondary" Content="DELETE SEGMENT" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment"/>
+                        <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Remove all speed segments"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>
@@ -230,24 +210,25 @@
             </Grid>
         </Border>
 
-        <!-- #8 Help overlay: plain-English, always available via the "?" button. Click GOT IT to close. -->
+        <!-- #8 Help overlay: plain-English visual tutorial -->
         <Grid Name="HelpOverlay" IsVisible="False" ZIndex="10000" Background="{DynamicResource AppOverlayBrush}">
-            <Border Name="HelpCard" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="2" CornerRadius="14" MaxWidth="560" MaxHeight="620" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="How the Speed Editor Works" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
-                        <TextBlock Text="This tool lets you speed up, slow down, freeze, or zoom into pieces of your video. Do it in a few simple steps:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="1.  Play the video and pause where you want an effect to start." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="2.  Press MARK START, then MARK END to pick a piece of the video." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="3.  Choose a speed with the wheel or a preset button (like 2.0x)." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="4.  Want a still moment? Press FREEZE IMAGE and pick how long it holds." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="5.  Want a close-up? Select a piece, press ZOOM-IN, and drag a box on the video." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="6.  Colours: Green = faster, Red = slower, Blue = frozen. Brighter = stronger." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="7.  Drag the edges of a coloured block to change where it starts and ends." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <TextBlock Text="8.  Press APPLY when you're happy, or CANCEL to throw it all away." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
-                        <Button Name="HelpCloseButton" Content="GOT IT" Classes="Primary" HorizontalAlignment="Center" MinWidth="120" Margin="0,10,0,0"/>
-                    </StackPanel>
-                </ScrollViewer>
+            <Border Name="HelpCard" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="2" CornerRadius="14" MaxWidth="600" MaxHeight="600" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
+                <StackPanel Spacing="15">
+                    <TextBlock Text="How the Speed Editor Works" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                    
+                    <Border Background="{DynamicResource AppPanelBrush}" CornerRadius="8" Padding="20" MinHeight="200" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <Path Fill="{DynamicResource AppAccentBrush}" Width="48" Height="48" Stretch="Uniform" Data="M10,9V5L3,12l7,7v-4.1c5,0,8.5,1.6,11,5.1c-1-5-4-10-11-11z" />
+                            <TextBlock Text="[ Interactive Timeline Tutorial Animation ]" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize14}" FontStyle="Italic" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="1. MARK START and MARK END to select a piece of video." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" />
+                    <TextBlock Text="2. Drag the colored blocks on the timeline to adjust their edges." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" />
+                    <TextBlock Text="3. Select a block to change its speed, freeze it, or zoom in." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" />
+
+                    <Button Name="HelpCloseButton" Content="GOT IT" Classes="Primary" HorizontalAlignment="Center" MinWidth="140" Margin="0,20,0,0"/>
+                </StackPanel>
             </Border>
         </Grid>
     </Grid>

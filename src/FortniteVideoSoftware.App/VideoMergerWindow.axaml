@@ -74,7 +74,7 @@
                         <MenuItem Name="MenuExit" Header="Exit" ToolTip.Tip="Close the application entirely." />
                     </MenuItem>
                     <MenuItem Header="_Edit">
-                        <MenuItem Name="MenuRemoveSelected" Foreground="{DynamicResource AppDangerBrush}" ToolTip.Tip="Delete the currently highlighted videos from the list. They will not be included in the final merged video.">
+                        <MenuItem Name="MenuRemoveSelected" Classes="Danger" ToolTip.Tip="Delete the currently highlighted videos from the list. They will not be included in the final merged video.">
                             <MenuItem.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="⚠️" />
@@ -83,7 +83,7 @@
                                 </StackPanel>
                             </MenuItem.Header>
                         </MenuItem>
-                        <MenuItem Name="MenuClearAll" Foreground="{DynamicResource AppDangerBrush}" ToolTip.Tip="Completely empty the list of videos and start over fresh.">
+                        <MenuItem Name="MenuClearAll" Classes="Danger" ToolTip.Tip="Completely empty the list of videos and start over fresh.">
                             <MenuItem.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="⚠️" />
@@ -103,7 +103,7 @@
                     <controls:AmbientBubblesBackground Grid.ColumnSpan="2" IsHitTestVisible="False" ZIndex="-1" />
 
                     <!-- LEFT PANEL: Video Queue & Controls -->
-                    <Border Grid.Column="0" MinWidth="260" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0" Padding="15">
+                    <Border Grid.Column="0" MinWidth="260" Background="Transparent" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0" Padding="15">
                             <Grid RowDefinitions="Auto, *, Auto, Auto" ColumnDefinitions="*, Auto">
                                 <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="VIDEOS LIST" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
 
@@ -130,10 +130,10 @@
                             </Border>
                             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="10,0,0,15">
                                 <!-- ISSUE_07: icon-only buttons need AutomationProperties.Name for screen readers -->
-                                <Button Name="MoveUpButton" Classes="Primary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
+                                <Button Name="MoveUpButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
                                     <Polygon Points="6,0 12,8 0,8" Fill="{DynamicResource AppOnAccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
-                                <Button Name="MoveDownButton" Classes="Primary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
+                                <Button Name="MoveDownButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
                                     <Polygon Points="0,0 12,0 6,8" Fill="{DynamicResource AppOnAccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
                             </StackPanel>
@@ -183,7 +183,7 @@
 
 
 
-                                    <Border Name="NoVideoOverlay" Grid.Row="0" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" IsVisible="True" ZIndex="500">
+                                    <Border Name="NoVideoOverlay" Grid.Row="0" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" IsVisible="{Binding !$parent[local:VideoMergerWindow].HasVideos}" ZIndex="500">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
                                             <TextBlock Text="🎬" FontSize="{DynamicResource AppFontSize48}" HorizontalAlignment="Center"/>
                                             <TextBlock Text="No video loaded" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
@@ -216,7 +216,7 @@
                                     <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" />
                                     <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
                                          Rollback to the previous standard Slider: old_code\volume_slider_rollback\ROLLBACK_INSTRUCTIONS.txt -->
-                                    <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" Width="46" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
+                                    <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
                                     <!-- ISSUE_08: real Button (was a Border) so mute has identical semantics, focus visuals,
                                          pressed feedback and screen-reader role as the Main App's mute control. -->
                                     <Button Grid.Row="2" Name="SpeakerHitBox" MinWidth="35" MinHeight="35" Background="Transparent" BorderThickness="0" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">

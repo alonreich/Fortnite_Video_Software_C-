@@ -160,6 +160,54 @@ public partial class MainWindow : Window
         set => SetValue(OverlayTextProperty, value);
     }
 
+    public static readonly StyledProperty<bool> IsPortraitModeProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsPortraitMode), true);
+    public bool IsPortraitMode
+    {
+        get => GetValue(IsPortraitModeProperty);
+        set => SetValue(IsPortraitModeProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsBossHpProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsBossHp), false);
+    public bool IsBossHp
+    {
+        get => GetValue(IsBossHpProperty);
+        set => SetValue(IsBossHpProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsTeammatesProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsTeammates), false);
+    public bool IsTeammates
+    {
+        get => GetValue(IsTeammatesProperty);
+        set => SetValue(IsTeammatesProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsSpectatingProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsSpectating), false);
+    public bool IsSpectating
+    {
+        get => GetValue(IsSpectatingProperty);
+        set => SetValue(IsSpectatingProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsEnableFadeProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsEnableFade), false);
+    public bool IsEnableFade
+    {
+        get => GetValue(IsEnableFadeProperty);
+        set => SetValue(IsEnableFadeProperty, value);
+    }
+
+    public static readonly StyledProperty<bool> IsAddMemeProperty =
+        AvaloniaProperty.Register<MainWindow, bool>(nameof(IsAddMeme), false);
+    public bool IsAddMeme
+    {
+        get => GetValue(IsAddMemeProperty);
+        set => SetValue(IsAddMemeProperty, value);
+    }
+
     public MainWindow()
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
@@ -287,7 +335,7 @@ public partial class MainWindow : Window
         var menuCropSettings = this.FindControl<MenuItem>("MenuCropSettings");
         if (menuCropSettings != null) menuCropSettings.Click += (s, e) =>
         {
-            SaveRecoveryState();
+            SaveRecoveryState(sync: true);
             _recovery.ReleaseLockOnly();
             RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
@@ -298,7 +346,7 @@ public partial class MainWindow : Window
         var menuVideoMerger = this.FindControl<MenuItem>("MenuVideoMerger");
         if (menuVideoMerger != null) menuVideoMerger.Click += (s, e) =>
         {
-            SaveRecoveryState();
+            SaveRecoveryState(sync: true);
             _recovery.ReleaseLockOnly();
             RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
@@ -491,7 +539,7 @@ public partial class MainWindow : Window
         {
             videoMergerButton.Click += (s, e) =>
             {
-                SaveRecoveryState();
+                SaveRecoveryState(sync: true);
                 _recovery.ReleaseLockOnly();
                 RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
@@ -516,7 +564,7 @@ public partial class MainWindow : Window
         {
             cropSettingsButton.Click += (s, e) =>
             {
-                SaveRecoveryState();
+                SaveRecoveryState(sync: true);
                 _recovery.ReleaseLockOnly();
                 RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
@@ -676,6 +724,14 @@ public partial class MainWindow : Window
                 EnsureTrimPointsSet();
                 RuntimeLog.Info("UI", $"User clicked MARK END at {TimeSpan.FromMilliseconds(_trimEndMs):hh\\:mm\\:ss\\.ff}.");
                 double time = GetCurrentMpvTime();
+                // Block marking END at/before the START — a clip can't end before it begins.
+                // (The trim-marker DRAG already clamps this; the button did not.)
+                if (time * 1000.0 <= _trimStartMs)
+                {
+                    ShowTacticalFeedback("⚠ END must be after START");
+                    RuntimeLog.Info("UI", $"MARK END blocked: {TimeSpan.FromSeconds(time):hh\\:mm\\:ss\\.ff} is not after START {TimeSpan.FromMilliseconds(_trimStartMs):hh\\:mm\\:ss\\.ff}.");
+                    return;
+                }
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
@@ -882,7 +938,13 @@ public partial class MainWindow : Window
         if (mobileCheckbox != null)
         {
             UpdatePortraitOverlay();
-            mobileCheckbox.IsCheckedChanged += (s, e) => { UpdatePortraitOverlay(); SaveRecoveryState(); };
+            mobileCheckbox.IsCheckedChanged += (s, e) =>
+            {
+                UpdatePortraitOverlay();
+                // §2 State Binding: portrait toggle re-evaluates the red guardrail on all meme items.
+                ApplyMemeItemsToCombo(preserveSelection: true);
+                SaveRecoveryState();
+            };
         }
 
         var bossHpCb = this.FindControl<ToggleSwitch>("BossHpCheckbox");
@@ -914,6 +976,23 @@ public partial class MainWindow : Window
         
         var memeCb = this.FindControl<ComboBox>("MemeComboBox");
         if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
+            // §4 UI Trigger: the appended "Download more memes..." row is an ACTION, not a meme —
+            // revert the selection and run the consent + sync flow instead.
+            if (memeCb.SelectedItem is MemeItem action && action.IsDownloadAction)
+            {
+                memeCb.SelectedItem = e.RemovedItems != null && e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
+                _ = RunCloudMemeSyncAsync();
+                return;
+            }
+
+            // §8 Selection Event Logging: file type, path, and probed geometry at selection time.
+            if (memeCb.SelectedItem is MemeItem sel)
+            {
+                RuntimeLog.Info("Memes",
+                    $"MemeSelected: type={(sel.IsImage ? "image" : "video")}, path={sel.FullPath}, " +
+                    $"width={sel.Width}, height={sel.Height}, aspect={sel.AspectRatio:0.###}");
+            }
+
             SaveRecoveryState();
             if (addMemeCb?.IsChecked == true && memeCb.SelectedItem != null && _musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
             {
@@ -934,21 +1013,26 @@ public partial class MainWindow : Window
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
         AddHandler(InputElement.KeyUpEvent, GlobalKeyUpHandler, RoutingStrategies.Tunnel);
 
+        // §3 State Update: Settings changed the meme directory → silently re-scan and rebuild.
+        Infrastructure.MemeDirectory.Changed += PopulateMemeComboBox;
+        this.Closed += (_, _) => Infrastructure.MemeDirectory.Changed -= PopulateMemeComboBox;
+
         this.Loaded += async (s, e) => {
             _ = PushAssetsAsync();
             PopulateMemeComboBox();
 
             bool hadFault = _recovery.CheckFault();
-            _recovery.AcquireLock();
             if (hadFault)
             {
                 RuntimeLog.Info("RECOVERY", "Previous crash detected. Prompting user for recovery.");
-                bool shouldRestore = NativeDialog.ShowQuestion(
+                bool shouldRestore = await Task.Run(() => NativeDialog.ShowQuestion(
                     "The app was closed unexpectedly during your last session.\n\n" +
                     "Would you like to restore your previous work? This includes your video, " +
                     "trim points, speed settings, music, and all edits exactly as you left them.\n\n" +
                     "Click Yes to recover, or No to start fresh.",
-                    "Fortnite Video Software - Session Recovery");
+                    "Fortnite Video Software - Session Recovery"));
+
+                _recovery.AcquireLock();
 
                 if (shouldRestore)
                 {
@@ -962,6 +1046,10 @@ public partial class MainWindow : Window
                     RuntimeLog.Info("RECOVERY", "User chose to start fresh. Discarding recovery state.");
                     _recovery.ClearState();
                 }
+            }
+            else
+            {
+                _recovery.AcquireLock();
             }
 
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
@@ -1004,21 +1092,106 @@ public partial class MainWindow : Window
 
     }
 
-    private void PopulateMemeComboBox()
+    // Meme System §1/§2: current catalog + pending crash-recovery selection (§8).
+    private List<MemeItem> _memeItems = new();
+    private string? _pendingMemeRestorePath;
+
+    private string ResolveMemeFfprobePath()
+    {
+        string baseDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+        string p = Path.Combine(baseDir, "backend", "ffprobe.exe");
+        return File.Exists(p) ? p : "ffprobe.exe";
+    }
+
+    /// <summary>§1 scan + §2 guardrail: rebuilds the meme list from the ACTIVE directory with
+    /// probed aspect ratios, red-marks portrait-unfit items, and appends the §4 cloud row.</summary>
+    private async void PopulateMemeComboBox()
     {
         var cb = this.FindControl<ComboBox>("MemeComboBox");
         if (cb == null) return;
-        string memeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MEME");
-        if (Directory.Exists(memeFolder))
+
+        string memeFolder = Infrastructure.MemeDirectory.GetActive();
+        try
         {
-            // §1 Supported meme formats now include still images (.png/.jpg); skip zero-byte files.
-            string[] memeExts = { ".mp4", ".mkv", ".avi", ".png", ".jpg", ".jpeg" };
-            var files = Directory.GetFiles(memeFolder)
-                .Where(f => memeExts.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                .Where(f => { try { return new FileInfo(f).Length > 0; } catch { return false; } })
-                .Select(Path.GetFileName).ToList();
-            cb.ItemsSource = files;
+            _memeItems = await MemeCatalog.ScanAsync(memeFolder, ResolveMemeFfprobePath());
         }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Memes", $"Meme directory scan failed for '{memeFolder}': {ex.Message}");
+            _memeItems = new List<MemeItem>();
+        }
+
+        ApplyMemeItemsToCombo(preserveSelection: true);
+
+        // §8 Boot Restoration: apply a pending crash-recovery selection now that items exist.
+        if (_pendingMemeRestorePath != null)
+        {
+            string p = _pendingMemeRestorePath;
+            _pendingMemeRestorePath = null;
+            var match = _memeItems.FirstOrDefault(m => string.Equals(m.FullPath, p, StringComparison.OrdinalIgnoreCase)
+                                                    || string.Equals(m.FileName, Path.GetFileName(p), StringComparison.OrdinalIgnoreCase));
+            if (match != null) cb.SelectedItem = match;
+        }
+    }
+
+    /// <summary>§2 The Guardrail: portrait mode + landscape/square meme (ratio > 0.85) renders RED
+    /// with a "Fit for landscape" tooltip. Re-invoked when PortraitModeCheckbox toggles.</summary>
+    private void ApplyMemeItemsToCombo(bool preserveSelection)
+    {
+        var cb = this.FindControl<ComboBox>("MemeComboBox");
+        if (cb == null) return;
+
+        bool isPortrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
+
+        cb.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<MemeItem>((item, _) =>
+        {
+            if (item == null) return new TextBlock();
+            var tb = new TextBlock { Text = item.FileName, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            if (item.IsDownloadAction)
+            {
+                tb.Text = "⬇ Download more memes...";
+                tb.FontWeight = Avalonia.Media.FontWeight.Bold;
+                tb.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8"));
+            }
+            else if (isPortrait && item.AspectRatio > 0.85f)
+            {
+                tb.Foreground = Avalonia.Media.Brushes.Red;
+                ToolTip.SetTip(tb, "Fit for landscape");
+            }
+            return tb;
+        });
+
+        var prev = preserveSelection ? cb.SelectedItem as MemeItem : null;
+        var list = new List<MemeItem>(_memeItems) { new MemeItem { IsDownloadAction = true, FileName = "Download more memes..." } };
+        cb.ItemsSource = list;
+        if (prev != null && !prev.IsDownloadAction)
+        {
+            var again = list.FirstOrDefault(m => !m.IsDownloadAction &&
+                string.Equals(m.FullPath, prev.FullPath, StringComparison.OrdinalIgnoreCase));
+            if (again != null) cb.SelectedItem = again;
+        }
+    }
+
+    /// <summary>§4 consent + delta sync + silent §1 rescan.</summary>
+    private async Task RunCloudMemeSyncAsync()
+    {
+        var dlg = new Controls.ConfirmDialogWindow();
+        dlg.SetTitle("Download more memes?");
+        dlg.SetMessage("This will connect to the internet and download new meme files from the official meme library into your meme folder. Continue?");
+        dlg.SetButtonText("DOWNLOAD", "CANCEL");
+        await dlg.ShowDialog(this);
+        if (!dlg.Result) return;
+
+        ShowTacticalFeedback("Downloading memes…");
+        // §4 Active Path Probe: always the user-configured directory, never a hardcoded default.
+        var (count, error) = await MemeCatalog.SyncFromCloudAsync(Infrastructure.MemeDirectory.GetActive());
+        if (error != null)
+        {
+            ShowTacticalFeedback($"⚠ {error}");
+            return;
+        }
+        ShowTacticalFeedback(count > 0 ? $"✔ {count} new meme(s) added" : "✔ Meme library is up to date");
+        PopulateMemeComboBox(); // §4 UI Refresh via the §1 scan
     }
 
     private async Task PushAssetsAsync()
@@ -1028,11 +1201,32 @@ public partial class MainWindow : Window
             await Task.Run(() => {
                 string musicFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
                 string videosFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-                string memeFolder = Path.Combine(videosFolder, "MEME");
+                // §1 Unified Meme Directory: seed the ACTIVE directory (settings override or
+                // MyVideos\Fortnite Video Software\Memes), not the legacy MyVideos\MEME.
+                string memeFolder = Infrastructure.MemeDirectory.GetActive();
 
                 if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
 
-                string appRoot = @"C:\Fortnite_Video_Software - C#";
+                // One-time migration: carry the user's existing memes over from the legacy
+                // MyVideos\MEME folder (copy-if-absent; the old folder is left untouched).
+                string legacyMeme = Path.Combine(videosFolder, "MEME");
+                if (Directory.Exists(legacyMeme) &&
+                    !string.Equals(Path.GetFullPath(legacyMeme), Path.GetFullPath(memeFolder), StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var f in Directory.GetFiles(legacyMeme))
+                    {
+                        try
+                        {
+                            string dest = Path.Combine(memeFolder, Path.GetFileName(f));
+                            if (!File.Exists(dest)) File.Copy(f, dest);
+                        }
+                        catch { }
+                    }
+                }
+
+                string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory;
+                string appRoot = Path.Combine(baseDir, "..", "..", "..", "..", "..");
+                if (!Directory.Exists(Path.Combine(appRoot, "mp3"))) appRoot = baseDir;
                 var music1 = Path.Combine(appRoot, "mp3", "Cool Dance Background Music (No CopyRights).mp3");
                 var music2 = Path.Combine(appRoot, "mp3", "Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3");
                 var meme1 = Path.Combine(appRoot, "mp4", "Dexter Sargent Duke.mp4");
@@ -1350,7 +1544,8 @@ public partial class MainWindow : Window
 
             if (files.Count > 1)
             {
-                RuntimeLog.Info("UI", $"User marked {files.Count} files; loading newest by modified time: {selectedPath}");
+                RuntimeLog.Info("UI", $"User marked {files.Count} files; loading newest by modified time: {Path.GetFileName(selectedPath)}");
+                RuntimeLog.Debug("UI", $"Full path: {selectedPath}");
             }
 
             try
@@ -1387,7 +1582,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        RuntimeLog.Info("UI", $"User {source} video: {path}");
+        RuntimeLog.Info("UI", $"User {source} video: {Path.GetFileName(path)}");
+        RuntimeLog.Debug("UI", $"Full path: {path}");
         ShowTacticalFeedback("Loading video...");
 
         var videoHost = _videoHost;
@@ -3407,7 +3603,20 @@ public partial class MainWindow : Window
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     RuntimeLog.Info("Hardware", $"Hardware scan completed: {mode}");
-                    if (mode == "CPU")
+                    
+                    bool isRdpBlocked = CheckRdpGpuBlocked();
+                    var rdpWarningBtn = this.FindControl<Avalonia.Controls.Button>("RdpWarningButton");
+                    var rdpOverlay = this.FindControl<Avalonia.Controls.TextBlock>("RdpWarningOverlay");
+                    if (rdpWarningBtn != null) rdpWarningBtn.IsVisible = isRdpBlocked;
+                    if (rdpOverlay != null) rdpOverlay.IsVisible = isRdpBlocked;
+
+                    if (isRdpBlocked)
+                    {
+                        RuntimeLog.Fail("Hardware", "RDP Session detected with blocked GPU.");
+                        hwLabel.Text = "RDP: CPU BLOCKED";
+                        hwLabel.Foreground = Avalonia.Media.Brushes.Red;
+                    }
+                    else if (mode == "CPU")
                     {
                         RuntimeLog.Fail("Hardware", "No supported hardware encoder detected; CPU fallback active.");
                         hwLabel.Text = "HW: CPU Only";
@@ -3430,6 +3639,67 @@ public partial class MainWindow : Window
                     hwLabel.Foreground = Avalonia.Media.Brushes.Gray;
                 });
             }
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    private bool CheckRdpGpuBlocked()
+    {
+        if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            return false;
+
+        bool isRdp = false;
+        try { isRdp = GetSystemMetrics(0x1000) != 0; } catch { }
+        if (!isRdp)
+        {
+            var clientName = Environment.GetEnvironmentVariable("CLIENTNAME");
+            if (!string.IsNullOrEmpty(clientName) && !clientName.Equals("Console", StringComparison.OrdinalIgnoreCase))
+                isRdp = true;
+        }
+
+        if (!isRdp) return false;
+
+        try
+        {
+            var val = Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services", "fEnableWddmDriver", null);
+            if (val == null || (val is int i && i == 0))
+            {
+                return true;
+            }
+        }
+        catch { return true; }
+        return false;
+    }
+
+    private void RdpFixButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"$path = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services'; if (!(Test-Path $path)) { New-Item -Path $path -Force }; Set-ItemProperty -Path $path -Name 'fEnableWddmDriver' -Value 1 -Type DWord; Set-ItemProperty -Path $path -Name 'fEnableAVC444ModeOnHWEncoder' -Value 1 -Type DWord;\"",
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+            System.Diagnostics.Process.Start(psi)?.WaitForExit();
+            
+            var btn = this.FindControl<Avalonia.Controls.Button>("RdpFixButton");
+            if (btn != null)
+            {
+                btn.Content = "Fix Applied! PLEASE RESTART YOUR COMPUTER.";
+                btn.IsEnabled = false;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            RuntimeLog.Fail("RDP", "UAC prompt was denied by the user.");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("RDP", $"Failed to apply registry fix: {ex.Message}");
         }
     }
 
@@ -3753,10 +4023,11 @@ public partial class MainWindow : Window
             if (addMemeCb != null && addMemeCb.IsChecked == true)
             {
                 var memeCb = this.FindControl<ComboBox>("MemeComboBox");
-                if (memeCb != null && memeCb.SelectedItem != null)
+                // §1: the combo items carry their own ABSOLUTE path from the active meme
+                // directory — no more hardcoded MyVideos\MEME reconstruction.
+                if (memeCb?.SelectedItem is MemeItem memeSel && !memeSel.IsDownloadAction && File.Exists(memeSel.FullPath))
                 {
-                    string memeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MEME");
-                    worker.MemeFile = Path.Combine(memeFolder, memeCb.SelectedItem.ToString()!);
+                    worker.MemeFile = memeSel.FullPath;
                 }
             }
 
@@ -3778,10 +4049,17 @@ public partial class MainWindow : Window
 
                 bool applyFadeOut = Math.Abs(outputEndSec - totalOutputDurationSec) < 0.05;
 
-                worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>
+                worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>();
+                var musicPaths = (_musicWizardResult.MusicFilePaths.Count > 0
+                    ? _musicWizardResult.MusicFilePaths
+                    : new System.Collections.Generic.List<string> { _musicWizardResult.MusicFilePath })
+                    .Where(p => !string.IsNullOrWhiteSpace(p) && System.IO.File.Exists(p)).ToList();
+
+                for (int i = 0; i < musicPaths.Count; i++)
                 {
-                    new MusicTrack(_musicWizardResult.MusicFilePath, _musicWizardResult.OffsetSeconds, dur, startDelay, applyFadeOut)
-                };
+                    double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
+                    worker.MusicTracks.Add(new MusicTrack(musicPaths[i], offset, dur, startDelay, applyFadeOut));
+                }
 
                 worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
                 {
@@ -4257,7 +4535,7 @@ public partial class MainWindow : Window
         _recoveryDebounceTimer.Start();
     }
 
-    private void SaveRecoveryState()
+    private void SaveRecoveryState(bool sync = false)
     {
         if (_isRestoring) return;
         try
@@ -4295,7 +4573,10 @@ public partial class MainWindow : Window
                 ["showSpectating"] = this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
                 ["enableFade"] = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
                 ["addMeme"] = this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false,
+                // §8 Crash Recovery: persist the ABSOLUTE meme path (orphan-guarded on restore).
+                // The legacy name-only "memeFile" key is kept for backward compatibility.
                 ["memeFile"] = this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem?.ToString() ?? "",
+                ["memeFilePath"] = (this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem as MemeItem)?.FullPath ?? "",
                 ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? "",
                 ["freezeTimeMs"] = _freezeTimeMs,
                 ["freezeDurationS"] = _freezeDurationS
@@ -4351,9 +4632,18 @@ public partial class MainWindow : Window
 
             if (_musicWizardResult != null)
             {
+                var pathsArray = new System.Text.Json.Nodes.JsonArray();
+                if (_musicWizardResult.MusicFilePaths != null)
+                {
+                    foreach (var path in _musicWizardResult.MusicFilePaths)
+                    {
+                        pathsArray.Add(System.Text.Json.Nodes.JsonValue.Create(path));
+                    }
+                }
                 state["musicResult"] = new System.Text.Json.Nodes.JsonObject
                 {
                     ["musicFilePath"] = _musicWizardResult.MusicFilePath,
+                    ["musicFilePaths"] = pathsArray,
                     ["offsetSeconds"] = _musicWizardResult.OffsetSeconds,
                     ["timelineStartSeconds"] = _musicWizardResult.TimelineStartSeconds,
                     ["timelineEndSeconds"] = _musicWizardResult.TimelineEndSeconds,
@@ -4365,7 +4655,10 @@ public partial class MainWindow : Window
                 };
             }
 
-            _recovery.SaveStateAsync(state);
+            if (sync)
+                _recovery.SaveState(state);
+            else
+                _recovery.SaveStateAsync(state);
         }
         catch (Exception ex)
         {
@@ -4476,6 +4769,14 @@ public partial class MainWindow : Window
                     VideoVolume = musicObj["videoVolume"]?.GetValue<double>() ?? 1.0,
                     MusicVolume = musicObj["musicVolume"]?.GetValue<double>() ?? 1.0
                 };
+                if (musicObj["musicFilePaths"] is System.Text.Json.Nodes.JsonArray pathsArr)
+                {
+                    foreach (var node in pathsArr)
+                    {
+                        var path = node?.ToString();
+                        if (!string.IsNullOrEmpty(path)) _musicWizardResult.MusicFilePaths.Add(path);
+                    }
+                }
                 NormalizeMusicPlacement(_musicWizardResult);
             }
 
@@ -4521,11 +4822,31 @@ public partial class MainWindow : Window
             var addMemeCbRestore = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
             if (addMemeCbRestore != null) addMemeCbRestore.IsChecked = addMeme;
 
+            // §8 Boot Restoration (Orphan Guard): prefer the absolute path; verify the file still
+            // exists. If it was deleted/moved externally, discard, warn-log, and leave cleared.
+            string memeFilePath = (string?)state["memeFilePath"] ?? "";
             string memeFile = (string?)state["memeFile"] ?? "";
-            var memeCbRestore = this.FindControl<ComboBox>("MemeComboBox");
-            if (memeCbRestore != null && !string.IsNullOrEmpty(memeFile))
+            string restoreTarget = !string.IsNullOrEmpty(memeFilePath) ? memeFilePath
+                : (!string.IsNullOrEmpty(memeFile) ? Path.Combine(Infrastructure.MemeDirectory.GetActive(), memeFile) : "");
+            if (!string.IsNullOrEmpty(restoreTarget))
             {
-                memeCbRestore.SelectedItem = memeFile;
+                if (File.Exists(restoreTarget))
+                {
+                    // Items load asynchronously — PopulateMemeComboBox applies this when the scan lands.
+                    _pendingMemeRestorePath = restoreTarget;
+                    var memeCbRestore = this.FindControl<ComboBox>("MemeComboBox");
+                    var immediate = _memeItems.FirstOrDefault(m =>
+                        string.Equals(m.FullPath, restoreTarget, StringComparison.OrdinalIgnoreCase));
+                    if (memeCbRestore != null && immediate != null)
+                    {
+                        memeCbRestore.SelectedItem = immediate;
+                        _pendingMemeRestorePath = null;
+                    }
+                }
+                else
+                {
+                    RuntimeLog.Fail("Memes", $"Recovery meme skipped — file no longer exists: {restoreTarget}");
+                }
             }
 
             string? videoPath = (string?)state["loadedVideoPath"];
@@ -4618,11 +4939,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             RuntimeLog.Fail("RECOVERY", $"Failed to restore session state: {ex.Message}");
+            _recovery.ClearState();
         }
         finally
         {
             _isRestoring = false;
-            SaveRecoveryState();
         }
     }
 

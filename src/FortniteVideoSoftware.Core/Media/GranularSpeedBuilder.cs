@@ -357,35 +357,62 @@ public class GranularSpeedBuilder
                     p2 = zp.ProgStart + (zp.ProgEnd - zp.ProgStart) * ((chunk.End - zp.Start) / phaseDur);
                 }
 
+                double resW = outW, resH = outH;
+                if (!string.IsNullOrEmpty(zc.Res) && zc.Res.Contains('x'))
+                {
+                    var parts = zc.Res.Split('x');
+                    if (parts.Length == 2 && int.TryParse(parts[0], out int pw) && int.TryParse(parts[1], out int ph))
+                    {
+                        resW = pw; resH = ph;
+                    }
+                }
+
+                string preScale = $"scale={resW}:{resH}:force_original_aspect_ratio=decrease,pad={resW}:{resH}:(ow-iw)/2:(oh-ih)/2,";
+                string p1Str = p1.ToString(CultureInfo.InvariantCulture);
+                
                 if (Math.Abs(chunk.Speed) < 0.001)
                 {
                     if (p1 >= 0.999 && !zc.Slow)
                     {
-                        zoomFilter = $"crop={zc.W}:{zc.H}:{zc.X}:{zc.Y},cas=0.5,scale={outW}:{outH}:force_original_aspect_ratio=decrease,pad={outW}:{outH}:(ow-iw)/2:(oh-ih)/2:color=black,";
+                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
+                        double cxTarget = zc.X + zc.W / 2.0;
+                        double cyTarget = zc.Y + zc.H / 2.0;
+                        double cropW = resW / targetZ;
+                        double cropH = resH / targetZ;
+                        double cropX = cxTarget - cropW / 2.0;
+                        double cropY = cyTarget - cropH / 2.0;
+                        zoomFilter = $"{preScale}crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
                     }
                     else
                     {
-                        double targetZ = (double)outW / zc.W;
+                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
                         double cxTarget = zc.X + zc.W / 2.0;
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double zVal = 1.0 + (targetZ - 1.0) * p1;
-                        double xOrig = (outW / 2.0) + (cxTarget - outW / 2.0) * p1 - (outW / zVal) / 2.0;
-                        double yOrig = (outH / 2.0) + (cyTarget - outH / 2.0) * p1 - (outH / zVal) / 2.0;
+                        double xOrig = (resW + resW / 2.0) + (cxTarget - resW / 2.0) * p1 - (resW / zVal) / 2.0;
+                        double yOrig = (resH + resH / 2.0) + (cyTarget - resH / 2.0) * p1 - (resH / zVal) / 2.0;
                         double cropX = xOrig * zVal;
                         double cropY = yOrig * zVal;
-                        zoomFilter = $"scale=w='iw*({zVal.ToString(CultureInfo.InvariantCulture)})':h='ih*({zVal.ToString(CultureInfo.InvariantCulture)})':eval=frame,crop=w={outW}:h={outH}:x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',";
+                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,scale=w='iw*({zVal.ToString(CultureInfo.InvariantCulture)})':h='ih*({zVal.ToString(CultureInfo.InvariantCulture)})':eval=frame,crop=w={resW}:h={resH}:x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
                     }
                 }
                 else
                 {
                     if (!zc.Slow)
                     {
-                        zoomFilter = $"crop={zc.W}:{zc.H}:{zc.X}:{zc.Y},cas=0.5,scale={outW}:{outH}:force_original_aspect_ratio=decrease,pad={outW}:{outH}:(ow-iw)/2:(oh-ih)/2:color=black,";
+                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
+                        double cxTarget = zc.X + zc.W / 2.0;
+                        double cyTarget = zc.Y + zc.H / 2.0;
+                        double cropW = resW / targetZ;
+                        double cropH = resH / targetZ;
+                        double cropX = cxTarget - cropW / 2.0;
+                        double cropY = cyTarget - cropH / 2.0;
+                        zoomFilter = $"{preScale}crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
                     }
                     else
                     {
                         double realDur = chunk.End - chunk.Start;
-                        double targetZ = (double)outW / zc.W;
+                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
                         double cxTarget = zc.X + zc.W / 2.0;
                         double cyTarget = zc.Y + zc.H / 2.0;
 
@@ -393,13 +420,13 @@ public class GranularSpeedBuilder
                                      : $"{p1.ToString(CultureInfo.InvariantCulture)}+({(p2 - p1).ToString(CultureInfo.InvariantCulture)})*(t/{realDur.ToString(CultureInfo.InvariantCulture)})";
 
                         string zExpr = $"1.0+({(targetZ - 1.0).ToString(CultureInfo.InvariantCulture)})*({pExpr})";
-                        string xOrig = $"({outW}/2)+({(cxTarget).ToString(CultureInfo.InvariantCulture)}-{outW}/2)*({pExpr})-({outW}/({zExpr}))/2";
-                        string yOrig = $"({outH}/2)+({(cyTarget).ToString(CultureInfo.InvariantCulture)}-{outH}/2)*({pExpr})-({outH}/({zExpr}))/2";
+                        string cxExpr = $"(({resW} + {resW / 2.0}) + ({(cxTarget - resW / 2.0).ToString(CultureInfo.InvariantCulture)})*({pExpr}) - ({resW}/({zExpr}))/2.0)";
+                        string cyExpr = $"(({resH} + {resH / 2.0}) + ({(cyTarget - resH / 2.0).ToString(CultureInfo.InvariantCulture)})*({pExpr}) - ({resH}/({zExpr}))/2.0)";
 
-                        string cropX = $"({xOrig})*({zExpr})";
-                        string cropY = $"({yOrig})*({zExpr})";
+                        string cropX = $"({cxExpr})*({zExpr})";
+                        string cropY = $"({cyExpr})*({zExpr})";
 
-                        zoomFilter = $"scale=w='iw*({zExpr})':h='ih*({zExpr})':eval=frame,crop=w={outW}:h={outH}:x='{cropX}':y='{cropY}',";
+                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,scale=w='iw*({zExpr})':h='ih*({zExpr})':eval=frame,crop=w={resW}:h={resH}:x='{cropX}':y='{cropY}',cas=0.5,scale={outW}:{outH},";
                     }
                 }
             }
@@ -408,7 +435,6 @@ public class GranularSpeedBuilder
             {
                 double dur = chunk.FreezeDur;
                 int targetFrameCount = Math.Max(1, (int)Math.Round(dur * fpsValue));
-                int loopFrames = Math.Max(0, targetFrameCount - 1);
                 double sampleWindow = Math.Max(4.0 / fpsValue, 0.20);
                 double sampleUntil = Math.Min(totalDurationSec, chunk.Start + sampleWindow);
                 double sampleWindowActual = Math.Max(1.0 / fpsValue, sampleUntil - chunk.Start);
@@ -424,7 +450,7 @@ public class GranularSpeedBuilder
                     $"setpts=PTS-STARTPTS," +
                     $"select='lte(n\\,0)'," +
                     $"{zoomFilter}format=yuv420p,setsar=1," +
-                    $"loop=loop={loopFrames}:size=1:start=0," +
+                    $"tpad=stop_mode=clone:stop_duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)}," +
                     $"fps={targetFps}:round=near," +
                     $"setpts=N/({targetFps})/TB," +
                     $"trim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS{vChunkMainLabel}");
@@ -434,7 +460,7 @@ public class GranularSpeedBuilder
                     $"setpts=PTS-STARTPTS," +
                     $"select='lte(n\\,0)'," +
                     $"format=yuv420p,setsar=1," +
-                    $"loop=loop={loopFrames}:size=1:start=0," +
+                    $"tpad=stop_mode=clone:stop_duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)}," +
                     $"fps={targetFps}:round=near," +
                     $"setpts=N/({targetFps})/TB," +
                     $"trim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS{vChunkHudLabel}");
@@ -464,17 +490,17 @@ public class GranularSpeedBuilder
 
                 fullParts.Add(
                     $"{vSrcMain}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
-                    $"setpts=PTS-STARTPTS," +
+                    $"setpts='PTS-({chunk.Start:F4}/TB)'," +
                     $"{zoomFilter}" +
                     $"setpts='PTS/{chunk.Speed:F4}'," +
-                    $"fps={targetFps}:round=near," +
+                    $"fps={targetFps}:start_time=0:round=near," +
                     $"format=yuv420p,setsar=1{vChunkMainLabel}");
 
                 fullParts.Add(
                     $"{vSrcHud}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
-                    $"setpts=PTS-STARTPTS," +
+                    $"setpts='PTS-({chunk.Start:F4}/TB)'," +
                     $"setpts='PTS/{chunk.Speed:F4}'," +
-                    $"fps={targetFps}:round=near," +
+                    $"fps={targetFps}:start_time=0:round=near," +
                     $"format=yuv420p,setsar=1{vChunkHudLabel}");
 
                 var audioFilters = BuildAtempoChain(chunk.Speed);
@@ -483,7 +509,7 @@ public class GranularSpeedBuilder
                     fullParts.Add(
                         $"{aSrc}atrim=start={chunk.Start:F4}:end={chunk.End:F4}," +
                         $"aresample=48000:async=1:min_comp=0.001," +
-                        $"asetpts=PTS-STARTPTS," +
+                        $"asetpts='PTS-({chunk.Start:F4}/TB)'," +
                         $"{string.Join(",", audioFilters)}," +
                         $"apad,atrim=duration={quantizedDur.ToString("F5", CultureInfo.InvariantCulture)}," +
                         $"asetpts=PTS-STARTPTS{aChunkLabel}");

@@ -265,7 +265,7 @@
                     </Border>
 
                     <!-- ISSUE_02: middle column Auto (was fixed 90) so the Undo/Redo buttons never clip at larger font scale -->
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,180">
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto">
                         <Border Grid.Column="0"
                                 Background="{DynamicResource AppVideoRailBrush}"
                                 ClipToBounds="True">
@@ -339,6 +339,7 @@
                                 Background="{DynamicResource AppSurfaceBrush}"
                                 BorderBrush="{DynamicResource AppBorderBrush}"
                                 BorderThickness="1,0,0,0"
+                                MinWidth="180" MaxWidth="300"
                                 Padding="8">
                             <!-- ISSUE_02: Auto header row (was fixed 20) so the LAYERS label never clips at larger font scale -->
                             <Grid RowDefinitions="Auto,*">

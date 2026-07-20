@@ -63,6 +63,7 @@ public partial class SettingsWindow : Window
         BuildDefaultsUi();
         BuildMaskOverlayUi();
         BuildAppearanceUi();
+        BuildMemeFolderUi();
 
         ConfirmVideoMergerRemove = SettingsManager.Instance.ConfirmVideoMergerRemove;
         ConfirmVideoMergerClearAll = SettingsManager.Instance.ConfirmVideoMergerClearAll;
@@ -366,6 +367,73 @@ public partial class SettingsWindow : Window
                 }
             };
         }
+    }
+
+    /// <summary>Meme System §3: path display + Open Folder + Change Folder (with
+    /// UnauthorizedAccessException revert guard). Applies IMMEDIATELY (not on APPLY):
+    /// the directory change saves, notifies the MainWindow to re-scan, and reverts on failure.</summary>
+    private void BuildMemeFolderUi()
+    {
+        var pathBox = this.FindControl<TextBox>("MemeFolderTextBox");
+        var statusText = this.FindControl<TextBlock>("MemeFolderStatusText");
+        if (pathBox != null) pathBox.Text = MemeDirectory.GetActive();
+
+        var openBtn = this.FindControl<Button>("OpenMemeFolderBtn");
+        if (openBtn != null) openBtn.Click += (s, e) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = MemeDirectory.GetActive(),
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex) { RuntimeLog.Fail("Memes", $"Open meme folder failed: {ex.Message}"); }
+        };
+
+        var changeBtn = this.FindControl<Button>("ChangeMemeFolderBtn");
+        if (changeBtn != null) changeBtn.Click += async (s, e) =>
+        {
+            var start = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(MemeDirectory.GetActive()));
+            var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            {
+                Title = "Select Meme Folder",
+                SuggestedStartLocation = start,
+                AllowMultiple = false
+            });
+            if (result == null || result.Count == 0) return;
+
+            string newPath = result[0].Path.LocalPath;
+            string lastKnownGood = SettingsManager.Instance.MemeDirectoryPath;
+            try
+            {
+                // §3 Exception Handling: probe-read the directory FIRST; an
+                // UnauthorizedAccessException blocks the change and reverts.
+                _ = System.IO.Directory.GetFiles(newPath);
+
+                SettingsManager.Instance.MemeDirectoryPath = newPath;
+                SettingsManager.Save();
+                if (pathBox != null) pathBox.Text = newPath;
+                if (statusText != null) statusText.Text = "";
+                RuntimeLog.Info("Memes", $"Meme directory changed to: {newPath}");
+                MemeDirectory.NotifyChanged(); // §3 State Update → MainWindow re-scan
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                SettingsManager.Instance.MemeDirectoryPath = lastKnownGood;
+                if (pathBox != null) pathBox.Text = MemeDirectory.GetActive();
+                if (statusText != null) statusText.Text = "⚠ That folder can't be read (access denied). Keeping the previous folder.";
+                RuntimeLog.Fail("Memes", $"Meme directory change blocked (UnauthorizedAccess): {newPath} — {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                SettingsManager.Instance.MemeDirectoryPath = lastKnownGood;
+                if (pathBox != null) pathBox.Text = MemeDirectory.GetActive();
+                if (statusText != null) statusText.Text = "⚠ That folder can't be used. Keeping the previous folder.";
+                RuntimeLog.Fail("Memes", $"Meme directory change failed: {newPath} — {ex.Message}");
+            }
+        };
     }
 
     private Grid MakeSimpleRow(string label, Control control)

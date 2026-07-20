@@ -89,7 +89,6 @@ public partial class GranularSpeedEditorWindow : Window
     private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
     private DispatcherTimer? _freezePulseTimer;
-    private double _freezePulseOffset = 0;
 
     /// <summary>
     /// Parameterless ctor required by Avalonia's XAML runtime loader.
@@ -669,6 +668,15 @@ public partial class GranularSpeedEditorWindow : Window
                     SetStatus($"Cannot mark here — overlaps segment #{overlapIdx.Value + 1} [{FormatMs(overlapping.StartMs)} – {FormatMs(overlapping.EndMs)}]. Delete it first.");
                     return;
                 }
+            }
+
+            // Block marking END at/before an already-marked START — a segment can't end before it
+            // begins. (Only when a START is pending; with no pending START the block below infers one.)
+            if (_pendingStartMs >= 0 && currentMs <= _pendingStartMs)
+            {
+                ShowFeedback("⚠ END can't be before START");
+                SetStatus($"Cannot mark END at {FormatMs(currentMs)} — it must be AFTER the START at {FormatMs(_pendingStartMs)}.");
+                return;
             }
 
             _pendingEndMs = currentMs;
@@ -2002,7 +2010,7 @@ public partial class GranularSpeedEditorWindow : Window
         var bounds = vid;
         if (_isMobileFormat)
         {
-            double portraitW = vid.Height * (9.0 / 16.0);
+            double portraitW = vid.Height * (2.0 / 3.0);
             bounds = new Avalonia.Rect(vid.X + (vid.Width - portraitW) / 2.0, vid.Y, portraitW, vid.Height);
         }
 

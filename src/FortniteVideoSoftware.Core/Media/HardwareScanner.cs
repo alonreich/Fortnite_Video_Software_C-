@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -78,6 +78,7 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg.");
+        ChildProcessTracker.AddProcess(process);
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
@@ -108,6 +109,7 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg for encoder test.");
+        ChildProcessTracker.AddProcess(process);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
 

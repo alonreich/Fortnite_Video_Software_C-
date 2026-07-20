@@ -37,6 +37,7 @@ public partial class CropToolWindow : Window
     private const double SnapThreshold = 8;
 
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
+    private readonly FortniteVideoSoftware.Core.Infrastructure.RecoveryManager _recovery = new FortniteVideoSoftware.Core.Infrastructure.RecoveryManager(ApplicationPaths.CreateDefault());
     private readonly string? _initialVideoPath;
     private readonly ObservableCollection<LayerEntry> _layers = new();
     private readonly List<CropEditorItem> _items = new();
@@ -83,7 +84,6 @@ public partial class CropToolWindow : Window
     private int _snapshotWidth = 1920;
     private int _snapshotHeight = 1080;
     private double _durationMs;
-    private bool _isTimelineUpdating;
     private bool _isTimerUpdatingSlider;
     private bool _isSeeking;
     private double? _nextSeekTarget;
@@ -116,6 +116,7 @@ public partial class CropToolWindow : Window
         _initialVideoPath = string.IsNullOrWhiteSpace(initialVideoPath) ? null : initialVideoPath;
 
         InitializeComponent();
+        _recovery.AcquireLock();
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "CropToolBounds");
         FindControls();
         AttachTitleBarDrag();
@@ -561,14 +562,13 @@ public partial class CropToolWindow : Window
 
             if (_timelineSlider != null)
             {
-                _isTimelineUpdating = true;
                 _timelineSlider.Minimum = 0;
                 _timelineSlider.Maximum = 100;
                 _timelineSlider.Value = 0;
-                _isTimelineUpdating = false;
             }
 
-            RuntimeLog.Info("CROP", $"Video loaded: {path} | Resolution: {_originalResolution} | Duration: {_durationMs:F0}ms");
+            RuntimeLog.Info("CROP", $"Video loaded: {System.IO.Path.GetFileName(path)} | Resolution: {_originalResolution} | Duration: {_durationMs:F0}ms");
+            RuntimeLog.Debug("CROP", $"Full path: {path}");
             SetEnabled("SnapshotButton", true);
             SetWizardState(2, "Find HUD Frame", $"Frame ready ({_originalResolution}).");
         }
@@ -606,6 +606,9 @@ public partial class CropToolWindow : Window
 
         try
         {
+            CleanupTempFiles();
+            _tempFiles.Clear();
+
             _paths.EnsureWritableDirectories();
             string output = IOPath.Combine(_paths.TempDirectory, $"crop_snapshot_{Guid.NewGuid():N}.png");
             string tempOutput = output + ".tmp.png";
@@ -682,6 +685,10 @@ public partial class CropToolWindow : Window
 
         if (_snapshotImage != null)
         {
+            if (_snapshotImage.Source is IDisposable oldBitmap)
+            {
+                oldBitmap.Dispose();
+            }
             _snapshotImage.Source = snapshotBitmap;
             _snapshotImage.Width = _snapshotWidth;
             _snapshotImage.Height = _snapshotHeight;
@@ -1099,13 +1106,15 @@ public partial class CropToolWindow : Window
 
         var border = new Rectangle
         {
-            Width = snapshot.Width,
-            Height = snapshot.Height,
+            Width = snapshot.Width + 4,
+            Height = snapshot.Height + 4,
             Stroke = Brushes.Black,
-            StrokeThickness = 3,
+            StrokeThickness = 2,
             Fill = Brushes.Transparent,
             IsHitTestVisible = false
         };
+        Canvas.SetLeft(border, -2);
+        Canvas.SetTop(border, -2);
 
         var tlHandle = CreateHandle(StandardCursorType.SizeAll);
         var brHandle = CreateHandle(StandardCursorType.SizeAll);
@@ -1356,8 +1365,10 @@ public partial class CropToolWindow : Window
 
         item.Image.Width = item.Width;
         item.Image.Height = item.Height;
-        item.Border.Width = item.Width;
-        item.Border.Height = item.Height;
+        item.Border.Width = item.Width + 4;
+        item.Border.Height = item.Height + 4;
+        Canvas.SetLeft(item.Border, -2);
+        Canvas.SetTop(item.Border, -2);
 
         Canvas.SetLeft(item.TopLeftHandle, -HandleSize / 2);
         Canvas.SetTop(item.TopLeftHandle, -HandleSize / 2);
@@ -1375,35 +1386,35 @@ public partial class CropToolWindow : Window
 
     private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
-        // ISSUE_1: The scale denominator MUST be the same crops_1080p width that
-        // SaveConfigAsync stores, because the exporter computes
-        // rw = storedCropW × scale × backendScale (MobileFilterBuilder.Build).
-        // Using any other width base makes the exported mask a different size
-        // than the preview showed.
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
             _originalResolution);
 
-        int contentW = Math.Max(2, contentRect.w);
-        int contentH = Math.Max(2, contentRect.h);
+        var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
+            (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
+            _originalResolution,
+            HudConfig.CropDriftType(roleKey ?? ""));
+
+        var (_, _, _, _, videoScale) = CoordinateMath.ScalePlan(_originalResolution);
+
+        int baselineRw = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.w, 1) * videoScale * Frac.One));
 
         double maxDesW = Math.Max(MinItemSize, desiredWidth);
-        // ISSUE_10: HudConfig.Sanitize rounds the stored scale to 4 decimals on load,
-        // so preview math must use the identical 4-decimal value or EvenCeil can flip.
-        double quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / contentW), 4, MidpointRounding.AwayFromZero);
+        double quantizedScale;
+        if (Math.Abs(maxDesW - baselineRw) < 0.1)
+        {
+            quantizedScale = 1.0;
+        }
+        else
+        {
+            quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / baselineRw), 4, MidpointRounding.AwayFromZero);
+        }
         Frac scaleFrac = Frac.FromDouble(quantizedScale);
 
-        Frac backendScale = CoordinateConstants.BackendScale;
-        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentW, 1) * scaleFrac * backendScale));
-        // ISSUE_1 (pixel-perfect): height must use the IDENTICAL basis the exporter uses
-        // (MobileFilterBuilder.Build: rh = EvenCeil(contentH * scale * backendScale)).
-        // Deriving rh from the already-even-ceiled rw diverged from export by up to ~2px.
-        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentH, 1) * scaleFrac * backendScale));
+        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.w, 1) * videoScale * scaleFrac));
+        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(exportRect.h, 1) * videoScale * scaleFrac));
 
-        int width = CoordinateMath.ScaleRound(new Frac(rw, 1) / backendScale);
-        int height = CoordinateMath.ScaleRound(new Frac(rh, 1) / backendScale);
-
-        return (width, height, quantizedScale);
+        return (rw, rh, quantizedScale);
     }
 
     private void SelectItem(CropEditorItem? item, bool updateLayerList = true)
@@ -1428,7 +1439,7 @@ public partial class CropToolWindow : Window
     {
         bool selected = ReferenceEquals(item, _selectedItem);
         item.Border.Stroke = selected ? Brushes.Gold : Brushes.Black;
-        item.Border.StrokeThickness = selected ? 4 : 3;
+        item.Border.StrokeThickness = 2;
         item.TopLeftHandle.IsVisible = selected;
         item.BottomRightHandle.IsVisible = selected;
         item.LabelHost.Background = selected
@@ -1819,6 +1830,7 @@ public partial class CropToolWindow : Window
             {
                 ["returned_from_crop_tool"] = true
             });
+            _recovery.ReleaseLockOnly();
             RuntimeLog.Info("CROP", "Returning to Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath) { UseShellExecute = false });
@@ -2494,9 +2506,13 @@ public partial class CropToolWindow : Window
             _timelineTimer?.Stop();
 
 
-            if (_videoHost?.IpcClient != null)
+            if (_videoHost != null)
             {
-                await _videoHost.IpcClient.SendCommandAsync("stop");
+                if (_videoHost.IpcClient != null)
+                {
+                    await _videoHost.IpcClient.SendCommandAsync("stop");
+                }
+                _videoHost.Dispose();
             }
         }
         catch (Exception ex)
