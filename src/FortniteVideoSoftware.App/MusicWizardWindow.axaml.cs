@@ -22,34 +22,35 @@ using Avalonia.Platform.Storage;
 namespace FortniteVideoSoftware.App;
 
 
-public class MusicTrackItem
-
+public class MusicTrackItem : System.ComponentModel.INotifyPropertyChanged
 {
-
     public string Name { get; set; } = string.Empty;
-
     public string FilePath { get; set; } = string.Empty;
-
     public string Title { get; set; } = string.Empty;
-
     public string Artist { get; set; } = string.Empty;
-
     public string Album { get; set; } = string.Empty;
-
     public string DurationText { get; set; } = "";
-
     public string SizeText { get; set; } = "";
-
     public double DurationSec { get; set; } = 0.0;
-
     public long LastModifiedTicks { get; set; } = 0;
-
-    public bool IsRecent { get; set; }
-
+    
+    private bool _isRecent;
+    public bool IsRecent 
+    { 
+        get => _isRecent; 
+        set 
+        { 
+            if (_isRecent != value) 
+            { 
+                _isRecent = value; 
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsRecent))); 
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(PinText))); 
+            } 
+        } 
+    }
     public string PinText => IsRecent ? "RECENT" : "";
-
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
-
 
 public class MusicQueueItem
 {
@@ -115,6 +116,8 @@ public partial class MusicWizardWindow : Window
     private bool _isPreviewPlaying = false;
     private double _previewCurrentOffset = 0.0;
     private DateTime? _previewStartTime = null;
+    private DateTime? _phase3PreviewClockStartTime = null;
+    private double _phase3PreviewClockStartOffsetSec = 0.0;
     private double _songStartSeconds = 0.0;
     private Avalonia.Threading.DispatcherTimer? _playheadTimer;
     private Avalonia.Controls.Shapes.Line? _waveformOffsetLine;
@@ -141,8 +144,35 @@ public partial class MusicWizardWindow : Window
     private string? _lastPhase3WaveFile;
     private System.Collections.Generic.List<string>? _mergerVideos = null;
     private bool _isMergerMode = false;
+    private double _phase3BaseSpeed = 1.0;
+    private readonly System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment> _phase3SpeedSegments = new();
+    private int _waveformRenderVersion = 0;
+    private readonly System.Collections.Generic.List<double> _phase3ClipDurationsSec = new();
+    private CancellationTokenSource? _audioAnalysisCts;
+    private CancellationTokenSource? _musicScanCts;
+    private readonly SemaphoreSlim _trackProbeGate = new(4, 4);
+    private int _musicScanVersion;
+    private int _phase3MusicSyncInFlight;
+    private string? _phase3PreviewMusicPath;
+    private double _phase3PreviewMusicSegmentStartSec = double.NaN;
 
     private FortniteVideoSoftware.App.MpvVideoView? WizardVideoHost => this.FindControl<Avalonia.Controls.Border>("VideoHostBorder")?.Child as FortniteVideoSoftware.App.MpvVideoView;
+
+    private sealed class AudioEnergyAnalysis
+    {
+        public double BucketSeconds { get; init; }
+        public double DurationSeconds { get; init; }
+        public double[] Energy { get; init; } = Array.Empty<double>();
+        public System.Collections.Generic.List<double> PeakTimesSeconds { get; init; } = new();
+    }
+
+    private sealed class Phase3MusicPreviewSegment
+    {
+        public string Path { get; init; } = string.Empty;
+        public double TimelineStartSec { get; init; }
+        public double TimelineEndSec { get; init; }
+        public double FileStartSec { get; init; }
+    }
 
 
     public MusicWizardWindow()
@@ -151,14 +181,18 @@ public partial class MusicWizardWindow : Window
         InitializeComponent();
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MusicWizardBounds");
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
-        _playheadTimer.Tick += (s, e) =>
+        _playheadTimer.Tick += PlayheadTimer_Tick;
+    }
+
+    private void PlayheadTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_isPreviewPlaying)
         {
-            if (_isPreviewPlaying)
-            {
-                EnforcePhase3PreviewEnd();
-                UpdatePlayhead();
-            }
-        };
+            SyncPhase3VideoPreviewClock();
+            QueuePhase3MusicPreviewSync();
+            EnforcePhase3PreviewEnd();
+            UpdatePlayhead();
+        }
     }
 
 
@@ -173,27 +207,49 @@ public partial class MusicWizardWindow : Window
         SharedInit();
     }
 
-    public MusicWizardWindow(string videoPath, double trimStartMs, double trimEndMs) : this()
+    public MusicWizardWindow(System.Collections.Generic.List<string> mergerVideos, double totalDurationSec, double baseSpeed) : this()
     {
-        _videoPath = videoPath;
-        _trimStartMs = trimStartMs;
-        _trimEndMs = trimEndMs;
+        _mergerVideos = mergerVideos;
+        _isMergerMode = true;
+        _videoPath = mergerVideos.FirstOrDefault() ?? "";
+        _trimStartMs = 0;
+        _trimEndMs = totalDurationSec * 1000.0;
+        ConfigurePhase3Timeline(baseSpeed, null);
         _playheadTimer?.Start();
         SharedInit();
     }
 
+    public MusicWizardWindow(
+        string videoPath,
+        double trimStartMs,
+        double trimEndMs,
+        double baseSpeed = 1.0,
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment>? speedSegments = null) : this()
+    {
+        _videoPath = videoPath;
+        _trimStartMs = trimStartMs;
+        _trimEndMs = trimEndMs;
+        ConfigurePhase3Timeline(baseSpeed, speedSegments);
+        _playheadTimer?.Start();
+        SharedInit();
+    }
+
+    private void ConfigurePhase3Timeline(
+        double baseSpeed,
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment>? speedSegments)
+    {
+        _phase3BaseSpeed = baseSpeed > 0.001 ? baseSpeed : 1.0;
+        _phase3SpeedSegments.Clear();
+        if (speedSegments != null)
+            _phase3SpeedSegments.AddRange(speedSegments);
+    }
+
     private void OnGlobalMasterVolumeChanged(int volume)
     {
-        var videoVolSlider = this.FindControl<Avalonia.Controls.Slider>("VideoVolSlider");
-        var musicVolSlider = this.FindControl<Avalonia.Controls.Slider>("MusicVolSlider");
-        
-        double vBase = (videoVolSlider?.Value ?? 100.0) / 100.0;
-        double mBase = (musicVolSlider?.Value ?? 100.0) / 100.0;
-        
         if (WizardVideoHost?.IpcClient != null)
-            _ = WizardVideoHost.IpcClient.SetPropertyAsync("volume", (volume * vBase).ToString("0"));
+            _ = WizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume(volume));
         if (_audioIpcClient != null)
-            _ = _audioIpcClient.SetPropertyAsync("volume", (volume * mBase).ToString("0"));
+            _ = _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume(volume));
     }
 
     private void SharedInit()
@@ -307,6 +363,18 @@ public partial class MusicWizardWindow : Window
             {
                 UpdateCoverageBar();
                 UpdateAutoFillQueuePreview();
+                UpdateProblemFlags();
+            };
+        }
+
+        var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
+        if (duckingCheck != null)
+        {
+            duckingCheck.IsCheckedChanged += (s, e) =>
+            {
+                UpdateDuckingCompareButton();
+                ApplyPreviewMusicVolume();
+                UpdateProblemFlags();
             };
         }
 
@@ -332,6 +400,25 @@ public partial class MusicWizardWindow : Window
                 {
                     BuildAutoFillQueue();
                 }
+            };
+        }
+
+        var beatSnapBtn = this.FindControl<Button>("BeatSnapBtn");
+        if (beatSnapBtn != null)
+            beatSnapBtn.Click += async (s, e) => await SnapSongStartToBeatAsync(beatSnapBtn);
+
+        var smartFitBtn = this.FindControl<Button>("SmartFitBtn");
+        if (smartFitBtn != null)
+            smartFitBtn.Click += async (s, e) => await ApplySmartFitAsync(smartFitBtn);
+
+        var duckingCompareBtn = this.FindControl<Button>("DuckingCompareBtn");
+        if (duckingCompareBtn != null)
+        {
+            duckingCompareBtn.Click += (s, e) =>
+            {
+                var check = this.FindControl<CheckBox>("DuckingCheckBox");
+                if (check != null)
+                    check.IsChecked = !(check.IsChecked ?? true);
             };
         }
 
@@ -407,7 +494,7 @@ public partial class MusicWizardWindow : Window
                     catch { }
 
 
-                    ScanDirectoryForMusic(selectedFolderPath);
+                    await ScanDirectoryForMusicAsync(selectedFolderPath);
 
                 }
 
@@ -494,22 +581,13 @@ public partial class MusicWizardWindow : Window
 
                     double duration = GetPhase3VideoDurationSeconds();
                     double videoRelativeSec = duration * fraction;
-                    double targetTime = (_trimStartMs / 1000.0) + videoRelativeSec;
-
-                    var wizardVideoHost = WizardVideoHost;
-                    if (wizardVideoHost?.IpcClient != null)
-
-                    {
-
-                        _ = wizardVideoHost.IpcClient.SendCommandAsync("seek", targetTime.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
-
-                    }
 
 
                     bool wasPlaying = _isPreviewPlaying;
                     StopPreview();
 
                     _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
+                    SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
 
                     if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
                     else UpdatePlayhead();
@@ -554,9 +632,10 @@ public partial class MusicWizardWindow : Window
 
                         if (wizardVideoHost?.IpcClient != null)
 
-                                                        _ = wizardVideoHost.IpcClient.SetPropertyAsync("volume", videoVolSlider.Value.ToString("0"));
+                            _ = wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
 
                         SaveWizardVolumes();
+                        UpdateProblemFlags();
 
                     }
 
@@ -590,9 +669,10 @@ public partial class MusicWizardWindow : Window
 
                     {
 
-                                                _ = _audioIpcClient.SetPropertyAsync("volume", musicVolSlider.Value.ToString("0"));
+                        ApplyPreviewMusicVolume();
                         
                         SaveWizardVolumes();
+                        UpdateProblemFlags();
 
                     }
 
@@ -667,6 +747,8 @@ public partial class MusicWizardWindow : Window
 
         UpdateNextButtonState();
         UpdatePreviewControlsState();
+        UpdateDuckingCompareButton();
+        UpdateProblemFlags();
         AttachTitleBarDrag();
     }
     private void InitializeComponent()
@@ -793,39 +875,21 @@ public partial class MusicWizardWindow : Window
         }
 
 
-        if (_currentStep == 3)
-        {
-            this.Width = 1200;
-            this.Height = 850;
-        }
-        else
-
-        {
-
-            this.Width = 900;
-
-            this.Height = 700;
-        }
+        // Window sizing preserved natively; bounds tracked by WindowBoundsHelper.
 
         UpdateFinalPlacementSummary();
+        UpdateProblemFlags();
+        UpdateDuckingCompareButton();
         UpdateStepProgress();
         UpdatePreviewControlsState();
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             if (this.Content is Avalonia.Controls.Control contentControl)
             {
                 contentControl.InvalidateMeasure();
                 contentControl.InvalidateArrange();
             }
-            this.InvalidateMeasure();
-            this.InvalidateArrange();
-            this.UpdateLayout();
-            
-            double oldW = this.Width;
-            this.Width = oldW + 1;
-            await Task.Delay(50);
-            this.Width = oldW;
         }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
@@ -833,11 +897,14 @@ public partial class MusicWizardWindow : Window
     private void OnTrackSelected(MusicTrackItem? track)
     {
         _selectedTrack = track;
+        System.Threading.Interlocked.Increment(ref _waveformRenderVersion);
         ResetAutoFillQueueState();
         UpdateNextButtonState();
         UpdateFinalPlacementSummary();
         UpdatePreviewControlsState();
         UpdateCoverageBar();
+        UpdateProblemFlags();
+        SetSmartFitStatus("");
     }
 
     private void OnMusicSearchKeyDown(object? sender, KeyEventArgs e)
@@ -980,6 +1047,360 @@ public partial class MusicWizardWindow : Window
             .ToList();
     }
 
+    private void SetSmartFitStatus(string message, bool isWarning = false)
+    {
+        var status = this.FindControl<TextBlock>("SmartFitStatusText");
+        if (status == null) return;
+
+        status.Text = message;
+        status.Foreground = isWarning
+            ? Avalonia.Media.Brushes.Orange
+            : Avalonia.Media.Brushes.LightGreen;
+    }
+
+    private void CancelAudioAnalysis()
+    {
+        try { _audioAnalysisCts?.Cancel(); } catch { }
+        try { _audioAnalysisCts?.Dispose(); } catch { }
+        _audioAnalysisCts = null;
+    }
+
+    private void CancelMusicScan()
+    {
+        Interlocked.Increment(ref _musicScanVersion);
+        try { _musicScanCts?.Cancel(); } catch { }
+        try { _musicScanCts?.Dispose(); } catch { }
+        _musicScanCts = null;
+    }
+
+    private async Task<AudioEnergyAnalysis?> AnalyzeAudioEnergyAsync(string audioPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath))
+            return null;
+
+        Process? process = null;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ResolveFfmpegPath(),
+                Arguments = $"-nostdin -hide_banner -loglevel error -i \"{audioPath}\" -vn -ac 1 -ar 1000 -f s16le pipe:1",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            process = Process.Start(psi);
+            if (process == null) return null;
+            ChildProcessTracker.AddProcess(process);
+
+            using var audioBytes = new MemoryStream();
+            Task copyTask = process.StandardOutput.BaseStream.CopyToAsync(audioBytes, cancellationToken);
+            Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            await copyTask;
+            _ = await errorTask;
+
+            if (process.ExitCode != 0)
+                return null;
+
+            byte[] data = audioBytes.ToArray();
+            const int sampleRate = 1000;
+            const double bucketSeconds = 0.05;
+            int sampleCount = data.Length / 2;
+            if (sampleCount <= 0)
+                return null;
+
+            int bucketSize = Math.Max(1, (int)Math.Round(sampleRate * bucketSeconds));
+            int bucketCount = Math.Max(1, (int)Math.Ceiling(sampleCount / (double)bucketSize));
+            var energy = new double[bucketCount];
+
+            for (int bucket = 0; bucket < bucketCount; bucket++)
+            {
+                int start = bucket * bucketSize;
+                int end = Math.Min(sampleCount, start + bucketSize);
+                if (end <= start) continue;
+
+                double sum = 0;
+                for (int sampleIndex = start; sampleIndex < end; sampleIndex++)
+                {
+                    int byteIndex = sampleIndex * 2;
+                    short sample = BitConverter.ToInt16(data, byteIndex);
+                    sum += Math.Abs((int)sample) / 32768.0;
+                }
+
+                energy[bucket] = sum / (end - start);
+            }
+
+            double maxEnergy = energy.Length > 0 ? energy.Max() : 0.0;
+            if (maxEnergy > 0.000001)
+            {
+                for (int i = 0; i < energy.Length; i++)
+                    energy[i] /= maxEnergy;
+            }
+
+            double mean = energy.Length > 0 ? energy.Average() : 0.0;
+            double variance = energy.Length > 0
+                ? energy.Select(v => (v - mean) * (v - mean)).Average()
+                : 0.0;
+            double std = Math.Sqrt(variance);
+            double threshold = Math.Max(mean + std * 0.65, 0.28);
+            int minPeakSpacingBuckets = Math.Max(1, (int)Math.Round(0.28 / bucketSeconds));
+
+            var peakIndexes = new System.Collections.Generic.List<int>();
+            for (int i = 2; i < energy.Length - 2; i++)
+            {
+                if (energy[i] < threshold) continue;
+                if (energy[i] < energy[i - 1] || energy[i] < energy[i + 1]) continue;
+
+                if (peakIndexes.Count > 0 && i - peakIndexes[^1] < minPeakSpacingBuckets)
+                {
+                    if (energy[i] > energy[peakIndexes[^1]])
+                        peakIndexes[^1] = i;
+                }
+                else
+                {
+                    peakIndexes.Add(i);
+                }
+            }
+
+            return new AudioEnergyAnalysis
+            {
+                BucketSeconds = bucketSeconds,
+                DurationSeconds = sampleCount / (double)sampleRate,
+                Energy = energy,
+                PeakTimesSeconds = peakIndexes.Select(i => i * bucketSeconds).ToList()
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (process != null && !process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Audio energy analysis failed: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            try { process?.Dispose(); } catch { }
+        }
+    }
+
+    private static double? FindNearestPeakTime(AudioEnergyAnalysis analysis, double targetSeconds, double radiusSeconds)
+    {
+        double? best = null;
+        double bestDistance = double.MaxValue;
+
+        foreach (double peak in analysis.PeakTimesSeconds)
+        {
+            double distance = Math.Abs(peak - targetSeconds);
+            if (distance <= radiusSeconds && distance < bestDistance)
+            {
+                best = peak;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
+    private double FindSmartFitStart(AudioEnergyAnalysis analysis, double videoDurationSeconds)
+    {
+        double trackDuration = _trackDuration > 0 ? _trackDuration : analysis.DurationSeconds;
+        if (trackDuration <= 0 || analysis.Energy.Length == 0)
+            return 0.0;
+
+        double usableWindowSeconds = Math.Min(videoDurationSeconds, trackDuration);
+        double maxStartSeconds = Math.Max(0.0, trackDuration - usableWindowSeconds);
+        if (maxStartSeconds <= 0.01)
+            return 0.0;
+
+        double bucketSeconds = analysis.BucketSeconds;
+        int windowBuckets = Math.Max(1, Math.Min(analysis.Energy.Length, (int)Math.Round(usableWindowSeconds / bucketSeconds)));
+        int maxStartBucket = Math.Min(analysis.Energy.Length - 1, (int)Math.Floor(maxStartSeconds / bucketSeconds));
+        int stepBuckets = Math.Max(1, (int)Math.Round(0.10 / bucketSeconds));
+        int earlyBuckets = Math.Max(1, (int)Math.Round(Math.Min(12.0, Math.Max(1.0, usableWindowSeconds * 0.25)) / bucketSeconds));
+
+        var prefix = new double[analysis.Energy.Length + 1];
+        for (int i = 0; i < analysis.Energy.Length; i++)
+            prefix[i + 1] = prefix[i] + analysis.Energy[i];
+
+        int bestBucket = 0;
+        double bestScore = double.NegativeInfinity;
+
+        for (int start = 0; start <= maxStartBucket; start += stepBuckets)
+        {
+            int end = Math.Min(analysis.Energy.Length, start + windowBuckets);
+            if (end <= start) continue;
+
+            int earlyEnd = Math.Min(end, start + earlyBuckets);
+            double fullAverage = (prefix[end] - prefix[start]) / (end - start);
+            double earlyAverage = (prefix[earlyEnd] - prefix[start]) / Math.Max(1, earlyEnd - start);
+            double score = fullAverage * 0.65 + earlyAverage * 0.35;
+
+            if (start < (int)Math.Round(1.0 / bucketSeconds) && earlyAverage < 0.04)
+                score -= 0.05;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestBucket = start;
+            }
+        }
+
+        double startSeconds = bestBucket * bucketSeconds;
+        double? snapped = FindNearestPeakTime(analysis, startSeconds, 1.0);
+        return Math.Clamp(snapped ?? startSeconds, 0.0, maxStartSeconds);
+    }
+
+    private void ApplySongStartSeconds(double startSeconds, string statusMessage)
+    {
+        bool wasPlaying = _isPreviewPlaying;
+        if (wasPlaying) StopPreview();
+
+        _songStartSeconds = Math.Clamp(startSeconds, 0, Math.Max(0, _trackDuration - 0.01));
+        ResetAutoFillQueueState();
+        _previewCurrentOffset = _songStartSeconds;
+
+        var lbl = this.FindControl<TextBlock>("OffsetLabel");
+        if (lbl != null) lbl.Text = $"Song begins at {FormatSeconds(_songStartSeconds)}";
+
+        DrawTimelineScale();
+        DrawPhase3TimelineScale();
+        UpdateFinalPlacementSummary();
+        UpdateCoverageBar();
+        UpdateProblemFlags();
+        UpdatePlayhead();
+        SetSmartFitStatus(statusMessage);
+
+        if (wasPlaying)
+            StartPreviewInternal(_previewCurrentOffset);
+    }
+
+    private async Task SnapSongStartToBeatAsync(Button button)
+    {
+        if (_selectedTrack == null || !File.Exists(_selectedTrack.FilePath))
+        {
+            ShowToast("Select a music track first.");
+            return;
+        }
+
+        CancelAudioAnalysis();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _audioAnalysisCts = cts;
+        button.IsEnabled = false;
+        button.Opacity = 0.5;
+        SetSmartFitStatus("Finding nearby beat...");
+
+        try
+        {
+            var analysis = await AnalyzeAudioEnergyAsync(_selectedTrack.FilePath, cts.Token);
+            if (analysis == null || analysis.PeakTimesSeconds.Count == 0)
+            {
+                SetSmartFitStatus("No clear beat found.", isWarning: true);
+                return;
+            }
+
+            double radius = _songStartSeconds <= 0.05 ? 15.0 : 2.0;
+            double? beatTime = FindNearestPeakTime(analysis, _songStartSeconds, radius);
+            if (!beatTime.HasValue && _songStartSeconds <= 0.05)
+            {
+                foreach (double peakTime in analysis.PeakTimesSeconds)
+                {
+                    if (peakTime <= Math.Min(30.0, _trackDuration))
+                    {
+                        beatTime = peakTime;
+                        break;
+                    }
+                }
+            }
+
+            if (!beatTime.HasValue)
+            {
+                SetSmartFitStatus("No strong beat near this point.", isWarning: true);
+                return;
+            }
+
+            ApplySongStartSeconds(beatTime.Value, $"Snapped to {FormatSeconds(beatTime.Value)}.");
+        }
+        catch (OperationCanceledException)
+        {
+            SetSmartFitStatus("Beat scan timed out.", isWarning: true);
+        }
+        finally
+        {
+            if (ReferenceEquals(_audioAnalysisCts, cts))
+                _audioAnalysisCts = null;
+            cts.Dispose();
+            button.IsEnabled = true;
+            button.Opacity = 1.0;
+        }
+    }
+
+    private async Task ApplySmartFitAsync(Button button)
+    {
+        if (_selectedTrack == null || !File.Exists(_selectedTrack.FilePath))
+        {
+            ShowToast("Select a music track first.");
+            return;
+        }
+
+        CancelAudioAnalysis();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _audioAnalysisCts = cts;
+        button.IsEnabled = false;
+        button.Opacity = 0.5;
+        SetSmartFitStatus("Finding a strong section...");
+
+        try
+        {
+            var analysis = await AnalyzeAudioEnergyAsync(_selectedTrack.FilePath, cts.Token);
+            double videoDuration = GetPhase3VideoDurationSeconds();
+            double smartStart = analysis != null
+                ? FindSmartFitStart(analysis, videoDuration)
+                : 0.0;
+
+            var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
+            if (duckingCheck != null) duckingCheck.IsChecked = true;
+
+            var carvingCheck = this.FindControl<CheckBox>("CarvingCheckBox");
+            if (carvingCheck != null) carvingCheck.IsChecked = true;
+
+            var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
+            if (musicVolSlider != null && Math.Abs(musicVolSlider.Value - 100.0) < 0.5)
+                musicVolSlider.Value = 85.0;
+
+            ApplySongStartSeconds(smartStart, $"Smart Fit picked {FormatSeconds(smartStart)}.");
+
+            if (_isMergerMode && GetQueuedMusicCoverageSeconds() < videoDuration - 0.5)
+                BuildAutoFillQueue();
+
+            UpdateDuckingCompareButton();
+            ApplyPreviewMusicVolume();
+            UpdateProblemFlags();
+        }
+        catch (OperationCanceledException)
+        {
+            SetSmartFitStatus("Smart Fit scan timed out.", isWarning: true);
+        }
+        finally
+        {
+            if (ReferenceEquals(_audioAnalysisCts, cts))
+                _audioAnalysisCts = null;
+            cts.Dispose();
+            button.IsEnabled = true;
+            button.Opacity = 1.0;
+        }
+    }
+
     private void BuildAutoFillQueue()
     {
         if (_selectedTrack == null)
@@ -1002,6 +1423,7 @@ public partial class MusicWizardWindow : Window
         UpdateAutoFillQueuePreview();
         UpdateCoverageBar();
         UpdateFinalPlacementSummary();
+        UpdateProblemFlags();
         DrawPhase3TimelineScale();
 
         var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
@@ -1021,6 +1443,7 @@ public partial class MusicWizardWindow : Window
         if (autoFillBtn != null)
             autoFillBtn.Content = "Auto-Fill Remaining Time";
         UpdateAutoFillQueuePreview();
+        UpdateProblemFlags();
     }
 
     private void UpdateAutoFillQueuePreview()
@@ -1089,6 +1512,7 @@ public partial class MusicWizardWindow : Window
         queueList.SelectedIndex = newIndex;
         UpdateCoverageBar();
         UpdateFinalPlacementSummary();
+        UpdateProblemFlags();
         DrawPhase3TimelineScale();
     }
 
@@ -1108,6 +1532,7 @@ public partial class MusicWizardWindow : Window
             queueList.SelectedIndex = Math.Min(removedIndex, _pendingAutoFillMusicPaths.Count - 1);
         UpdateCoverageBar();
         UpdateFinalPlacementSummary();
+        UpdateProblemFlags();
         DrawPhase3TimelineScale();
     }
 
@@ -1195,6 +1620,9 @@ public partial class MusicWizardWindow : Window
         if (lbl != null) lbl.Text = $"Song begins at {FormatSeconds(_songStartSeconds)}";
         UpdatePlayhead();
         UpdateFinalPlacementSummary();
+        UpdateAutoFillQueuePreview();
+        UpdateCoverageBar();
+        UpdateProblemFlags();
         e.Handled = true;
     }
 
@@ -1232,19 +1660,53 @@ public partial class MusicWizardWindow : Window
     {
         double duration = GetPhase3VideoDurationSeconds();
         videoRelativeSec = Math.Clamp(videoRelativeSec, 0.0, duration);
-        double targetTime = (_trimStartMs / 1000.0) + videoRelativeSec;
-
-        var wizardVideoHost = WizardVideoHost;
-        if (wizardVideoHost?.IpcClient != null)
-        {
-            _ = wizardVideoHost.IpcClient.SendCommandAsync("seek", targetTime.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
-        }
 
         bool wasPlaying = _isPreviewPlaying;
         StopPreview();
         _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
+        SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
         if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
         else UpdatePlayhead();
+    }
+
+    private void SeekPhase3VideoHost(double outputRelativeSec, bool forcePause)
+    {
+        var wizardVideoHost = WizardVideoHost;
+        if (wizardVideoHost?.IpcClient == null) return;
+
+        double sourceRelativeSec = MapPhase3OutputToSourceRelativeSeconds(outputRelativeSec);
+        double sourceAbsSec = (_trimStartMs / 1000.0) + sourceRelativeSec;
+        double speed = GetPhase3PreviewSpeedAtSourceRelativeSeconds(sourceRelativeSec);
+
+        _ = wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", sourceAbsSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _ = wizardVideoHost.IpcClient.SetPropertyAsync("speed", Math.Max(0.001, speed).ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+        if (forcePause || speed <= 0.001)
+            _ = wizardVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+    }
+
+    private void SyncPhase3VideoPreviewClock()
+    {
+        if (_currentStep != 3 || !_isPreviewPlaying) return;
+
+        var wizardVideoHost = WizardVideoHost;
+        if (wizardVideoHost?.IpcClient == null) return;
+
+        double outputRelativeSec = GetCurrentPhase3VideoRelativeSeconds();
+        double sourceRelativeSec = MapPhase3OutputToSourceRelativeSeconds(outputRelativeSec);
+        double sourceAbsSec = (_trimStartMs / 1000.0) + sourceRelativeSec;
+        double speed = GetPhase3PreviewSpeedAtSourceRelativeSeconds(sourceRelativeSec);
+
+        if (speed <= 0.001)
+        {
+            _ = wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", sourceAbsSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _ = wizardVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            return;
+        }
+
+        _ = wizardVideoHost.IpcClient.SetPropertyAsync("speed", speed.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+        if (Math.Abs(wizardVideoHost.IpcClient.CurrentTime - sourceAbsSec) > 0.15)
+            _ = wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", sourceAbsSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _ = wizardVideoHost.IpcClient.SetPropertyAsync("pause", "no");
     }
 
 
@@ -1389,7 +1851,7 @@ public partial class MusicWizardWindow : Window
             var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             double timelineStartSec = _trimStartMs / 1000.0;
-            double timelineEndSec = timelineStartSec + GetPhase3VideoDurationSeconds();
+            double timelineEndSec = timelineStartSec + GetPhase3SourceDurationSeconds();
             var resultMusicPaths = _pendingAutoFillMusicPaths.Count > 0
                 ? new System.Collections.Generic.List<string>(_pendingAutoFillMusicPaths)
                 : new System.Collections.Generic.List<string> { _selectedTrack?.FilePath ?? "" };
@@ -1454,13 +1916,18 @@ public partial class MusicWizardWindow : Window
         {
             tempPng = Path.Combine(_paths.TempDirectory, $"fvs_thumb_{Guid.NewGuid():N}.png");
             if (durationSec <= 0) durationSec = 10;
+            frames = Math.Max(1, frames);
             
             double fps = (double)frames / durationSec;
+            string startArg = startSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            string durationArg = durationSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            string fpsArg = fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+            string filter = $"fps=fps={fpsArg}:round=up,scale=-1:60,tpad=stop_mode=clone:stop_duration=1,tile={frames}x1:margin=0:padding=0";
 
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error -ss {startSec} -t {durationSec} -i \"{videoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile={frames}x1\" -frames:v 1 \"{tempPng}\"",
+                Arguments = $"-y -hide_banner -loglevel error -ss {startArg} -t {durationArg} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 \"{tempPng}\"",
 
                 UseShellExecute = false,
 
@@ -1492,6 +1959,107 @@ public partial class MusicWizardWindow : Window
             throw;
         }
         catch { }
+        return null;
+    }
+
+    private async Task<string?> GeneratePhase3MusicSequenceWaveformAsync(
+        string ffmpegPath,
+        System.Collections.Generic.IReadOnlyList<Phase3MusicPreviewSegment> segments,
+        int width,
+        int height,
+        CancellationToken cancellationToken)
+    {
+        string? tempPng = null;
+        Process? process = null;
+        try
+        {
+            var usableSegments = segments
+                .Where(segment => segment.TimelineEndSec > segment.TimelineStartSec + 0.001 &&
+                                  !string.IsNullOrWhiteSpace(segment.Path) &&
+                                  File.Exists(segment.Path))
+                .ToList();
+
+            if (usableSegments.Count == 0)
+                return null;
+
+            tempPng = Path.Combine(_paths.TempDirectory, $"fvs_wave_sequence_{Guid.NewGuid():N}.png");
+
+            string inputArgs = string.Join(" ", usableSegments.Select(segment => $"-i \"{segment.Path}\""));
+            var filter = new System.Text.StringBuilder();
+            for (int i = 0; i < usableSegments.Count; i++)
+            {
+                var segment = usableSegments[i];
+                double duration = Math.Max(0.001, segment.TimelineEndSec - segment.TimelineStartSec);
+                filter.Append($"[{i}:a]atrim=start={segment.FileStartSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:duration={duration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},");
+                filter.Append($"asetpts=PTS-STARTPTS,aformat=channel_layouts=mono[a{i}];");
+            }
+
+            if (usableSegments.Count > 1)
+            {
+                filter.Append(string.Concat(Enumerable.Range(0, usableSegments.Count).Select(i => $"[a{i}]")));
+                filter.Append($"concat=n={usableSegments.Count}:v=0:a=1[a_seq];");
+                filter.Append($"[a_seq]volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full[v_wave]");
+            }
+            else
+            {
+                filter.Append($"[a0]volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full[v_wave]");
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = $"-y -hide_banner -loglevel error {inputArgs} -filter_complex \"{filter}\" -map \"[v_wave]\" -frames:v 1 \"{tempPng}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            process = Process.Start(psi);
+            if (process == null) return null;
+            ChildProcessTracker.AddProcess(process);
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            _ = await outputTask;
+            _ = await errorTask;
+
+            if (process.ExitCode == 0 && File.Exists(tempPng))
+                return tempPng;
+
+            if (File.Exists(tempPng))
+                File.Delete(tempPng);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (process != null && !process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+
+            if (tempPng != null && File.Exists(tempPng))
+            {
+                try { File.Delete(tempPng); } catch { }
+            }
+
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to generate sequence waveform: {ex.Message}");
+            if (tempPng != null && File.Exists(tempPng))
+            {
+                try { File.Delete(tempPng); } catch { }
+            }
+        }
+        finally
+        {
+            try { process?.Dispose(); } catch { }
+        }
+
         return null;
     }
 
@@ -1579,6 +2147,7 @@ public partial class MusicWizardWindow : Window
             var waveLane = this.FindControl<Avalonia.Controls.Image>("WaveformLaneImage");
             if (thumbLaneGrid != null) { thumbLaneGrid.Children.Clear(); thumbLaneGrid.ColumnDefinitions.Clear(); }
             if (waveLane != null) waveLane.Source = null;
+            _phase3ClipDurationsSec.Clear();
 
             var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
             if (border != null && !string.IsNullOrEmpty(_videoPath))
@@ -1613,7 +2182,7 @@ public partial class MusicWizardWindow : Window
 
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
-                    await wizardVideoHost.IpcClient.SetPropertyAsync("volume", videoVolSlider.Value.ToString("0"));
+                    await wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
             }
             SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
 
@@ -1644,6 +2213,8 @@ public partial class MusicWizardWindow : Window
                 }
 
                 if (totalDur <= 0) totalDur = 1.0;
+                _phase3ClipDurationsSec.Clear();
+                _phase3ClipDurationsSec.AddRange(videoDurs.Select(d => Math.Max(0.1, d / Math.Max(0.001, _phase3BaseSpeed))));
 
                 for (int i = 0; i < videosToThumb.Count; i++)
                 {
@@ -1653,18 +2224,17 @@ public partial class MusicWizardWindow : Window
                     double vDur = videoDurs[i];
                     double fraction = vDur / totalDur;
                     int framesCount = Math.Max(1, (int)Math.Round(15 * fraction));
-                    
+
                     double startOffset = (_isMergerMode || i > 0) ? 0 : (_trimStartMs / 1000.0);
-                    
+
                     string? thumbPath = await GenerateThumbnailsStripAsync(ffmpeg, videosToThumb[i], startOffset, vDur, cancellationToken, framesCount);
                     if (thumbPath != null) _lastPhase3ThumbFiles.Add(thumbPath);
 
                     thumbLaneGrid.ColumnDefinitions.Add(new Avalonia.Controls.ColumnDefinition(vDur, Avalonia.Controls.GridUnitType.Star));
-                    
+
                     var img = new Avalonia.Controls.Image { Stretch = Avalonia.Media.Stretch.Fill };
                     Avalonia.Media.RenderOptions.SetBitmapInterpolationMode(img, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
-                    if (i < videosToThumb.Count - 1) img.Margin = new Avalonia.Thickness(0, 0, 4, 0);
-                    
+
                     if (thumbPath != null)
                     {
                         try {
@@ -1683,15 +2253,21 @@ public partial class MusicWizardWindow : Window
 
             if (waveLane != null && _selectedTrack != null && !string.IsNullOrEmpty(_selectedTrack.FilePath))
             {
-                double audibleMusicDuration = GetAudibleMusicDurationSeconds();
+                var previewSegments = BuildPhase3MusicPreviewSegments();
+                double audibleMusicDuration = previewSegments.Count > 0
+                    ? Math.Min(GetPhase3VideoDurationSeconds(), previewSegments[^1].TimelineEndSec)
+                    : 0.0;
                 waveLane.Width = double.NaN;
                 waveLane.Margin = new Avalonia.Thickness(0, 0, 0, 0);
 
                 if (audibleMusicDuration > 0.01)
                 {
                     var ffmpeg = ResolveFfmpegPath();
-                    string? wavePath = await FortniteVideoSoftware.Core.Media.WaveformGenerator.GenerateWaveformImageAsync(
-                        ffmpeg, _selectedTrack.FilePath, 1200, 60, _songStartSeconds, audibleMusicDuration, cancellationToken);
+                    bool useSequenceWaveform = previewSegments.Count > 1 || IsPhase3LoopMusicEnabled();
+                    string? wavePath = useSequenceWaveform
+                        ? await GeneratePhase3MusicSequenceWaveformAsync(ffmpeg, previewSegments, 1200, 60, cancellationToken)
+                        : await FortniteVideoSoftware.Core.Media.WaveformGenerator.GenerateWaveformImageAsync(
+                            ffmpeg, _selectedTrack.FilePath, 1200, 60, _songStartSeconds, audibleMusicDuration, cancellationToken);
 
                     if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
                     if (wavePath != null)
@@ -1714,6 +2290,7 @@ public partial class MusicWizardWindow : Window
             _phase3Ready = true;
             SetPhase3Status("");
             UpdateFinalPlacementSummary();
+            UpdateProblemFlags();
             DrawPhase3TimelineScale();
             UpdatePlayhead();
             UpdateNextButtonState();
@@ -1768,7 +2345,116 @@ public partial class MusicWizardWindow : Window
         double duration = _trimEndMs > _trimStartMs
             ? (_trimEndMs - _trimStartMs) / 1000.0
             : (_actualVideoDurationMs > _trimStartMs ? (_actualVideoDurationMs - _trimStartMs) / 1000.0 : 60.0);
+        double effectiveDuration = CalculatePhase3EffectiveDurationSeconds(duration);
+        return Math.Max(0.1, effectiveDuration);
+    }
+
+    private double GetPhase3SourceDurationSeconds()
+    {
+        double duration = _trimEndMs > _trimStartMs
+            ? (_trimEndMs - _trimStartMs) / 1000.0
+            : (_actualVideoDurationMs > _trimStartMs ? (_actualVideoDurationMs - _trimStartMs) / 1000.0 : 60.0);
         return Math.Max(0.1, duration);
+    }
+
+    private double CalculatePhase3EffectiveDurationSeconds(double sourceDurationSec)
+    {
+        double trimStartMs = _trimStartMs;
+        double trimEndMs = trimStartMs + sourceDurationSec * 1000.0;
+        if (_phase3SpeedSegments.Count == 0)
+            return sourceDurationSec / Math.Max(0.001, _phase3BaseSpeed);
+
+        double totalMs = 0.0;
+        double cursor = trimStartMs;
+        var sortedSegments = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_phase3SpeedSegments);
+        sortedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+
+        foreach (var seg in sortedSegments)
+        {
+            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
+            double segEnd = Math.Min(trimEndMs, seg.EndMs);
+            if (segEnd <= segStart) continue;
+
+            if (segStart > cursor)
+                totalMs += (segStart - cursor) / Math.Max(0.001, _phase3BaseSpeed);
+
+            totalMs += Math.Abs(seg.Speed) < 0.001
+                ? segEnd - segStart
+                : (segEnd - segStart) / Math.Max(0.001, seg.Speed);
+
+            cursor = Math.Max(cursor, segEnd);
+        }
+
+        if (cursor < trimEndMs)
+            totalMs += (trimEndMs - cursor) / Math.Max(0.001, _phase3BaseSpeed);
+
+        return Math.Max(0.001, totalMs / 1000.0);
+    }
+
+    private double MapPhase3OutputToSourceRelativeSeconds(double outputRelativeSec)
+    {
+        double sourceDurationSec = GetPhase3SourceDurationSeconds();
+        double trimStartMs = _trimStartMs;
+        double trimEndMs = trimStartMs + sourceDurationSec * 1000.0;
+        double targetMs = Math.Clamp(outputRelativeSec, 0, GetPhase3VideoDurationSeconds()) * 1000.0;
+        double outCursorMs = 0.0;
+
+        var sortedSegments = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_phase3SpeedSegments);
+        sortedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+
+        double cursor = trimStartMs;
+        foreach (var seg in sortedSegments)
+        {
+            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
+            double segEnd = Math.Min(trimEndMs, seg.EndMs);
+            if (segEnd <= segStart) continue;
+
+            if (segStart > cursor)
+            {
+                double chunkOutMs = (segStart - cursor) / Math.Max(0.001, _phase3BaseSpeed);
+                if (targetMs <= outCursorMs + chunkOutMs)
+                    return Math.Clamp((cursor - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * _phase3BaseSpeed) / 1000.0, 0, sourceDurationSec);
+                outCursorMs += chunkOutMs;
+            }
+
+            if (Math.Abs(seg.Speed) < 0.001)
+            {
+                double freezeOutMs = segEnd - segStart;
+                if (targetMs <= outCursorMs + freezeOutMs)
+                    return Math.Clamp((segStart - trimStartMs) / 1000.0, 0, sourceDurationSec);
+                outCursorMs += freezeOutMs;
+            }
+            else
+            {
+                double chunkOutMs = (segEnd - segStart) / Math.Max(0.001, seg.Speed);
+                if (targetMs <= outCursorMs + chunkOutMs)
+                    return Math.Clamp((segStart - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * seg.Speed) / 1000.0, 0, sourceDurationSec);
+                outCursorMs += chunkOutMs;
+            }
+
+            cursor = Math.Max(cursor, segEnd);
+        }
+
+        if (cursor < trimEndMs)
+        {
+            double chunkOutMs = (trimEndMs - cursor) / Math.Max(0.001, _phase3BaseSpeed);
+            if (targetMs <= outCursorMs + chunkOutMs)
+                return Math.Clamp((cursor - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * _phase3BaseSpeed) / 1000.0, 0, sourceDurationSec);
+        }
+
+        return sourceDurationSec;
+    }
+
+    private double GetPhase3PreviewSpeedAtSourceRelativeSeconds(double sourceRelativeSec)
+    {
+        double sourceAbsMs = _trimStartMs + sourceRelativeSec * 1000.0;
+        foreach (var seg in _phase3SpeedSegments)
+        {
+            if (sourceAbsMs >= seg.StartMs && sourceAbsMs <= seg.EndMs)
+                return Math.Max(0.0, seg.Speed);
+        }
+
+        return Math.Max(0.001, _phase3BaseSpeed);
     }
 
     private double GetAudibleMusicDurationSeconds()
@@ -1780,14 +2466,11 @@ public partial class MusicWizardWindow : Window
     private double GetCurrentPhase3VideoRelativeSeconds()
     {
         double fallback = Math.Clamp(_previewCurrentOffset - _songStartSeconds, 0, GetPhase3VideoDurationSeconds());
-        var wizardVideoHost = WizardVideoHost;
-        if (wizardVideoHost?.IpcClient == null)
-            return fallback;
-
-        double trimStartSec = _trimStartMs / 1000.0;
-        double currentTime = wizardVideoHost.IpcClient.CurrentTime;
-        if (currentTime >= trimStartSec - 0.05)
-            return Math.Clamp(currentTime - trimStartSec, 0, GetPhase3VideoDurationSeconds());
+        if (_currentStep == 3 && _isPreviewPlaying && _phase3PreviewClockStartTime.HasValue)
+            return Math.Clamp(
+                _phase3PreviewClockStartOffsetSec + (DateTime.UtcNow - _phase3PreviewClockStartTime.Value).TotalSeconds,
+                0,
+                GetPhase3VideoDurationSeconds());
 
         return fallback;
     }
@@ -1803,7 +2486,7 @@ public partial class MusicWizardWindow : Window
         var wizardVideoHost = WizardVideoHost;
         if (wizardVideoHost?.IpcClient != null)
         {
-            double endTime = (_trimStartMs / 1000.0) + videoDuration;
+            double endTime = (_trimStartMs / 1000.0) + MapPhase3OutputToSourceRelativeSeconds(videoDuration);
             _ = wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", endTime.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         StopPreview();
@@ -1834,7 +2517,7 @@ public partial class MusicWizardWindow : Window
         double videoDuration = GetPhase3VideoDurationSeconds();
         if (videoDuration <= 0) return;
 
-        double ratio = GetAudibleMusicDurationSeconds() / videoDuration;
+        double ratio = GetQueuedMusicCoverageSeconds() / videoDuration;
         waveImg.Width = clip.Bounds.Width * ratio;
         waveImg.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
         waveImg.Height = 60;
@@ -1853,7 +2536,7 @@ public partial class MusicWizardWindow : Window
 
         double trimStartSec = _trimStartMs / 1000.0;
         double trimEndSec = trimStartSec + GetPhase3VideoDurationSeconds();
-        double audibleMusic = GetAudibleMusicDurationSeconds();
+        double audibleMusic = GetQueuedMusicCoverageSeconds();
         string endText = audibleMusic >= GetPhase3VideoDurationSeconds() - 0.01
             ? "Music is trimmed at the video end."
             : $"Only {FormatSeconds(audibleMusic)} of music remains after this song point.";
@@ -1924,18 +2607,172 @@ public partial class MusicWizardWindow : Window
 
     private double GetQueuedMusicCoverageSeconds()
     {
-        if (_pendingAutoFillMusicPaths.Count == 0)
-            return GetAudibleMusicDurationSeconds();
+        var segments = BuildPhase3MusicPreviewSegments();
+        if (segments.Count == 0)
+            return 0.0;
 
-        double covered = 0.0;
-        for (int i = 0; i < _pendingAutoFillMusicPaths.Count; i++)
+        return Math.Min(GetPhase3VideoDurationSeconds(), segments[^1].TimelineEndSec);
+    }
+
+    private bool IsPhase3LoopMusicEnabled()
+    {
+        return _isMergerMode && (this.FindControl<CheckBox>("LoopMusicCheckBox")?.IsChecked ?? false);
+    }
+
+    private System.Collections.Generic.List<Phase3MusicPreviewSegment> BuildPhase3MusicPreviewSegments()
+    {
+        var segments = new System.Collections.Generic.List<Phase3MusicPreviewSegment>();
+        if (_selectedTrack == null)
+            return segments;
+
+        double targetDuration = GetPhase3VideoDurationSeconds();
+        if (targetDuration <= 0.01)
+            return segments;
+
+        var sourcePaths = (_pendingAutoFillMusicPaths.Count > 0
+                ? _pendingAutoFillMusicPaths
+                : new System.Collections.Generic.List<string> { _selectedTrack.FilePath })
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .ToList();
+
+        if (sourcePaths.Count == 0)
+            return segments;
+
+        bool loopEnabled = IsPhase3LoopMusicEnabled();
+        double cursor = 0.0;
+        bool firstSegment = true;
+        int guard = 0;
+
+        do
         {
-            var track = FindTrackByPath(_pendingAutoFillMusicPaths[i]);
-            double offset = i == 0 ? _songStartSeconds : 0.0;
-            covered += Math.Max(0, (track?.DurationSec ?? 0.0) - offset);
+            bool addedAny = false;
+            foreach (string path in sourcePaths)
+            {
+                if (cursor >= targetDuration - 0.001)
+                    break;
+
+                double fileStart = firstSegment ? _songStartSeconds : 0.0;
+                double knownDuration = GetKnownTrackDurationSeconds(path);
+                if (knownDuration <= 0.01 && string.Equals(path, _selectedTrack.FilePath, StringComparison.OrdinalIgnoreCase))
+                    knownDuration = _trackDuration;
+                if (knownDuration <= 0.01)
+                {
+                    firstSegment = false;
+                    continue;
+                }
+
+                double availableDuration = Math.Max(0.0, knownDuration - fileStart);
+                double takeDuration = Math.Min(availableDuration, targetDuration - cursor);
+                firstSegment = false;
+
+                if (takeDuration <= 0.001)
+                    continue;
+
+                segments.Add(new Phase3MusicPreviewSegment
+                {
+                    Path = path,
+                    TimelineStartSec = cursor,
+                    TimelineEndSec = cursor + takeDuration,
+                    FileStartSec = fileStart
+                });
+
+                cursor += takeDuration;
+                addedAny = true;
+            }
+
+            if (!loopEnabled || !addedAny)
+                break;
+        }
+        while (cursor < targetDuration - 0.001 && ++guard < 1000);
+
+        return segments;
+    }
+
+    private Phase3MusicPreviewSegment? FindPhase3MusicPreviewSegment(double outputRelativeSec)
+    {
+        foreach (var segment in BuildPhase3MusicPreviewSegments())
+        {
+            if (outputRelativeSec >= segment.TimelineStartSec &&
+                outputRelativeSec < segment.TimelineEndSec - 0.005)
+            {
+                return segment;
+            }
         }
 
-        return Math.Min(GetPhase3VideoDurationSeconds(), covered);
+        return null;
+    }
+
+    private async void QueuePhase3MusicPreviewSync()
+    {
+        if (_currentStep != 3 || !_isPreviewPlaying || _audioIpcClient == null)
+            return;
+
+        if (Interlocked.Exchange(ref _phase3MusicSyncInFlight, 1) == 1)
+            return;
+
+        try
+        {
+            await SyncPhase3MusicPreviewTrackAsync(forceReload: false);
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Phase 3 music preview sync failed: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _phase3MusicSyncInFlight, 0);
+        }
+    }
+
+    private async Task EnsureAudioPreviewClientAsync()
+    {
+        if (_audioIpcClient != null)
+            return;
+
+        _audioIpcClient = new FortniteVideoSoftware.Core.Media.MpvIpcClient();
+        await _audioIpcClient.StartAudioOnlyAsync(ResolveMpvPath());
+    }
+
+    private async Task SyncPhase3MusicPreviewTrackAsync(bool forceReload)
+    {
+        if (_currentStep != 3 || !_isPreviewPlaying)
+            return;
+
+        await EnsureAudioPreviewClientAsync();
+
+        if (_audioIpcClient == null)
+            return;
+
+        double outputRelativeSec = GetCurrentPhase3VideoRelativeSeconds();
+        var segment = FindPhase3MusicPreviewSegment(outputRelativeSec);
+        if (segment == null)
+        {
+            await _audioIpcClient.SetPropertyAsync("pause", "yes");
+            _phase3PreviewMusicPath = null;
+            _phase3PreviewMusicSegmentStartSec = double.NaN;
+            return;
+        }
+
+        double audioStartOffset = Math.Max(0.0, segment.FileStartSec + outputRelativeSec - segment.TimelineStartSec);
+        string targetPath = segment.Path.Replace("\\", "/");
+        bool segmentChanged =
+            !string.Equals(_phase3PreviewMusicPath, targetPath, StringComparison.OrdinalIgnoreCase) ||
+            Math.Abs(_phase3PreviewMusicSegmentStartSec - segment.TimelineStartSec) > 0.001;
+
+        if (forceReload || segmentChanged)
+        {
+            await _audioIpcClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            await _audioIpcClient.SendCommandAsync("loadfile", targetPath, "replace");
+            _phase3PreviewMusicPath = targetPath;
+            _phase3PreviewMusicSegmentStartSec = segment.TimelineStartSec;
+        }
+        else if (Math.Abs(_audioIpcClient.CurrentTime - audioStartOffset) > 0.5)
+        {
+            await _audioIpcClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
+        }
+
+        await _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+        await _audioIpcClient.SetPropertyAsync("pause", "no");
     }
 
     private void UpdatePreviewControlsState()
@@ -1948,6 +2785,90 @@ public partial class MusicWizardWindow : Window
             btn.IsEnabled = enabled;
             btn.Opacity = enabled ? 1.0 : 0.5;
         }
+    }
+
+    private void UpdateDuckingCompareButton()
+    {
+        var btn = this.FindControl<Button>("DuckingCompareBtn");
+        if (btn == null) return;
+
+        bool duckingEnabled = this.FindControl<CheckBox>("DuckingCheckBox")?.IsChecked ?? true;
+        btn.Content = duckingEnabled ? "Export Ducking ON" : "Export Ducking OFF";
+        btn.Classes.Clear();
+        btn.Classes.Add(duckingEnabled ? "Primary" : "Secondary");
+        ToolTip.SetTip(btn, duckingEnabled
+            ? "FFmpeg will apply sidechain ducking during export; preview uses the volume sliders only."
+            : "FFmpeg will export without sidechain ducking; preview uses the volume sliders only.");
+    }
+
+    private double GetPreviewVideoVolume(double? masterVolume = null)
+    {
+        double videoVolume = this.FindControl<Slider>("VideoVolSlider")?.Value ?? 100.0;
+        double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
+        return Math.Clamp(videoVolume * master / 100.0, 0.0, 100.0);
+    }
+
+    private double GetPreviewMusicVolume(double? masterVolume = null)
+    {
+        double musicVolume = this.FindControl<Slider>("MusicVolSlider")?.Value ?? 100.0;
+        double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
+        musicVolume = musicVolume * master / 100.0;
+        return Math.Clamp(musicVolume, 0.0, 100.0);
+    }
+
+    private void ApplyPreviewMusicVolume()
+    {
+        if (_audioIpcClient == null) return;
+        _ = _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+    }
+
+    private void UpdateProblemFlags()
+    {
+        var panel = this.FindControl<Border>("ProblemFlagsPanel");
+        var text = this.FindControl<TextBlock>("ProblemFlagsText");
+        if (panel == null || text == null) return;
+
+        var flags = new System.Collections.Generic.List<string>();
+        if (_selectedTrack == null)
+        {
+            panel.IsVisible = false;
+            text.Text = "";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedTrack.FilePath) || !File.Exists(_selectedTrack.FilePath))
+            flags.Add("Music file is missing.");
+
+        double videoDuration = GetPhase3VideoDurationSeconds();
+        double coverage = GetQueuedMusicCoverageSeconds();
+        bool loopEnabled = this.FindControl<CheckBox>("LoopMusicCheckBox")?.IsChecked ?? false;
+        if (!loopEnabled && videoDuration > 0.1 && coverage < videoDuration - 0.5)
+            flags.Add($"Music ends {FormatSeconds(videoDuration - coverage)} before the video ends.");
+
+        if (_trackDuration <= 0.01)
+            flags.Add("Song length is unknown.");
+        else if (_songStartSeconds >= _trackDuration - 0.1)
+            flags.Add("Song start is at the very end of the song.");
+
+        double videoVolume = this.FindControl<Slider>("VideoVolSlider")?.Value ?? 100.0;
+        double musicVolume = this.FindControl<Slider>("MusicVolSlider")?.Value ?? 100.0;
+        if (musicVolume <= 1.0)
+            flags.Add("Music volume is muted.");
+        if (videoVolume <= 1.0)
+            flags.Add("Original video audio is muted.");
+
+        bool duckingEnabled = this.FindControl<CheckBox>("DuckingCheckBox")?.IsChecked ?? true;
+        if (!duckingEnabled && videoVolume >= 70.0 && musicVolume >= 80.0)
+            flags.Add("Ducking is off while both music and video audio are loud.");
+
+        if (_isMergerMode && _mergerVideos != null && _phase3ClipDurationsSec.Count > 0 &&
+            _phase3ClipDurationsSec.Count != _mergerVideos.Count)
+        {
+            flags.Add("Clip boundary preview could not confirm every merged clip duration.");
+        }
+
+        panel.IsVisible = _currentStep == 3 && flags.Count > 0;
+        text.Text = string.Join(Environment.NewLine, flags.Select(flag => $"WARNING: {flag}"));
     }
 
     private void SetPhase3Status(string message)
@@ -2015,12 +2936,7 @@ public partial class MusicWizardWindow : Window
         {
             double videoRelative = Math.Clamp(GetCurrentPhase3VideoRelativeSeconds() + offsetSeconds, 0, GetPhase3VideoDurationSeconds());
             _previewCurrentOffset = _songStartSeconds + videoRelative;
-            var wizardVideoHost = WizardVideoHost;
-            if (wizardVideoHost?.IpcClient != null)
-            {
-                double target = (_trimStartMs / 1000.0) + videoRelative;
-                _ = wizardVideoHost.IpcClient.SendCommandAsync("seek", target.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
-            }
+            SeekPhase3VideoHost(videoRelative, forcePause: !wasPlaying);
         }
         else
         {
@@ -2066,19 +2982,16 @@ public partial class MusicWizardWindow : Window
         _previewCurrentOffset = startOffset;
 
         _previewStartTime = DateTime.UtcNow;
+        _phase3PreviewClockStartTime = null;
 
 
         if (_currentStep == 3)
         {
-            var wizardVideoHost = WizardVideoHost;
-            if (wizardVideoHost?.IpcClient != null)
-            {
-                double videoSeekTime = Math.Clamp(startOffset - _songStartSeconds, 0, GetPhase3VideoDurationSeconds());
-                double videoStartPos = (_trimStartMs / 1000.0) + videoSeekTime;
-
-                _ = wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", videoStartPos.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                _ = wizardVideoHost.IpcClient.SetPropertyAsync("pause", "no");
-            }
+            double outputRelativeSec = Math.Clamp(startOffset - _songStartSeconds, 0, GetPhase3VideoDurationSeconds());
+            _phase3PreviewClockStartOffsetSec = outputRelativeSec;
+            _phase3PreviewClockStartTime = DateTime.UtcNow;
+            SeekPhase3VideoHost(outputRelativeSec, forcePause: false);
+            SyncPhase3VideoPreviewClock();
 
         }
 
@@ -2087,41 +3000,33 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            if (_audioIpcClient == null)
-
-            {
-
-                _audioIpcClient = new FortniteVideoSoftware.Core.Media.MpvIpcClient();
-
-                await _audioIpcClient.StartAudioOnlyAsync(ResolveMpvPath());
-
-            }
+            await EnsureAudioPreviewClientAsync();
+            var audioClient = _audioIpcClient;
+            if (audioClient == null)
+                return;
 
 
             double audioStartOffset = Math.Clamp(startOffset, 0, _trackDuration);
-            if (_currentStep == 3 && audioStartOffset >= _trackDuration - 0.01)
+            if (_currentStep == 3)
             {
-                if (_audioIpcClient != null)
-                    await _audioIpcClient.SetPropertyAsync("pause", "yes");
+                await SyncPhase3MusicPreviewTrackAsync(forceReload: true);
                 return;
             }
 
             string targetPath = _selectedTrack!.FilePath.Replace("\\", "/");
             if (_lastLoadedTrackPath != targetPath)
             {
-                await _audioIpcClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                await _audioIpcClient.SendCommandAsync("loadfile", targetPath, "replace");
+                await audioClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                await audioClient.SendCommandAsync("loadfile", targetPath, "replace");
                 _lastLoadedTrackPath = targetPath;
             }
             else
             {
-                await _audioIpcClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
+                await audioClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
             }
 
-            var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
-            double musicVol = (musicVolSlider?.Value ?? 100.0);
-            await _audioIpcClient.SetPropertyDoubleAsync("volume", musicVol);
-            await _audioIpcClient.SetPropertyAsync("pause", "no");
+            await audioClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+            await audioClient.SetPropertyAsync("pause", "no");
         }
         catch (Exception ex)
         {
@@ -2137,6 +3042,7 @@ public partial class MusicWizardWindow : Window
             if (_currentStep == 3)
             {
                 _previewCurrentOffset = _songStartSeconds + GetCurrentPhase3VideoRelativeSeconds();
+                _phase3PreviewClockStartTime = null;
             }
             else
             {
@@ -2150,6 +3056,8 @@ public partial class MusicWizardWindow : Window
 
 
         _isPreviewPlaying = false;
+        _phase3PreviewMusicPath = null;
+        _phase3PreviewMusicSegmentStartSec = double.NaN;
 
 
         if (_audioIpcClient != null)
@@ -2202,6 +3110,8 @@ public partial class MusicWizardWindow : Window
     {
 
         if (string.IsNullOrEmpty(filePath)) return;
+        int renderVersion = System.Threading.Interlocked.Increment(ref _waveformRenderVersion);
+        string requestedPath = filePath;
 
 
         var waveformImage = this.FindControl<Image>("WaveformImage");
@@ -2223,6 +3133,15 @@ public partial class MusicWizardWindow : Window
 
         string? pngFile = await FortniteVideoSoftware.Core.Media.WaveformGenerator.GenerateWaveformImageAsync(ffmpegPath, filePath);
 
+        if (renderVersion != _waveformRenderVersion ||
+            !string.Equals(_selectedTrack?.FilePath, requestedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (pngFile != null && File.Exists(pngFile))
+            {
+                try { File.Delete(pngFile); } catch { }
+            }
+            return;
+        }
 
         loadingText.IsVisible = false;
 
@@ -2440,28 +3359,74 @@ public partial class MusicWizardWindow : Window
     {
         if (!_isMergerMode) return;
 
+        var scaleCanvas = this.FindControl<Canvas>("Phase3TimelineCanvas");
         var thumbCanvas = this.FindControl<Canvas>("ThumbnailOverlayCanvas");
         var waveCanvas = this.FindControl<Canvas>("WaveformOverlayCanvas");
         if (thumbCanvas != null) thumbCanvas.Children.Clear();
         if (waveCanvas != null) waveCanvas.Children.Clear();
 
-        if (_mergerVideos != null && _mergerVideos.Count > 1 && thumbCanvas != null)
+        if (_mergerVideos != null && _mergerVideos.Count > 1 && _phase3ClipDurationsSec.Count > 1)
         {
-            // Separations are now drawn dynamically using margins in ThumbnailLaneGrid.
+            double totalClipDuration = _phase3ClipDurationsSec.Sum();
+            if (totalClipDuration > 0.01)
+            {
+                double cursor = 0;
+                for (int i = 1; i < _phase3ClipDurationsSec.Count; i++)
+                {
+                    cursor += _phase3ClipDurationsSec[i - 1];
+                    double xPos = Math.Clamp((cursor / totalClipDuration) * canvasWidth, 0, canvasWidth);
+                    if (thumbCanvas != null)
+                        AddLaneBoundary(thumbCanvas, xPos, 60, Avalonia.Media.Brushes.White, 0.85);
+                    if (waveCanvas != null)
+                        AddLaneBoundary(waveCanvas, xPos, 60, Avalonia.Media.Brushes.White, 0.55);
+                    if (scaleCanvas != null)
+                    {
+                        AddLaneBoundary(scaleCanvas, xPos, scaleCanvas.Bounds.Height, Avalonia.Media.Brushes.White, 0.70);
+                        var label = new TextBlock
+                        {
+                            Text = $"CLIP {i + 1}",
+                            FontSize = Infrastructure.ThemeManager.ScaledFontSize(8),
+                            Foreground = Avalonia.Media.Brushes.White,
+                            IsHitTestVisible = false,
+                            RenderTransform = new Avalonia.Media.TranslateTransform(xPos + 4, 0)
+                        };
+                        scaleCanvas.Children.Add(label);
+                    }
+                }
+            }
         }
 
         var songs = _pendingAutoFillMusicPaths;
         if (songs != null && songs.Count > 1 && waveCanvas != null)
         {
+            double videoDuration = GetPhase3VideoDurationSeconds();
+            double cursor = 0.0;
             for (int i = 1; i < songs.Count; i++)
             {
-                double xPos = (canvasWidth / songs.Count) * i;
-                var border = new Avalonia.Controls.Border { Width = 3, Height = 60, Background = Avalonia.Media.Brushes.Black };
-                Canvas.SetLeft(border, xPos);
-                Canvas.SetTop(border, 0);
-                waveCanvas.Children.Add(border);
+                var previousTrack = FindTrackByPath(songs[i - 1]);
+                double offset = i == 1 ? _songStartSeconds : 0.0;
+                cursor += Math.Max(0, (previousTrack?.DurationSec ?? 0.0) - offset);
+                if (videoDuration <= 0.01 || cursor >= videoDuration) break;
+
+                double xPos = Math.Clamp((cursor / videoDuration) * canvasWidth, 0, canvasWidth);
+                AddLaneBoundary(waveCanvas, xPos, 60, Avalonia.Media.Brushes.LightGreen, 0.80);
             }
         }
+    }
+
+    private static void AddLaneBoundary(Canvas canvas, double xPos, double height, Avalonia.Media.IBrush brush, double opacity)
+    {
+        var border = new Avalonia.Controls.Border
+        {
+            Width = 2,
+            Height = Math.Max(1, height),
+            Background = brush,
+            Opacity = opacity,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(border, Math.Max(0, xPos - 1));
+        Canvas.SetTop(border, 0);
+        canvas.Children.Add(border);
     }
 
 
@@ -2634,6 +3599,7 @@ public partial class MusicWizardWindow : Window
             UpdateFinalPlacementSummary();
             UpdateAutoFillQueuePreview();
             UpdateCoverageBar();
+            UpdateProblemFlags();
             UpdatePlayhead();
         }
     }
@@ -2668,6 +3634,8 @@ public partial class MusicWizardWindow : Window
     private void OnFileDrop(object? sender, DragEventArgs e)
 
     {
+
+        CancelMusicScan();
 
         var files = e.Data.GetFiles();
 
@@ -2740,52 +3708,26 @@ public partial class MusicWizardWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        CancelAudioAnalysis();
+        CancelMusicScan();
         CancelPhase3Load();
         StopPreview();
         DisposePhase3VideoHost();
 
+        if (_playheadTimer != null) { _playheadTimer.Stop(); _playheadTimer.Tick -= PlayheadTimer_Tick; _playheadTimer = null; }
+        
         if (_isSafeToClose)
-
         {
-
             base.OnClosing(e);
-
             return;
-
         }
-
 
         e.Cancel = true;
-
-
         this.Hide();
-
-
-        try
-
-        {
-
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            RuntimeLog.Fail("MUSIC_WIZARD", $"Error saving state during close: {ex.Message}");
-
-        }
-
-        finally
-
-        {
-
-
-            _isSafeToClose = true;
-
-            this.Close();
-
-        }
+        
+        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "MusicWizardBounds");
+        _isSafeToClose = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(Close);
 
     }
 
@@ -2794,7 +3736,10 @@ public partial class MusicWizardWindow : Window
 
     {
 
+        if (_playheadTimer != null) { _playheadTimer.Stop(); _playheadTimer.Tick -= PlayheadTimer_Tick; _playheadTimer = null; }
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
+        CancelAudioAnalysis();
+        CancelMusicScan();
         if (_lastWaveformFile != null && File.Exists(_lastWaveformFile))
         {
             try { File.Delete(_lastWaveformFile); } catch { }
@@ -2855,77 +3800,76 @@ public partial class MusicWizardWindow : Window
         }
 
 
-        ScanDirectoryForMusic(targetDir);
+        _ = ScanDirectoryForMusicAsync(targetDir);
 
     }
 
 
-    protected override void OnPointerPressed(Avalonia.Input.PointerPressedEventArgs e)
+    private async Task ScanDirectoryForMusicAsync(string directoryPath)
 
     {
 
-        base.OnPointerPressed(e);
-
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-
-        {
-
-            try { BeginMoveDrag(e); } catch { }
-
-        }
-
-    }
-
-
-    private void ScanDirectoryForMusic(string directoryPath)
-
-    {
+        CancelMusicScan();
+        var cts = new CancellationTokenSource();
+        _musicScanCts = cts;
+        int scanVersion = _musicScanVersion;
 
         _allTracks.Clear();
         AvailableTracks.Clear();
+        ApplyTrackFilterAndSort();
 
-        if (Directory.Exists(directoryPath))
-
+        try
         {
-
-            var exts = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp3", ".wav", ".m4a", ".aac", ".ogg" };
-
-            var files = Directory.GetFiles(directoryPath).Where(f => exts.Contains(Path.GetExtension(f)));
-
-            foreach (var f in files)
-
+            var tracks = await Task.Run(() =>
             {
-                var fileInfo = new FileInfo(f);
+                var found = new System.Collections.Generic.List<MusicTrackItem>();
+                if (!Directory.Exists(directoryPath))
+                    return found;
 
-                var item = new MusicTrackItem
+                var exts = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp3", ".wav", ".m4a", ".aac", ".ogg" };
 
+                foreach (string f in Directory.EnumerateFiles(directoryPath))
                 {
+                    cts.Token.ThrowIfCancellationRequested();
+                    if (!exts.Contains(Path.GetExtension(f)))
+                        continue;
 
-                    Name = Path.GetFileName(f),
+                    var fileInfo = new FileInfo(f);
+                    found.Add(new MusicTrackItem
+                    {
+                        Name = Path.GetFileName(f),
+                        Title = Path.GetFileNameWithoutExtension(f),
+                        FilePath = f,
+                        DurationText = "Loading...",
+                        SizeText = "",
+                        LastModifiedTicks = fileInfo.LastWriteTimeUtc.Ticks,
+                        IsRecent = _recentMusicPaths.Contains(f)
+                    });
+                }
 
-                    Title = Path.GetFileNameWithoutExtension(f),
+                return found;
+            }, cts.Token);
 
-                    FilePath = f,
+            if (cts.Token.IsCancellationRequested || scanVersion != _musicScanVersion)
+                return;
 
-                    DurationText = "Loading...",
-
-                    SizeText = "",
-
-                    LastModifiedTicks = fileInfo.LastWriteTimeUtc.Ticks,
-
-                    IsRecent = _recentMusicPaths.Contains(f)
-
-                };
-
+            _allTracks.Clear();
+            foreach (var item in tracks)
                 _allTracks.Add(item);
 
-                _ = ProbeTrackInfoAsync(item);
+            ApplyTrackFilterAndSort();
 
-            }
-
+            foreach (var item in tracks)
+                _ = ProbeTrackInfoAsync(item, cts.Token);
         }
-
-        ApplyTrackFilterAndSort();
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to scan music directory: {ex.Message}");
+            ApplyTrackFilterAndSort();
+        }
 
     }
 
@@ -2948,60 +3892,51 @@ public partial class MusicWizardWindow : Window
 
     /// </summary>
 
-    private async Task ProbeTrackInfoAsync(MusicTrackItem item)
+    private async Task ProbeTrackInfoAsync(MusicTrackItem item, CancellationToken cancellationToken = default)
 
     {
 
-        await Task.Run(() =>
+        try
 
         {
 
+            await _trackProbeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
             try
-
             {
-
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var fileInfo = new FileInfo(item.FilePath);
-
                 double sizeMb = fileInfo.Length / (1024.0 * 1024.0);
-
-                item.SizeText = sizeMb >= 1.0 ? $"{sizeMb:F1} MB" : $"{fileInfo.Length / 1024.0:F0} KB";
-
+                string sizeText = sizeMb >= 1.0 ? $"{sizeMb:F1} MB" : $"{fileInfo.Length / 1024.0:F0} KB";
 
                 var ffprobePath = ResolveFfprobePath();
-
                 var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobePath, item.FilePath);
+                double duration = await prober.GetDurationAsync().ConfigureAwait(false);
 
-                double duration = prober.GetDurationAsync().GetAwaiter().GetResult();
-
+                string durationText;
+                double durationSec = 0.0;
                 if (duration > 0)
-
                 {
-
-                    item.DurationSec = duration;
-
+                    durationSec = duration;
                     var ts = TimeSpan.FromSeconds(duration);
-
-                    item.DurationText = ts.TotalHours >= 1
-
+                    durationText = ts.TotalHours >= 1
                         ? ts.ToString(@"h\:mm\:ss")
-
                         : ts.ToString(@"m\:ss");
-
                 }
-
                 else
-
                 {
-
-                    item.DurationText = "—";
-
+                    durationText = "—";
                 }
-
 
                 Dispatcher.UIThread.Post(() =>
-
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
+                    item.SizeText = sizeText;
+                    item.DurationSec = durationSec;
+                    item.DurationText = durationText;
 
                     if (_musicSortMode == "Shortest" || _musicSortMode == "Longest")
                     {
@@ -3021,22 +3956,28 @@ public partial class MusicWizardWindow : Window
 
                     UpdateAutoFillQueuePreview();
                     UpdateCoverageBar();
+                    UpdateProblemFlags();
 
                 });
-
             }
-
-            catch (Exception ex)
-
+            finally
             {
-
-                RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to probe {item.Name}: {ex.Message}");
-
-                item.DurationText = "—";
-
+                _trackProbeGate.Release();
             }
 
-        });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+
+        {
+
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to probe {item.Name}: {ex.Message}");
+
+            Dispatcher.UIThread.Post(() => item.DurationText = "—");
+
+        }
 
     }
 

@@ -24,6 +24,11 @@ public sealed class AmbientBubblesBackground : Control
     private double _lastFrameSeconds;
     private double _accumulator;
     private bool _running;
+    
+    private Point _mousePos = new Point(-1000, -1000);
+    private Avalonia.PixelPoint _lastWindowPos;
+    private double _gravityShearX;
+    private double _gravityShearY;
 
     private sealed class Bubble
     {
@@ -58,14 +63,33 @@ public sealed class AmbientBubblesBackground : Control
         _lastFrameSeconds = 0;
         _accumulator = 0;
         _running = true;
-        TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnAnimationFrame);
+        var top = TopLevel.GetTopLevel(this);
+        if (top != null)
+        {
+            top.PointerMoved += OnTopLevelPointerMoved;
+            if (top is Window w)
+            {
+                _lastWindowPos = w.Position;
+            }
+            top.RequestAnimationFrame(OnAnimationFrame);
+        }
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        var top = TopLevel.GetTopLevel(this);
+        if (top != null)
+        {
+            top.PointerMoved -= OnTopLevelPointerMoved;
+        }
         base.OnDetachedFromVisualTree(e);
         _running = false;
         _clock.Stop();
+    }
+
+    private void OnTopLevelPointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
+    {
+        _mousePos = e.GetPosition(this);
     }
 
     private void OnAnimationFrame(TimeSpan _)
@@ -93,16 +117,57 @@ public sealed class AmbientBubblesBackground : Control
 
     private void StepPhysics(double now)
     {
+        double w = Bounds.Width;
+        double h = Bounds.Height;
+        if (w <= 1 || h <= 1) return;
+
+        var top = TopLevel.GetTopLevel(this);
+        if (top is Window win)
+        {
+            var curPos = win.Position;
+            double dx = curPos.X - _lastWindowPos.X;
+            double dy = curPos.Y - _lastWindowPos.Y;
+            _lastWindowPos = curPos;
+
+            // Slosh inertia applied to gravity shear
+            _gravityShearX += (-dx * 0.005 - _gravityShearX) * 0.1;
+            _gravityShearY += (-dy * 0.005 - _gravityShearY) * 0.1;
+        }
+
+        // Dampen over time
+        _gravityShearX *= 0.95;
+        _gravityShearY *= 0.95;
+
         foreach (var b in _bubbles)
         {
-            b.Y -= b.BaseSpeed;
-            b.X += Math.Sin(b.Y * 7.0 + now * b.WobbleSpeed + b.Seed) * b.WobbleAmount;
+            // Calculate absolute position
+            double bx = b.X * w;
+            double by = b.Y * h;
+
+            // Mouse repulsion
+            double distX = bx - _mousePos.X;
+            double distY = by - _mousePos.Y;
+            double distSq = distX * distX + distY * distY;
+            double repulsionRadius = 150.0;
+            double repulsionRadiusSq = repulsionRadius * repulsionRadius;
+
+            if (distSq < repulsionRadiusSq && distSq > 0.1)
+            {
+                double force = (1.0 - distSq / repulsionRadiusSq) * 15.0; // Pushing force
+                double length = Math.Sqrt(distSq);
+                b.X += (distX / length) * force / w;
+                b.Y += (distY / length) * force / h;
+            }
+
+            // Normal movement + Inertia Gravity
+            b.Y -= b.BaseSpeed - (_gravityShearY * b.BaseSpeed * 50.0);
+            b.X += Math.Sin(b.Y * 7.0 + now * b.WobbleSpeed + b.Seed) * b.WobbleAmount + (_gravityShearX * b.BaseSpeed * 50.0);
             
             // Seamless horizontal wrapping
-            if (b.X < -0.1) b.X = 1.1;
-            if (b.X > 1.1) b.X = -0.1;
+            if (b.X < -0.2) b.X = 1.2;
+            if (b.X > 1.2) b.X = -0.2;
 
-            if (b.Y < -0.15)
+            if (b.Y < -0.25 || b.Y > 1.35)
             {
                 ResetBubble(b, randomY: false);
             }

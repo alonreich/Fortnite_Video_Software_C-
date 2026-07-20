@@ -166,8 +166,19 @@ public sealed class StateTransferStore
         try
         {
             JsonObject state = AtomicJsonFile.ReadObject(Paths.SessionStateFile) ?? new JsonObject();
-            ValidateKnownProperties(state);
-            return state;
+            if (state.Count == 0) return state;
+
+            if (state.TryGetPropertyValue("schema_version", out var versionNode) && 
+                versionNode is JsonValue versionVal && 
+                versionVal.TryGetValue<int>(out int version) && 
+                version == SchemaVersion)
+            {
+                ValidateKnownProperties(state);
+                return state;
+            }
+            
+            QuarantineCorruptedSessionFile();
+            return new JsonObject();
         }
         catch (JsonException)
         {

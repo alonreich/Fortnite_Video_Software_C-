@@ -118,6 +118,11 @@
                                             <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                         </Grid>
                                         <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="{DynamicResource AppInfoBrush}" FontWeight="Bold" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}" Margin="0,5,0,5" IsVisible="True"/>
+                                        <Grid Margin="0,6,0,0" ColumnDefinitions="Auto,Auto,*">
+                                            <Button Grid.Column="0" Name="BeatSnapBtn" Content="Snap To Beat" Classes="Secondary" MinWidth="110" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" ToolTip.Tip="Move the song start to the nearest strong beat."/>
+                                            <Button Grid.Column="1" Name="SmartFitBtn" Content="Smart Fit" Classes="Primary" MinWidth="100" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="8,0,0,0" ToolTip.Tip="Pick a strong song section that fits the video length."/>
+                                            <TextBlock Grid.Column="2" Name="SmartFitStatusText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="10,0,0,0"/>
+                                        </Grid>
 
                                         <StackPanel Spacing="10" Margin="0,10,0,0">
                                             <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
@@ -188,6 +193,9 @@
                                     <TextBlock Text="CONFIRM MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}"/>
                                     <TextBlock Name="FinalPlacementLabel" Text="The video and music preview will end together at the video end." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
                                     <TextBlock Name="Phase3StatusLabel" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize10}"/>
+                                    <Border Name="ProblemFlagsPanel" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="8,5" IsVisible="False">
+                                        <TextBlock Name="ProblemFlagsText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                    </Border>
                                 </StackPanel>
 
                                 <Grid Grid.Row="1" Margin="0,0,0,10">
@@ -240,7 +248,7 @@
                                     </Panel>
                                 </Grid>
 
-                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="60" Margin="0,0,0,10">
+                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="42" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
                                         <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
@@ -248,6 +256,10 @@
                                     <StackPanel>
                                         <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
                                         <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Export Ducking" Name="DuckingCompareLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
+                                        <Button Name="DuckingCompareBtn" Content="Export Ducking ON" Classes="Primary" MinWidth="130" HorizontalContentAlignment="Center" ToolTip.Tip="Toggle whether FFmpeg applies ducking during export."/>
                                     </StackPanel>
                                 </StackPanel>
                             </Grid>

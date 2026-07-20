@@ -47,6 +47,10 @@ public class FluidVolumeSlider : Slider
     private readonly Stopwatch _clock = new();
     private double _lastFrameSeconds;
     private bool _running;
+    private Avalonia.PixelPoint _lastWindowPos;
+    private double _sloshTilt;
+    private double _sloshWave;
+    private double _simulatedPeak;
 
     // ---- Physics state ----
     private double _currentVolume = 100;   // displayed fluid level (0..100)
@@ -151,7 +155,15 @@ public class FluidVolumeSlider : Slider
         _lastFrameSeconds = 0;
         _accumulator = 0;
         _running = true;
-        TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnAnimationFrame);
+        var top = TopLevel.GetTopLevel(this);
+        if (top != null)
+        {
+            if (top is Window w)
+            {
+                _lastWindowPos = w.Position;
+            }
+            top.RequestAnimationFrame(OnAnimationFrame);
+        }
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -188,6 +200,34 @@ public class FluidVolumeSlider : Slider
 
     private void StepPhysics(double now)
     {
+        var top = TopLevel.GetTopLevel(this);
+        if (top is Window win)
+        {
+            var curPos = win.Position;
+            double dx = curPos.X - _lastWindowPos.X;
+            _lastWindowPos = curPos;
+            
+            // Dramatic realistic slosh physics
+            // _sloshTilt acts as the primary linear slant across the tube
+            _sloshTilt += (-dx * 2.5 - _sloshTilt) * 0.12;
+            
+            // _sloshWave acts as a secondary parabolic pile-up on the wall
+            _sloshWave += (dx * 1.5 - _sloshWave) * 0.10;
+        }
+        _sloshTilt *= 0.90; // Dampen heavily so it rocks back
+        _sloshWave *= 0.88;
+
+        if (_targetVolume > 0)
+        {
+            double fakeAudio = Math.Max(0, Math.Sin(now * 15.3) * Math.Sin(now * 7.7) * Math.Cos(now * 2.1));
+            fakeAudio = fakeAudio * fakeAudio * (_targetVolume / 100.0);
+            _simulatedPeak += (fakeAudio * 35.0 - _simulatedPeak) * 0.3;
+        }
+        else
+        {
+            _simulatedPeak *= 0.8;
+        }
+
         // Fluid level: damped spring toward the target volume.
         const double spring = 0.08;
         const double friction = 0.86;
@@ -421,13 +461,18 @@ public class FluidVolumeSlider : Slider
             double SurfaceY(double x)
             {
                 double nx = (x - tubeX) / tubeWidth;
+                double centerOffset = nx - 0.5;
                 double off =
                     Math.Sin(now * 5.00 + nx * 5.0) * 1.9 +
                     Math.Cos(now * 3.00 * Math.Sqrt(2) + nx * 12.0) * 1.1 +
                     Math.Sin(now * 7.30 * 1.6180339887 + nx * 8.0) * 0.7 +
                     Math.Cos(now * 2.10 * Math.PI + nx * 17.0) * 0.5 +
                     Math.Sin(now * 9.70 * Math.Sqrt(3) + nx * 3.0) * 0.4;
-                return fluidY + off * dynamicAmp;
+                
+                double totalAmp = dynamicAmp + _simulatedPeak;
+                // Add linear tilt and a parabolic curve for wall pile-up
+                double sloshCurve = centerOffset * centerOffset * _sloshWave * Math.Sign(centerOffset);
+                return fluidY + (off * totalAmp) + (centerOffset * _sloshTilt) + sloshCurve;
             }
 
             // 3D Fluid Meniscus (Surface Tension) - Soft Glow
@@ -518,6 +563,8 @@ public class FluidVolumeSlider : Slider
         context.DrawGeometry(null, ghostPen, ghostStick);
         context.DrawGeometry(null, stickGlowPen, stick);
         context.DrawGeometry(null, stickPen, stick);
+
+
 
         // --- Percentage text inside the tube (white + heavy dark drop shadow) ---
         string label = ((int)Math.Round(_targetVolume)).ToString(CultureInfo.InvariantCulture) + "%";

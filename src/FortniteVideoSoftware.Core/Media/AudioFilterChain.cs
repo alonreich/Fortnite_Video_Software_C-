@@ -198,8 +198,8 @@ public class AudioFilterChain
         if (volumeNormalizeDb != 0)
             vVolGame *= Math.Pow(10, volumeNormalizeDb / 20.0);
 
-        chain.Add($"[a_main_raw]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_scaled]");
-        chain.Add("[game_scaled]asplit=2[game_out_pre][game_trig]");
+        chain.Add("[a_main_raw]asplit=2[game_raw_pre][game_trig]");
+        chain.Add($"[game_raw_pre]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_out_pre]");
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");

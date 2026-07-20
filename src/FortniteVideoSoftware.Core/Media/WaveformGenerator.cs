@@ -11,9 +11,11 @@ public static class WaveformGenerator
 {
     public static async Task<string?> GenerateWaveformImageAsync(string ffmpegPath, string audioFilePath, int width = 4000, int height = 400, double? startSec = null, double? durationSec = null, CancellationToken cancellationToken = default)
     {
+        string? tempPng = null;
+        Process? process = null;
         try
         {
-            string tempPng = Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory, $"fvs_wave_{Guid.NewGuid():N}.png");
+            tempPng = Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory, $"fvs_wave_{Guid.NewGuid():N}.png");
             
             string timeArgs = "";
             if (startSec.HasValue) timeArgs += $"-ss {startSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
@@ -29,7 +31,7 @@ public static class WaveformGenerator
                 RedirectStandardError = true
             };
 
-            using var process = Process.Start(psi);
+            process = Process.Start(psi);
             if (process == null) return null;
             ChildProcessTracker.AddProcess(process);
 
@@ -46,8 +48,28 @@ public static class WaveformGenerator
 
             if (File.Exists(tempPng)) File.Delete(tempPng);
         }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (process != null && !process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+
+            if (tempPng != null && File.Exists(tempPng))
+            {
+                try { File.Delete(tempPng); } catch { }
+            }
+
+            throw;
+        }
         catch (Exception)
         {
+        }
+        finally
+        {
+            try { process?.Dispose(); } catch { }
         }
         return null;
     }

@@ -899,7 +899,12 @@ public partial class MainWindow : Window
                     _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
                 SetTimelinePopupsVisible(false);
-                var wizard = new MusicWizardWindow(_loadedVideoPath, _trimStartMs, _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000);
+                var wizard = new MusicWizardWindow(
+                    _loadedVideoPath,
+                    _trimStartMs,
+                    _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
+                    _baseSpeed,
+                    BuildExportSpeedSegments());
                 await wizard.ShowDialog(this);
                 SetTimelinePopupsVisible(true);
 
@@ -1071,7 +1076,7 @@ public partial class MainWindow : Window
             catch { }
 
             var newObj = new System.Text.Json.Nodes.JsonObject();
-            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "PreviewMonitorWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
+            var preserveKeys = new[] { "schema_version", "MainWindowBounds", "PreviewMonitorWindowBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "MergerOutputDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
             foreach (var key in preserveKeys) {
                 if (state.TryGetPropertyValue(key, out var gb)) {
                     newObj[key] = gb?.DeepClone();
@@ -2229,16 +2234,8 @@ public partial class MainWindow : Window
         await view.StartMpvProcessAsync(mpvPath);
         if (view.IpcClient != null)
         {
-            view.IpcClient.SeekCompleted += () => {
-                Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
-                    _isSeeking = false;
-                    if (_nextSeekTarget.HasValue) {
-                        double target = _nextSeekTarget.Value;
-                        _nextSeekTarget = null;
-                        await SeekInternal(target);
-                    }
-                });
-            };
+            view.IpcClient.SeekCompleted -= OnSeekCompleted;
+            view.IpcClient.SeekCompleted += OnSeekCompleted;
         }
     }
 
@@ -4165,18 +4162,23 @@ public partial class MainWindow : Window
 
             if (_videoHost.IpcClient != null)
             {
-                _videoHost.IpcClient.SeekCompleted += () => {
-                    Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
-                        _isSeeking = false;
-                        if (_nextSeekTarget.HasValue) {
-                            double target = _nextSeekTarget.Value;
-                            _nextSeekTarget = null;
-                            await SeekInternal(target);
-                        }
-                    });
-                };
+                _videoHost.IpcClient.SeekCompleted -= OnSeekCompleted;
+                _videoHost.IpcClient.SeekCompleted += OnSeekCompleted;
             }
         }
+    }
+
+
+    private void OnSeekCompleted()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
+            _isSeeking = false;
+            if (_nextSeekTarget.HasValue) {
+                double target = _nextSeekTarget.Value;
+                _nextSeekTarget = null;
+                await SeekInternal(target);
+            }
+        });
     }
 
     private async Task SeekInternal(double time) {

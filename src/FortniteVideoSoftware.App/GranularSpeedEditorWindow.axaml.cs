@@ -595,7 +595,7 @@ public partial class GranularSpeedEditorWindow : Window
 
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
                 UpdateDragReadout(newStart, newEnd);   // #10 live start/end/length badge
-                RedrawTimeline();
+                UpdateDraggingVisuals(idx, newStart, newEnd);
                 e.Handled = true;
             };
         }
@@ -1367,6 +1367,37 @@ public partial class GranularSpeedEditorWindow : Window
     // frame during drags; without this guard each move queued a FULL canvas rebuild.
     private bool _redrawQueued;
 
+
+    private void UpdateDraggingVisuals(int segIndex, double newStartMs, double newEndMs)
+    {
+        var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
+        if (canvas == null) return;
+        double w = canvas.Bounds.Width;
+        double dur = GetDuration();
+        if (dur <= 0 || w <= 0) return;
+        
+        double x1 = (newStartMs / 1000.0 / dur) * w;
+        double x2 = (newEndMs / 1000.0 / dur) * w;
+        double segW = Math.Max(2, x2 - x1);
+        
+        foreach (Avalonia.Controls.Control child in canvas.Children)
+        {
+            if (child.Name == $"SegRect_{segIndex}" || child.Name == $"SegBorder_{segIndex}")
+            {
+                Avalonia.Controls.Canvas.SetLeft(child, x1);
+                child.Width = segW;
+            }
+            else if (child.Name == $"SegEdgeStart_{segIndex}")
+            {
+                Avalonia.Controls.Canvas.SetLeft(child, x1 - 12);
+            }
+            else if (child.Name == $"SegEdgeEnd_{segIndex}")
+            {
+                Avalonia.Controls.Canvas.SetLeft(child, x2 - 12);
+            }
+        }
+    }
+
     private void RedrawTimeline()
     {
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
@@ -1396,6 +1427,7 @@ public partial class GranularSpeedEditorWindow : Window
 
                 var rect = new Avalonia.Controls.Shapes.Rectangle
                 {
+                    Name = $"SegRect_{i}",
                     Width  = Math.Max(2, x2 - x1),
                     Height = h,
                     Fill   = new Avalonia.Media.SolidColorBrush(GetSegmentOverlayColor(seg)),
@@ -1445,6 +1477,7 @@ public partial class GranularSpeedEditorWindow : Window
                     
                     var borderRect = new Avalonia.Controls.Shapes.Rectangle
                     {
+                        Name = $"SegBorder_{i}",
                         Width = segW,
                         Height = h,
                         Stroke = antsBrush,
@@ -1629,6 +1662,7 @@ public partial class GranularSpeedEditorWindow : Window
     {
         var hitBox = new Avalonia.Controls.Border
         {
+            Name = isStart ? $"SegEdgeStart_{segIndex}" : $"SegEdgeEnd_{segIndex}",
             Width = 24,
             Height = h,
             Background = Avalonia.Media.Brushes.Transparent,
@@ -2132,9 +2166,12 @@ public partial class GranularSpeedEditorWindow : Window
         catch { }
     }
 
+    private static bool _zoomTutorialShownThisSession = false;
     private void MaybeShowZoomTutorial(Avalonia.Controls.Canvas canvas)
     {
-        if (ReadZoomTutorialCount() >= 5) return;
+        if (_zoomTutorialShownThisSession) return;
+        if (ReadZoomTutorialCount() >= 3) return;
+        _zoomTutorialShownThisSession = true;
         WriteZoomTutorialCount(ReadZoomTutorialCount() + 1);
 
         if (_zoomTutorial == null)

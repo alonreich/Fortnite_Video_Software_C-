@@ -60,7 +60,7 @@
 
 ## 7. Tactile UI Prompts (Freeze Time)
 **Description:** Visual guidance forcing the user to select a freeze duration.
-**Core Logic:** Clicking the freeze image camera icon spawns duplicate "PICK FREEZE TIME" text elements that both execute a slow fade-in/fade-out blinking loop to draw the user's eye to the duration buttons. Layout note (current): the `FREEZE IMAGE` button lives on the LEFT of the transport row (same line as `MARK START`), and ALL six freeze-duration presets (0.5s–3.0s) now sit in a single horizontal row immediately to its right; the two blinking "PICK FREEZE TIME" hint labels (`FreezeHintLabel` / `FreezeHintLabelBottom`) stack directly beneath that freeze cluster, left-aligned. (Previously the presets were two stacked rows with one hint above and one hint below.)
+**Core Logic:** Clicking the freeze image camera icon triggers a centralized `Popup` UI element displaying "SELECT FREEZE DURATION" inside a bordered container to draw the user's eye to the duration buttons. Layout note (current): the `FREEZE IMAGE` button and ALL six freeze-duration presets (0.5s–3.0s) live in the contextual Action Ribbon (Row 1), distinct and physically separated from the transport controls like `MARK START` which reside on Row 3.
 **Edge Cases:**
 * **Edge Case A (Memory Leak Prevention):** The blink animation loop must run on a finite timer or iteration count (e.g., stops after 15 seconds or 10 blinks) and settle at a solid state or disappear, preventing infinite background rendering threads from consuming RAM.
 **Examples:**
@@ -147,7 +147,7 @@
 
 ## 16. Advanced Audio Ducking & Sidechain Compression
 **Description:** Professional FFmpeg mastering pipeline for dynamic audio mixing.
-**Core Logic:** When background music is added alongside game audio, the FFmpeg rendering pipeline automatically applies an RMS sidechain compressor (`sidechaincompress=threshold=0.15:ratio=2.5`) and a 150Hz lowpass filter. This dynamically "ducks" (lowers) the game audio volume in real-time whenever the background music hits specific frequencies or thresholds.
+**Core Logic:** When background music is added alongside game audio, the FFmpeg rendering pipeline automatically applies an RMS sidechain compressor (`sidechaincompress=threshold=0.15:ratio=2.5`) and a 150Hz lowpass filter. This dynamically "ducks" (lowers) the background music volume in real-time whenever the game audio (e.g. a loud sniper shot) hits specific frequencies or thresholds, allowing the game audio to punch through.
 **Edge Cases:**
 * **Edge Case A (Silent Source Tracks):** If the game audio track is entirely silent or absent, the sidechain compressor must mathematically bypass the ducking logic, preventing the background music from improperly inflating or compressing against an empty signal.
 **Examples:**

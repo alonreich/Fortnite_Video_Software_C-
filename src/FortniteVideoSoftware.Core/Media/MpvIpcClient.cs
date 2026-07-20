@@ -108,24 +108,33 @@ public class MpvIpcClient : IDisposable
                 "Failed to create mpv handle for audio-only mode. " +
                 "Ensure libmpv-2.dll is available on the search path.");
 
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "null");
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "vid", "no");
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
-
-        int err = MpvWrapper.mpv_initialize(_mpvHandle);
-        if (err < 0)
-            throw new InvalidOperationException(
-                $"mpv_initialize failed with error code {err} (audio-only mode).");
-
         _ownsHandle = true;
-        StartEventLoop();
-        return Task.CompletedTask;
+
+        try
+        {
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "null");
+
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "vid", "no");
+
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
+
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
+
+            int err = MpvWrapper.mpv_initialize(_mpvHandle);
+            if (err < 0)
+                throw new InvalidOperationException(
+                    $"mpv_initialize failed with error code {err} (audio-only mode).");
+
+            StartEventLoop();
+            return Task.CompletedTask;
+        }
+        catch
+        {
+            MpvWrapper.SafeDestroy(ref _mpvHandle);
+            _ownsHandle = false;
+            throw;
+        }
     }
 
 

@@ -100,7 +100,7 @@ public partial class VideoMergerWindow : Window
         InitializeControls();
         WireUpEvents();
         InitializeSliders();
-        LoadOutputDirectory();
+        _ = LoadOutputDirectoryAsync();
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         this.Closed += (s, e) => { FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged; };
@@ -325,7 +325,7 @@ public partial class VideoMergerWindow : Window
                     return;
                 }
 
-                var wizard = new MusicWizardWindow(VideoQueue.ToList(), _cachedTotalDurationSec);
+                var wizard = new MusicWizardWindow(VideoQueue.ToList(), _cachedTotalDurationSec, _baseSpeed);
                 await wizard.ShowDialog(this);
 
                 if (wizard.Result != null)
@@ -1213,11 +1213,14 @@ public partial class VideoMergerWindow : Window
         }
     }
 
-    private void LoadOutputDirectory()
+    private async Task LoadOutputDirectoryAsync()
     {
+        _outputDirectory = GetDownloadsPath();
+        UpdateOutputPathDisplay();
+
         try
         {
-            var state = new StateTransferStore(_paths).LoadAsync().GetAwaiter().GetResult();
+            var state = await new StateTransferStore(_paths).LoadAsync();
             if (state != null && state.TryGetPropertyValue("MergerOutputDirectory", out var node) && node != null)
             {
                 string dir = node.ToString();
@@ -1232,8 +1235,6 @@ public partial class VideoMergerWindow : Window
             }
         }
         catch { }
-        _outputDirectory = GetDownloadsPath();
-        UpdateOutputPathDisplay();
     }
 
     private static string GetDownloadsPath()

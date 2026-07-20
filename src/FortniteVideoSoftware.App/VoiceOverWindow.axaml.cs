@@ -192,11 +192,8 @@ public partial class VoiceOverWindow : Window
         if (_applyButton != null) _applyButton.Click += (s, e) => ApplyAndClose();
         if (_cancelButton != null) _cancelButton.Click += (s, e) => Close();
 
-        _timer.Tick += (s, e) => {
-            UpdateWaveformUI();
-            UpdatePlayPauseIconUI();
-            UpdatePlayheadUI();
-        };
+        _timer.Tick += Timer_Tick;
+        _timer.Start();
         _timer.Start();
 
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, OnKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -275,6 +272,13 @@ public partial class VoiceOverWindow : Window
             }
         };
     }
+    private void Timer_Tick(object? sender, EventArgs e)
+    {
+        UpdateWaveformUI();
+        UpdatePlayPauseIconUI();
+        UpdatePlayheadUI();
+    }
+
 
     private static string ResolveBinaryPath(string fileName, string preferredSubdirectory)
     {
@@ -734,6 +738,14 @@ public partial class VoiceOverWindow : Window
             catch (Exception ex)
             {
                 CoreLogger.Fail("VoiceOver", $"Thumbnail lane generation failed: {ex.Message}");
+            }
+            finally
+            {
+                if (process != null)
+                {
+                    try { if (!process.HasExited) process.Kill(); } catch { }
+                    process.Dispose();
+                }
             }
             return null;
         });
@@ -1531,7 +1543,12 @@ public partial class VoiceOverWindow : Window
         _generationCts?.Cancel();
         _probeCts?.Cancel();
         _timer.Stop();
-        _recorder?.Dispose();
+        _timer.Tick -= Timer_Tick;
+        if (_recorder != null)
+        {
+            _recorder.VolumeChanged -= OnVolumeChanged;
+            _recorder.Dispose();
+        }
         DeleteUnappliedVoiceOverFiles();
         
         if (_tempThumbPath != null && System.IO.File.Exists(_tempThumbPath))
