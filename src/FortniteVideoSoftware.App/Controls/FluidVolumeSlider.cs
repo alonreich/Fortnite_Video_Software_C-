@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
@@ -36,12 +36,10 @@ namespace FortniteVideoSoftware.App.Controls;
 /// </summary>
 public class FluidVolumeSlider : Slider
 {
-    // ---- Layout constants (narrow horizontal footprint) ----
     private const double TubeWidth = 20.0;
-    private const double StickOverhang = 8.0;   // stick extends this much past each tube edge
+    private const double StickOverhang = 8.0;
     private const double VerticalPad = 6.0;
 
-    // ---- Fixed timestep (CRITICAL: refresh-rate independence) ----
     private const double FixedDeltaSeconds = 1.0 / 60.0;
     private double _accumulator;
     private readonly Stopwatch _clock = new();
@@ -52,9 +50,8 @@ public class FluidVolumeSlider : Slider
     private double _sloshWave;
     private double _simulatedPeak;
 
-    // ---- Physics state ----
-    private double _currentVolume = 100;   // displayed fluid level (0..100)
-    private double _targetVolume = 100;    // where the fluid wants to be
+    private double _currentVolume = 100;
+    private double _targetVolume = 100;
     private double _velocity;
     private double _stickBend;
     private double _bendVelocity;
@@ -67,15 +64,14 @@ public class FluidVolumeSlider : Slider
     private bool _selfUpdate;
     private bool _stateInitialized;
 
-    // ---- Bubble particle system (high-entropy randomization) ----
     private const int BubbleCount = 30;
     private readonly Bubble[] _bubbles = new Bubble[BubbleCount];
     private readonly Random _rng = new();
 
     private sealed class Bubble
     {
-        public double X;            // 0..1 across inner tube
-        public double Y;            // 0..1 from tube top
+        public double X;
+        public double Y;
         public double Size;
         public double BaseSpeed;
         public double WobbleSpeed;
@@ -84,10 +80,8 @@ public class FluidVolumeSlider : Slider
         public double Opacity;
     }
 
-    // ---- Cached immutable drawing resources ----
     private static readonly ImmutableSolidColorBrush s_white = new(Colors.White);
     
-    // Dynamic brushes for fluid and glass will be generated per-frame
 
     private static readonly IBrush s_innerShadowBrush = new ImmutableLinearGradientBrush(
         new[]
@@ -122,9 +116,6 @@ public class FluidVolumeSlider : Slider
         }
     }
 
-    // ------------------------------------------------------------------
-    //  Value synchronization (external writers: mute toggle, recovery, keys)
-    // ------------------------------------------------------------------
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -136,14 +127,10 @@ public class FluidVolumeSlider : Slider
                 _currentVolume = _targetVolume;
                 _stateInitialized = true;
             }
-            // External jumps (mute/unmute) agitate the fluid via the spring physics.
             _releaseTimeSeconds = NowSeconds;
         }
     }
 
-    // ------------------------------------------------------------------
-    //  Animation loop
-    // ------------------------------------------------------------------
     private double NowSeconds => _clock.Elapsed.TotalSeconds;
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -178,12 +165,10 @@ public class FluidVolumeSlider : Slider
         if (!_running) return;
 
         double now = NowSeconds;
-        double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25); // clamp pauses/hitches
+        double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25);
         _lastFrameSeconds = now;
         _accumulator += frameDelta;
 
-        // Fixed Timestep Accumulator: physics executes exactly 60 times per second
-        // regardless of monitor refresh rate (144Hz / 240Hz / VRR safe).
         while (_accumulator >= FixedDeltaSeconds)
         {
             StepPhysics(now);
@@ -207,14 +192,11 @@ public class FluidVolumeSlider : Slider
             double dx = curPos.X - _lastWindowPos.X;
             _lastWindowPos = curPos;
             
-            // Dramatic realistic slosh physics
-            // _sloshTilt acts as the primary linear slant across the tube
             _sloshTilt += (-dx * 2.5 - _sloshTilt) * 0.12;
             
-            // _sloshWave acts as a secondary parabolic pile-up on the wall
             _sloshWave += (dx * 1.5 - _sloshWave) * 0.10;
         }
-        _sloshTilt *= 0.90; // Dampen heavily so it rocks back
+        _sloshTilt *= 0.90;
         _sloshWave *= 0.88;
 
         if (_targetVolume > 0)
@@ -228,7 +210,6 @@ public class FluidVolumeSlider : Slider
             _simulatedPeak *= 0.8;
         }
 
-        // Fluid level: damped spring toward the target volume.
         const double spring = 0.08;
         const double friction = 0.86;
         double accel = (_targetVolume - _currentVolume) * spring;
@@ -236,8 +217,6 @@ public class FluidVolumeSlider : Slider
         _velocity *= friction;
         _currentVolume = Math.Clamp(_currentVolume + _velocity, 0, 100);
 
-        // Elastic stick: bends toward the pointer while dragging, relaxes with a
-        // slower damped harmonic oscillator (~1.0–1.5s, stutter-free) on release.
         double targetBend = 0;
         if (_isDragging)
         {
@@ -256,7 +235,6 @@ public class FluidVolumeSlider : Slider
         _ghostBendVelocity *= 0.85;
         _ghostBend += _ghostBendVelocity;
 
-        // Agitation: rolling boil while dragging / fast moves, simmer at rest.
         if (_isDragging || Math.Abs(_velocity) > 0.1)
         {
             _turbulence = 1.0;
@@ -275,11 +253,10 @@ public class FluidVolumeSlider : Slider
             else
             {
                 _turbulence = 0.02;
-                _waveDecay = 0.12; // base simmer at rest
+                _waveDecay = 0.12;
             }
         }
 
-        // Bubbles (particle system).
         foreach (var b in _bubbles)
         {
             b.Y -= b.BaseSpeed * (1 + _turbulence * 3);
@@ -309,9 +286,6 @@ public class FluidVolumeSlider : Slider
         b.Opacity = 0.25 + _rng.NextDouble() * 0.5;
     }
 
-    // ------------------------------------------------------------------
-    //  Pointer interaction
-    // ------------------------------------------------------------------
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
@@ -340,8 +314,6 @@ public class FluidVolumeSlider : Slider
             _releaseTimeSeconds = NowSeconds;
             e.Pointer.Capture(null);
         }
-        // Deliberately AFTER clearing drag state: existing code-behind subscribes to
-        // PointerReleased to persist the final volume value.
         base.OnPointerReleased(e);
     }
 
@@ -372,12 +344,8 @@ public class FluidVolumeSlider : Slider
         }
     }
 
-    // ------------------------------------------------------------------
-    //  Rendering
-    // ------------------------------------------------------------------
     private void GetTubeMetrics(out double tubeX, out double tubeY, out double tubeWidth, out double tubeHeight)
     {
-        // Dynamically scale the tube to fill the available control width, leaving room for the stick overhang
         tubeWidth = Math.Max(18.0, (Bounds.Width - StickOverhang * 2 - 4.0) * 0.9); 
         tubeX = (Bounds.Width - tubeWidth) / 2.0;
         tubeY = VerticalPad;
@@ -395,7 +363,6 @@ public class FluidVolumeSlider : Slider
         double radius = tubeWidth / 2.0;
         double centerX = tubeX + radius;
 
-        // --- Glass tube: vertical capsule (fully rounded semi-circle caps top + bottom) ---
         if (_cachedCapsule == null || _lastTubeX != tubeX || _lastTubeY != tubeY || _lastTubeWidth != tubeWidth || _lastTubeHeight != tubeHeight)
         {
             _cachedCapsule = new StreamGeometry();
@@ -413,7 +380,6 @@ public class FluidVolumeSlider : Slider
 
         GetThermalColors(_currentVolume, out Color centerColor, out Color edgeColor);
 
-        // Volumetric core lighting
         var fluidBrush = new ImmutableRadialGradientBrush(
             new[] {
                 new ImmutableGradientStop(0.0, centerColor),
@@ -438,11 +404,8 @@ public class FluidVolumeSlider : Slider
         double fluidY = tubeY + tubeHeight - _currentVolume / 100.0 * tubeHeight;
         double now = NowSeconds;
 
-        // --- Fluid + bubbles, strictly clipped to the tube capsule ---
         using (context.PushGeometryClip(capsule))
         {
-            // Fluid body with composite wave surface (5 desynchronized waves,
-            // irrational frequency multipliers so the pattern never repeats).
             double dynamicAmp = (1 + Math.Abs(_velocity) * 0.4) * Math.Max(_waveDecay, 0.0);
             var fluid = new StreamGeometry();
             using (var gc = fluid.Open())
@@ -470,24 +433,21 @@ public class FluidVolumeSlider : Slider
                     Math.Sin(now * 9.70 * Math.Sqrt(3) + nx * 3.0) * 0.4;
                 
                 double totalAmp = dynamicAmp + _simulatedPeak;
-                // Add linear tilt and a parabolic curve for wall pile-up
                 double sloshCurve = centerOffset * centerOffset * _sloshWave * Math.Sign(centerOffset);
                 return fluidY + (off * totalAmp) + (centerOffset * _sloshTilt) + sloshCurve;
             }
 
-            // 3D Fluid Meniscus (Surface Tension) - Soft Glow
             double meniscusHeight = radius * 0.5;
             var meniscusRect = new Rect(tubeX + 1.5, fluidY - meniscusHeight / 2.0, tubeWidth - 3, meniscusHeight);
             var meniscusStroke = new ImmutableSolidColorBrush(Color.FromArgb(160, centerColor.R, centerColor.G, centerColor.B));
             var meniscusFill = new ImmutableSolidColorBrush(Color.FromArgb(80, centerColor.R, centerColor.G, centerColor.B));
             context.DrawEllipse(meniscusFill, new ImmutablePen(meniscusStroke, 1.2), meniscusRect.Center, meniscusRect.Width / 2.0, meniscusRect.Height / 2.0);
 
-            // Hollow Refractive Bubbles.
             foreach (var b in _bubbles)
             {
                 double bx = tubeX + b.X * tubeWidth;
                 double by = tubeY + b.Y * tubeHeight;
-                if (by < fluidY + b.Size + 2) continue; // never render above the fluid meniscus
+                if (by < fluidY + b.Size + 2) continue;
                 double opacity = b.Opacity * (0.5 + _turbulence * 0.5);
                 
                 var bubbleStroke = new ImmutableSolidColorBrush(Color.FromArgb((byte)(opacity * 255), 255, 255, 255));
@@ -497,14 +457,11 @@ public class FluidVolumeSlider : Slider
                 context.DrawEllipse(hi, null, new Point(bx - b.Size * 0.3, by - b.Size * 0.3), b.Size * 0.35, b.Size * 0.35);
             }
 
-            // Thick glass base refraction
             var baseGlassRect = new Rect(tubeX + 2, tubeY + tubeHeight - radius + 1, tubeWidth - 4, radius - 2);
             context.DrawEllipse(new ImmutableSolidColorBrush(Color.FromArgb(200, 0, 0, 0)), null, baseGlassRect.Center, baseGlassRect.Width / 2.0, baseGlassRect.Height / 2.0);
 
-            // Inner shadow (deep multi-stop shading top/bottom of the glass).
             context.DrawGeometry(s_innerShadowBrush, null, capsule);
 
-            // Hyper-Realistic Glossy Glass Reflections.
             var leftGlare = new ImmutableLinearGradientBrush(
                 new[] {
                     new ImmutableGradientStop(0.0, Color.FromArgb(240, 255, 255, 255)),
@@ -525,7 +482,6 @@ public class FluidVolumeSlider : Slider
                 endPoint: new RelativePoint(1, 0, RelativeUnit.Relative));
             context.DrawRectangle(rightGlare, null, new RoundedRect(new Rect(tubeX + tubeWidth - 3.6, tubeY + radius * 0.8, 2.0, tubeHeight - radius * 1.6), 0.9));
 
-            // 25 / 50 / 75 markers painted on the glass (3D: dark line + light line).
             for (int m = 25; m <= 75; m += 25)
             {
                 double my = tubeY + tubeHeight - m / 100.0 * tubeHeight;
@@ -538,7 +494,6 @@ public class FluidVolumeSlider : Slider
             }
         }
 
-        // --- Elastic playhead stick (drawn OUTSIDE the clip so it overhangs the tube) ---
         double stickHalf = radius + StickOverhang;
         var stick = new StreamGeometry();
         using (var gc = stick.Open())
@@ -565,13 +520,11 @@ public class FluidVolumeSlider : Slider
         context.DrawGeometry(null, stickPen, stick);
 
 
-
-        // --- Percentage text inside the tube (white + heavy dark drop shadow) ---
         string label = ((int)Math.Round(_targetVolume)).ToString(CultureInfo.InvariantCulture) + "%";
         var ft = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, s_typeface, 10, s_white);
         double textY = _targetVolume <= 80
-            ? fluidY - ft.Height - 8          // empty void above the fluid
-            : fluidY + 10;                    // pushed into the fluid below the surface
+            ? fluidY - ft.Height - 8
+            : fluidY + 10;
         textY = Math.Clamp(textY, tubeY + 2, tubeY + tubeHeight - ft.Height - 2);
         double textX = centerX - ft.Width / 2.0;
 
@@ -583,14 +536,10 @@ public class FluidVolumeSlider : Slider
         context.DrawText(ft, new Point(textX, textY));
     }
 
-    // ------------------------------------------------------------------
-    //  Dynamic Colors Helpers
-    // ------------------------------------------------------------------
     private static void GetThermalColors(double volume, out Color center, out Color edge)
     {
-        // Smooth gradient from Cyan to Purple based on volume
         double t = volume / 100.0;
-        center = LerpColor(Color.Parse("#00D2FF"), Color.Parse("#8A2BE2"), t); // Cyan to BlueViolet
+        center = LerpColor(Color.Parse("#00D2FF"), Color.Parse("#8A2BE2"), t);
         edge = LerpColor(Color.Parse("#002855"), Color.Parse("#2B0055"), t);
     }
 

@@ -1,4 +1,4 @@
-using Avalonia.Input;
+﻿using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -72,8 +72,6 @@ public partial class VideoMergerWindow : Window
     private readonly Dictionary<string, Task<VideoFileFingerprint?>> _videoFingerprintTasks = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.SemaphoreSlim _videoHashSemaphore = new(1, 1);
 
-    // Serializes external drop processing (OLE + WM_DROPFILES) so two simultaneous
-    // drops can't interleave their async validation/dialogs and corrupt VideoQueue.
     private readonly System.Threading.SemaphoreSlim _externalDropGate = new(1, 1);
     private readonly FortniteVideoSoftware.Core.Infrastructure.RecoveryManager _recovery = new FortniteVideoSoftware.Core.Infrastructure.RecoveryManager(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault());
 
@@ -105,9 +103,6 @@ public partial class VideoMergerWindow : Window
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         this.Closed += (s, e) => { FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged; };
 
-        // WM_DROPFILES fallback: guarantees Explorer drag & drop into the video queue
-        // works even when OLE drag & drop is blocked (e.g. elevated process).
-        // See Win32FileDropInterop for the full explanation.
         Win32FileDropInterop.Attach(this, paths => _ = AddExternalVideosAsync(paths));
     }
 
@@ -158,11 +153,27 @@ public partial class VideoMergerWindow : Window
         }
         if (timelineOverlay != null && canvas != null && timelineSlider != null)
         {
-            timelineOverlay.PointerPressed += (s, e) => SeekTimelineFromPointer(e, canvas, timelineSlider);
+            bool isScrubbing = false;
+            timelineOverlay.PointerPressed += (s, e) => {
+                if (e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
+                    isScrubbing = true;
+                    e.Pointer.Capture(timelineOverlay);
+                    SeekTimelineFromPointer(e, canvas, timelineSlider);
+                }
+            };
+            timelineOverlay.PointerMoved += (s, e) => {
+                if (isScrubbing && e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
+                    SeekTimelineFromPointer(e, canvas, timelineSlider);
+                }
+            };
+            timelineOverlay.PointerReleased += (s, e) => {
+                isScrubbing = false;
+                e.Pointer.Capture(null);
+            };
         }
     }
 
-    private void SeekTimelineFromPointer(Avalonia.Input.PointerPressedEventArgs e, Avalonia.Controls.Canvas timelineCanvas, Slider timelineSlider)
+    private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Canvas timelineCanvas, Slider timelineSlider)
     {
         double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
         double width = timelineCanvas.Bounds.Width;
@@ -581,8 +592,6 @@ public partial class VideoMergerWindow : Window
         if (fbBtn != null) fbBtn.IsEnabled = hasVideo;
     }
 
-    // ISSUE_08: SpeakerHitBox_KeyDown removed — SpeakerHitBox is now a real Button,
-    // which natively activates on Enter/Space via its Click event.
 
     private void ApplySpeedPreset(double speed)
     {
@@ -616,9 +625,6 @@ public partial class VideoMergerWindow : Window
 
         int qualityPercent = (qs.Value + 1) * 5;
 
-        // Snapshot once on the UI thread. The async probe below yields frequently, and a
-        // concurrent drop can mutate VideoQueue mid-enumeration, throwing
-        // InvalidOperationException("Collection was modified").
         var queueSnapshot = SnapshotVideoQueue();
 
         if (queueSnapshot.Count == 0)
@@ -854,7 +860,6 @@ public partial class VideoMergerWindow : Window
             : $"Est. Output: ~{estimatedMB:F0} MB";
 
         sizeLabel.Text = sizeText;
-        // ISSUE_09: EstimatedSizeText2 removed from XAML — the estimate is shown once (EstimatedSizeText).
     }
 
     private void UpdateSpeedLabel()
@@ -907,7 +912,6 @@ public partial class VideoMergerWindow : Window
                 }
             };
 
-            // ISSUE_08: SpeakerHitBox is now a Button; Click covers mouse + Enter/Space keyboard activation.
             var speakerHitBox = this.FindControl<Button>("SpeakerHitBox");
             if (speakerHitBox != null) speakerHitBox.Click += (s, e) => ToggleMute();
 
@@ -1292,8 +1296,6 @@ public partial class VideoMergerWindow : Window
             var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
             int qualityPercent = qs != null ? (qs.Value + 1) * 5 : 100;
 
-            // Snapshot the queue once. The loop below awaits (probes), and a concurrent
-            // drop would otherwise mutate VideoQueue mid-enumeration (InvalidOperationException).
             var mergeQueueSnapshot = SnapshotVideoQueue();
             bool allPortrait = true;
             bool allLandscape = true;
@@ -1724,8 +1726,6 @@ public partial class VideoMergerWindow : Window
     private void VideoList_DragOver(object? sender, Avalonia.Input.DragEventArgs e)
     {
         if (e.Data.Contains("VideoItem")) { e.DragEffects = Avalonia.Input.DragDropEffects.Move; SetVideoListDragState(true); ShowDropIndicator(e); }
-        // External files dragged in from Windows Explorer: accept them so users can
-        // throw a bunch of video files into the queue at once (same as Upload Files).
         else if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.GetFiles()?.Any() == true)
         {
             e.DragEffects = Avalonia.Input.DragDropEffects.Copy;
@@ -1758,7 +1758,6 @@ public partial class VideoMergerWindow : Window
         }
         else
         {
-            // External files dropped from Windows Explorer.
             var dropped = e.Data.GetFiles();
             if (dropped != null)
             {
@@ -1774,9 +1773,6 @@ public partial class VideoMergerWindow : Window
     /// </summary>
     private async Task AddExternalVideosAsync(string[] paths)
     {
-        // Serialize drop processing. Explorer/OLE and the WM_DROPFILES fallback can both
-        // fire for the same drop, and two concurrent AddExternalVideosAsync calls would
-        // interleave their async duplicate checks + dialogs and corrupt VideoQueue.
         await _externalDropGate.WaitAsync();
         try
         {

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -48,14 +48,17 @@ public sealed class RecoveryManager
                         Process proc = Process.GetProcessById(oldPid);
                         if (!proc.HasExited)
                         {
-                            if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
+                            if (proc.ProcessName == Process.GetCurrentProcess().ProcessName)
                             {
-                                if (proc.StartTime.Ticks == oldTicks)
+                                if (parts.Length > 1 && long.TryParse(parts[1], out long oldTicks))
+                                {
+                                    if (proc.StartTime.Ticks == oldTicks)
+                                        return false;
+                                }
+                                else
+                                {
                                     return false;
-                            }
-                            else
-                            {
-                                return false;
+                                }
                             }
                         }
                     }

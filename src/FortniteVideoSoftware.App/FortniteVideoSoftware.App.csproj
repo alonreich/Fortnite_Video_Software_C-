@@ -67,4 +67,4 @@
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-</Project>
+  <ItemGroup><None Include="Assets\*.jpg"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None></ItemGroup></Project>

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -47,18 +47,12 @@ public partial class GranularSpeedEditorWindow : Window
         {
             StartMs = s.StartMs + (int)_trimStartMs,
             EndMs = s.EndMs + (int)_trimStartMs,
-            // ISSUE_01: the detached zoom sub-range is stored trim-RELATIVE (same space as
-            // StartMs/EndMs before this projection). It MUST be shifted to absolute by the
-            // same _trimStartMs, otherwise the export builder (which normalises every field
-            // back to relative via ToClipRelative) subtracts the trim offset a second time
-            // and the exported zoom punches in earlier than the user placed it.
             ZoomStartMs = s.ZoomStartMs.HasValue ? s.ZoomStartMs.Value + _trimStartMs : (double?)null,
             ZoomEndMs = s.ZoomEndMs.HasValue ? s.ZoomEndMs.Value + _trimStartMs : (double?)null
         })
         .ToList()
         .AsReadOnly();
 
-    // §4 Zoom state (source-resolution + output format are needed to map the drawn box to FFmpeg crop).
     private bool _isMobileFormat;
     private string _originalResolution = "1920x1080";
     public double ResultBaseSpeed => _baseSpeed;
@@ -69,8 +63,6 @@ public partial class GranularSpeedEditorWindow : Window
     private double _freezeDurationS = 1.0;
     private double _selectedFreezePresetS = -1.0;
     private double _lastFreezeTriggerAbsMs = -10000;
-    // ISSUE_04: last tick's absolute playhead position, used for freeze CROSSING detection
-    // (independent of playback speed) instead of a fixed 150ms hit window.
     private double _prevFreezeTickAbsMs = -1;
     private bool _isCurrentlyFrozen = false;
     private DateTime _freezeStartTime;
@@ -115,7 +107,6 @@ public partial class GranularSpeedEditorWindow : Window
 
         InitializeComponent();
 
-        // Global fallback to prevent sticky segment dragging
         this.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (s, e) =>
         {
             if (_isCanvasScrubbing)
@@ -136,13 +127,10 @@ public partial class GranularSpeedEditorWindow : Window
                 _segDragMode = SegDragMode.None;
                 _draggingSegmentIndex = -1;
                 e.Pointer.Capture(null);
-                HideDragReadout();   // #10 hide readout when the drag settles
+                HideDragReadout();
                 RefreshSegmentList();
                 RedrawTimeline();
 
-                // Playhead-follow: when PAUSED, snap the preview to the edited edge so
-                // the user immediately sees the exact frame the marker now sits on.
-                // During playback we never interrupt — no seek, no pause-state change.
                 if (finishedMode != SegDragMode.None && finishedIdx >= 0 && finishedIdx < _segments.Count
                     && _videoHost?.IpcClient?.IsPaused == true)
                 {
@@ -185,10 +173,6 @@ public partial class GranularSpeedEditorWindow : Window
                     relStart = Math.Max(0, relStart);
                     int maxEnd = _trimEndMs > 0 ? (int)(_trimEndMs - _trimStartMs) : int.MaxValue;
                     relEnd = Math.Min(relEnd, maxEnd);
-                    // ISSUE_01 (round-trip): carry the zoom fields through and convert the
-                    // detached zoom sub-range from absolute back to trim-relative, mirroring
-                    // ResultSegments. Previously the whole zoom payload was dropped here, so
-                    // reopening the editor silently lost every zoom box.
                     _segments.Add(new SpeedSegment(relStart, relEnd, seg.Speed,
                         seg.ZoomX, seg.ZoomY, seg.ZoomW, seg.ZoomH, seg.ZoomOrigRes, seg.ZoomSlow,
                         seg.ZoomStartMs.HasValue ? seg.ZoomStartMs.Value - _trimStartMs : (double?)null,
@@ -436,7 +420,6 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.SizeChanged += (s, e) => RedrawTimeline();
 
             canvas.IsHitTestVisible = true;
-            // Own all pointer input on this band so segment drags never leak through to a seek.
             canvas.Background = Avalonia.Media.Brushes.Transparent;
 
             canvas.PointerPressed += (s, e) =>
@@ -481,7 +464,7 @@ public partial class GranularSpeedEditorWindow : Window
                     SetStatus(mode == SegDragMode.Move
                         ? $"Moving segment #{hitIdx + 1} — release to set."
                         : $"Resizing segment #{hitIdx + 1} — release to set.");
-                    UpdateDragReadout(seg.StartMs, seg.EndMs);   // #10 show readout immediately
+                    UpdateDragReadout(seg.StartMs, seg.EndMs);
                     RedrawTimeline();
                     e.Handled = true;
                     return;
@@ -498,7 +481,6 @@ public partial class GranularSpeedEditorWindow : Window
                     UpdateDeleteButtonVisibility();
                 }
 
-                // Empty area: scrub/seek by driving the underlying timeline slider value.
                 _isCanvasScrubbing = true;
                 e.Pointer.Capture(canvas);
                 var tl = this.FindControl<Slider>("GranularTimeline");
@@ -530,8 +512,6 @@ public partial class GranularSpeedEditorWindow : Window
 
                 int idx = _draggingSegmentIndex;
 
-                // Neighbour limits are computed from the ORIGINAL positions so they stay
-                // stable through the drag and enforce the 1000ms gap ("social distance").
                 double lowerBound = 0;
                 double upperBound = totalMs;
                 for (int j = 0; j < _segments.Count; j++)
@@ -546,7 +526,6 @@ public partial class GranularSpeedEditorWindow : Window
                 double newStart = _dragOrigStartMs;
                 double newEnd = _dragOrigEndMs;
 
-                // Sanitize bounds to prevent Math.Clamp crash (min > max) if segments were created too close
                 upperBound = Math.Max(upperBound, lowerBound + SegMinWidthMs);
 
                 if (_segDragMode == SegDragMode.Move)
@@ -567,7 +546,6 @@ public partial class GranularSpeedEditorWindow : Window
                     newStart = _dragOrigStartMs;
                 }
 
-                // #7 Magnetic snapping: pull the moving edge to the playhead, the clip ends, or another block's edge.
                 double snapTol = 8.0 * msPerPx;
                 var snapTl = this.FindControl<Slider>("GranularTimeline");
                 double playheadMs = snapTl != null ? (snapTl.Value / 1000.0) * totalMs : -1;
@@ -594,7 +572,7 @@ public partial class GranularSpeedEditorWindow : Window
                     newEnd = Math.Clamp(NearestSnap(newEnd), Math.Min(upperBound, newStart + SegMinWidthMs), upperBound);
 
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
-                UpdateDragReadout(newStart, newEnd);   // #10 live start/end/length badge
+                UpdateDragReadout(newStart, newEnd);
                 UpdateDraggingVisuals(idx, newStart, newEnd);
                 e.Handled = true;
             };
@@ -671,8 +649,6 @@ public partial class GranularSpeedEditorWindow : Window
                 }
             }
 
-            // Block marking END at/before an already-marked START — a segment can't end before it
-            // begins. (Only when a START is pending; with no pending START the block below infers one.)
             if (_pendingStartMs >= 0 && currentMs <= _pendingStartMs)
             {
                 ShowFeedback("⚠ END can't be before START");
@@ -686,11 +662,6 @@ public partial class GranularSpeedEditorWindow : Window
 
             if (_pendingStartMs < 0)
             {
-                // ISSUE_02: anchor the auto-inferred start to the segment that ENDS closest
-                // before the marked end — NOT _segments.Last() (list/sorted order = the
-                // highest-start segment, which is wrong when the user marks an END that lies
-                // earlier in the video than an existing later segment; that produced a start
-                // ahead of the end and a confusing "overlap" rejection).
                 int prevEndMs = -1;
                 foreach (var s in _segments)
                 {
@@ -1038,8 +1009,6 @@ public partial class GranularSpeedEditorWindow : Window
 
         SpeedPresetButtons.WirePresetButtons(this, _baseSpeed, s =>
         {
-            // (Removed dead FreezeFrameCheck lookup — the control does not exist in XAML,
-            // so FindControl always returned null and the uncheck was a permanent no-op.)
             SpeedPresetButtons.SetSpinningWheelValue(speedSlider, s);
             _pendingSpeed = s;
             var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
@@ -1073,15 +1042,12 @@ public partial class GranularSpeedEditorWindow : Window
         if (clearAllBtn != null)
             clearAllBtn.IsVisible = _segments.Count > 0;
 
-        // §2 SET ZOOM visibility lock: only when a segment is selected. Losing the selection
-        // also exits any active zoom mode so the draw canvas cannot linger over nothing.
         var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
         if (zoomBtn != null)
         {
             zoomBtn.IsVisible = segSelected;
             if (!segSelected && _zoomModeActive) ExitZoomMode();
         }
-        // Reflect the newly-selected segment's SLOW/INSTANT zoom mode in the checkboxes.
         SyncZoomModeChecksFromSegment();
     }
 
@@ -1109,9 +1075,6 @@ public partial class GranularSpeedEditorWindow : Window
                 SetStatus($"Overlap with existing segment [{FormatMs(seg.StartMs)} – {FormatMs(seg.EndMs)}]. Adjust times.");
                 return;
             }
-            // ISSUE_03: enforce the SAME 1000ms neighbour gap that segment dragging enforces,
-            // so MARK START/END can't create two blocks closer than SegGapMs that the drag
-            // pipeline then refuses to move.
             if (start < seg.EndMs + SegGapMs && end > seg.StartMs - SegGapMs)
             {
                 SetStatus($"Too close to segment [{FormatMs(seg.StartMs)} – {FormatMs(seg.EndMs)}]. Keep a {SegGapMs}ms gap.");
@@ -1119,8 +1082,6 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        // (FreezeFrameCheck ghost control removed — freezes are created via the FREEZE IMAGE
-        // marker, not a per-segment 0x checkbox; this lookup was always null.)
         double speed = _pendingSpeed;
         _segments.Add(new SpeedSegment(start, end, speed));
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
@@ -1363,8 +1324,6 @@ public partial class GranularSpeedEditorWindow : Window
             "absolute");
     }
 
-    // ISSUE_07: coalesce redraw requests — PointerMoved can fire several times per UI
-    // frame during drags; without this guard each move queued a FULL canvas rebuild.
     private bool _redrawQueued;
 
 
@@ -1437,7 +1396,6 @@ public partial class GranularSpeedEditorWindow : Window
                 Avalonia.Controls.Canvas.SetTop(rect, 0);
                 canvas.Children.Add(rect);
 
-                // Zoom markers detached from the speed block.
                 if (seg.ZoomW.HasValue)
                 {
                     double zsMs = seg.ZoomStartMs ?? seg.StartMs;
@@ -1491,9 +1449,6 @@ public partial class GranularSpeedEditorWindow : Window
                     canvas.Children.Add(borderRect);
                     _selectedSegmentBorderRef = borderRect;
 
-                    // Selected segment gets Main-App-style grabbable START/END trim
-                    // markers (copied from MainWindow's trim marker method) so its
-                    // total length AND position can be edited directly.
                     AddSegmentEdgeMarker(canvas, i, isStart: true,  markerX: x1, h: h, canvasWidth: w, durationSeconds: dur);
                     AddSegmentEdgeMarker(canvas, i, isStart: false, markerX: x2, h: h, canvasWidth: w, durationSeconds: dur);
                 }
@@ -1703,8 +1658,6 @@ public partial class GranularSpeedEditorWindow : Window
                 ? Math.Clamp((e.GetPosition(canvas).X / canvasWidth) * totalMs, 0, totalMs)
                 : 0;
 
-            // Capture to the CANVAS: the existing canvas.PointerMoved clamp/gap logic
-            // drives the drag, and the window-level PointerReleased commit fires.
             e.Pointer.Capture(canvas);
             SetStatus($"Resizing segment #{segIndex + 1} — release to set.");
             e.Handled = true;
@@ -1713,7 +1666,6 @@ public partial class GranularSpeedEditorWindow : Window
         canvas.Children.Add(hitBox);
     }
 
-    // ===================== §2–§6 Granular Segment Zoom-In =====================
     private bool _zoomModeActive;
     private enum ZoomDrag { None, Draw, Move, ResizeTL, ResizeTR, ResizeBL, ResizeBR }
     private ZoomDrag _zoomDrag = ZoomDrag.None;
@@ -1726,12 +1678,11 @@ public partial class GranularSpeedEditorWindow : Window
     private readonly Avalonia.Controls.Shapes.Rectangle[] _zoomHandles = new Avalonia.Controls.Shapes.Rectangle[4];
     private Avalonia.Controls.Border? _zoomTutorial;
     private DispatcherTimer? _zoomTutorialTimer;
-    private const double ZoomHandlePx = 16;           // §7A: corner grab tolerance (hitbox) — unchanged
-    private const double ZoomHandleVisualPx = 13.6;   // §7A: drawn ~15% smaller than the hitbox
-    private const double ZoomFloorW = 240.0;   // §4 absolute floor, measured in SOURCE pixels (was 320 → allows a tighter punch-in)
-    private const double ZoomFloorH = 135.0;   // keeps 16:9 (240x135); on 1920-wide source this permits ~8x max zoom (was ~6x)
+    private const double ZoomHandlePx = 16;
+    private const double ZoomHandleVisualPx = 13.6;
+    private const double ZoomFloorW = 240.0;
+    private const double ZoomFloorH = 135.0;
 
-    // width / height. Mobile locks 2:3 (matches the portrait content area); else 16:9.
     private double ZoomAspect => _isMobileFormat ? (2.0 / 3.0) : (16.0 / 9.0);
 
     private void WireZoomControls()
@@ -1747,13 +1698,11 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.PointerReleased += ZoomCanvas_PointerReleased;
         }
 
-        // SLOW / INSTANT ramp-mode selector: mutually exclusive, INSTANT default (XAML), one always on.
         var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
         var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
         if (slowCb != null) slowCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: true);
         if (instCb != null) instCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: false);
 
-        // #8 Help overlay open/close (also closes when the dim background is clicked).
         var helpBtn = this.FindControl<Button>("HelpButton");
         var helpClose = this.FindControl<Button>("HelpCloseButton");
         var helpOverlay = this.FindControl<Avalonia.Controls.Grid>("HelpOverlay");
@@ -1762,15 +1711,12 @@ public partial class GranularSpeedEditorWindow : Window
         if (helpOverlay != null)
             helpOverlay.PointerPressed += (s, e) => { if (ReferenceEquals(e.Source, helpOverlay)) helpOverlay.IsVisible = false; };
 
-        // Initialise the SLOW/INSTANT checkboxes from the global Settings default.
         SyncZoomModeChecksFromSegment();
 
-        // #1 Show the fake mobile phone frame only when the Main App Portrait mode is on.
         var portraitGrid = this.FindControl<Avalonia.Controls.Grid>("GranularPortraitDimmingGrid");
         if (portraitGrid != null) portraitGrid.IsVisible = _isMobileFormat;
     }
 
-    // #10 Live drag readout badge.
     private void UpdateDragReadout(double startMs, double endMs)
     {
         var badge = this.FindControl<Border>("DragReadoutBadge");
@@ -1799,14 +1745,12 @@ public partial class GranularSpeedEditorWindow : Window
         var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
         if (slowCb == null || instCb == null) return;
 
-        // Whichever box the user just toggled decides the mode; then force exactly-one-checked.
         bool slow = fromSlow ? (slowCb.IsChecked == true) : (instCb.IsChecked != true);
         _syncingZoomChecks = true;
         slowCb.IsChecked = slow;
         instCb.IsChecked = !slow;
         _syncingZoomChecks = false;
 
-        // Live-apply to the selected segment if it already has a zoom box.
         if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
         {
             var seg = _segments[_selectedSegmentIndex];
@@ -1867,7 +1811,7 @@ public partial class GranularSpeedEditorWindow : Window
         _zoomModeActive = true;
         EnsureZoomVisuals(canvas);
         canvas.IsVisible = true;
-        canvas.IsHitTestVisible = true; // editing needs pointer capture
+        canvas.IsHitTestVisible = true;
 
         if (zoomBtn != null)
         {
@@ -1876,7 +1820,6 @@ public partial class GranularSpeedEditorWindow : Window
             if (!zoomBtn.Classes.Contains("Success")) zoomBtn.Classes.Add("Success");
         }
 
-        // Pre-populate from the selected segment's existing zoom (map source px -> UI).
         var seg = _segments[_selectedSegmentIndex];
         var vid = GetVideoDisplayRect(canvas);
         var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
@@ -1933,7 +1876,7 @@ public partial class GranularSpeedEditorWindow : Window
             _zoomHandles[i] = new Avalonia.Controls.Shapes.Rectangle
             {
                 Width = ZoomHandleVisualPx, Height = ZoomHandleVisualPx,
-                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#1e40af")), // §7A dark blue
+                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#1e40af")),
                 Stroke = Avalonia.Media.Brushes.White, StrokeThickness = 1.5, IsHitTestVisible = false
             };
             canvas.Children.Add(_zoomHandles[i]);
@@ -1960,17 +1903,16 @@ public partial class GranularSpeedEditorWindow : Window
         Avalonia.Controls.Canvas.SetLeft(_zoomBoxRect, r.X);
         Avalonia.Controls.Canvas.SetTop(_zoomBoxRect, r.Y);
 
-        // Four dim panels around the box (spotlight cutout).
         void Dim(int i, double x, double y, double w, double h)
         {
             var d = _zoomDim[i]; if (d == null) return;
             d.Width = Math.Max(0, w); d.Height = Math.Max(0, h);
             Avalonia.Controls.Canvas.SetLeft(d, x); Avalonia.Controls.Canvas.SetTop(d, y);
         }
-        Dim(0, 0, 0, cw, r.Y);                          // top
-        Dim(1, 0, r.Bottom, cw, ch - r.Bottom);         // bottom
-        Dim(2, 0, r.Y, r.X, r.Height);                  // left
-        Dim(3, r.Right, r.Y, cw - r.Right, r.Height);   // right
+        Dim(0, 0, 0, cw, r.Y);
+        Dim(1, 0, r.Bottom, cw, ch - r.Bottom);
+        Dim(2, 0, r.Y, r.X, r.Height);
+        Dim(3, r.Right, r.Y, cw - r.Right, r.Height);
 
         var corners = new[] { new Avalonia.Point(r.X, r.Y), new Avalonia.Point(r.Right, r.Y),
                               new Avalonia.Point(r.X, r.Bottom), new Avalonia.Point(r.Right, r.Bottom) };
@@ -1986,7 +1928,7 @@ public partial class GranularSpeedEditorWindow : Window
     {
         if (!_zoomModeActive || sender is not Avalonia.Controls.Canvas canvas) return;
         if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) return;
-        HideZoomTutorial(); // §3: dismiss the tutorial the instant the user presses.
+        HideZoomTutorial();
 
         var p = e.GetPosition(canvas);
         _zoomDragStart = p;
@@ -2018,23 +1960,19 @@ public partial class GranularSpeedEditorWindow : Window
             var r = _zoomUiRect;
             double hz = ZoomHandlePx;
             bool Near(Avalonia.Point c) => Math.Abs(p.X - c.X) <= hz && Math.Abs(p.Y - c.Y) <= hz;
-            // Corners → the universal diagonal resize cursors.
             if (Near(new Avalonia.Point(r.X, r.Y)) || Near(new Avalonia.Point(r.Right, r.Bottom)))
-                return Avalonia.Input.StandardCursorType.TopLeftCorner;   // ↖↘
+                return Avalonia.Input.StandardCursorType.TopLeftCorner;
             if (Near(new Avalonia.Point(r.Right, r.Y)) || Near(new Avalonia.Point(r.X, r.Bottom)))
-                return Avalonia.Input.StandardCursorType.TopRightCorner;  // ↗↙
-            // Inside → draggable (hand).
+                return Avalonia.Input.StandardCursorType.TopRightCorner;
             if (r.Contains(p)) return Avalonia.Input.StandardCursorType.Hand;
         }
-        return Avalonia.Input.StandardCursorType.Cross; // empty space → draw a new box
+        return Avalonia.Input.StandardCursorType.Cross;
     }
 
     private void ZoomCanvas_PointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
     {
         if (!_zoomModeActive || sender is not Avalonia.Controls.Canvas canvas) return;
 
-        // §7B/§7C: when not actively dragging, give live cursor feedback so the user can tell
-        // the box centre is draggable (hand) and the corners are resizable (diagonal arrows).
         if (_zoomDrag == ZoomDrag.None)
         {
             canvas.Cursor = new Avalonia.Input.Cursor(ZoomHoverCursor(e.GetPosition(canvas)));
@@ -2052,7 +1990,6 @@ public partial class GranularSpeedEditorWindow : Window
         var p = e.GetPosition(canvas);
         double aspect = ZoomAspect;
 
-        // Minimum UI size derived from the SOURCE-pixel floor (keeps both 320w and 180h satisfied under aspect lock).
         double scale = vid.Width / Math.Max(1, GetSourceW());
         double minW = Math.Max(ZoomFloorW, ZoomFloorH * aspect) * scale;
         double minH = minW / aspect;
@@ -2060,7 +1997,6 @@ public partial class GranularSpeedEditorWindow : Window
         if (_zoomDrag == ZoomDrag.Draw || _zoomDrag == ZoomDrag.ResizeBR || _zoomDrag == ZoomDrag.ResizeTR
             || _zoomDrag == ZoomDrag.ResizeBL || _zoomDrag == ZoomDrag.ResizeTL)
         {
-            // Anchor = the corner opposite the one being dragged (Draw anchors at the press point).
             Avalonia.Point anchor = _zoomDrag switch
             {
                 ZoomDrag.ResizeBR => _zoomStartRect.TopLeft,
@@ -2131,7 +2067,6 @@ public partial class GranularSpeedEditorWindow : Window
         int zw = Even(Math.Clamp((int)Math.Round(_zoomUiRect.Width * sx), 2, sw - zx));
         int zh = Even(Math.Clamp((int)Math.Round(_zoomUiRect.Height * sy), 2, sh - zy));
 
-        // §6 Absolute Sync Guarantee: destructively overwrite the segment so FFmpeg always sees the latest box.
         var seg = _segments[_selectedSegmentIndex];
         bool slow = ZoomSlowSelected;
         _segments[_selectedSegmentIndex] = seg with
@@ -2144,7 +2079,6 @@ public partial class GranularSpeedEditorWindow : Window
         RedrawTimeline();
     }
 
-    // ---- §3 Onboarding tutorial (show at most 3 times, ever) ----
     private static string ZoomTutorialCounterPath()
         => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "FortniteVideoSoftware", "Settings", "zoom_tutorial.txt");
@@ -2197,20 +2131,16 @@ public partial class GranularSpeedEditorWindow : Window
         _zoomTutorial.IsVisible = true;
         _zoomTutorial.Opacity = 1;
 
-        // The overlay canvas was just switched from collapsed to visible, so canvas.Bounds is
-        // still 0 synchronously here; combined with the canvas's ClipToBounds this clipped the
-        // banner to nothing (why the tutorial appeared to never show). Measure/position it and
-        // start the dismiss countdown AFTER the next layout pass, when Bounds is real.
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             if (_zoomTutorial == null || !_zoomModeActive) return;
             _zoomTutorial.Measure(Avalonia.Size.Infinity);
             double tw = _zoomTutorial.DesiredSize.Width;
             Avalonia.Controls.Canvas.SetLeft(_zoomTutorial, Math.Max(0, (canvas.Bounds.Width - tw) / 2));
-            Avalonia.Controls.Canvas.SetTop(_zoomTutorial, 40); // Move to top so it doesn't obstruct the center
+            Avalonia.Controls.Canvas.SetTop(_zoomTutorial, 40);
 
             _zoomTutorialTimer?.Stop();
-            _zoomTutorialTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) }; // Shorten to 1.5s
+            _zoomTutorialTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
             _zoomTutorialTimer.Tick += (_, __) => HideZoomTutorial();
             _zoomTutorialTimer.Start();
         }, Avalonia.Threading.DispatcherPriority.Loaded);
@@ -2226,7 +2156,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// <summary>§5 Live playhead sync: show the yellow box only while the caret is inside a zoomed segment.</summary>
     private void UpdateZoomPlayheadOverlay()
     {
-        if (_zoomModeActive) return; // editing takes precedence
+        if (_zoomModeActive) return;
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
         if (canvas == null || _videoHost?.IpcClient == null) return;
 
@@ -2246,16 +2176,15 @@ public partial class GranularSpeedEditorWindow : Window
                                         active.ZoomW!.Value * scx, active.ZoomH!.Value * scy);
         _hasZoomBox = true;
         canvas.IsVisible = true;
-        canvas.IsHitTestVisible = false; // read-only preview must not swallow pointer input
+        canvas.IsHitTestVisible = false;
         RenderZoomBox();
-        foreach (var h in _zoomHandles) h.IsVisible = false; // read-only preview: no handles
+        foreach (var h in _zoomHandles) h.IsVisible = false;
     }
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
 
-        // Keep the source resolution exact from mpv itself (most reliable) for zoom coordinate mapping.
         if (_videoHost.IpcClient.VideoWidth > 0 && _videoHost.IpcClient.VideoHeight > 0)
         {
             string liveRes = $"{_videoHost.IpcClient.VideoWidth}x{_videoHost.IpcClient.VideoHeight}";
@@ -2289,10 +2218,6 @@ public partial class GranularSpeedEditorWindow : Window
         double currentRelMs = relTime * 1000.0;
         double currentAbsMs = currentRelMs + _trimStartMs;
 
-        // ISSUE_04: snapshot the previous tick position, then advance it. Freeze is triggered
-        // on the exact playhead CROSSING of _freezeTimeMs. At high playback speeds a single
-        // 50ms tick can advance the video by >150ms, so the old fixed [freeze, freeze+150ms]
-        // window could be stepped clean over and the freeze preview silently skipped.
         double prevFreezeTickAbsMs = _prevFreezeTickAbsMs;
         _prevFreezeTickAbsMs = currentAbsMs;
 
@@ -2483,21 +2408,12 @@ public partial class GranularSpeedEditorWindow : Window
 
         e.Cancel = true;
         FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
-        // ISSUE_03: legacy second write to Bounds.json (keys GranularWidth/Height/X/Y)
-        // removed — nothing ever read those keys, and the raw File.WriteAllText raced
-        // the mutexed atomic SessionState store that SaveBoundsSync (above) uses.
 
         this.Hide();
 
         RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
         _playbackTimer?.Stop();
 
-        // The initial close was cancelled so bounds could be saved synchronously first.
-        // We MUST now actually close: mark safe and re-invoke Close on the next dispatcher
-        // turn (so this cancelled closing event fully unwinds first). Without this the window
-        // only hides — it never closes, ShowDialog()'s await never returns, and the caller's
-        // result continuation (which persists the edited speed/zoom/freeze segments into
-        // _speedSegments) never runs, silently discarding EVERY granular edit at export.
         _isSafeToClose = true;
         Avalonia.Threading.Dispatcher.UIThread.Post(Close);
     }

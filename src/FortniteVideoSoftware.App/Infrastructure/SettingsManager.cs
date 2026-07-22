@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -44,11 +44,9 @@ public class AppSettings
     public int Volume { get; set; } = 100;
     public string ActiveMaskOverlay { get; set; } = "Fortnite";
 
-    // Appearance
     public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
     public FontScale FontScale { get; set; } = FontScale.Normal;
 
-    // Confirmation Dialogs
     public bool ConfirmVideoMergerRemove { get; set; } = false;
     public bool ConfirmVideoMergerClearAll { get; set; } = false;
     public bool ConfirmCropToolReset { get; set; } = true;
@@ -150,7 +148,6 @@ public class DefaultValues
     /// <summary>Whether to remember the music and video volume set in the music wizard</summary>
     public bool RememberMusicVolumes { get; set; } = true;
 
-    // ---- Granular Speed Editor defaults ----
     /// <summary>Default zoom-in ramp: true = SLOW (gradual), false = INSTANT (hard cut).</summary>
     public bool DefaultZoomSlow { get; set; } = false;
     /// <summary>Default freeze-image hold duration in seconds (matches the preset buttons 0.5–3.0).</summary>

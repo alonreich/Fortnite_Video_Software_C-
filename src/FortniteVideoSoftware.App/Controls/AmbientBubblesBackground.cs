@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
@@ -14,7 +14,7 @@ namespace FortniteVideoSoftware.App.Controls;
 /// </summary>
 public sealed class AmbientBubblesBackground : Control
 {
-    private const int BubbleCount = 35; // Dense enough to feel underwater, but spread out
+    private const int BubbleCount = 35;
     private const double PhysicsHz = 60.0;
     private const double FixedDeltaSeconds = 1.0 / PhysicsHz;
 
@@ -45,7 +45,7 @@ public sealed class AmbientBubblesBackground : Control
     public AmbientBubblesBackground()
     {
         IsHitTestVisible = false;
-        ClipToBounds = false; // Allow bubbles to drift over/under adjacent panels naturally
+        ClipToBounds = false;
 
         for (int i = 0; i < BubbleCount; i++)
         {
@@ -129,22 +129,18 @@ public sealed class AmbientBubblesBackground : Control
             double dy = curPos.Y - _lastWindowPos.Y;
             _lastWindowPos = curPos;
 
-            // Slosh inertia applied to gravity shear
             _gravityShearX += (-dx * 0.005 - _gravityShearX) * 0.1;
             _gravityShearY += (-dy * 0.005 - _gravityShearY) * 0.1;
         }
 
-        // Dampen over time
         _gravityShearX *= 0.95;
         _gravityShearY *= 0.95;
 
         foreach (var b in _bubbles)
         {
-            // Calculate absolute position
             double bx = b.X * w;
             double by = b.Y * h;
 
-            // Mouse repulsion
             double distX = bx - _mousePos.X;
             double distY = by - _mousePos.Y;
             double distSq = distX * distX + distY * distY;
@@ -153,17 +149,15 @@ public sealed class AmbientBubblesBackground : Control
 
             if (distSq < repulsionRadiusSq && distSq > 0.1)
             {
-                double force = (1.0 - distSq / repulsionRadiusSq) * 15.0; // Pushing force
+                double force = (1.0 - distSq / repulsionRadiusSq) * 15.0;
                 double length = Math.Sqrt(distSq);
                 b.X += (distX / length) * force / w;
                 b.Y += (distY / length) * force / h;
             }
 
-            // Normal movement + Inertia Gravity
             b.Y -= b.BaseSpeed - (_gravityShearY * b.BaseSpeed * 50.0);
             b.X += Math.Sin(b.Y * 7.0 + now * b.WobbleSpeed + b.Seed) * b.WobbleAmount + (_gravityShearX * b.BaseSpeed * 50.0);
             
-            // Seamless horizontal wrapping
             if (b.X < -0.2) b.X = 1.2;
             if (b.X > 1.2) b.X = -0.2;
 
@@ -179,20 +173,17 @@ public sealed class AmbientBubblesBackground : Control
         b.X = -0.1 + _rng.NextDouble() * 1.2;
         b.Y = randomY ? -0.1 + _rng.NextDouble() * 1.3 : 1.15 + _rng.NextDouble() * 0.2;
 
-        // Extremely randomized "anomalies" - reduced maximum sizes so they don't look broken
         double anomalyRoll = _rng.NextDouble();
-        if (anomalyRoll > 0.96) b.Size = 25.0 + _rng.NextDouble() * 15.0; // Massive rare anomaly
-        else if (anomalyRoll > 0.85) b.Size = 12.0 + _rng.NextDouble() * 12.0; // Large chunk
-        else b.Size = 3.0 + _rng.NextDouble() * 10.0; // Standard ambient particles
+        if (anomalyRoll > 0.96) b.Size = 25.0 + _rng.NextDouble() * 15.0;
+        else if (anomalyRoll > 0.85) b.Size = 12.0 + _rng.NextDouble() * 12.0;
+        else b.Size = 3.0 + _rng.NextDouble() * 10.0;
 
-        // Larger bubbles rise faster, but overall speed is very slow
         b.BaseSpeed = (0.1 + _rng.NextDouble() * (b.Size / 15.0)) / 1000.0; 
         
         b.WobbleSpeed = 0.2 + _rng.NextDouble() * 0.8;
         b.WobbleAmount = (0.2 + _rng.NextDouble() * 1.0) / 400.0;
         b.Seed = _rng.NextDouble() * Math.PI * 2;
         
-        // Softer opacity for better realism, but high enough to actually be visible (5-10%)
         b.Opacity = 0.05 + _rng.NextDouble() * 0.05;
     }
 
@@ -208,7 +199,6 @@ public sealed class AmbientBubblesBackground : Control
         {
             if (b.Y > 1.25 || b.Y < -0.25) continue;
 
-            // Only fade in at the bottom. Do not fade out at the top so it doesn't look cut off under the menu!
             double edgeFade = Math.Clamp((1.2 - b.Y) * 5.0, 0, 1);
             double alpha = b.Opacity * edgeFade;
             if (alpha <= 0.001) continue;
@@ -216,7 +206,6 @@ public sealed class AmbientBubblesBackground : Control
             double cx = b.X * w;
             double cy = b.Y * h;
 
-            // 3D Soft Bokeh Bubble (Radial Gradient)
             var bubbleGradient = new ImmutableRadialGradientBrush(
                 new[] {
                     new ImmutableGradientStop(0.0, Color.FromArgb(0, 255, 255, 255)),
@@ -229,7 +218,6 @@ public sealed class AmbientBubblesBackground : Control
 
             context.DrawEllipse(bubbleGradient, null, new Point(cx, cy), b.Size, b.Size);
             
-            // 3D Specular Highlight for fluid glass feel
             var hiOpacity = Math.Min(1.0, alpha + 0.2);
             var hiBrush = new ImmutableRadialGradientBrush(
                 new[] {

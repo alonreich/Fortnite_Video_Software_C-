@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -218,9 +218,6 @@ public partial class MainWindow : Window
         this.AddHandler(DragDrop.DragLeaveEvent, OnVideoDragLeave);
         this.AddHandler(DragDrop.DropEvent, OnVideoDrop);
 
-        // WM_DROPFILES fallback: guarantees Explorer drag & drop works (including onto
-        // the video preview box) even when OLE drag & drop is blocked, e.g. when the
-        // app runs elevated. See Win32FileDropInterop for the full explanation.
         Win32FileDropInterop.Attach(this, paths => _ = HandleExternalFileDropAsync(paths));
 
         var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
@@ -515,8 +512,6 @@ public partial class MainWindow : Window
                     InvalidateVoiceOverRecordingForTimingChange();
                     UpdateEstimatedQuality();
                     UpdateTimelineMarkers();
-                    // Persist edited segments immediately so a crash/force-kill right
-                    // after closing the editor cannot lose the new positions/lengths.
                     SaveRecoveryState();
                 }
             };
@@ -724,8 +719,6 @@ public partial class MainWindow : Window
                 EnsureTrimPointsSet();
                 RuntimeLog.Info("UI", $"User clicked MARK END at {TimeSpan.FromMilliseconds(_trimEndMs):hh\\:mm\\:ss\\.ff}.");
                 double time = GetCurrentMpvTime();
-                // Block marking END at/before the START — a clip can't end before it begins.
-                // (The trim-marker DRAG already clamps this; the button did not.)
                 if (time * 1000.0 <= _trimStartMs)
                 {
                     ShowTacticalFeedback("⚠ END must be after START");
@@ -735,7 +728,6 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                // The user explicitly requested: When hitting MARK END the video should pause in this state.
                 if (_videoHost?.IpcClient?.IsPaused == false)
                 {
                     _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
@@ -770,7 +762,23 @@ public partial class MainWindow : Window
             var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
             if (timelineOverlay != null && canvas != null)
             {
-                timelineOverlay.PointerPressed += (s, e) => SeekTimelineFromPointer(e, canvas, timelineSlider);
+                bool isScrubbing = false;
+                timelineOverlay.PointerPressed += (s, e) => {
+                    if (e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
+                        isScrubbing = true;
+                        e.Pointer.Capture(timelineOverlay);
+                        SeekTimelineFromPointer(e, canvas, timelineSlider);
+                    }
+                };
+                timelineOverlay.PointerMoved += (s, e) => {
+                    if (isScrubbing && e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
+                        SeekTimelineFromPointer(e, canvas, timelineSlider);
+                    }
+                };
+                timelineOverlay.PointerReleased += (s, e) => {
+                    isScrubbing = false;
+                    e.Pointer.Capture(null);
+                };
             }
         }
 
@@ -829,8 +837,6 @@ public partial class MainWindow : Window
                 }
             };
 
-            // SpeakerHitBox is a Button: Click covers mouse AND native Enter/Space keyboard
-            // activation, so a separate KeyDown hook would double-toggle the mute.
             var speakerHitBox = this.FindControl<Button>("SpeakerHitBox");
             if (speakerHitBox != null)
             {
@@ -947,7 +953,6 @@ public partial class MainWindow : Window
             mobileCheckbox.IsCheckedChanged += (s, e) =>
             {
                 UpdatePortraitOverlay();
-                // §2 State Binding: portrait toggle re-evaluates the red guardrail on all meme items.
                 ApplyMemeItemsToCombo(preserveSelection: true);
                 SaveRecoveryState();
             };
@@ -982,8 +987,6 @@ public partial class MainWindow : Window
         
         var memeCb = this.FindControl<ComboBox>("MemeComboBox");
         if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
-            // §4 UI Trigger: the appended "Download more memes..." row is an ACTION, not a meme —
-            // revert the selection and run the consent + sync flow instead.
             if (memeCb.SelectedItem is MemeItem action && action.IsDownloadAction)
             {
                 memeCb.SelectedItem = e.RemovedItems != null && e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
@@ -991,7 +994,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // §8 Selection Event Logging: file type, path, and probed geometry at selection time.
             if (memeCb.SelectedItem is MemeItem sel)
             {
                 RuntimeLog.Info("Memes",
@@ -1020,7 +1022,6 @@ public partial class MainWindow : Window
         AddHandler(InputElement.KeyDownEvent, GlobalKeyDownHandler, RoutingStrategies.Tunnel);
         AddHandler(InputElement.KeyUpEvent, GlobalKeyUpHandler, RoutingStrategies.Tunnel);
 
-        // §3 State Update: Settings changed the meme directory → silently re-scan and rebuild.
         Infrastructure.MemeDirectory.Changed += PopulateMemeComboBox;
         this.Closed += (_, _) => Infrastructure.MemeDirectory.Changed -= PopulateMemeComboBox;
 
@@ -1062,10 +1063,6 @@ public partial class MainWindow : Window
             var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync();
 
-            // ISSUE_9: consume the crop-tool return handshake. The crop configuration was
-            // already refreshed from the active profile during startup (ApplyProfile above),
-            // so acknowledge the handoff in the log. The preserve-keys filter below then
-            // clears the flag intentionally.
             try
             {
                 if (state.TryGetPropertyValue("returned_from_crop_tool", out var rfct) && rfct?.GetValue<bool>() == true)
@@ -1087,8 +1084,6 @@ public partial class MainWindow : Window
             await InitializeHardwareScanAsync();
             UpdatePortraitOverlay();
 
-            // "Open With" from Windows Explorer: Program.cs stashed the file path
-            // passed on the command line. Load it now that the UI is fully ready.
             string? pendingOpenWith = OpenWithLaunch.PendingVideoPath;
             if (!string.IsNullOrEmpty(pendingOpenWith))
             {
@@ -1099,7 +1094,6 @@ public partial class MainWindow : Window
 
     }
 
-    // Meme System §1/§2: current catalog + pending crash-recovery selection (§8).
     private List<MemeItem> _memeItems = new();
     private string? _pendingMemeRestorePath;
 
@@ -1145,7 +1139,6 @@ public partial class MainWindow : Window
 
         ApplyMemeItemsToCombo(preserveSelection: true);
 
-        // §8 Boot Restoration: apply a pending crash-recovery selection now that items exist.
         if (_pendingMemeRestorePath != null)
         {
             string p = _pendingMemeRestorePath;
@@ -1205,7 +1198,6 @@ public partial class MainWindow : Window
         if (!dlg.Result) return;
 
         ShowTacticalFeedback("Downloading memes…");
-        // §4 Active Path Probe: always the user-configured directory, never a hardcoded default.
         var (count, error) = await MemeCatalog.SyncFromCloudAsync(Infrastructure.MemeDirectory.GetActive());
         if (error != null)
         {
@@ -1213,7 +1205,7 @@ public partial class MainWindow : Window
             return;
         }
         ShowTacticalFeedback(count > 0 ? $"✔ {count} new meme(s) added" : "✔ Meme library is up to date");
-        PopulateMemeComboBox(); // §4 UI Refresh via the §1 scan
+        PopulateMemeComboBox();
     }
 
     private async Task PushAssetsAsync()
@@ -1223,14 +1215,10 @@ public partial class MainWindow : Window
             await Task.Run(() => {
                 string musicFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
                 string videosFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-                // §1 Unified Meme Directory: seed the ACTIVE directory (settings override or
-                // MyVideos\Fortnite Video Software\Memes), not the legacy MyVideos\MEME.
                 string memeFolder = Infrastructure.MemeDirectory.GetActive();
 
                 if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
 
-                // One-time migration: carry the user's existing memes over from the legacy
-                // MyVideos\MEME folder (copy-if-absent; the old folder is left untouched).
                 string legacyMeme = Path.Combine(videosFolder, "MEME");
                 if (Directory.Exists(legacyMeme) &&
                     !string.Equals(Path.GetFullPath(legacyMeme), Path.GetFullPath(memeFolder), StringComparison.OrdinalIgnoreCase))
@@ -1270,9 +1258,6 @@ public partial class MainWindow : Window
                 if (File.Exists(meme4) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme4))))
                     File.Copy(meme4, Path.Combine(memeFolder, Path.GetFileName(meme4)));
 
-                // Also seed the MEME folder with the bundled meme IMAGES so they sit alongside
-                // the meme movies. Copy every image in the source jpeg\ folder (handles the
-                // mixed jpg/png set without hardcoding filenames; skips ones already present).
                 var imageSourceDir = Path.Combine(appRoot, "jpeg");
                 if (Directory.Exists(imageSourceDir))
                 {
@@ -1324,7 +1309,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SeekTimelineFromPointer(PointerPressedEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
+    private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
     {
         if (e.Handled) return;
         if (_draggingStartMarker || _draggingEndMarker) return;
@@ -1478,10 +1463,6 @@ public partial class MainWindow : Window
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel == null) return;
 
-        // Multi-select is intentionally allowed even though the main editor only works
-        // on one video at a time: it lets users manage files (e.g. delete several at
-        // once) inside the picker window for convenience. When more than one file is
-        // selected, the file with the most recent modified date/time is loaded.
         var options = new Avalonia.Platform.Storage.FilePickerOpenOptions
         {
             Title = "Open Video (select multiple — the newest file is loaded)",
@@ -1556,8 +1537,6 @@ public partial class MainWindow : Window
 
         if (files.Count > 0)
         {
-            // The main editor handles a single video: of everything the user marked,
-            // load the file with the latest modified date/time (most recent recording).
             string selectedPath = files
                 .Select(f => f.Path.LocalPath)
                 .Where(File.Exists)
@@ -1951,8 +1930,6 @@ public partial class MainWindow : Window
 
     private void PlayUiSound()
     {
-        // Removed to prevent double-audio and annoying default Windows "Asterisk/Ding" sound.
-        // All audio feedback is now intelligently handled by the global AvaloniaApp.axaml.cs hook via UiSoundEffect.
     }
 
     /// <summary>
@@ -2641,9 +2618,6 @@ public partial class MainWindow : Window
                         SetTrimStart(_trimStartMs);
                         RuntimeLog.Info("UI", $"Trim START marker dragged to {TimeSpan.FromMilliseconds(_trimStartMs):hh\\:mm\\:ss\\.ff}.");
 
-                        // Playhead-follow: when PAUSED, snap the caret to the new START
-                        // so the user sees the exact marked frame. During playback we
-                        // never interrupt — no seek, no pause-state change.
                         if (ActiveVideoHost?.IpcClient?.IsPaused == true)
                         {
                             _ = SeekInternal(_trimStartMs / 1000.0);
@@ -2720,9 +2694,6 @@ public partial class MainWindow : Window
                         e.Pointer.Capture(null);
                         RuntimeLog.Info("UI", $"Trim END marker dragged to {TimeSpan.FromMilliseconds(_trimEndMs):hh\\:mm\\:ss\\.ff}.");
 
-                        // Playhead-follow: when PAUSED, snap the caret to the new END
-                        // so the user sees the exact marked frame. During playback we
-                        // never interrupt — no seek, no pause-state change.
                         if (ActiveVideoHost?.IpcClient?.IsPaused == true)
                         {
                             _ = SeekInternal(_trimEndMs / 1000.0);
@@ -3197,7 +3168,7 @@ public partial class MainWindow : Window
             Width = 36,
             Height = 28,
             Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(220, 15, 23, 42)),
-            BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")), // Fuchsia
+            BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
             BorderThickness = new Avalonia.Thickness(2),
             CornerRadius = new Avalonia.CornerRadius(4),
             IsHitTestVisible = false
@@ -4031,8 +4002,6 @@ public partial class MainWindow : Window
             }
             
             worker.HardwareStrategy = hwMode;
-            // Legacy "MobileCheckbox" ghost lookup removed — no such control exists in
-            // MainWindow.axaml; PortraitModeCheckbox is the sole source of truth.
             worker.IsMobileFormat = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
             worker.IsBossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false;
             worker.EnableFades = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true;
@@ -4043,8 +4012,6 @@ public partial class MainWindow : Window
             if (addMemeCb != null && addMemeCb.IsChecked == true)
             {
                 var memeCb = this.FindControl<ComboBox>("MemeComboBox");
-                // §1: the combo items carry their own ABSOLUTE path from the active meme
-                // directory — no more hardcoded MyVideos\MEME reconstruction.
                 if (memeCb?.SelectedItem is MemeItem memeSel && !memeSel.IsDownloadAction && File.Exists(memeSel.FullPath))
                 {
                     worker.MemeFile = memeSel.FullPath;
@@ -4628,8 +4595,6 @@ public partial class MainWindow : Window
                 ["showSpectating"] = this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
                 ["enableFade"] = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
                 ["addMeme"] = this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false,
-                // §8 Crash Recovery: persist the ABSOLUTE meme path (orphan-guarded on restore).
-                // The legacy name-only "memeFile" key is kept for backward compatibility.
                 ["memeFile"] = this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem?.ToString() ?? "",
                 ["memeFilePath"] = (this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem as MemeItem)?.FullPath ?? "",
                 ["portraitText"] = this.FindControl<TextBox>("PortraitTextInput")?.Text ?? "",
@@ -4669,7 +4634,6 @@ public partial class MainWindow : Window
                     ["endMs"] = seg.EndMs,
                     ["speed"] = seg.Speed
                 };
-                // Persist the optional zoom so spatial edits survive a crash.
                 if (seg.ZoomW.HasValue)
                 {
                     segObj["zoomX"] = seg.ZoomX;
@@ -4896,8 +4860,6 @@ public partial class MainWindow : Window
             var addMemeCbRestore = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
             if (addMemeCbRestore != null) addMemeCbRestore.IsChecked = addMeme;
 
-            // §8 Boot Restoration (Orphan Guard): prefer the absolute path; verify the file still
-            // exists. If it was deleted/moved externally, discard, warn-log, and leave cleared.
             string memeFilePath = (string?)state["memeFilePath"] ?? "";
             string memeFile = (string?)state["memeFile"] ?? "";
             string restoreTarget = !string.IsNullOrEmpty(memeFilePath) ? memeFilePath
@@ -4906,7 +4868,6 @@ public partial class MainWindow : Window
             {
                 if (File.Exists(restoreTarget))
                 {
-                    // Items load asynchronously — PopulateMemeComboBox applies this when the scan lands.
                     _pendingMemeRestorePath = restoreTarget;
                     var memeCbRestore = this.FindControl<ComboBox>("MemeComboBox");
                     var immediate = _memeItems.FirstOrDefault(m =>

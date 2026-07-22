@@ -194,7 +194,7 @@
                                             <Flyout Placement="Top">
                                                 <StackPanel Spacing="8" Margin="8">
                                                     <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                                    <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" HorizontalAlignment="Stretch" />
+                                                    <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently wipe everything clean and reset the canvas." />
                                                 </StackPanel>
                                             </Flyout>
                                         </Button.Flyout>
@@ -391,7 +391,7 @@
                                         <Flyout Placement="Top">
                                             <StackPanel Spacing="8" Margin="8">
                                                 <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                                <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" />
+                                                <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently delete the selected layer." />
                                             </StackPanel>
                                         </Flyout>
                                     </Button.Flyout>

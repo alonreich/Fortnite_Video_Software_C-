@@ -55,7 +55,7 @@
                                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
                                     <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
                                     <Button Grid.Column="1" Name="ClearSearchBtn" Content="X" Classes="Secondary" MinWidth="36" Margin="8,0,0,0" HorizontalContentAlignment="Center" ToolTip.Tip="Clear search"/>
-                                    <ComboBox Grid.Column="2" Name="MusicSortComboBox" MinWidth="150" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center">
+                                    <ComboBox Grid.Column="2" Name="MusicSortComboBox" MinWidth="150" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center" ToolTip.Tip="Change how the music files are sorted.">
                                         <ComboBoxItem Content="Name"/>
                                         <ComboBoxItem Content="Newest"/>
                                         <ComboBoxItem Content="Shortest"/>
@@ -77,7 +77,7 @@
                                                 <Border Padding="5,2" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
                                                     <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                                                         <TextBlock Grid.Column="0" Text="{CompiledBinding PinText}" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                                         <TextBlock Grid.Column="2" Text="{CompiledBinding SizeText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                                         <TextBlock Grid.Column="3" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,20,0"/>
                                                     </Grid>
@@ -163,9 +163,9 @@
                                                     <Grid Name="AutoFillQueuePanel" RowDefinitions="Auto,Auto,Auto" IsVisible="False">
                                                         <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,6">
                                                             <TextBlock Grid.Column="0" Name="AutoFillQueueSummaryText" Text="QUEUE" Foreground="{DynamicResource AppAccentBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center"/>
-                                                            <Button Grid.Column="1" Name="QueueMoveUpBtn" Classes="Secondary" Content="Up" MinWidth="54" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center"/>
-                                                            <Button Grid.Column="2" Name="QueueMoveDownBtn" Classes="Secondary" Content="Down" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0"/>
-                                                            <Button Grid.Column="3" Name="QueueRemoveBtn" Classes="Danger" Content="Remove" MinWidth="74" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0"/>
+                                                            <Button Grid.Column="1" Name="QueueMoveUpBtn" Classes="Secondary" Content="Up" MinWidth="54" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" ToolTip.Tip="Move the selected track up in the queue."/>
+                                                            <Button Grid.Column="2" Name="QueueMoveDownBtn" Classes="Secondary" Content="Down" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0" ToolTip.Tip="Move the selected track down in the queue."/>
+                                                            <Button Grid.Column="3" Name="QueueRemoveBtn" Classes="Secondary" Content="Remove" MinWidth="74" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0" ToolTip.Tip="Remove the selected track from the queue."/>
                                                         </Grid>
                                                         <ListBox Grid.Row="1" Name="AutoFillQueueList" Height="96" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                                             <ListBox.ItemTemplate>
@@ -284,13 +284,15 @@
                             <!-- ISSUE_08: transport Play is Primary (blue) so it reads distinctly from the
                                  green "NEXT" progression button sharing this nav pane. -->
                             <Button Name="PlayBtn" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
-                                <Panel Width="16" Height="16">
-                                    <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                    <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                    </StackPanel>
-                                </Panel>
+                                <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                    <Panel Width="16" Height="16">
+                                        <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                        <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                            <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                        </StackPanel>
+                                    </Panel>
+                                </Viewbox>
                             </Button>
                             <Button Name="SkipForwardBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
                                 <TextBlock Text="+30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />

@@ -1,4 +1,4 @@
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -186,12 +186,10 @@ public class ProcessWorker : IDisposable
                     if (!memeIsImage)
                     {
                         memeDuration = await memeProber.GetDurationAsync();
-                        // §5 A "video" whose duration probes as 0 is really a still — treat it as an image.
                         if (memeDuration <= 0.0) memeIsImage = true;
                         else memeHasAudio = await memeProber.HasAudioAsync();
                     }
 
-                    // §5 Image memes have no intrinsic duration — give them a fixed 4s on-screen life.
                     if (memeIsImage) memeDuration = 4.0;
 
                     padEndHumanSec = 0;
@@ -225,8 +223,6 @@ public class ProcessWorker : IDisposable
                 string granularFilters = "";
                 string gV = "", gVHud = "", gA = "";
                 double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
-                // ISSUE_01: keep the piecewise source→output time mapper so thumbnail
-                // extraction lands on the exact user-picked frame even with segments/freezes.
                 Func<double, double>? granularTimeMapper = null;
 
                 if (SpeedSegments != null && SpeedSegments.Count > 0)
@@ -295,8 +291,6 @@ public class ProcessWorker : IDisposable
                 if (VolumeNormalizeDb == 0.0 && sourceHasAudio)
                 {
                     PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", 0);
-                    // SUSPECTED_02 fix: measure loudness over the SAME range the encoder
-                    // extracts (including fade padding), not just the bare trim range.
                     await PerformLoudnormPassAsync(actualExtractStartMs, actualExtractEndMs, cancellationToken);
                 }
 
@@ -355,7 +349,6 @@ public class ProcessWorker : IDisposable
 
                 }
 
-                // VoiceOver take mixing — applies after BOTH granular and non-granular audio paths
                 var effectiveTakes = GetEffectiveVoiceOverTakes();
                 if (effectiveTakes.Count > 0)
                 {
@@ -369,13 +362,6 @@ public class ProcessWorker : IDisposable
                     {
                         var take = effectiveTakes[t];
                         int inputIdx = voBaseIndex + t;
-                        // POSITION FIX: take.StartSec is the ABSOLUTE source timestamp where the
-                        // user started recording. The old code used it directly as the output
-                        // delay, so a voiceover recorded at (say) 66.9s into the source was pushed
-                        // 66.9s into an ~11s clip — i.e. off the end, silent. Map it into the
-                        // OUTPUT timeline instead: the granular time-mapper when speed segments
-                        // exist, else (source − extract-start)/speed for the plain sped path
-                        // (extract-start already accounts for the fade pre-roll).
                         double voStartOutSec = granularTimeMapper != null
                             ? granularTimeMapper(take.StartSec)
                             : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
@@ -383,10 +369,6 @@ public class ProcessWorker : IDisposable
                         string delayLabel = $"[vo_delayed_{t}]";
                         string mixedLabel = $"[a_mixed_vo_{t}]";
 
-                        // SPEED-MATCH: the voice is recorded against a real-time (1.0x) preview, so
-                        // it must be sped by the export SpeedFactor to stay locked to the sped
-                        // video — otherwise it starts aligned but drifts progressively behind.
-                        // atempo goes BEFORE adelay so the positioning delay is not time-scaled.
                         string voAtempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
                         coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},{voAtempo},adelay={delayMs}|{delayMs}{delayLabel}");
                         coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0{mixedLabel}");
@@ -441,11 +423,6 @@ public class ProcessWorker : IDisposable
 
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
-                    // A/V SYNC: hold the still with tpad (extends by DURATION) instead of
-                    // loop=loop=N (extends by frame COUNT). loop runs at the SOURCE frame rate,
-                    // so on a 120fps clip N frames spanned only half the intended time — the
-                    // intro video came out ~half the audio-silence length and shifted the whole
-                    // clip out of sync. tpad's stop_duration is frame-rate-independent.
                     coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
                                    $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
                                    $"tpad=stop_mode=clone:stop_duration={introDurationSec:F4}," +
@@ -509,17 +486,12 @@ public class ProcessWorker : IDisposable
 
                 if (memeInputIndex.HasValue)
                 {
-                    // §6 Fit the meme into the export canvas by LETTERBOX/PILLARBOX (decrease + pad)
-                    // so a mismatched-orientation meme is never cropped. The pad canvas (1080x1920
-                    // or 1920x1080) is already even; the trailing even-guard keeps ALL scaling paths
-                    // libx264-safe (H.264 aborts on odd width/height).
                     string canvas = IsMobileFormat ? "1080:1920" : "1920:1080";
                     string memeScale =
                         $"scale={canvas}:force_original_aspect_ratio=decrease," +
                         $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
                         $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,fps={targetFps}:start_time=0:round=near";
 
-                    // §7 Only reference the meme's own audio pad when it actually has an audio stream.
                     string memeAudio = "aresample=48000:async=1";
 
                     if (EnableFades && memeDuration >= 0.5)
@@ -535,8 +507,6 @@ public class ProcessWorker : IDisposable
                     }
 
                     coreFilters.Add($"[{memeInputIndex}:v]{memeScale}[meme_v]");
-                    // §7 Image memes and silent clips have no [n:a] pad; synthesize a silent track so
-                    // the concat below always receives 2 audio inputs (a missing pad crashes concat).
                     if (memeHasAudio)
                         coreFilters.Add($"[{memeInputIndex}:a]{memeAudio}[meme_a]");
                     else
@@ -586,7 +556,6 @@ public class ProcessWorker : IDisposable
                 }
 
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
-                // ISSUE_1: full filter graph (may contain temp file paths) is dev-only.
                 CoreLogger.Debug("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
@@ -633,9 +602,6 @@ public class ProcessWorker : IDisposable
 
                         if (MemeFile != null)
                         {
-                            // §5 An image meme has no duration: loop one still at the target fps and
-                            // bound it to memeDuration. -loop/-framerate/-t are INPUT options and MUST
-                            // precede -i (placing -t after -i would make it an OUTPUT option in FFmpeg).
                             if (memeIsImage)
                                 ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", MemeFile]);
                             else
@@ -656,8 +622,6 @@ public class ProcessWorker : IDisposable
 
                         string cmdLine = string.Join(" ", ffmpegArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
                         CoreLogger.Info("FFmpeg", $"Starting encode: encoder={currentEncoder}, mode={rcLabel}, attempt={attemptNum}.");
-                        // ISSUE_1: full command with absolute paths is dev-only; the INFO line
-                        // above ("Starting encode: encoder/mode/attempt") keeps a safe trail.
                         CoreLogger.Debug("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
                         var psi = new ProcessStartInfo
@@ -670,8 +634,6 @@ public class ProcessWorker : IDisposable
                             CreateNoWindow = true,
                         };
 
-                        // ISSUE_02: keep a local reference so THIS attempt's Process is
-                        // deterministically disposed even when the retry loop continues.
                         var proc = Process.Start(psi);
                         if (proc == null) return false;
                         _currentProcess = proc;
@@ -706,9 +668,6 @@ public class ProcessWorker : IDisposable
                             }
                         }, cancellationToken);
 
-                        // Buffer the last N stderr lines instead of streaming every line to the shared
-                        // log. The tail is persisted at Fail level on failure (full context for backend
-                        // analysis) and only at Debug (dev-only) on success, avoiding log flooding.
                         var stderrTail = new System.Collections.Generic.Queue<string>();
                         const int stderrTailMax = 400;
                         var stderrTask = Task.Run(async () =>
@@ -739,8 +698,6 @@ public class ProcessWorker : IDisposable
                         string[] stderrLines;
                         lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
 
-                        // ISSUE_02: capture the exit code, then release the process handle
-                        // for THIS attempt before any return/continue path.
                         int exitCode = proc.ExitCode;
                         _currentProcess = null;
                         proc.Dispose();
@@ -817,8 +774,6 @@ public class ProcessWorker : IDisposable
                 if (ThumbnailPosMs > 0)
                 {
                     string thumbnailOutput = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
-                    // ISSUE_01: with granular segments/freezes the output timeline is
-                    // piecewise-warped — use the same TimeMapper the video filter uses.
                     double extractTargetSec = granularTimeMapper != null
                         ? Math.Max(0.0, granularTimeMapper(ThumbnailPosMs / 1000.0))
                         : Math.Max(0.0, (ThumbnailPosMs - actualExtractStartMs) / 1000.0 / Math.Max(0.001, SpeedFactor));
@@ -939,7 +894,7 @@ public class ProcessWorker : IDisposable
                     {
                         double currentSec = ts.TotalSeconds;
                         int percent = totalDurationSec > 0 ? (int)Math.Clamp(currentSec / totalDurationSec * 100, 0, 100) : 0;
-                        int scaledPercent = percent / 2; // Phase 1 is 0-50%
+                        int scaledPercent = percent / 2;
                         ProgressUpdate?.Invoke(scaledPercent);
                         PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", scaledPercent);
                     }

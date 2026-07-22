@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
@@ -114,8 +114,6 @@ public static class ThemeManager
     /// </summary>
     public static void ApplyFontMultiplierToWindow(Window window)
     {
-        // Base font size is 13 (defined in AvaloniaApp.axaml Window style).
-        // The multiplier scales it proportionally.
         window.FontSize = Math.Round(13.0 * _currentFontMultiplier, 1);
     }
 }

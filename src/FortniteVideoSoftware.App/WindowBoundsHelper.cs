@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -69,8 +69,6 @@ public static class WindowBoundsHelper
         {
             try
             {
-                // Re-assert the saved position AFTER the window is shown: Windows may
-                // have adjusted it during Show() due to per-monitor DPI scaling.
                 if (appliedPosition.HasValue && window.WindowState == WindowState.Normal
                     && window.Position != appliedPosition.Value)
                 {
@@ -111,7 +109,6 @@ public static class WindowBoundsHelper
     {
         if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
         {
-            // ISSUE 4: Prevent stutter jumping by enforcing Manual startup location early
             window.WindowStartupLocation = WindowStartupLocation.Manual;
 
             double savedWidth = window.Width;
@@ -137,7 +134,6 @@ public static class WindowBoundsHelper
                 int px = (int)x;
                 int py = (int)y;
 
-                // ISSUE 3: Check if visible on ANY screen. Don't aggressively clamp.
                 var screens = window.Screens.All;
                 double scaling = screens.FirstOrDefault()?.Scaling ?? 1.0;
                 int pixelWidth = Math.Max(1, (int)(savedWidth * scaling));
@@ -147,7 +143,6 @@ public static class WindowBoundsHelper
 
                 if (!isVisible)
                 {
-                    // Window is completely off-screen (e.g. monitor disconnected). Center on primary screen.
                     var primary = window.Screens.Primary ?? screens.FirstOrDefault();
                     if (primary != null)
                     {
@@ -156,7 +151,6 @@ public static class WindowBoundsHelper
                     }
                 }
 
-                // Applying position after size helps prevent OS from aggressively snapping straddled windows
                 window.Position = new PixelPoint(px, py);
             }
 
@@ -206,7 +200,6 @@ public static class WindowBoundsHelper
     {
         JsonObject boundsObj = new JsonObject();
         
-        // Preserve existing coordinates if currently Maximized/Minimized (ISSUE 2)
         if (state.TryGetPropertyValue(key, out var existingNode) && existingNode is JsonObject existingObj)
         {
             if (existingObj.TryGetPropertyValue("X", out var x)) boundsObj["X"] = x?.DeepClone();
@@ -221,7 +214,6 @@ public static class WindowBoundsHelper
         {
             boundsObj["X"] = window.Position.X;
             boundsObj["Y"] = window.Position.Y;
-            // ISSUE 1: Save outer Width/Height instead of inner Bounds, to prevent shrinking loop
             double w = double.IsNaN(window.Width) ? window.Bounds.Width : window.Width;
             double h = double.IsNaN(window.Height) ? window.Bounds.Height : window.Height;
             boundsObj["Width"] = w;

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -184,7 +184,6 @@ public partial class VoiceOverWindow : Window
         }
         _paths.EnsureWritableDirectories();
         _outputWavPath = CreateTempVoiceOverPath();
-
 
 
         if (_micRecordButton != null) _micRecordButton.Click += ToggleRecord;

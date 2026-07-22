@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -44,7 +44,6 @@ public partial class FinishedDialogWindow : Window
     private void OnRootPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || e.ClickCount >= 2) return;
-        // Do not steal presses aimed at interactive controls.
         var el = e.Source as StyledElement;
         while (el != null)
         {

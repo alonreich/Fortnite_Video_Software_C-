@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -53,8 +53,8 @@ internal static class CrashLogDigest
             psi.ArgumentList.Add("Application");
             psi.ArgumentList.Add("/q:" + query);
             psi.ArgumentList.Add("/f:text");
-            psi.ArgumentList.Add("/rd:true");  // newest first
-            psi.ArgumentList.Add("/c:100");    // hard cap
+            psi.ArgumentList.Add("/rd:true");
+            psi.ArgumentList.Add("/c:100");
 
             using var proc = Process.Start(psi);
             if (proc == null) return;
@@ -67,7 +67,6 @@ internal static class CrashLogDigest
             {
                 foreach (string block in SplitEvents(output))
                 {
-                    // Application Error / WER logs every app on the machine, so keep only ours.
                     if (block.IndexOf("FortniteVideoSoftware", StringComparison.OrdinalIgnoreCase) < 0
                         && block.IndexOf(exe, StringComparison.OrdinalIgnoreCase) < 0
                         && block.IndexOf("ffmpeg.exe", StringComparison.OrdinalIgnoreCase) < 0
@@ -83,13 +82,10 @@ internal static class CrashLogDigest
                 RuntimeLog.Info("EVENTLOG DIGEST",
                     $"Folded {ingested} crash/error event(s) from Windows Event Viewer (since {sinceIso}) into this log.");
 
-            // Advance the marker to when this sweep STARTED, so the next launch only picks up
-            // events newer than this (never re-imports what we just imported).
             WriteMarker(markerPath, sweepStartedUtc);
         }
         catch
         {
-            // Diagnostics must never take the app down.
         }
     }
 
@@ -149,8 +145,6 @@ internal static class CrashLogDigest
             }
         }
         catch { }
-        // First ever run: look back a few days so a recent crash is still captured, but don't
-        // dump the machine's entire history.
         return DateTime.UtcNow.AddDays(-3);
     }
 

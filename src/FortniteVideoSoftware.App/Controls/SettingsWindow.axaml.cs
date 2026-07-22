@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -102,7 +102,6 @@ public partial class SettingsWindow : Window
         }
     }
 
-    // Confirmation Dialogs
     public bool ConfirmVideoMergerRemove { get; set; }
     public bool ConfirmVideoMergerClearAll { get; set; }
     public bool ConfirmCropToolReset { get; set; }
@@ -304,7 +303,6 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Enable Fade-In/Out", _pendingDefaults.EnableFadeBehavior, v => _pendingDefaults.EnableFadeBehavior = v));
 
-        // ---- Granular Speed Editor defaults section ----
         panel.Children.Add(new TextBlock
         {
             Text = "Speed Editor",
@@ -408,8 +406,6 @@ public partial class SettingsWindow : Window
             string lastKnownGood = SettingsManager.Instance.MemeDirectoryPath;
             try
             {
-                // §3 Exception Handling: probe-read the directory FIRST; an
-                // UnauthorizedAccessException blocks the change and reverts.
                 _ = System.IO.Directory.GetFiles(newPath);
 
                 SettingsManager.Instance.MemeDirectoryPath = newPath;
@@ -418,7 +414,7 @@ public partial class SettingsWindow : Window
                 if (statusText != null) statusText.Text = "";
                 RuntimeLog.Info("Memes", $"Meme directory changed to: {System.IO.Path.GetFileName(newPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))}");
                 RuntimeLog.Debug("Memes", $"Meme directory changed to: {newPath}");
-                MemeDirectory.NotifyChanged(); // §3 State Update → MainWindow re-scan
+                MemeDirectory.NotifyChanged();
             }
             catch (UnauthorizedAccessException ex)
             {

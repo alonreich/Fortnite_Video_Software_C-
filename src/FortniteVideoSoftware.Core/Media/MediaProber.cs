@@ -1,4 +1,4 @@
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -194,7 +194,6 @@ public class MediaProber
             int br = ParseInt(format["bit_rate"]);
             if (br > 0)
             {
-                // Container bitrate includes audio; subtract a nominal audio bitrate.
                 double audioKbps = await GetAudioBitrateAsync();
                 return Math.Max(0, (br / 1000.0) - audioKbps);
             }
@@ -247,13 +246,10 @@ public class MediaProber
         if (!targetMb.HasValue || durationSec <= 0) return 0;
 
         double targetBytes = targetMb.Value * 1024 * 1024;
-        // ISSUE_08: FFmpeg's "k" in kbps is 1000, not 1024 — use decimal kilo for
-        // bitrate<->bytes conversions so first-attempt sizes center on the target.
         double audioBytesPerSec = audioKbps * 1000.0 / 8.0;
         double audioTotalBytes = audioBytesPerSec * durationSec;
         double videoBudgetBytes = targetBytes - audioTotalBytes;
         double videoKbps = (videoBudgetBytes * 8.0 / 1000.0) / durationSec;
-
 
 
         return Math.Max(300, Math.Min(EncoderManager.MaxBitrateKbps, (int)videoKbps));

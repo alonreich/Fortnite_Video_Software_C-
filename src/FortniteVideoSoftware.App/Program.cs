@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using FortniteVideoSoftware.App;
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Ipc;
@@ -16,20 +16,12 @@ FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.A
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
 
-// NOTE: a native vectored-exception handler was intentionally REMOVED here. .NET uses hardware
-// access violations (0xC0000005) internally for implicit null-reference checks, so a process-wide
-// VEH fires on ordinary managed execution; doing managed work inside it corrupts the runtime
-// (ExecutionEngineException / 0x80131506). Native crashes are captured safely and retroactively
-// by the startup Event Viewer digest (CrashLogDigest) instead.
 
 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
 {
     string detail = e.ExceptionObject is Exception ex
         ? $"{ex.GetType().Name}: {ex.Message}{Environment.NewLine}{ex}"
         : $"Non-Exception object: {e.ExceptionObject}";
-    // Synchronous, queue-bypassing write FIRST so the line survives even if the process is
-    // terminating faster than the async log queue can drain; then the normal path (which also
-    // feeds the live on-screen log viewer).
     RuntimeLog.EmergencyWrite("FATAL UNHANDLED", detail);
     RuntimeLog.Fail("FATAL UNHANDLED", detail);
 };
@@ -49,9 +41,6 @@ TaskScheduler.UnobservedTaskException += (s, e) =>
 RuntimeLog.Info("PROCESS START", $"pid={Environment.ProcessId}; exe={System.IO.Path.GetFileName(Environment.ProcessPath ?? "FortniteVideoSoftware.exe")}; args_count={args.Length}");
 RuntimeLog.Debug("PROCESS START", $"exe={Environment.ProcessPath}; args={string.Join(" ", args)}");
 
-// Fold any Windows Event Viewer crash entries for this app (native fast-fails that never
-// reached our log) into the .log file. Main-app launch only, so the 3 sibling processes
-// don't each import the same events. Fire-and-forget — never delays startup.
 bool isSiblingProcess = args.Any(a =>
     a.Equals("--merger", StringComparison.OrdinalIgnoreCase) ||
     a.Equals("--crop-tool", StringComparison.OrdinalIgnoreCase) ||
@@ -74,10 +63,6 @@ static async Task<int> RunAsync(string[] args)
 {
     string command = args.FirstOrDefault() ?? "run-ui";
 
-    // Windows Explorer "Open With" / file-association launches pass the video file
-    // path as the first argument. Without this check the path fell through to the
-    // command switch below, hit PrintUsage and the process exited silently
-    // ("nothing happens"). Detect it, stash it, and boot the normal UI instead.
     if (OpenWithLaunch.IsVideoFilePath(command))
     {
         OpenWithLaunch.PendingVideoPath = System.IO.Path.GetFullPath(command);

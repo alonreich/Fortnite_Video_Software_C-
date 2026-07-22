@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -52,8 +52,6 @@ public static class Win32FileDropInterop
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool ChangeWindowMessageFilterEx(nint hWnd, uint message, uint action, nint pChangeFilterStruct);
 
-    // Delegates passed to native code must be kept alive for the window lifetime,
-    // otherwise the GC collects them and the subclass callback crashes the process.
     private static readonly List<SubclassProc> _keepAlive = new();
 
     /// <summary>
@@ -71,7 +69,6 @@ public static class Win32FileDropInterop
                 nint hwnd = window.TryGetPlatformHandle()?.Handle ?? nint.Zero;
                 if (hwnd == nint.Zero) return;
 
-                // Allow the legacy drop messages through UIPI in case we run elevated.
                 ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nint.Zero);
                 ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, nint.Zero);
                 ChangeWindowMessageFilterEx(hwnd, WM_COPYGLOBALDATA, MSGFLT_ALLOW, nint.Zero);

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
@@ -10,7 +10,6 @@ public partial class AvaloniaApp : Application
     {
         AvaloniaXamlLoader.Load(this);
 
-        // Globally hook all Button clicks across the entire application
         Avalonia.Controls.Button.ClickEvent.AddClassHandler<Avalonia.Controls.Button>((sender, e) =>
         {
             if (sender is Avalonia.Controls.Button btn)

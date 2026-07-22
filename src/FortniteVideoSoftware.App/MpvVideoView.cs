@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -68,11 +68,6 @@ public sealed class MpvVideoView : Control, IDisposable
     private int _cachedHeight;
     private readonly object _renderLock = new object();
 
-    // CRASH FIX (0xC0000005 in mpv_render_context_render): with hwdec=cuda/nvdec the render
-    // context uses CUDA<->OpenGL interop, which is THREAD-AFFINE — it must be driven from ONE
-    // consistent thread. The old code dispatched every frame via Task.Run onto arbitrary
-    // thread-pool threads, which faults the NVIDIA driver (worst on high-fps streams). All
-    // rendering now runs on this single dedicated thread instead.
     private System.Threading.Thread? _renderThread;
     private readonly System.Threading.AutoResetEvent _renderSignal = new(false);
     private volatile bool _renderThreadRunning;
@@ -146,7 +141,6 @@ public sealed class MpvVideoView : Control, IDisposable
 
     private void ReleaseHardwareInteropResources()
     {
-        // Stop the dedicated render thread before tearing down interop (mirrors Dispose).
         _renderThreadRunning = false;
         try { _renderSignal.Set(); } catch { }
 
@@ -357,7 +351,6 @@ public sealed class MpvVideoView : Control, IDisposable
 
         RegisterRenderUpdateCallback();
 
-        // Start the single dedicated render thread that owns all mpv_render_context_render calls.
         _renderThreadRunning = true;
         _renderThread = new System.Threading.Thread(RenderThreadLoop)
         {
@@ -475,8 +468,6 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 if (Interlocked.Exchange(ref _isUpdateQueued, 1) == 0)
                 {
-                    // Wake the single dedicated render thread (see field comment) instead of
-                    // Task.Run — CUDA/GL interop render must not hop across thread-pool threads.
                     if (_renderThreadRunning) _renderSignal.Set();
                 }
             }
@@ -779,8 +770,6 @@ public sealed class MpvVideoView : Control, IDisposable
                     
                     if (ex is System.Runtime.InteropServices.COMException comEx && (uint)comEx.ErrorCode == 0x80070057)
                     {
-                        // Harmless transient error when resizing/switching videos rapidly in D3D11.
-                        // We already disposed the texture, it will be recreated on the next frame.
                     }
                     else
                     {
@@ -905,11 +894,6 @@ public sealed class MpvVideoView : Control, IDisposable
 
     public void Dispose()
     {
-        // Stop the dedicated render thread FIRST so it cannot call into mpv while we free the
-        // render context below. We deliberately do NOT Join under _renderLock: the render loop
-        // takes _renderLock inside UpdateSurface, so if a render is in flight Dispose simply
-        // waits on the lock, then frees; the loop's next pass sees _renderContext==0 and the
-        // cleared running flag and exits on its own. This avoids a Join/lock deadlock.
         _renderThreadRunning = false;
         try { _renderSignal.Set(); } catch { }
 
@@ -990,6 +974,8 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 _gcHandle.Free();
             }
+
+            _renderSignal.Dispose();
         }
     }
 }

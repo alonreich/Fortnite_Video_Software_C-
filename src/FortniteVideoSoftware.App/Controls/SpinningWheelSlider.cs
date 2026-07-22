@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -47,8 +47,6 @@ namespace FortniteVideoSoftware.App.Controls
                 _isTooltipSuppressed = true;
             }
 
-            // Reuse a single UI-thread timer instead of spawning a Task + CTS on every
-            // pointer-move. Each interaction just resets the timer (ISSUE_105).
             if (_tooltipRestoreTimer == null)
             {
                 _tooltipRestoreTimer = new Avalonia.Threading.DispatcherTimer
@@ -235,8 +233,6 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnPointerExited(e);
         }
         
-        // Cached, state-independent draw resources — built once, reused every frame
-        // to avoid per-frame brush/typeface allocation during drags (ISSUE_105).
         private static readonly Typeface _labelTypeface = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
         private static readonly LinearGradientBrush _rimGrad = new LinearGradientBrush
         {

@@ -1,4 +1,4 @@
-
+﻿
 using System.Globalization;
 using System.Text;
 
@@ -379,9 +379,9 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double cropX = cxTarget - cropW / 2.0;
-                        double cropY = cyTarget - cropH / 2.0;
-                        zoomFilter = $"{preScale}crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
+                        double cropX = resW + cxTarget - cropW / 2.0;
+                        double cropY = resH + cyTarget - cropH / 2.0;
+                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
                     }
                     else
                     {
@@ -405,9 +405,9 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double cropX = cxTarget - cropW / 2.0;
-                        double cropY = cyTarget - cropH / 2.0;
-                        zoomFilter = $"{preScale}crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
+                        double cropX = resW + cxTarget - cropW / 2.0;
+                        double cropY = resH + cyTarget - cropH / 2.0;
+                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
                     }
                     else
                     {
@@ -439,10 +439,6 @@ public class GranularSpeedBuilder
                 double sampleUntil = Math.Min(totalDurationSec, chunk.Start + sampleWindow);
                 double sampleWindowActual = Math.Max(1.0 / fpsValue, sampleUntil - chunk.Start);
 
-                // A/V SYNC: the freeze VIDEO is exactly targetFrameCount looped frames =
-                // targetFrameCount/fps seconds. Trim the video AND the silent audio to that
-                // same frame-aligned length (not the raw FreezeDur, which can differ from the
-                // looped length by up to one frame) so a freeze can't nudge A/V apart.
                 double freezeQuantDur = fpsValue > 0 ? targetFrameCount / fpsValue : dur;
 
                 fullParts.Add(
@@ -477,15 +473,6 @@ public class GranularSpeedBuilder
             {
                 double outDur = (chunk.End - chunk.Start) / chunk.Speed;
 
-                // A/V SYNC: the per-chunk `fps` filter quantises each VIDEO chunk to a whole
-                // number of output frames, so its real duration is round(outDur*fps)/fps —
-                // NOT outDur. The audio chunk (atempo) has no such quantisation, so video and
-                // audio chunk lengths differ by up to half a frame EACH, and because the
-                // chunks are concatenated independently that error ACCUMULATES across every
-                // boundary (slow-zoom "steal" splitting adds extra boundaries, which is why it
-                // drifts worst there). We pin the audio chunk to the SAME frame-quantised
-                // length so the two streams can never separate. round=near makes the video
-                // quantisation deterministic and match this maths exactly.
                 double quantizedDur = fpsValue > 0 ? Math.Round(outDur * fpsValue) / fpsValue : outDur;
 
                 fullParts.Add(

@@ -1,4 +1,4 @@
-#nullable disable
+﻿#nullable disable
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -58,8 +58,6 @@ namespace FortniteVideoSoftware.App
         {
             base.OnOpened(e);
             CenterOnPrimaryScreen();
-            // The per-monitor-DPI handshake can nudge a freshly shown window right after Opened
-            // (the documented "windows keep resetting" cause), so re-apply once layout settles.
             Dispatcher.UIThread.Post(CenterOnPrimaryScreen, DispatcherPriority.Loaded);
             Activate();
             Topmost = true;
@@ -78,7 +76,7 @@ namespace FortniteVideoSoftware.App
                 var screen = Screens?.Primary ?? Screens?.All?.FirstOrDefault();
                 if (screen == null) return;
 
-                var wa = screen.WorkingArea; // physical pixels
+                var wa = screen.WorkingArea;
                 double scale = screen.Scaling <= 0 ? 1.0 : screen.Scaling;
                 int physW = (int)Math.Round(Width * scale);
                 int physH = (int)Math.Round(Height * scale);

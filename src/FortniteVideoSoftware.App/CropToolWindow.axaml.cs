@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -305,7 +305,23 @@ public partial class CropToolWindow : Window
         var timelineCanvas = this.FindControl<Canvas>("CropTimelineMarkersCanvas");
         if (timelinePanel != null && timelineCanvas != null && _timelineSlider != null)
         {
-            timelinePanel.PointerPressed += (s, e) => SeekTimelineFromPointer(e, timelineCanvas, _timelineSlider);
+            bool isScrubbingTimeline = false;
+            timelinePanel.PointerPressed += (s, e) => {
+                if (e.GetCurrentPoint(timelinePanel).Properties.IsLeftButtonPressed) {
+                    isScrubbingTimeline = true;
+                    e.Pointer.Capture(timelinePanel);
+                    SeekTimelineFromPointer(e, timelineCanvas, _timelineSlider);
+                }
+            };
+            timelinePanel.PointerMoved += (s, e) => {
+                if (isScrubbingTimeline && e.GetCurrentPoint(timelinePanel).Properties.IsLeftButtonPressed) {
+                    SeekTimelineFromPointer(e, timelineCanvas, _timelineSlider);
+                }
+            };
+            timelinePanel.PointerReleased += (s, e) => {
+                isScrubbingTimeline = false;
+                e.Pointer.Capture(null);
+            };
         }
 
         _timelineTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -326,9 +342,6 @@ public partial class CropToolWindow : Window
             {
                 if (combo.SelectedItem is string selected && selected != FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay)
                 {
-                    // ISSUE_2: switching profiles overwrites the shared conf and wipes the
-                    // composer. Never discard unsaved work without asking. Reverting the
-                    // selection below cannot recurse: the equality guard above short-circuits.
                     if (_dirty && _items.Count > 0)
                     {
                         bool discard = NativeDialog.ShowQuestion(
@@ -358,7 +371,6 @@ public partial class CropToolWindow : Window
                 var newName = txt.Text?.Trim();
                 if (string.IsNullOrWhiteSpace(newName)) return;
 
-                // ISSUE_6: profile names become file names — validate before any disk work.
                 var safeName = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.SanitizeProfileName(newName);
                 if (safeName == null)
                 {
@@ -368,9 +380,6 @@ public partial class CropToolWindow : Window
 
                 try
                 {
-                    // ISSUE_8: create the new profile (which switches the active profile)
-                    // BEFORE saving, so SaveConfigAsync syncs the current layout into the
-                    // NEW profile and the old profile keeps its untouched baseline.
                     FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.CreateNewProfile(safeName);
                     if (_items.Count > 0)
                     {
@@ -652,9 +661,6 @@ public partial class CropToolWindow : Window
 
         bool wantComposerBg = _composerBackgroundImage != null;
 
-        // ISSUE_2: decode, scale and PNG-encode off the UI thread so the window stays
-        // responsive on large (1440p/4K) snapshots. Only the Source assignments below,
-        // after the await, touch UI controls (on the UI thread).
         var (snapshotBitmap, composerBitmap, composerPreviewPath) = await Task.Run(() =>
         {
             using (SKBitmap bitmap = SKBitmap.Decode(path) ?? throw new IOException("Could not decode snapshot."))
@@ -996,7 +1002,6 @@ public partial class CropToolWindow : Window
                 return;
             }
 
-            // ISSUE_2: the crop decodes the full (possibly 4K) snapshot; run it off the UI thread.
             string snapshotPath = _snapshotPath;
             string cropPath = await Task.Run(() => CropSnapshotRegionForExportPreview(snapshotPath, sourceRect, role.Key));
             _tempFiles.Add(cropPath);
@@ -1012,9 +1017,6 @@ public partial class CropToolWindow : Window
             int height = initialSize.height;
 
             int initialX = role.DefaultX >= 0 ? (int)role.DefaultX : contentRect.x;
-            // ISSUE_7: contentRect.y is content-space (0..1620); overlay positions are
-            // portrait-space (150..1770). Add the 150px text-strip offset so the new
-            // element spawns exactly over its source location.
             int initialY = role.DefaultY >= 0 ? (int)role.DefaultY : contentRect.y + CoordinateConstants.UIPaddingTop;
 
             (int x, int y) = ClampOverlay(initialX, initialY, width, height);
@@ -1388,8 +1390,6 @@ public partial class CropToolWindow : Window
 
     private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
-        // The editor canvas is 1080x1920 portrait UI space, while export composes
-        // HUD layers in 1280x1920 internal space before final scaling/padding.
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
             _originalResolution);
@@ -2027,7 +2027,7 @@ public partial class CropToolWindow : Window
         }
     }
 
-    private void SeekTimelineFromPointer(PointerPressedEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
+    private void SeekTimelineFromPointer(PointerEventArgs e, Canvas timelineCanvas, Slider timelineSlider)
     {
         if (e.Handled) return;
 
@@ -2372,8 +2372,6 @@ public partial class CropToolWindow : Window
         }
         if (_goalLabel != null)
         {
-            // ISSUE_03: surface the explicit step number (mirrors the Music Wizard's numbered
-            // steps) so this flow reads as a guided sequence, not just a bare progress bar.
             _goalLabel.Text = $"Step {step}: {goal}";
         }
         SetStatus(status);

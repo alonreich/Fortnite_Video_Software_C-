@@ -154,7 +154,7 @@
                                             <Flyout Placement="Top">
                                                 <StackPanel Spacing="8" Margin="8">
                                                     <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                                    <Button Name="ConfirmRemoveVideoButton" Classes="Danger" Content="CONFIRM REMOVE" HorizontalAlignment="Stretch" />
+                                                    <Button Name="ConfirmRemoveVideoButton" Classes="Danger" Content="CONFIRM REMOVE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently remove the selected video from the queue." />
                                                 </StackPanel>
                                             </Flyout>
                                         </Button.Flyout>
@@ -220,7 +220,7 @@
                                     <!-- ISSUE_08: real Button (was a Border) so mute has identical semantics, focus visuals,
                                          pressed feedback and screen-reader role as the Main App's mute control. -->
                                     <Button Grid.Row="2" Name="SpeakerHitBox" MinWidth="35" MinHeight="35" Background="Transparent" BorderThickness="0" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
-                                        <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="{DynamicResource AppInfoBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransform="translateX(2px)" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
+                                        <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="{DynamicResource AppInfoBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="{DynamicResource AppFontSize20}" Height="{DynamicResource AppFontSize20}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                                     </Button>
                                 </Grid>
                             </Border>
@@ -242,26 +242,32 @@
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
                                         <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
                                         <Button Name="FastBackwardButton" Classes="Primary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
-                                            <Panel Width="16" Height="16">
-                                                <Polygon Points="6,2 6,14 0,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                <Polygon Points="14,2 14,14 8,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                            </Panel>
+                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Panel Width="16" Height="16">
+                                                    <Polygon Points="6,2 6,14 0,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                    <Polygon Points="14,2 14,14 8,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                </Panel>
+                                            </Viewbox>
                                         </Button>
-                                        <Button Name="PlayPauseButton" Classes="Success" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Cursor="Hand" IsEnabled="False">
-                                            <Panel Width="16" Height="16">
-                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                </StackPanel>
-                                            </Panel>
+                                        <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Cursor="Hand" IsEnabled="False">
+                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Panel Width="16" Height="16">
+                                                    <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                    <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                    </StackPanel>
+                                                </Panel>
+                                            </Viewbox>
                                         </Button>
                                         <!-- Fast forward uses RIGHT-pointing triangles -->
                                         <Button Name="FastForwardButton" Classes="Primary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
-                                            <Panel Width="16" Height="16">
-                                                <Polygon Points="2,2 8,8 2,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                <Polygon Points="8,2 14,8 8,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                            </Panel>
+                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Panel Width="16" Height="16">
+                                                    <Polygon Points="2,2 8,8 2,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                    <Polygon Points="8,2 14,8 8,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
+                                                </Panel>
+                                            </Viewbox>
                                         </Button>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">

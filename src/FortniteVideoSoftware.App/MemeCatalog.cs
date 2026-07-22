@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -39,7 +39,6 @@ public static class MemeCatalog
     private static readonly string[] VideoExts = { ".mp4", ".mkv", ".avi" };
     private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg" };
 
-    // §4: the cloud meme source (GitHub REST contents API).
     private const string CloudOwner = "alonreich";
     private const string CloudRepo = "Fortnite_Video_Software_C-";
     private static readonly string[] CloudFolders = { "mp4", "jpeg" };
@@ -58,7 +57,6 @@ public static class MemeCatalog
             var items = new List<MemeItem>();
             if (!Directory.Exists(directory)) return items;
 
-            // May throw UnauthorizedAccessException — intentionally NOT caught here (§3).
             string[] files = Directory.GetFiles(directory);
 
             foreach (string f in files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
@@ -113,7 +111,6 @@ public static class MemeCatalog
 
             using var http = new HttpClient();
             http.Timeout = TimeSpan.FromSeconds(30);
-            // GitHub API requires a UA header; raw file downloads go through the "download_url".
             http.DefaultRequestHeaders.UserAgent.ParseAdd("FortniteVideoSoftware");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
@@ -129,7 +126,7 @@ public static class MemeCatalog
                 if (!resp.IsSuccessStatusCode)
                 {
                     RuntimeLog.Fail("Memes", $"Cloud sync: listing '{folder}' failed with HTTP {(int)resp.StatusCode}.");
-                    continue; // one missing folder shouldn't kill the other
+                    continue;
                 }
 
                 var arr = JsonNode.Parse(await resp.Content.ReadAsStringAsync()) as JsonArray;
@@ -144,7 +141,7 @@ public static class MemeCatalog
 
                     string ext = Path.GetExtension(name).ToLowerInvariant();
                     if (!VideoExts.Contains(ext) && !ImageExts.Contains(ext)) continue;
-                    if (local.Contains(name)) continue; // delta sync: only new files
+                    if (local.Contains(name)) continue;
 
                     string dest = Path.Combine(targetDirectory, name);
                     string tmp = dest + ".part";

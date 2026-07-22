@@ -5,7 +5,11 @@
              Background="{DynamicResource AppOverlayBrush}"
              IsVisible="False"
              ZIndex="999">
-    <Grid Margin="40">
+    <Grid>
+        <!-- Dynamic Chaos Canvas: Semi-transparent overlay for AI physics -->
+        <Canvas x:Name="FightCanvas" IsHitTestVisible="False" ZIndex="9999" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0.6"/>
+        
+        <Grid Margin="40">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -25,7 +29,6 @@
                 <Border CornerRadius="4" Background="Transparent" BoxShadow="{DynamicResource AppPhaseGlowShadow}">
                     <Grid>
                         <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="30" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4"/>
-                        <Canvas x:Name="FightCanvas" ClipToBounds="True" Height="30" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                     </Grid>
                 </Border>
                 <Grid Margin="0,5,0,0">
@@ -55,5 +58,6 @@
 
         <!-- Cancel Button Area -->
         <Button Grid.Row="3" x:Name="CancelProcessButton" Classes="Danger" Content="CANCEL" MinWidth="125" MinHeight="60" CornerRadius="10" HorizontalAlignment="Center" Margin="0,20,0,0" ToolTip.Tip="Cancel the current operation"/>
+        </Grid>
     </Grid>
 </UserControl>

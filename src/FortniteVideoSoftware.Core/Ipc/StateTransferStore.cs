@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -297,10 +297,6 @@ public sealed class StateTransferStore
 
     private static void ValidateSubprocessState(string key, JsonObject state)
     {
-        // Schema-agnostic structural validation: these subprocess payloads have no
-        // fixed business schema at this layer, so validate integrity rather than fields.
-        // Every entry must have a non-empty key, and a schema_version (if present) must
-        // be a positive integer — mirroring the top-level session_state contract.
         foreach (KeyValuePair<string, JsonNode?> property in state)
         {
             if (string.IsNullOrEmpty(property.Key))

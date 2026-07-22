@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -113,9 +113,6 @@ public static class MaskOverlayManager
             var config = AtomicJsonFile.ReadObject(pPath);
             if (config == null) return;
 
-            // ISSUE_3: sanitize before writing so the shared conf can never become
-            // unusable. An unusable conf is silently self-healed to factory defaults
-            // by CropConfigStore.LoadUnlocked, which would discard the user's profile.
             var sanitized = HudConfig.Sanitize(config, migrateLegacy: true);
             using (AcquireConfigLock())
             {
@@ -127,7 +124,6 @@ public static class MaskOverlayManager
         }
         catch (Exception ex)
         {
-            // A failed profile apply must never crash startup; the existing conf stays valid.
             RuntimeLog.Fail("MASK PROFILE", $"ApplyProfile('{profileName}') failed: {ex.Message}");
         }
     }

@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -511,20 +511,23 @@ public partial class MusicWizardWindow : Window
 
             timelineMarkersCanvas.SizeChanged += (s, e) => { DrawTimelineScale(); UpdatePlayhead(); };
 
-            timelineMarkersCanvas.PointerPressed += (s, e) =>
-
-            {
-
+            bool isScrubbingTimeline = false;
+            timelineMarkersCanvas.PointerPressed += (s, e) => {
                 var pt = e.GetCurrentPoint(timelineMarkersCanvas);
-
-                if (pt.Properties.IsLeftButtonPressed)
-
-                {
-
+                if (pt.Properties.IsLeftButtonPressed) {
+                    isScrubbingTimeline = true;
+                    e.Pointer.Capture(timelineMarkersCanvas);
                     SetOffsetFromPointer(pt.Position.X, timelineMarkersCanvas.Bounds.Width);
-
                 }
-
+            };
+            timelineMarkersCanvas.PointerMoved += (s, e) => {
+                if (isScrubbingTimeline && e.GetCurrentPoint(timelineMarkersCanvas).Properties.IsLeftButtonPressed) {
+                    SetOffsetFromPointer(e.GetPosition(timelineMarkersCanvas).X, timelineMarkersCanvas.Bounds.Width);
+                }
+            };
+            timelineMarkersCanvas.PointerReleased += (s, e) => {
+                isScrubbingTimeline = false;
+                e.Pointer.Capture(null);
             };
 
             timelineMarkersCanvas.KeyDown += (s, e) => HandleSongOffsetKeyDown(e);
@@ -540,20 +543,23 @@ public partial class MusicWizardWindow : Window
 
             canvas.SizeChanged += (s, e) => { UpdatePlayhead(); };
 
-            canvas.PointerPressed += (s, e) =>
-
-            {
-
+            bool isScrubbingWaveform = false;
+            canvas.PointerPressed += (s, e) => {
                 var pt = e.GetCurrentPoint(canvas);
-
-                if (pt.Properties.IsLeftButtonPressed)
-
-                {
-
+                if (pt.Properties.IsLeftButtonPressed) {
+                    isScrubbingWaveform = true;
+                    e.Pointer.Capture(canvas);
                     SetOffsetFromPointer(pt.Position.X, canvas.Bounds.Width);
-
                 }
-
+            };
+            canvas.PointerMoved += (s, e) => {
+                if (isScrubbingWaveform && e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
+                    SetOffsetFromPointer(e.GetPosition(canvas).X, canvas.Bounds.Width);
+                }
+            };
+            canvas.PointerReleased += (s, e) => {
+                isScrubbingWaveform = false;
+                e.Pointer.Capture(null);
             };
 
             canvas.KeyDown += (s, e) => HandleSongOffsetKeyDown(e);
@@ -564,35 +570,37 @@ public partial class MusicWizardWindow : Window
         var phase3SeekCanvas = this.FindControl<Canvas>("Phase3SeekCanvas");
         if (phase3SeekCanvas != null)
         {
-            phase3SeekCanvas.PointerPressed += (s, e) =>
-
-            {
-
-                var pt = e.GetCurrentPoint(phase3SeekCanvas);
-
-                if (pt.Properties.IsLeftButtonPressed && phase3SeekCanvas.Bounds.Width > 0)
-
-                {
-
+            bool isScrubbingPhase3 = false;
+            void phase3Seek(Avalonia.Input.PointerEventArgs eArgs) {
+                var pt = eArgs.GetCurrentPoint(phase3SeekCanvas);
+                if (pt.Properties.IsLeftButtonPressed && phase3SeekCanvas.Bounds.Width > 0) {
                     double fraction = pt.Position.X / phase3SeekCanvas.Bounds.Width;
-
                     fraction = Math.Clamp(fraction, 0.0, 1.0);
-
-
                     double duration = GetPhase3VideoDurationSeconds();
                     double videoRelativeSec = duration * fraction;
-
-
                     bool wasPlaying = _isPreviewPlaying;
                     StopPreview();
-
                     _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
                     SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
-
                     if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
                     else UpdatePlayhead();
                 }
-
+            }
+            phase3SeekCanvas.PointerPressed += (s, e) => {
+                if (e.GetCurrentPoint(phase3SeekCanvas).Properties.IsLeftButtonPressed) {
+                    isScrubbingPhase3 = true;
+                    e.Pointer.Capture(phase3SeekCanvas);
+                    phase3Seek(e);
+                }
+            };
+            phase3SeekCanvas.PointerMoved += (s, e) => {
+                if (isScrubbingPhase3 && e.GetCurrentPoint(phase3SeekCanvas).Properties.IsLeftButtonPressed) {
+                    phase3Seek(e);
+                }
+            };
+            phase3SeekCanvas.PointerReleased += (s, e) => {
+                isScrubbingPhase3 = false;
+                e.Pointer.Capture(null);
             };
 
             phase3SeekCanvas.KeyDown += (s, e) => HandlePhase3SeekKeyDown(e);
@@ -875,7 +883,6 @@ public partial class MusicWizardWindow : Window
         }
 
 
-        // Window sizing preserved natively; bounds tracked by WindowBoundsHelper.
 
         UpdateFinalPlacementSummary();
         UpdateProblemFlags();

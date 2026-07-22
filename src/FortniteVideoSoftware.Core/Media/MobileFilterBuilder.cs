@@ -1,4 +1,4 @@
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -105,8 +105,6 @@ public class MobileFilterBuilder
                 Frac lyRaw = (Frac.FromDouble(pos.y) - new Frac(CoordinateConstants.UIPaddingTop, 1)) * backendScale;
 
                 Frac maxLx = new(CoordinateConstants.TargetW - rw, 1);
-                // The internal-space Y range 0..TargetH-rh maps to the 1620px
-                // content area after final scaling and top padding.
                 Frac maxLy = new(CoordinateConstants.TargetH - rh, 1);
 
                 int lx = CoordinateMath.ScaleRound(
@@ -150,9 +148,6 @@ public class MobileFilterBuilder
         return (string.Join(";", parts), "[v_final]");
     }
 
-    // NOTE: layer registration lives in MobileFilterBuilderExtensions.RegisterLayer below.
-    // A private duplicate that previously lived here was dead code (the instance-syntax
-    // call in Build binds the extension method) and was removed (ISSUE_11).
     public record LayerSpec(
         string Name, string ConfKey,
         int[] UiRect,

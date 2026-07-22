@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Media;
 
@@ -20,18 +20,11 @@ public static class UiSoundEffect
     public static void PlayError() => PlayBuffer(ErrorWav);
     public static void PlayMark() => PlayBuffer(MarkWav);
 
-    // One long-lived SoundPlayer per WAV, cached by buffer reference identity. This
-    // avoids allocating a fresh MemoryStream/SoundPlayer on every click (GC churn under
-    // rapid input) and lets us Stop()+Play() to interrupt the previous sound instead of
-    // stacking overlapping copies.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], SoundPlayer> _players = new();
     private static readonly object _playLock = new();
     private static byte[]? _lastBuffer;
     private static long _lastPlayTicks;
 
-    // Coalesce rapid IDENTICAL re-triggers (slider drag, held-key repeat, preset spam)
-    // so the same sound can't overlap itself. 50ms is below a deliberate double-click
-    // gap but kills the "machine-gun" stacking from programmatic rapid Clicks.
     private const int SameSoundThrottleMs = 50;
 
     private static void PlayBuffer(byte[] buffer)
@@ -40,7 +33,6 @@ public static class UiSoundEffect
 
         long nowTicks = DateTime.UtcNow.Ticks;
 
-        // Throttle: drop a re-trigger of the SAME sound arriving too soon.
         lock (_playLock)
         {
             if (ReferenceEquals(buffer, _lastBuffer) &&
@@ -57,15 +49,12 @@ public static class UiSoundEffect
         {
             player = _players.GetValue(buffer, static b =>
             {
-                // writable:false — the backing array is a static singleton; never mutate it.
                 var ms = new MemoryStream(b, writable: false);
                 return new SoundPlayer(ms);
             });
         }
         catch
         {
-            // Two callers racing first-creation can both run the callback; fall back to a
-            // throwaway player rather than failing the sound entirely.
             try
             {
                 using var ms = new MemoryStream(buffer);
@@ -74,10 +63,6 @@ public static class UiSoundEffect
             catch { return; }
         }
 
-        // Play() is non-blocking (it schedules playback on a thread-pool thread and
-        // returns immediately) — so unlike PlaySync() it never ties up a thread per
-        // click. Stop() first cuts off any in-flight playback so two different sounds
-        // never overlap. The lock keeps Stop+Play atomic across concurrent callers.
         try
         {
             lock (_playLock)
