@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -1399,14 +1399,8 @@ public partial class CropToolWindow : Window
 
         double maxDesW = Math.Max(MinItemSize, desiredWidth);
         double quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / contentW), 4, MidpointRounding.AwayFromZero);
-        Frac scaleFrac = Frac.FromDouble(quantizedScale);
 
-        Frac backendScale = CoordinateConstants.BackendScale;
-        int rw = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentW, 1) * scaleFrac * backendScale));
-        int rh = Math.Max(2, CanvasMath.EvenCeil(new Frac(contentH, 1) * scaleFrac * backendScale));
-
-        int width = CoordinateMath.ScaleRound(new Frac(rw, 1) / backendScale);
-        int height = CoordinateMath.ScaleRound(new Frac(rh, 1) / backendScale);
+        var (width, height) = CoordinateMath.QuantizeBackendSize(contentW, contentH, quantizedScale);
 
         return (width, height, quantizedScale);
     }
@@ -1540,8 +1534,7 @@ public partial class CropToolWindow : Window
                 }
 
                 double scale = ReadDouble(scales[role.Key], 1.0);
-                int scaledW = Math.Max(2, CoordinateMath.ScaleRound(Frac.FromDouble(w * scale)));
-                int scaledH = Math.Max(2, CoordinateMath.ScaleRound(Frac.FromDouble(h * scale)));
+                var (scaledW, scaledH) = CoordinateMath.QuantizeBackendSize(w, h, scale);
                 double x = ReadDouble(overlay["x"], role.DefaultX);
                 double y = ReadDouble(overlay["y"], role.DefaultY);
                 int z = ReadInt(zOrders[role.Key], role.DefaultZ);
@@ -1831,9 +1824,9 @@ public partial class CropToolWindow : Window
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath) { UseShellExecute = false });
             if (p != null)
             {
-                _ = Task.Run(() =>
+                _ = Task.Run(async () =>
                 {
-                    try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { }
+                    try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { }
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
                 });
             }

@@ -115,7 +115,7 @@
                                                 <Grid MinHeight="30" ClipToBounds="False" ToolTip.Tip="{Binding}">
                                                     <Border Classes="ItemGlow" CornerRadius="3" Background="Transparent" BorderThickness="1"/>
                                                     <Rectangle Classes="MarchingAnts" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="1" StrokeDashArray="4,2" IsVisible="False" IsHitTestVisible="False" RadiusX="3" RadiusY="3"/>
-                                                    <!-- Smart resize via Viewbox inside a constrained Grid -->
+                                                    <!-- Long titles ellipsize (TextTrimming); full path shows via the item ToolTip -->
                                                     <Grid Margin="8,0" VerticalAlignment="Center" ColumnDefinitions="Auto, *">
                                                         <TextBlock Grid.Column="0" Text="🎬" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Foreground="{DynamicResource AppTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
@@ -130,11 +130,14 @@
                             </Border>
                             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="10,0,0,15">
                                 <!-- ISSUE_07: icon-only buttons need AutomationProperties.Name for screen readers -->
+                                <!-- ISSUE_02 (audit round 4): icon Fill is AppTextPrimaryBrush (theme-aware), NOT
+                                     AppOnAccentTextBrush — always-white icons vanish on the light Secondary
+                                     background in the Light ThemeVariant. -->
                                 <Button Name="MoveUpButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
-                                    <Polygon Points="6,0 12,8 0,8" Fill="{DynamicResource AppOnAccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
+                                    <Polygon Points="6,0 12,8 0,8" Fill="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
                                 <Button Name="MoveDownButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
-                                    <Polygon Points="0,0 12,0 6,8" Fill="{DynamicResource AppOnAccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
+                                    <Polygon Points="0,0 12,0 6,8" Fill="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
                             </StackPanel>
 
@@ -142,9 +145,10 @@
                                 <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Browse your computer and add another video to your list."/>
                                 <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
                                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                                        <!-- ISSUE_06 (audit round 4): icon sized by AppFontSize14 token (was fixed 14px) so it scales with the label -->
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
                                         <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
-                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Data="M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z" />
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
                                     </StackPanel>
                                 </Button>
                                 <Grid ColumnDefinitions="Auto, *">
@@ -215,7 +219,7 @@
                                 <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Stretch" Margin="0">
                                     <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" IsVisible="False" />
                                     <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
-                                         Rollback to the previous standard Slider: old_code\volume_slider_rollback\ROLLBACK_INSTRUCTIONS.txt -->
+                                         Rollback: swap for a standard vertical Slider with the same Name/bindings (rollback folder no longer exists). -->
                                     <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
                                     <!-- ISSUE_08: real Button (was a Border) so mute has identical semantics, focus visuals,
                                          pressed feedback and screen-reader role as the Main App's mute control. -->
@@ -232,7 +236,7 @@
                                 <!-- Output Quality -->
                                 <StackPanel Orientation="Vertical" Spacing="2" Margin="10" VerticalAlignment="Center">
                                     <TextBlock Text="OUTPUT QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-                                    <controls:SpinningWheelSlider Name="QualitySlider" HorizontalAlignment="Stretch" MinWidth="180" MaxWidth="300" Height="35" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
+                                    <controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding $parent[local:VideoMergerWindow].QualitySliderValue, Mode=TwoWay}" HorizontalAlignment="Stretch" MinWidth="180" MaxWidth="300" MinHeight="35" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
                                     <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
                                     <!-- ISSUE_09: duplicate EstimatedSizeText2 removed — the estimate is shown once, next to the output path -->
                                 </StackPanel>
@@ -241,33 +245,19 @@
                                 <StackPanel Orientation="Vertical" Spacing="4" Margin="10" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
                                         <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
-                                        <Button Name="FastBackwardButton" Classes="Primary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
-                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
-                                                <Panel Width="16" Height="16">
-                                                    <Polygon Points="6,2 6,14 0,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    <Polygon Points="14,2 14,14 8,8" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                </Panel>
-                                            </Viewbox>
+                                        <!-- ISSUE_02 (audit round 4): theme-aware icon fill on Secondary buttons (see MoveUp/MoveDown) -->
+                                        <Button Name="FastBackwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
+                                            <Path Data="{DynamicResource AppFastBackwardIconGeometry}" Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
                                         </Button>
                                         <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Cursor="Hand" IsEnabled="False">
-                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
-                                                <Panel Width="16" Height="16">
-                                                    <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                        <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    </StackPanel>
-                                                </Panel>
-                                            </Viewbox>
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                                <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                            </Panel>
                                         </Button>
                                         <!-- Fast forward uses RIGHT-pointing triangles -->
-                                        <Button Name="FastForwardButton" Classes="Primary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
-                                            <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
-                                                <Panel Width="16" Height="16">
-                                                    <Polygon Points="2,2 8,8 2,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    <Polygon Points="8,2 14,8 8,14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                </Panel>
-                                            </Viewbox>
+                                        <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
+                                            <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
                                         </Button>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -279,7 +269,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="10" VerticalAlignment="Center">
                                     <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                         <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" HorizontalAlignment="Stretch" MinWidth="180" MaxWidth="300" Height="35" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
+                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding $parent[local:VideoMergerWindow].MainSpeedSliderValue, Mode=TwoWay}" HorizontalAlignment="Stretch" MinWidth="180" MaxWidth="300" MinHeight="35" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
                                         <TextBlock Name="MainSpeedLabel" Text="1.0x — Normal" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                     <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
@@ -299,7 +289,7 @@
                                 <!-- RETURN + Output Info + Estimated Size -->
                                 <StackPanel Orientation="Vertical" Spacing="3" Margin="10" VerticalAlignment="Center">
                                     <Button Name="ReturnToMainAppButton" Classes="Secondary" Content="← RETURN TO MAIN APP" FontSize="{DynamicResource AppFontSize9}" Cursor="Hand" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
-                                    <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="400"/>
+                                    <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
                                     <TextBlock Name="EstimatedSizeText" Text="" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
                                     <!-- ISSUE_005: Normalization info -->
                                     <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center"/>

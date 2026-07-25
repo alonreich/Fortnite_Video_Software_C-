@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FortniteVideoSoftware.App.Controls.AmbientDropzoneControl"
+             IsHitTestVisible="False"
+             Opacity="0">
+    
+    <UserControl.Styles>
+        <Style Selector="Border.DropzoneActive">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15" Easing="QuinticEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.DropzoneInactive">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseIn"/>
+                </Transitions>
+            </Setter>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- ISSUE_04 (audit round 4): dimmer, pulse glow and font sizes use named tokens
+         (were raw #A0000000, inline BoxShadow hex and FontSize 60/16 literals) -->
+    <Border Name="ContainerBorder" Classes="DropzoneInactive" Background="{DynamicResource AppDimmerSoftBrush}">
+        <Grid>
+                <Border Name="PulseBorder" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Width="200" Height="200" CornerRadius="100"
+                        Background="{DynamicResource AppAccentAlpha20Brush}"
+                        BoxShadow="{DynamicResource AppDropzonePulseShadow}">
+                    <Border.RenderTransform>
+                        <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
+                    </Border.RenderTransform>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                        <TextBlock Text="📥" FontSize="{DynamicResource AppFontSize60}" HorizontalAlignment="Center" Foreground="{DynamicResource AppAccentBrush}"/>
+                        <TextBlock Text="DROP VIDEO HERE" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+</UserControl>

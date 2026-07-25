@@ -1,4 +1,4 @@
-﻿using Avalonia.Platform.Storage;
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -145,11 +145,16 @@ public partial class MainWindow : Window
     private string _loadedVideoPath = string.Empty;
     private string _hardwareMode = "CPU";
     private System.Threading.CancellationTokenSource? _processCts;
+    private Task? _activeExportTask;
 
     private readonly RecoveryManager _recovery = new RecoveryManager();
     private bool _isGranularSpeedActive = false;
     private bool _isMusicActive = false;
     private bool _isRestoring = false;
+
+    // IDEA_004: Kinetic Scrub — momentum & inertia for the timeline scrubber
+    private KineticScrubController? _kineticScrub;
+    private double _lastScrubMs = 0;
 
     public static readonly StyledProperty<string> OverlayTextProperty =
         AvaloniaProperty.Register<MainWindow, string>(nameof(OverlayText), "");
@@ -208,6 +213,22 @@ public partial class MainWindow : Window
         set => SetValue(IsAddMemeProperty, value);
     }
 
+    public static readonly StyledProperty<int> QualitySliderValueProperty =
+        AvaloniaProperty.Register<MainWindow, int>(nameof(QualitySliderValue), 7);
+    public int QualitySliderValue
+    {
+        get => GetValue(QualitySliderValueProperty);
+        set => SetValue(QualitySliderValueProperty, value);
+    }
+
+    public static readonly StyledProperty<int> MainSpeedSliderValueProperty =
+        AvaloniaProperty.Register<MainWindow, int>(nameof(MainSpeedSliderValue), 11);
+    public int MainSpeedSliderValue
+    {
+        get => GetValue(MainSpeedSliderValueProperty);
+        set => SetValue(MainSpeedSliderValueProperty, value);
+    }
+
     public MainWindow()
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
@@ -217,6 +238,24 @@ public partial class MainWindow : Window
         this.AddHandler(DragDrop.DragOverEvent, OnVideoDragOver);
         this.AddHandler(DragDrop.DragLeaveEvent, OnVideoDragLeave);
         this.AddHandler(DragDrop.DropEvent, OnVideoDrop);
+
+        var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+        if (radialMenu != null)
+        {
+            radialMenu.AddItem("crop", "Crop", Avalonia.Media.SolidColorBrush.Parse("#2094f3"));
+            radialMenu.AddItem("merge", "Merge", Avalonia.Media.SolidColorBrush.Parse("#8b5cf6"));
+            radialMenu.AddItem("export", "Export", Avalonia.Media.SolidColorBrush.Parse("#10b981"));
+            radialMenu.ItemSelected += (id) =>
+            {
+                if (id == "crop") OpenCropTool(null, null);
+                else if (id == "merge") OpenVideoMerger(null, null);
+                else if (id == "export") StartProcessing();
+            };
+        }
+
+        this.AddHandler(InputElement.PointerPressedEvent, OnWindowPointerPressed, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        this.AddHandler(InputElement.PointerMovedEvent, OnWindowPointerMoved, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        this.AddHandler(InputElement.PointerReleasedEvent, OnWindowPointerReleased, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         Win32FileDropInterop.Attach(this, paths => _ = HandleExternalFileDropAsync(paths));
 
@@ -337,7 +376,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } Environment.Exit(0); });
+            if (p != null) _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
         };
 
         var menuVideoMerger = this.FindControl<MenuItem>("MenuVideoMerger");
@@ -348,7 +387,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-            if (p != null) Task.Run(async () => { try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { } Environment.Exit(0); });
+            if (p != null) _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
         };
 
         UpdateTooltips();
@@ -356,6 +395,8 @@ public partial class MainWindow : Window
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MainWindowBounds");
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
+
+        InitializeUxInnovations();
 
         _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _playbackTimer.Tick += PlaybackTimer_Tick;
@@ -408,12 +449,14 @@ public partial class MainWindow : Window
 
         var slider = this.FindControl<Slider>("TimelineSlider");
 
-        var cancelButton = this.FindControl<Button>("CancelButton");
-        if (cancelButton != null)
+        var confirmCancelButton = this.FindControl<Button>("ConfirmCancelButton");
+        if (confirmCancelButton != null)
         {
-            cancelButton.Click += (s, e) =>
+            confirmCancelButton.Click += (s, e) =>
             {
-                RuntimeLog.Info("UI", "User clicked Cancel button, closing app.");
+                var btn = this.FindControl<Button>("CancelButton");
+                btn?.Flyout?.Hide();
+                RuntimeLog.Info("UI", "User confirmed Cancel button, closing app.");
                 Close();
             };
         }
@@ -708,6 +751,12 @@ public partial class MainWindow : Window
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
+
+                // IDEA_011: Action Pulse on marker drop
+                TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
+                    Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
+                // IDEA_005: Update Butler suggestion after state change
+                UpdateButlerSuggestion();
             };
         }
 
@@ -728,10 +777,9 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                if (_videoHost?.IpcClient?.IsPaused == false)
-                {
-                    _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
-                }
+                // Playhead-Follow Rule: marking while PLAYING must NEVER interrupt playback.
+                // (The legacy force-pause that lived here was removed per the documented rule;
+                // it had regressed back in and desynced the Play/Pause state.)
 
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
@@ -739,6 +787,12 @@ public partial class MainWindow : Window
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
+
+                // IDEA_011: Action Pulse on marker drop
+                TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
+                    Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
+                // IDEA_005: Update Butler suggestion
+                UpdateButlerSuggestion();
             };
         }
 
@@ -1386,10 +1440,13 @@ public partial class MainWindow : Window
         if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.Contains(Avalonia.Input.DataFormats.FileNames) || e.Data.GetFiles()?.Any() == true)
         {
             e.DragEffects = DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link;
+            var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+            dropzone?.Activate();
+            // IDEA_04: one voice at a time — fade the hero card while the dropzone pulse speaks
             var uploadOverlay = this.FindControl<Border>("UploadOverlay");
             if (uploadOverlay != null && uploadOverlay.IsVisible)
             {
-                uploadOverlay.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#40FF1493"));
+                uploadOverlay.Opacity = 0.15;
             }
         }
         else
@@ -1401,10 +1458,12 @@ public partial class MainWindow : Window
 
     private void OnVideoDragLeave(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+        dropzone?.Deactivate();
         var uploadOverlay = this.FindControl<Border>("UploadOverlay");
         if (uploadOverlay != null && uploadOverlay.IsVisible)
         {
-            uploadOverlay.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#cc1e293b"));
+            uploadOverlay.Opacity = 0.95;
         }
     }
 
@@ -1423,10 +1482,12 @@ public partial class MainWindow : Window
 
     private async void OnVideoDrop(object? sender, DragEventArgs e)
     {
+        var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+        dropzone?.Deactivate();
         var uploadOverlay = this.FindControl<Border>("UploadOverlay");
         if (uploadOverlay != null && uploadOverlay.IsVisible)
         {
-            uploadOverlay.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#cc1e293b"));
+            uploadOverlay.Opacity = 0.95;
         }
 
         var files = e.Data.GetFiles();
@@ -1625,6 +1686,9 @@ public partial class MainWindow : Window
 
         EnableEditingControls();
         SaveRecoveryState();
+
+        // IDEA_005: Suggest first editing step
+        UpdateButlerSuggestion();
     }
 
     private void SaveUploadDirectory(string path)
@@ -1655,9 +1719,15 @@ public partial class MainWindow : Window
 
         ResetEditingStateForNewVideo();
         UpdateTimelineMarkers();
-        
+
         var uploadOverlay = this.FindControl<Border>("UploadOverlay");
-        if (uploadOverlay != null) uploadOverlay.IsVisible = true;
+        if (uploadOverlay != null) { uploadOverlay.IsVisible = true; uploadOverlay.Opacity = 0.95; }
+
+        // IDEA_02/06: back to the blank slate — hide the detach button, restore the unlock hint
+        var detachBtnReset = this.FindControl<Button>("DetachOverlayButton");
+        if (detachBtnReset != null) detachBtnReset.IsVisible = false;
+        var unlockHintReset = this.FindControl<TextBlock>("TrimUnlockHint");
+        if (unlockHintReset != null) unlockHintReset.IsVisible = true;
 
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
         if (timelineOverlay != null) timelineOverlay.IsVisible = false;
@@ -1788,6 +1858,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void EnableEditingControls()
     {
+        // IDEA_02: the Detach Monitor button only exists once there is a video to detach
+        var detachBtn = this.FindControl<Button>("DetachOverlayButton");
+        if (detachBtn != null) detachBtn.IsVisible = true;
+
+        // IDEA_06: editing is unlocked — the explanatory hint has done its job
+        var unlockHint = this.FindControl<TextBlock>("TrimUnlockHint");
+        if (unlockHint != null) unlockHint.IsVisible = false;
+
         var gb = this.FindControl<Button>("GranularButton");
         if (gb != null) gb.IsEnabled = true;
 
@@ -2307,8 +2385,8 @@ public partial class MainWindow : Window
             var cb = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
             if (cb != null && cb.IsChecked == true)
             {
-                w = 1080;
-                h = 1920;
+                w = FortniteVideoSoftware.Core.Media.CoordinateConstants.ContentW;
+                h = FortniteVideoSoftware.Core.Media.CoordinateConstants.ContentH;
             }
 
             double videoKbps = ((targetMb * 8192.0) - (audioKbps * durSec)) / durSec;
@@ -2427,6 +2505,11 @@ public partial class MainWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             canvas.Children.Clear();
+            // FIX: Clear() also rips out the XAML PlayheadBadge (a child of this canvas),
+            // permanently killing the floating time badge. Re-attach it after every rebuild.
+            var playheadBadge = this.FindControl<Avalonia.Controls.Border>("PlayheadBadge");
+            if (playheadBadge != null && !canvas.Children.Contains(playheadBadge))
+                canvas.Children.Add(playheadBadge);
             bottomCanvas?.Children.Clear();
             scaleCanvas?.Children.Clear();
             double canvasWidth = canvas.Bounds.Width;
@@ -2607,6 +2690,9 @@ public partial class MainWindow : Window
                         Avalonia.Controls.Canvas.SetLeft(startHitBox, newX - 12);
                         Avalonia.Controls.Canvas.SetLeft(startText, ClampLabelLeft(newX + 5, 36));
                         UpdateDraggingVisuals(canvasWidth, duration);
+                        // Playhead follows the marker LIVE while dragging (seek coalesces; no pause change,
+                        // so the caret tracks the marker whether the video is paused or playing).
+                        _ = SeekInternal(newStartSec);
                     }
                 };
 
@@ -2686,6 +2772,8 @@ public partial class MainWindow : Window
                         Avalonia.Controls.Canvas.SetLeft(endHitBox, newX - 12);
                         if (scaleCanvas != null) Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(newX - 28, 28));
                         UpdateDraggingVisuals(canvasWidth, duration);
+                        // Playhead follows the END marker LIVE while dragging (see START marker note).
+                        _ = SeekInternal(newEndSec);
                     }
                 };
                 endHitBox.PointerReleased += (s,e) => {
@@ -3428,7 +3516,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool _tickFaultLogged;
+
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
+    {
+        // Defensive shell: a single faulting lookup inside the tick must never be able to
+        // permanently freeze the playhead/pause sync loop (root cause of the MARK START
+        // "stuck caret" report). Faults are logged once, and the next tick runs normally.
+        try { PlaybackTimerTickCore(); }
+        catch (Exception ex)
+        {
+            if (!_tickFaultLogged)
+            {
+                _tickFaultLogged = true;
+                RuntimeLog.Fail("UI", $"PlaybackTimer tick fault (sync loop kept alive): {ex}");
+            }
+        }
+    }
+
+    private void PlaybackTimerTickCore()
     {
         if (ActiveVideoHost?.IpcClient == null) return;
 
@@ -3438,8 +3544,10 @@ public partial class MainWindow : Window
             UpdateTimelineMarkers();
         }
 
-        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
-        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        // FIX (playhead/pause desync): the icons are Path elements in XAML (geometry tokens);
+        // the old Polygon/StackPanel typed lookups broke this sync block after the conversion.
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+        var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
         {
             bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
@@ -4092,7 +4200,7 @@ public partial class MainWindow : Window
                 worker.KeepMusicDuringMeme = _keepMusicDuringMeme.Value;
             }
 
-            _ = worker.RunAsync(_processCts.Token);
+            _activeExportTask = worker.RunAsync(_processCts.Token);
         }
         catch (Exception ex)
         {
@@ -4239,6 +4347,15 @@ public partial class MainWindow : Window
 
         try
         {
+            if (_processCts != null && !_processCts.IsCancellationRequested)
+            {
+                _processCts.Cancel();
+            }
+            if (_activeExportTask != null)
+            {
+                try { await _activeExportTask; } catch { }
+            }
+
             await WindowBoundsHelper.SaveBoundsAsync(this, "MainWindowBounds");
 
             this.Hide();
@@ -4250,6 +4367,7 @@ public partial class MainWindow : Window
                 await ActiveVideoHost.IpcClient.SendCommandAsync("stop");
                 ActiveVideoHost.IpcClient.Dispose();
             }
+            ActiveVideoHost?.Dispose();
         }
         catch (Exception ex)
         {
@@ -5057,6 +5175,295 @@ public partial class MainWindow : Window
                 RuntimeLog.Fail("Config", $"Import failed: {ex.Message}");
                 NativeDialog.ShowError($"Invalid configuration file: {ex.Message}", "Import Failed");
             }
+        }
+    }
+
+    /// <summary>Launches the Crop Tools process and exits the Main App.</summary>
+    private void OpenCropTool(object? sender, RoutedEventArgs? e)
+    {
+        SaveRecoveryState(sync: true);
+        _recovery.ReleaseLockOnly();
+        RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
+        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+        var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
+        if (p != null)
+        {
+            Task.Run(async () =>
+            {
+                try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
+                Environment.Exit(0);
+            });
+        }
+        else
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    /// <summary>Launches the Video Merger process and exits the Main App.</summary>
+    private void OpenVideoMerger(object? sender, RoutedEventArgs? e)
+    {
+        SaveRecoveryState(sync: true);
+        _recovery.ReleaseLockOnly();
+        RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
+        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+        var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
+        if (p != null)
+        {
+            Task.Run(async () =>
+            {
+                try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
+                Environment.Exit(0);
+            });
+        }
+        else
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    /// <summary>Triggers the export process (alias for clicking the PROCESS button).</summary>
+    private void StartProcessing()
+    {
+        var processButton = this.FindControl<Button>("ProcessButton");
+        if (processButton != null && processButton.IsEnabled)
+        {
+            processButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+    }
+
+    #region UX Innovations (IDEA 001, 004, 005, 006, 007, 008, 009, 010, 011)
+
+    /// <summary>
+    /// Initializes all UX innovation controls and wires them into the editing workflow.
+    /// Called once during construction after all standard controls are wired.
+    /// </summary>
+    private void InitializeUxInnovations()
+    {
+        // IDEA_01 (opening-screen overhaul): BlankStateOverlay removed — its drop icon and
+        // feature hint chips now live inside the single UploadOverlay hero card in XAML.
+
+        // IDEA_005: Butler predictive ribbon — wire action invocations
+        var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
+        if (butler != null)
+        {
+            butler.ActionInvoked += (id) =>
+            {
+                switch (id)
+                {
+                    case "trim":
+                        var markStart = this.FindControl<Button>("MarkStartButton");
+                        markStart?.Focus();
+                        break;
+                    case "speed":
+                        var speed = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+                        speed?.Focus();
+                        break;
+                    case "music":
+                        var music = this.FindControl<Button>("AddMusicButton");
+                        music?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        break;
+                    case "portrait":
+                        var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+                        if (portrait != null && portrait.IsChecked != true)
+                        {
+                            portrait.IsChecked = true;
+                            // IDEA_009: Liquid Morph punch on toggle
+                            _ = Controls.LiquidMorph.PunchAsync(portrait);
+                        }
+                        break;
+                    case "hud":
+                        OpenCropTool(null, null);
+                        break;
+                    case "export":
+                        StartProcessing();
+                        break;
+                }
+            };
+        }
+
+        // IDEA_008: Meme Wall — wire selection to set the MemeComboBox
+        var memeWall = this.FindControl<Controls.MemeWallControl>("MemeWall");
+        if (memeWall != null)
+        {
+            memeWall.MemeSelected += (path) =>
+            {
+                var cb = this.FindControl<ComboBox>("MemeComboBox");
+                var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+                if (cb != null)
+                {
+                    var match = _memeItems.FirstOrDefault(m =>
+                        string.Equals(m.FullPath, path, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        cb.SelectedItem = match;
+                        if (addMemeCb != null) addMemeCb.IsChecked = true;
+                        SaveRecoveryState();
+                        // IDEA_011: Action pulse
+                        TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height / 2),
+                            Controls.ParticleBurstCanvas.BurstPreset.TogglePop);
+                    }
+                }
+            };
+        }
+
+        // IDEA_004: Kinetic Scrub controller
+        _kineticScrub = new KineticScrubController();
+        _kineticScrub.SeekRequested += (ms) =>
+        {
+            if (ActiveVideoHost?.IpcClient != null)
+            {
+                _ = SeekInternal(ms / 1000.0);
+                double duration = ActiveVideoHost.IpcClient.Duration;
+                if (duration > 0)
+                {
+                    var slider = this.FindControl<Slider>("TimelineSlider");
+                    if (slider != null)
+                    {
+                        _isTimerUpdatingSlider = true;
+                        slider.Value = (ms / 1000.0 / duration) * 100.0;
+                        _isTimerUpdatingSlider = false;
+                    }
+                    ShowPlayheadBadge(ms / 1000.0, (ms / 1000.0 / duration) * 100.0);
+                }
+            }
+        };
+
+        // IDEA_009: Attach Liquid Morph transition to Portrait dimming
+        var portraitGrid = this.FindControl<Grid>("PortraitDimmingGrid");
+        if (portraitGrid != null)
+        {
+            Controls.LiquidMorph.AttachPortraitMorph(portraitGrid);
+        }
+    }
+
+    /// <summary>
+    /// Triggers a particle burst effect at the specified screen-relative point.
+    /// Converts to local control coordinates before emitting.
+    /// </summary>
+    private void TriggerParticleBurst(Point windowRelativePoint,
+        Controls.ParticleBurstCanvas.BurstPreset preset)
+    {
+        var particleLayer = this.FindControl<Controls.ParticleBurstCanvas>("ParticleLayer");
+        if (particleLayer == null) return;
+
+        var localPoint = particleLayer.TranslatePoint(windowRelativePoint, particleLayer);
+        if (localPoint.HasValue)
+        {
+            particleLayer.Burst(localPoint.Value, preset);
+        }
+        else
+        {
+            // Fallback: emit at center of the particle layer
+            particleLayer.Burst(new Point(particleLayer.Bounds.Width / 2, particleLayer.Bounds.Height / 2), preset);
+        }
+    }
+
+    /// <summary>
+    /// IDEA_005: Evaluates the current editing state and suggests the next logical action
+    /// via the Butler ribbon. Called after key state changes (trim, speed, music, etc.).
+    /// </summary>
+    private void UpdateButlerSuggestion()
+    {
+        var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
+        if (butler == null) return;
+
+        // Don't suggest if no video loaded
+        if (string.IsNullOrEmpty(_loadedVideoPath))
+        {
+            butler.Clear();
+            return;
+        }
+
+        // Heuristic priority chain — suggest the FIRST missing step
+        if (_trimStartSet && _trimEndMs > _trimStartMs)
+        {
+            // Trim is done — suggest speed or music
+            if (!_isGranularSpeedActive && _speedSegments.Count == 0 &&
+                Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) < 0.01)
+            {
+                butler.Suggest(new ButlerAction
+                {
+                    Id = "speed",
+                    Icon = "⚡",
+                    Label = "Add a speed ramp?"
+                });
+            }
+            else if (!_isMusicActive)
+            {
+                butler.Suggest(new ButlerAction
+                {
+                    Id = "music",
+                    Icon = "🎵",
+                    Label = "Add background music?"
+                });
+            }
+            else if (IsPortraitMode && !string.IsNullOrEmpty(_loadedVideoPath))
+            {
+                butler.Suggest(new ButlerAction
+                {
+                    Id = "hud",
+                    Icon = "📐",
+                    Label = "Pick your HUD crop layout?"
+                });
+            }
+            else
+            {
+                butler.Clear();
+            }
+        }
+        else
+        {
+            // No trim yet — suggest trimming
+            butler.Suggest(new ButlerAction
+            {
+                Id = "trim",
+                Icon = "✂️",
+                Label = "Trim your clip to set start/end?"
+            });
+        }
+    }
+
+    #endregion
+
+    private bool _isRadialOpen = false;
+
+    private void OnWindowPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsMiddleButtonPressed)
+        {
+            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            if (radialMenu != null)
+            {
+                radialMenu.Open(e.GetPosition(this));
+                _isRadialOpen = true;
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnWindowPointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
+    {
+        if (_isRadialOpen)
+        {
+            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            if (radialMenu != null)
+            {
+                var pos = e.GetPosition(radialMenu);
+                radialMenu.UpdateHover(pos);
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnWindowPointerReleased(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
+    {
+        if (_isRadialOpen && e.InitialPressMouseButton == Avalonia.Input.MouseButton.Middle)
+        {
+            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            radialMenu?.Close();
+            _isRadialOpen = false;
+            e.Handled = true;
         }
     }
 }

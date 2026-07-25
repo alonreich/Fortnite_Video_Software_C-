@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
@@ -31,8 +31,9 @@ namespace FortniteVideoSoftware.App.Controls;
 ///
 /// AOT-safe: no reflection, no dynamic XAML.
 ///
-/// ROLLBACK: see old_code\volume_slider_rollback\ROLLBACK_INSTRUCTIONS.txt to restore
-/// the previous standard Slider without touching any other feature.
+/// ROLLBACK: the old_code\volume_slider_rollback folder no longer exists. To restore the
+/// previous behavior, replace this control in XAML with a standard vertical Slider that
+/// keeps the same Name and bindings — all code-behind works unchanged (it derives from Slider).
 /// </summary>
 public class FluidVolumeSlider : Slider
 {
@@ -352,6 +353,7 @@ public class FluidVolumeSlider : Slider
         tubeHeight = Math.Max(0, Bounds.Height - VerticalPad * 2);
     }
 
+    private static readonly System.Collections.Generic.Dictionary<int, FormattedText> s_markerTextCache = new();
     private StreamGeometry? _cachedCapsule;
     private double _lastTubeX = -1, _lastTubeY = -1, _lastTubeWidth = -1, _lastTubeHeight = -1;
 
@@ -487,9 +489,15 @@ public class FluidVolumeSlider : Slider
                 double my = tubeY + tubeHeight - m / 100.0 * tubeHeight;
                 context.DrawLine(s_markerDarkPen, new Point(tubeX + 3, my + 1), new Point(tubeX + tubeWidth - 3, my + 1));
                 context.DrawLine(s_markerLightPen, new Point(tubeX + 3, my), new Point(tubeX + tubeWidth - 3, my));
-                var markerText = new FormattedText(
-                    m.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, s_typeface, 6.5, s_markerTextBrush);
+                
+                if (!s_markerTextCache.TryGetValue(m, out var markerText))
+                {
+                    markerText = new FormattedText(
+                        m.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture,
+                        FlowDirection.LeftToRight, s_typeface, 6.5, s_markerTextBrush);
+                    s_markerTextCache[m] = markerText;
+                }
+                
                 context.DrawText(markerText, new Point(tubeX + tubeWidth - markerText.Width - 3.5, my - markerText.Height - 0.5));
             }
         }

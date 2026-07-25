@@ -87,6 +87,16 @@ public static class MemeCatalog
                 {
                     RuntimeLog.Info("Memes", $"Dimension probe failed for '{item.FileName}': {ex.Message}");
                 }
+
+                // A VIDEO meme that won't probe (0 dimensions) is unreadable/corrupt — exporting
+                // it hands FFmpeg an invalid input and kills the whole render. Exclude it so it
+                // can never be selected. (Images tolerate a failed probe and stay usable.)
+                if (isVideo && (item.Width <= 0 || item.Height <= 0))
+                {
+                    RuntimeLog.Fail("Memes", $"Excluding unreadable video meme '{item.FileName}' (failed to probe; would crash export).");
+                    continue;
+                }
+
                 items.Add(item);
             }
             return items;
@@ -99,6 +109,21 @@ public static class MemeCatalog
     /// Returns (downloadedCount, errorMessage) — errorMessage is null on success; on HTTP 403
     /// (rate limit) or any network failure it returns the §4 mandated user-facing message.
     /// </summary>
+    /// <summary>True if the file is a Git-LFS pointer (small text starting with the LFS spec line).</summary>
+    private static bool IsLfsPointer(string path)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            if (fi.Length is <= 0 or > 1024) return false;   // real media is far larger than a pointer
+            using var r = new StreamReader(path);
+            char[] buf = new char[64];
+            int n = r.Read(buf, 0, buf.Length);
+            return n > 0 && new string(buf, 0, n).StartsWith("version https://git-lfs.github.com/spec", StringComparison.Ordinal);
+        }
+        catch { return false; }
+    }
+
     public static async Task<(int downloaded, string? error)> SyncFromCloudAsync(string targetDirectory)
     {
         int downloaded = 0;
@@ -141,7 +166,14 @@ public static class MemeCatalog
 
                     string ext = Path.GetExtension(name).ToLowerInvariant();
                     if (!VideoExts.Contains(ext) && !ImageExts.Contains(ext)) continue;
-                    if (local.Contains(name)) continue;
+
+                    // Skip only if we already have a VALID local copy. If a prior sync left a
+                    // corrupt LFS-pointer / zero-byte file (the old bug), fall through and re-fetch
+                    // it so existing broken installs self-heal.
+                    string existing = Path.Combine(targetDirectory, name);
+                    if (local.Contains(name) && File.Exists(existing)
+                        && new FileInfo(existing).Length > 0 && !IsLfsPointer(existing))
+                        continue;
 
                     string dest = Path.Combine(targetDirectory, name);
                     string tmp = dest + ".part";
@@ -150,10 +182,41 @@ public static class MemeCatalog
                     {
                         await s.CopyToAsync(fs);
                     }
+
+                    // Git-LFS gotcha: for LFS-tracked files (e.g. .mp4/.mp3) the contents-API
+                    // download_url (raw.githubusercontent.com) returns the tiny POINTER text, not
+                    // the binary — producing corrupt "moov atom not found" videos. Detect the
+                    // pointer and re-fetch the real blob from GitHub's LFS media host.
+                    if (IsLfsPointer(tmp))
+                    {
+                        string mediaUrl = dl.Replace("raw.githubusercontent.com", "media.githubusercontent.com/media");
+                        try
+                        {
+                            using (var s2 = await http.GetStreamAsync(mediaUrl))
+                            using (var fs2 = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+                            {
+                                await s2.CopyToAsync(fs2);
+                            }
+                        }
+                        catch (Exception exLfs)
+                        {
+                            RuntimeLog.Fail("Memes", $"Cloud sync: LFS media fetch failed for '{name}': {exLfs.Message}");
+                        }
+                    }
+
+                    // Reject anything that's still a pointer or zero-byte (never let a corrupt file
+                    // reach the meme folder — it would crash FFmpeg at export with a cryptic code).
+                    if (IsLfsPointer(tmp) || new FileInfo(tmp).Length == 0)
+                    {
+                        try { File.Delete(tmp); } catch { }
+                        RuntimeLog.Fail("Memes", $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
+                        continue;
+                    }
+
                     File.Move(tmp, dest, overwrite: true);
                     local.Add(name);
                     downloaded++;
-                    RuntimeLog.Info("Memes", $"Cloud sync: downloaded '{name}'.");
+                    RuntimeLog.Info("Memes", $"Cloud sync: downloaded '{name}' ({new FileInfo(dest).Length} bytes).");
                 }
             }
             RuntimeLog.Info("Memes", $"Cloud sync complete: {downloaded} new meme(s).");

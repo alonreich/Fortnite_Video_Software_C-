@@ -31,6 +31,7 @@ public static class WaveformGenerator
                 RedirectStandardError = true
             };
 
+            CoreLogger.Debug("WaveformGenerator", $"Command: {psi.FileName} {psi.Arguments}");
             process = Process.Start(psi);
             if (process == null) return null;
             ChildProcessTracker.AddProcess(process);

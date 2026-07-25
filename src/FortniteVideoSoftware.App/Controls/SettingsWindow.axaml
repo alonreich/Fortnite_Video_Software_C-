@@ -10,8 +10,9 @@
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
-        WindowStartupLocation="Manual"
-        Topmost="True">
+        WindowStartupLocation="Manual">
+    <!-- ISSUE_09 (audit round 4): Topmost="True" removed — Settings floated above every OTHER
+         application on the OS. It now yields to other apps like the rest of the 8 tracked windows. -->
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
@@ -114,7 +115,8 @@
                         </TabItem>
                     </TabControl>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
-                        <Button Name="CancelBtn" Classes="Danger" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close"/>
+                        <!-- ISSUE_08 (audit round 4): CANCEL is Secondary suite-wide (red = destructive data loss only) -->
+                        <Button Name="CancelBtn" Classes="Secondary" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close"/>
                         <Button Name="SaveBtn" Classes="Success" Content="APPLY" MinWidth="90" ToolTip.Tip="Apply settings and close"/>
                     </StackPanel>
                 </Grid>

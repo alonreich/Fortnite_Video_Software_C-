@@ -119,13 +119,13 @@
                                         </StackPanel>
 
                                         <!-- Play Pause -->
+                                        <!-- ISSUE_06 (audit round 4): token-sized shared Play/Pause geometries (were fixed
+                                             16/4/14px Polygon+Rectangles) — now identical to the Main/Granular/Merger/Wizard
+                                             transport icons and scale with the Settings font size. -->
                                         <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" MinHeight="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
-                                            <Panel Width="16" Height="16">
-                                                <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                    <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                                </StackPanel>
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                                <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
                                             </Panel>
                                         </Button>
                                     </WrapPanel>

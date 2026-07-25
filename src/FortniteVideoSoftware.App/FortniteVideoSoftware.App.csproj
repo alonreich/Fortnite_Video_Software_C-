@@ -37,7 +37,6 @@
     <ItemGroup>
       <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\mpv.exe" />
       <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\libmpv-2.dll" />
-      <DevFrontendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\mpv.com" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffmpeg.exe" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\ffprobe.exe" />
       <DevBackendBinaries Include="$(MSBuildThisFileDirectory)..\..\binaries\av*.dll" />
@@ -67,4 +66,4 @@
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <ItemGroup><None Include="Assets\*.jpg"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None></ItemGroup></Project>
+</Project>

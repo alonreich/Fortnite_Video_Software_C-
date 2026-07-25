@@ -2,6 +2,11 @@ using System.Diagnostics;
 
 namespace FortniteVideoSoftware.Core.Infrastructure;
 
+public class LockException : Exception
+{
+    public LockException(string message) : base(message) { }
+}
+
 public sealed class NamedSystemMutex : IDisposable
 {
     private readonly Mutex _mutex;
@@ -41,7 +46,7 @@ public sealed class NamedSystemMutex : IDisposable
             if (stopwatch.Elapsed >= timeout)
             {
                 guard.Dispose();
-                throw new TimeoutException($"Timed out waiting for named mutex '{name}' after {timeout.TotalSeconds:0.0}s.");
+                throw new LockException($"Timed out waiting for named mutex '{name}' after {timeout.TotalSeconds:0.0}s.");
             }
 
             Thread.Sleep(TimeSpan.FromMilliseconds(25));

@@ -66,6 +66,7 @@ public static class ThemeManager
         ("AppFontSize9", 9), ("AppFontSize10", 10), ("AppFontSize11", 11),
         ("AppFontSize12", 12), ("AppFontSize13", 13), ("AppFontSize14", 14),
         ("AppFontSize16", 16), ("AppFontSize18", 18), ("AppFontSize20", 20),
+        ("AppFontSize24", 24),
         ("AppFontSize28", 28), ("AppFontSize36", 36), ("AppFontSize48", 48),
         ("AppFontSize60", 60),
         ("AppButtonMinHeight", 32), ("AppSpeedPresetMinWidth", 31),

@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -207,7 +207,7 @@ public class MediaProber
         if (node is JsonValue val)
         {
             if (val.TryGetValue(out int i)) return i;
-            if (val.TryGetValue(out string? s) && int.TryParse(s, out int parsed)) return parsed;
+            if (val.TryGetValue(out string? s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)) return parsed;
         }
         return 0;
     }

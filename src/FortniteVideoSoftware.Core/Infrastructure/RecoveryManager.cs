@@ -88,6 +88,9 @@ public sealed class RecoveryManager
                     return true;
                 }
 
+                try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch { }
+                try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch { }
+
                 File.Delete(_paths.SafeModeSentinelFile);
             }
             catch
@@ -241,7 +244,13 @@ public sealed class RecoveryManager
         {
             var state = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
             if (state != null)
+            {
+                if (!state.ContainsKey("schema_version"))
+                {
+                    throw new InvalidDataException("Missing schema_version in recovery state.");
+                }
                 CoreLogger.Info("Recovery", "Recovery state loaded for restore.");
+            }
             return state;
         }
         catch (Exception ex)

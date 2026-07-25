@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -15,40 +15,32 @@ namespace FortniteVideoSoftware.App.Controls;
 public partial class PhaseOverlayControl : UserControl
 {
     private DispatcherTimer? _timer;
-    private DispatcherTimer? _animTimer;
-    private int _animState = 0;
-    private Random _rand = new();
-    
-    private Border? _fighter1;
-    private Border? _fighter2;
-    private List<Border> _projectiles = new();
-    private double _f1X, _f1Y, _f2X, _f2Y;
-    private int _chaosPhase = 0; 
-    private int _chaosTicks = 0;
-    
-    private Avalonia.Media.Imaging.Bitmap? _bmpF1;
-    private Avalonia.Media.Imaging.Bitmap? _bmpF2;
-    private Avalonia.Media.Imaging.Bitmap? _bmpTnt;
-    
     private List<string> _logLines = new();
-    
     private List<int> _cpuHist = new();
     private List<int> _gpuHist = new();
     private List<int> _memHist = new();
-    
     private ulong _lastIdle;
     private ulong _lastSys;
     private int _lastGpu;
-    
+    private Random _rand = new();
+
+    // Easter Egg State Machine Fields
+    private Stopwatch _processStopwatch = new();
+    private bool _easterEggActive = false;
+    private int _lastPercent = -1;
+    private string _currentSequence = "";
+    private Rect _anchorProgressBar;
+    private Rect _anchorLogBox;
+    private Rect _anchorTelemetryBox;
+    private int _spamClickCount = 0;
+    private DispatcherTimer? _wobbleTimer;
+
     public PhaseOverlayControl()
     {
         InitializeComponent();
         
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += OnTick;
-
-        _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-        _animTimer.Tick += OnAnimTick;
 
         DetachedFromVisualTree += (s, e) => StopOverlay();
     }
@@ -61,7 +53,11 @@ public partial class PhaseOverlayControl : UserControl
         var cancelBtn = this.FindControl<Button>("CancelProcessButton");
         if (cancelBtn != null)
         {
-            cancelBtn.Click += (s, e) => CancelRequested?.Invoke(this, EventArgs.Empty);
+            cancelBtn.Click += (s, e) => 
+            {
+                HandleTerminalState("CANCEL");
+                CancelRequested?.Invoke(this, EventArgs.Empty);
+            };
         }
     }
     
@@ -118,56 +114,106 @@ public partial class PhaseOverlayControl : UserControl
         RuntimeLog.LogAppended += AppendLog;
         _timer?.Start();
 
+        // FIX_1: reset the eased progress bar for a fresh sweep each export.
+        _barTarget = 0;
+        _barValue = 0;
+        var pbar0 = this.FindControl<ProgressBar>("PhaseProgressBar");
+        if (pbar0 != null) pbar0.Value = 0;
+        var ptxt0 = this.FindControl<TextBlock>("PhaseProgressText");
+        if (ptxt0 != null) ptxt0.Text = "0%";
+        EnsureBarTimer();
+
+        // Initialize the fight (IDEA_D/G: FULL reset every export — the entrance replays
+        // every time; previously _animTime kept accumulating so the drop-in silently
+        // stopped playing on the 2nd+ video).
+        _easterEggActive = true;
+        _lastPercent = -1;
+        _animTime = 0.0;
+        _nextMoveTime = 1.25;       // first move shortly after the entrance settles
+        _nextTauntTime = 2.0;
+        _attackerIsA = _rand.Next(2) == 0;   // randomize who opens
+        _projActive = false;
+        _moveKind = "";
+        _tauntIndex = _rand.Next(s_taunts.Length);
+        _lastFightProgress = 0;
+        _posInit = false;
+        _nextWanderTime = 0;
+        _comboLeft = 0;
+        _skitKind = ""; _nextSkitTime = 4.0 + _rand.NextDouble() * 4.0;
+        _koA = _koB = false;
+        _processStopwatch.Restart();
+        LockWindowAndAnchors();
+        ApplyFighterGlow();
+        ResetFightVisuals();
+        ProcessEasterEggState(0);
+    }
+
+    // Clears any leftover state from a PREVIOUS export so the next fight starts clean
+    // (loser was rotated/knocked down; bursts/bubbles/dust may have been left visible;
+    // the maximization edge case may have hidden the whole canvas).
+    private void ResetFightVisuals()
+    {
+        var canvas = this.FindControl<Canvas>("FightCanvas");
+        if (canvas != null) canvas.IsVisible = true;
+        var fA = this.FindControl<Canvas>("FighterA");
+        var fB = this.FindControl<Canvas>("FighterB");
+        if (fA != null) fA.RenderTransform = null;
+        if (fB != null) fB.RenderTransform = null;
+        // Reset physics so a knocked-down/launched/grown fighter from a prior export can't carry over.
+        _avx = _bvx = _avy = _bvy = 0;
+        _airA = _airB = false;
+        _scaleA = _scaleB = 1; _growUntilA = _growUntilB = 0;
+        _perchReturnA = _perchReturnB = 0;
+        _mushGrew = _mushLeaped = _mushSlammed = false;
+        _koA = _koB = false; _skitKind = "";
+        _projActive = _projDouble = false; _moveKind = ""; _hitResolved = false;
+        // Clear any leftover KO rotation / bulb glow from a prior export.
+        var glassR = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+        if (glassR != null && Application.Current?.FindResource("AppPanelBrush") is IBrush pbR) glassR.Fill = pbR;
+        foreach (var n in new[] { "Projectile", "Projectile2", "SuperFlash", "ImpactBurst", "ComicBubble", "ComicText", "TitleFlash", "DustA", "DustB", "Mushroom", "ShockRing",
+                                   "Door", "Ladder", "Bulb", "ZapBolt", "StarsA", "StarsB" })
+            SetVisible(n, false);
+    }
+
+    // Resolve a token Color from the app resources (theme-aware) with a safe fallback.
+    private Color TokenColor(string key, Color fallback)
+    {
         try
         {
-            var canvas = this.FindControl<Canvas>("FightCanvas");
-            if (canvas != null)
-            {
-                canvas.Children.Clear();
-                _projectiles.Clear();
-                
-                if (_bmpF1 == null) {
-                    try {
-                        string aPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets");
-                        if (!System.IO.Directory.Exists(aPath)) aPath = @"C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\Assets";
-                        
-                        _bmpF1 = new Avalonia.Media.Imaging.Bitmap(System.IO.Path.Combine(aPath, "fighter1.jpg"));
-                        _bmpF2 = new Avalonia.Media.Imaging.Bitmap(System.IO.Path.Combine(aPath, "fighter2.jpg"));
-                        _bmpTnt = new Avalonia.Media.Imaging.Bitmap(System.IO.Path.Combine(aPath, "tnt.jpg"));
-                    } catch (Exception ex) {
-                        RuntimeLog.Fail("UI", $"Failed to load Chaos AI tokens: {ex.Message}");
-                    }
-                }
-                
-                if (_bmpF1 != null && _bmpF2 != null)
-                {
-                    _fighter1 = CreateToken(_bmpF1, 64, Brushes.Cyan, "fighter");
-                    _fighter2 = CreateToken(_bmpF2, 64, Brushes.OrangeRed, "fighter");
-                    canvas.Children.Add(_fighter1);
-                    canvas.Children.Add(_fighter2);
-                    
-                    _f1X = 400; _f1Y = 40;
-                    _f2X = 480; _f2Y = 40;
-                    
-                    Canvas.SetLeft(_fighter1, _f1X);
-                    Canvas.SetTop(_fighter1, _f1Y);
-                    Canvas.SetLeft(_fighter2, _f2X);
-                    Canvas.SetTop(_fighter2, _f2Y);
-                }
-                
-                _chaosPhase = 0;
-                _chaosTicks = 0;
-            }
+            if (Application.Current?.FindResource(key) is Color c) return c;
+            if (Application.Current?.FindResource(key) is ISolidColorBrush b) return b.Color;
         }
         catch { }
-        _animTimer?.Start();
+        return fallback;
+    }
+
+    // IDEA_A: soft glow around each fighter so the thin strokes pop on the dark overlay.
+    private void ApplyFighterGlow()
+    {
+        var fA = this.FindControl<Canvas>("FighterA");
+        var fB = this.FindControl<Canvas>("FighterB");
+        if (fA != null)
+            fA.Effect = new Avalonia.Media.DropShadowEffect { Color = TokenColor("AppInfoColor", Color.Parse("#38bdf8")), BlurRadius = 14, OffsetX = 0, OffsetY = 0, Opacity = 0.8 };
+        if (fB != null)
+            fB.Effect = new Avalonia.Media.DropShadowEffect { Color = TokenColor("AppDangerColor", Color.Parse("#dc2626")), BlurRadius = 14, OffsetX = 0, OffsetY = 0, Opacity = 0.8 };
     }
     
     public void StopOverlay()
     {
         IsVisible = false;
         _timer?.Stop();
-        _animTimer?.Stop();
+        
+        if (_vectorAnimTimer != null)
+        {
+            _vectorAnimTimer.Stop();
+            _vectorAnimTimer = null;
+        }
+        if (_barTimer != null)
+        {
+            _barTimer.Stop();
+            _barTimer = null;
+        }
+
         RuntimeLog.LogAppended -= AppendLog;
         
         try
@@ -190,18 +236,43 @@ public partial class PhaseOverlayControl : UserControl
         });
     }
     
+    // FIX_1: the bar tracks a monotonic TARGET and eases toward it every ~33ms, so it never
+    // visibly jumps backward and never lurches on bursty encoder reports — a smooth, steady sweep.
+    private double _barTarget;
+    private double _barValue;
+    private DispatcherTimer? _barTimer;
+
     public void UpdatePhase(int phaseIndex, string title, int progress)
     {
-        Dispatcher.UIThread.Post(() => 
+        Dispatcher.UIThread.Post(() =>
         {
             var phaseTitle = this.FindControl<TextBlock>("PhaseTitleText");
+            if (phaseTitle != null) phaseTitle.Text = title;
+
+            // Target only ever moves forward (the worker is already monotonic; this is belt-and-braces).
+            _barTarget = Math.Max(_barTarget, Math.Clamp(progress, 0, 100));
+            EnsureBarTimer();
+
+            ProcessEasterEggState(progress);   // fight tempo tracks true progress
+        });
+    }
+
+    private void EnsureBarTimer()
+    {
+        if (_barTimer != null) return;
+        _barTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _barTimer.Tick += (_, __) =>
+        {
             var phaseBar = this.FindControl<ProgressBar>("PhaseProgressBar");
             var phaseText = this.FindControl<TextBlock>("PhaseProgressText");
-            
-            if (phaseTitle != null) phaseTitle.Text = title;
-            if (phaseBar != null) phaseBar.Value = progress;
-            if (phaseText != null) phaseText.Text = $"{progress}%";
-        });
+            // Ease toward the target; snap the last fraction so it lands exactly.
+            double delta = _barTarget - _barValue;
+            if (Math.Abs(delta) < 0.4) _barValue = _barTarget;
+            else _barValue += delta * 0.22;
+            if (phaseBar != null) phaseBar.Value = _barValue;
+            if (phaseText != null) phaseText.Text = $"{(int)Math.Round(_barValue)}%";
+        };
+        _barTimer.Start();
     }
 
     private System.Collections.Concurrent.ConcurrentQueue<string> _pendingLogs = new();
@@ -211,122 +282,918 @@ public partial class PhaseOverlayControl : UserControl
         _pendingLogs.Enqueue(message);
     }
 
-    private Border CreateToken(Avalonia.Media.Imaging.Bitmap bmp, double size, IBrush borderBrush, string tag = "")
+    private Avalonia.Controls.Window? GetParentWindow()
     {
-        var img = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
-        return new Border
-        {
-            Width = size,
-            Height = size,
-            CornerRadius = new CornerRadius(size / 2),
-            ClipToBounds = true,
-            Child = img,
-            Tag = tag,
-            BorderBrush = borderBrush,
-            BorderThickness = new Thickness(2)
-        };
-    }
-    
-    private Avalonia.Controls.Shapes.Path CreateVectorProp(string svgData, IBrush fill, double size, string tag = "")
-    {
-        return new Avalonia.Controls.Shapes.Path
-        {
-            Data = Avalonia.Media.Geometry.Parse(svgData),
-            Fill = fill,
-            Width = size,
-            Height = size,
-            Stretch = Stretch.Uniform,
-            Tag = tag
-        };
+        return this.VisualRoot as Avalonia.Controls.Window;
     }
 
-    private void OnAnimTick(object? sender, EventArgs e)
+    public void OnOverlayPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
+        if (!_easterEggActive) return;
+        _spamClickCount++;
+        if (_spamClickCount >= 3)
+        {
+            _spamClickCount = 0;
+            TriggerWobbleMicroAnimation();
+        }
+    }
+
+    private void TriggerWobbleMicroAnimation()
+    {
+        // 0.5s wobble
+        var player = this.FindControl<Image>("EasterEggPlayer");
+        if (player != null)
+        {
+            RuntimeLog.Info("EasterEgg", "Spam Click Edge Case Triggered! Wobble micro-animation started.");
+            player.Opacity = 0.5; // Simulate wobble state
+            _wobbleTimer?.Stop();
+            _wobbleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(0.5) };
+            _wobbleTimer.Tick += (s, e) =>
+            {
+                player.Opacity = 1.0;
+                _wobbleTimer.Stop();
+                PlaySequence(_currentSequence); // Resume original sequence
+            };
+            _wobbleTimer.Start();
+        }
+    }
+
+    private void LockWindowAndAnchors()
+    {
+        var window = GetParentWindow();
+        if (window != null)
+        {
+            window.CanResize = false;
+            window.PropertyChanged += OnWindowPropertyChanged;
+        }
+
+        // Cache absolute static coordinates
+        var pbar = this.FindControl<ProgressBar>("PhaseProgressBar")?.Parent as Control;
+        var log = this.FindControl<TextBox>("LiveLogTextBox");
+        var graph = this.FindControl<HardwareGraphControl>("GraphCanvas")?.Parent as Control;
+
+        if (pbar != null) _anchorProgressBar = pbar.Bounds;
+        if (log != null) _anchorLogBox = log.Bounds;
+        if (graph != null) _anchorTelemetryBox = graph.Bounds;
+    }
+
+    private void OnWindowPropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
+    {
+        // The "Window Maximization" Edge Case (OS Override)
+        if (e.Property.Name == "WindowState" || e.Property.Name == "Bounds")
+        {
+            var window = sender as Avalonia.Controls.Window;
+            if (window != null && (window.WindowState == Avalonia.Controls.WindowState.Maximized || window.Bounds.Width > 2000))
+            {
+                var canvas = this.FindControl<Canvas>("FightCanvas");
+                if (canvas != null)
+                {
+                    canvas.IsVisible = false;
+                    _easterEggActive = false;
+                    RuntimeLog.Info("EasterEgg", "Window Maximization Edge Case Triggered. Easter Egg hidden.");
+                }
+            }
+        }
+    }
+
+    private DispatcherTimer? _vectorAnimTimer;
+    private double _animTime = 0.0;          // pose-wiggle phase
+    private string _vectorState = "";        // Entrance | Melee | End | Cancel | Error
+
+    // ---- Live physics state (positions are TOP-LEFT of each fighter sub-canvas) ----
+    private double _ax, _ay, _bx, _by;       // positions
+    private double _avx, _bvx;               // horizontal velocity (dash / knockback)
+    private double _avy, _bvy;               // vertical velocity (jumps / pops / slams)
+    private double _tgtAy, _tgtBy;           // target ground Y (floor / perch-up / hide-down)
+    private bool _airA, _airB;               // airborne (gravity) vs eased travel to target Y
+    private double _perchReturnA, _perchReturnB;   // time to drop back to the floor
+    private double _scaleA = 1, _scaleB = 1; // body scale (mushroom power-up = 2x)
+    private double _growUntilA, _growUntilB; // time the power-up size reverts
+    private bool _posInit;
+    private double _wanderA, _wanderB;       // roaming offsets so distance keeps changing
+    private double _nextWanderTime;
+
+    // Mushroom power-up / ground-pound sub-phase flags
+    private bool _mushGrew, _mushLeaped, _mushSlammed;
+
+    // Skit vignettes (door prank, ladder/bulb electrocution) + knock-out state
+    private string _skitKind = "";
+    private double _skitStart, _skitDur;
+    private int _skitPhase;
+    private double _nextSkitTime;
+    private bool _koA, _koB;
+    private double _koStartA, _koStartB, _koUntilA, _koUntilB;
+
+    // ---- Move director (randomized so it never loops the same way) ----
+    private double _nextMoveTime;
+    private string _moveKind = "";           // throw | dash | uppercut | kick | super | feint
+    private double _moveStart, _moveDur;
+    private bool _attackerIsA = true;
+    private bool _hitResolved;
+    private string _defReaction = "hit";     // hit | dodge | block
+    private int _comboLeft;                   // remaining rapid follow-ups
+    private bool _projActive, _projDouble;
+    private double _projT, _projDur = 0.32, _projArc = 26;
+    private Point _projStart, _projEnd;
+
+    private double _nextTauntTime;
+    private double _tauntUntil;
+    private int _tauntIndex;
+    private int _lastFightProgress;
+    private double _impactUntil;
+    private double _shakeUntil; private bool _shakeIsA;
+    private double _titleUntil;
+    private double _superUntil;
+    private bool _finisherDone;
+    private bool _loserIsA;
+
+    private const double EntranceDur = 1.05;
+    private const double Gravity = 2.4;      // per tick vertical accel for pops
+
+    private static readonly string[] s_taunts =
+        { "Encoding!", "Hold still!", "2x speed!", "Almost!", "Rendering!", "Take that!",
+          "Get shorty!", "Frame by frame!", "Compressing!", "Eat pixels!", "Too slow!", "Final boss!" };
+    private static readonly string[] s_impacts =
+        { "POW!", "BAM!", "WHAM!", "BIFF!", "KAPOW!", "THWACK!", "CRUNCH!", "SMACK!", "BOOM!" };
+    private static readonly string[] s_moves =
+        { "throw", "throw", "dash", "dash", "uppercut", "kick", "feint", "leap", "hide", "super", "mushroom" };
+    private static readonly string[] s_projBrush =
+        { "AppWarningBrush", "AppInfoBrush", "AppAccentBrush", "AppDangerBrush", "AppSuccessBrush" };
+
+    private void PlaySequence(string sequenceName)
+    {
+        _currentSequence = sequenceName;
+        RuntimeLog.Info("EasterEgg", $"Fight sequence: {sequenceName}");
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_vectorAnimTimer == null)
+            {
+                _vectorAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                _vectorAnimTimer.Tick += OnVectorAnimTick;
+                _vectorAnimTimer.Start();
+            }
+
+            _vectorState = sequenceName;
+
+            if (sequenceName == "Entrance")
+            {
+                _finisherDone = false;
+                _titleUntil = 0;
+            }
+        });
+    }
+
+    private (double midX, double fightY, double w, double h) FightAnchor(Canvas canvas)
+    {
+        double w = canvas.Bounds.Width > 10 ? canvas.Bounds.Width : 900;
+        double h = canvas.Bounds.Height > 10 ? canvas.Bounds.Height : 600;
+        return (w / 2.0, h * 0.26, w, h);
+    }
+
+    private void OnVectorAnimTick(object? sender, EventArgs e)
+    {
+        _animTime += 0.1;
+        double now = _processStopwatch.Elapsed.TotalSeconds;
+
         var canvas = this.FindControl<Canvas>("FightCanvas");
-        if (canvas == null || _fighter1 == null || _fighter2 == null) return;
-        
-        _chaosTicks++;
-        
-        if (_chaosTicks == 100) _chaosPhase = 1;
-        if (_chaosTicks == 200) _chaosPhase = 2;
-        if (_chaosTicks > 350 && _rand.NextDouble() < 0.02) { _chaosPhase = 0; _chaosTicks = 0; }
+        var fA = this.FindControl<Canvas>("FighterA");
+        var fB = this.FindControl<Canvas>("FighterB");
+        if (canvas == null || fA == null || fB == null) return;
+        fA.IsVisible = true; fB.IsVisible = true;
 
-        if (_chaosPhase == 0)
+        var (midX, fightY, w, h) = FightAnchor(canvas);
+
+        if (_vectorState == "Entrance" && now >= EntranceDur)
         {
-            if (_f1X > 200) { _f1X -= 4; _f2X -= 4; }
-            
-            _f1X += _rand.Next(-8, 9); _f1Y += _rand.Next(-8, 9);
-            _f2X += _rand.Next(-8, 9); _f2Y += _rand.Next(-8, 9);
-            
-            if (Math.Abs(_f1X - _f2X) > 60) _f2X = _f1X + 50;
+            _vectorState = "Melee";
+            // seed live positions from the landed spots
+            _ax = midX - 95; _bx = midX + 35; _ay = _by = fightY; _tgtAy = _tgtBy = fightY; _posInit = true;
         }
-        else if (_chaosPhase == 1)
+
+        if (_vectorState == "Entrance")
         {
-            _f1Y += _rand.Next(-15, 15);
-            _f2Y += _rand.Next(-15, 15);
-            
-            if (_rand.NextDouble() < 0.15)
+            double p = Math.Clamp(now / EntranceDur, 0, 1);
+            double ease = 1 - Math.Pow(1 - p, 3);
+            double ex = (-140) + ((midX - 95) - (-140)) * ease;
+            double exB = (w + 140) + ((midX + 35) - (w + 140)) * ease;
+            Canvas.SetLeft(fA, ex); Canvas.SetTop(fA, fightY);
+            Canvas.SetLeft(fB, exB); Canvas.SetTop(fB, fightY);
+            UpdateFighterPoses("A", true, false);
+            UpdateFighterPoses("B", true, false);
+            if (p >= 1.0 && _titleUntil == 0)
             {
-                var chair = CreateVectorProp("M15.528 2.973a.75.75 0 0 1 .472.696v8.662a.75.75 0 0 1-.472.696l-7.25 2.9a.75.75 0 0 1-.557 0l-7.25-2.9A.75.75 0 0 1 0 12.331V3.669a.75.75 0 0 1 .471-.696L7.443.184l.01-.003.268-.108a.75.75 0 0 1 .558 0l.269.108.01.003zM10.404 2 4.25 4.461 1.846 3.5 1 3.839v.4l6.5 2.6v7.922l.5.2.5-.2V6.84l6.5-2.6v-.4l-.846-.339L8 5.961 5.596 5l6.154-2.461z", Brushes.BurlyWood, 32, "chair");
-                Canvas.SetLeft(chair, _f1X);
-                Canvas.SetTop(chair, _f1Y);
-                canvas.Children.Add(chair);
-                var chairWrapper = new Border { Child = chair, Tag = "chair" };
-                Canvas.SetLeft(chairWrapper, _f1X);
-                Canvas.SetTop(chairWrapper, _f1Y);
-                canvas.Children.Add(chairWrapper);
-                _projectiles.Add(chairWrapper);
+                _titleUntil = now + 0.85;
+                ShowTitle("FIGHT!", midX, fightY - 70, "AppOnAccentTextBrush");
+                PuffDust("DustA", midX - 80, fightY + 120);
+                PuffDust("DustB", midX + 50, fightY + 120);
             }
         }
-        else if (_chaosPhase == 2)
+        else if (_vectorState == "Melee")
         {
-            _f1X += (350 - _f1X) * 0.15;
-            _f1Y += (60 - _f1Y) * 0.15; 
-            
-            _f2X += (_f1X - _f2X) * 0.05 + _rand.Next(-30, 30);
-            _f2Y += (_f1Y - _f2Y) * 0.05 + _rand.Next(-30, 30);
-            
-            if (_rand.NextDouble() < 0.08 && _bmpTnt != null)
+            if (!_posInit) { _ax = midX - 95; _bx = midX + 35; _ay = _by = fightY; _tgtAy = _tgtBy = fightY; _posInit = true; }
+            TickFight(now, midX, fightY, w, h);
+        }
+        else // End / Cancel / Error
+        {
+            if (_vectorState == "End") RenderFinisher(now, fA, fB, _ax, _bx, fightY, midX);
+        }
+
+        if (now >= _impactUntil) SetVisible("ImpactBurst", false);
+        if (now >= _titleUntil && _vectorState != "End") SetVisible("TitleFlash", false);
+        if (now >= _superUntil) SetVisible("SuperFlash", false);
+    }
+
+    // Physics + randomized move director — every strike is picked from a weighted set,
+    // the fighters roam and vary their distance, defenders sometimes dodge/block, and
+    // combos + a rare "super" keep it unpredictable. Fully silent.
+    private void TickFight(double now, double midX, double fightY, double w, double h)
+    {
+        var fA = this.FindControl<Canvas>("FighterA");
+        var fB = this.FindControl<Canvas>("FighterB");
+        if (fA == null || fB == null) return;
+
+        // Roaming: retarget wander offsets so the pair drift and change distance.
+        if (now >= _nextWanderTime)
+        {
+            _wanderA = _rand.NextDouble() * 90;
+            _wanderB = _rand.NextDouble() * 90;
+            _nextWanderTime = now + 1.6 + _rand.NextDouble() * 2.4;
+        }
+        double restAx = midX - 55 - _wanderA;
+        double restBx = midX + 25 + _wanderB;
+
+        // Perch/hide return + power-up size revert timers.
+        if (_perchReturnA > 0 && now >= _perchReturnA) { _tgtAy = fightY; _perchReturnA = 0; }
+        if (_perchReturnB > 0 && now >= _perchReturnB) { _tgtBy = fightY; _perchReturnB = 0; }
+        if (_growUntilA > 0 && now >= _growUntilA) { _scaleA = 1; _growUntilA = 0; }
+        if (_growUntilB > 0 && now >= _growUntilB) { _scaleB = 1; _growUntilB = 0; }
+
+        // Director: start a new move when idle and the cooldown elapsed.
+        if (_moveKind == "" && now >= _nextMoveTime) StartMove(now, midX, fightY, w, h);
+
+        // Advance the active move.
+        if (_moveKind != "") AdvanceMove(now, midX, fightY, w, h);
+
+        // Ease idle horizontal position toward the roaming rest spot (skip while dashing/knocked).
+        if (Math.Abs(_avx) < 0.2 && _moveKind is "" or "throw" or "feint")
+            _ax += (restAx - _ax) * 0.04 + Math.Sin(_animTime * 0.5) * 0.6;
+        if (Math.Abs(_bvx) < 0.2 && _moveKind is "" or "throw" or "feint")
+            _bx += (restBx - _bx) * 0.04 + Math.Cos(_animTime * 0.5) * 0.6;
+
+        // Apply velocities + damping (dash/knockback slides).
+        _ax += _avx; _bx += _bvx;
+        _avx *= 0.86; _bvx *= 0.86;
+        if (Math.Abs(_avx) < 0.15) _avx = 0;
+        if (Math.Abs(_bvx) < 0.15) _bvx = 0;
+
+        // Vertical: airborne fighters (jumps / pops / slams) arc under gravity and land on
+        // their TARGET ground; grounded fighters ease toward the target — this is what lets
+        // one climb UP onto the progress-bar band or drop DOWN into the log area (vertical play).
+        if (_airA) { _avy += Gravity; _ay += _avy; if (_ay >= _tgtAy) { if (_avy > 8) PuffDust("DustA", _ax + 15, _tgtAy + 120); _ay = _tgtAy; _avy = 0; _airA = false; } }
+        else _ay += (_tgtAy - _ay) * 0.14;
+        if (_airB) { _bvy += Gravity; _by += _bvy; if (_by >= _tgtBy) { if (_bvy > 8) PuffDust("DustB", _bx + 15, _tgtBy + 120); _by = _tgtBy; _bvy = 0; _airB = false; } }
+        else _by += (_tgtBy - _by) * 0.14;
+
+        // Clamp inside the canvas.
+        _ax = Math.Clamp(_ax, 10, w - 60); _bx = Math.Clamp(_bx, 10, w - 60);
+
+        // Apply the mushroom power-up scale (grows from the feet).
+        ApplyScale(fA, _scaleA);
+        ApplyScale(fB, _scaleB);
+
+        // Render with shake on the currently-reeling fighter.
+        double sA = (now < _shakeUntil && _shakeIsA) ? Math.Sin(now * 90) * 4 : 0;
+        double sB = (now < _shakeUntil && !_shakeIsA) ? Math.Sin(now * 90) * 4 : 0;
+        Canvas.SetLeft(fA, _ax + sA); Canvas.SetTop(fA, _ay);
+        Canvas.SetLeft(fB, _bx + sB); Canvas.SetTop(fB, _by);
+
+        bool aStrike = _attackerIsA && _moveKind != "" && !_hitResolved;
+        bool bStrike = !_attackerIsA && _moveKind != "" && !_hitResolved;
+        UpdateFighterPoses("A", !_koA, aStrike && !_koA);
+        UpdateFighterPoses("B", !_koB, bStrike && !_koB);
+
+        // Knocked-out fighters topple to horizontal with spinning stars, then get back up.
+        RenderKO(now, true);
+        RenderKO(now, false);
+
+        // Taunts (varied, random position near either fighter). The bubble stays up for a
+        // readable dwell (~2.6s) — the previous logic hid it one frame after showing.
+        if (now >= _nextTauntTime)
+        {
+            double sx = (_rand.Next(2) == 0 ? _ax : _bx);
+            ShowTaunt(s_taunts[_tauntIndex % s_taunts.Length], sx + 20, fightY - 26);
+            _tauntIndex = _rand.Next(s_taunts.Length);
+            _tauntUntil = now + 2.6;                              // how long it stays readable
+            _nextTauntTime = now + 3.4 + _rand.NextDouble() * 2.0; // next taunt after this one fades
+        }
+        if (now >= _tauntUntil) { SetVisible("ComicBubble", false); SetVisible("ComicText", false); }
+    }
+
+    private void StartMove(double now, double midX, double fightY, double w, double h)
+    {
+        // Occasionally break the brawl for a randomized comedy SKIT instead of a fight move
+        // (keeps the audience guessing — not the same beats every time).
+        if (_comboLeft == 0 && now >= _nextSkitTime && !_koA && !_koB && _rand.NextDouble() < 0.55)
+        {
+            StartSkit(now, midX, fightY, w, h);
+            return;
+        }
+
+        // Combo continues with the same attacker; otherwise pick a fresh attacker + move.
+        if (_comboLeft > 0) { _comboLeft--; }
+        else _attackerIsA = _rand.Next(2) == 0;
+        // Never let a knocked-out fighter act as the attacker.
+        if (_koA && _attackerIsA) _attackerIsA = false;
+        if (_koB && !_attackerIsA) _attackerIsA = true;
+        if (_koA && _koB) { _moveKind = ""; _nextMoveTime = now + 0.4; return; }
+
+        _moveKind = s_moves[_rand.Next(s_moves.Length)];
+        _moveStart = now; _hitResolved = false;
+
+        // Defender reaction (a super / mushroom smash always lands).
+        double r = _rand.NextDouble();
+        _defReaction = (_moveKind is "super" or "mushroom") ? "hit" : (r < 0.18 ? "dodge" : r < 0.33 ? "block" : "hit");
+
+        double atkX = _attackerIsA ? _ax : _bx;
+        double defX = _attackerIsA ? _bx : _ax;
+        int dir = _attackerIsA ? 1 : -1;
+
+        switch (_moveKind)
+        {
+            case "throw":
+                _moveDur = 0.30 + _rand.NextDouble() * 0.22;
+                _projDur = _moveDur; _projArc = 10 + _rand.NextDouble() * 40;
+                _projDouble = _rand.NextDouble() < 0.3;
+                _projStart = new Point(atkX + 15 + dir * 18, fightY + 40);
+                _projEnd = new Point(defX + 15, fightY + 10 + _rand.NextDouble() * 20);
+                _projT = 0; _projActive = true;
+                RandomizeProjectile();
+                break;
+            case "dash":
+                _moveDur = 0.42;
+                if (_attackerIsA) _avx = (defX - atkX) * 0.12; else _bvx = (defX - atkX) * 0.12;
+                break;
+            case "uppercut":
+            case "kick":
+                _moveDur = 0.36;
+                if (_attackerIsA) _avx = dir * 3.0; else _bvx = dir * 3.0;
+                break;
+            case "feint":
+                _moveDur = 0.28;
+                if (_attackerIsA) _avx = dir * 3.5; else _bvx = dir * 3.5;
+                break;
+            case "super":
+                _moveDur = 0.5;
+                break;
+
+            case "leap":   // climb UP onto the progress-bar band and taunt from above
             {
-                var bombToken = CreateToken(_bmpTnt, _rand.Next(40, 90), Brushes.Red, "bomb");
-                Canvas.SetLeft(bombToken, _f2X + _rand.Next(-100, 100));
-                Canvas.SetTop(bombToken, _f2Y + _rand.Next(-100, 100));
-                canvas.Children.Add(bombToken);
-                _projectiles.Add(bombToken);
+                _moveDur = 0.5;
+                double perchY = Math.Max(6, fightY - (95 + _rand.NextDouble() * 55));
+                if (_attackerIsA) { _tgtAy = perchY; _airA = true; _avy = -20; _perchReturnA = now + 1.3 + _rand.NextDouble() * 1.2; }
+                else { _tgtBy = perchY; _airB = true; _bvy = -20; _perchReturnB = now + 1.3 + _rand.NextDouble() * 1.2; }
+                ShowTaunt(_rand.Next(2) == 0 ? "Up here!" : "Can't reach me!", (_attackerIsA ? _ax : _bx) + 20, perchY - 24);
+                _tauntUntil = now + 1.6; _nextTauntTime = now + 2.8;
+                break;
+            }
+            case "hide":   // drop DOWN to duck into the log area
+            {
+                _moveDur = 0.5;
+                double hideY = Math.Min(h - 130, fightY + 120 + _rand.NextDouble() * 70);
+                if (_attackerIsA) { _tgtAy = hideY; _perchReturnA = now + 1.2 + _rand.NextDouble() * 1.0; }
+                else { _tgtBy = hideY; _perchReturnB = now + 1.2 + _rand.NextDouble() * 1.0; }
+                ShowTaunt(_rand.Next(2) == 0 ? "Hiding!" : "Nope!", (_attackerIsA ? _ax : _bx) + 20, hideY - 24);
+                _tauntUntil = now + 1.4; _nextTauntTime = now + 2.8;
+                break;
+            }
+            case "mushroom":   // grab power-up -> grow 2x -> overhead ground-pound smash
+            {
+                _moveDur = 1.7;
+                _mushGrew = _mushLeaped = _mushSlammed = false;
+                var mush = this.FindControl<Canvas>("Mushroom");
+                if (mush != null)
+                {
+                    double mx = (_ax + _bx) / 2.0 + 15;
+                    mush.IsVisible = true;
+                    Canvas.SetLeft(mush, mx - 13);
+                    Canvas.SetTop(mush, fightY + 96);
+                }
+                break;
             }
         }
+    }
 
-        _f1X = Math.Max(0, Math.Min(1200, _f1X));
-        _f1Y = Math.Max(0, Math.Min(600, _f1Y));
-        _f2X = Math.Max(0, Math.Min(1200, _f2X));
-        _f2Y = Math.Max(0, Math.Min(600, _f2Y));
+    private void AdvanceMove(double now, double midX, double fightY, double w, double h)
+    {
+        if (_moveKind == "skit") { AdvanceSkit(now, midX, fightY, w, h); if (now - _skitStart >= _skitDur) EndSkit(now); return; }
 
-        if (_fighter1 != null && _fighter2 != null)
+        double t = Math.Clamp((now - _moveStart) / Math.Max(0.01, _moveDur), 0, 1);
+
+        if (_moveKind == "mushroom") { AdvanceMushroom(now, t, fightY); if (t >= 1.0) EndMove(now); return; }
+
+        if (_projActive)
         {
-            Canvas.SetLeft(_fighter1, _f1X);
-            Canvas.SetTop(_fighter1, _f1Y);
-            Canvas.SetLeft(_fighter2, _f2X);
-            Canvas.SetTop(_fighter2, _f2Y);
+            _projT = t;
+            MoveProjectile("Projectile", _projStart, _projEnd, t, _projArc, 0);
+            if (_projDouble) MoveProjectile("Projectile2", _projStart, _projEnd, Math.Max(0, t - 0.18), _projArc + 12, 10);
         }
 
-        for (int i = _projectiles.Count - 1; i >= 0; i--)
+        // "leap"/"hide" are movement-only (no strike); everything else resolves a hit at its climax.
+        bool strikes = _moveKind is not ("leap" or "hide");
+        if (strikes && !_hitResolved && t >= (_moveKind == "throw" ? 1.0 : 0.5))
         {
-            var p = _projectiles[i];
-            double px = Canvas.GetLeft(p);
-            double py = Canvas.GetTop(p);
-            
-            if (p.Tag as string == "chair") { px += 20; py += Math.Sin(_chaosTicks * 0.5) * 15; }
-            if (p.Tag as string == "bomb") { p.Opacity -= 0.15; }
-            
-            Canvas.SetLeft(p, px);
-            Canvas.SetTop(p, py);
-            
-            if (px > 1300 || p.Opacity <= 0)
+            _hitResolved = true;
+            ResolveHit(now, fightY);
+        }
+
+        if (t >= 1.0) EndMove(now);
+    }
+
+    private void EndMove(double now)
+    {
+        _projActive = false; _projDouble = false;
+        SetVisible("Projectile", false); SetVisible("Projectile2", false);
+        _moveKind = "";
+
+        double prog = Math.Clamp(_lastFightProgress / 100.0, 0, 1);
+        double load = Math.Clamp(_lastGpu / 100.0, 0, 1);
+        double baseGap = 0.75 - 0.4 * prog - 0.2 * load;
+        if (_comboLeft > 0) baseGap = 0.14;
+        else if (_rand.NextDouble() < 0.22) _comboLeft = 1 + _rand.Next(2);
+        _nextMoveTime = now + Math.Max(0.12, baseGap);
+    }
+
+    // Multi-phase power-up: walk to the mushroom, EAT it (grow 2x), LEAP high, then SLAM
+    // straight down onto the opponent with a shockwave + big knockback + screen shake.
+    private void AdvanceMushroom(double now, double t, double fightY)
+    {
+        double defX = _attackerIsA ? _bx : _ax;
+
+        if (t < 0.25)   // approach the mushroom
+        {
+            var mush = this.FindControl<Canvas>("Mushroom");
+            double mx = mush != null ? Canvas.GetLeft(mush) : (_ax + _bx) / 2;
+            if (_attackerIsA) _ax += (mx - _ax) * 0.15; else _bx += (mx - _bx) * 0.15;
+        }
+        else if (!_mushGrew)   // EAT -> grow
+        {
+            _mushGrew = true;
+            SetVisible("Mushroom", false);
+            if (_attackerIsA) { _scaleA = 2.0; _growUntilA = now + 2.6; } else { _scaleB = 2.0; _growUntilB = now + 2.6; }
+            ShowTitle("POWER-UP!", (_ax + _bx) / 2 + 15, fightY - 80, "AppSuccessBrush");
+            _titleUntil = now + 0.9;
+        }
+        else if (!_mushLeaped && t >= 0.42)   // LEAP high
+        {
+            _mushLeaped = true;
+            if (_attackerIsA) { _tgtAy = fightY; _airA = true; _avy = -26; } else { _tgtBy = fightY; _airB = true; _bvy = -26; }
+        }
+        else if (_mushLeaped && !_mushSlammed && t >= 0.62)   // SLAM down onto the defender
+        {
+            _mushSlammed = true;
+            // move horizontally over the defender and drive downward hard
+            if (_attackerIsA) { _ax += (defX - _ax) * 0.5; _avy = 30; } else { _bx += (defX - _bx) * 0.5; _bvy = 30; }
+        }
+        else if (_mushSlammed && !_hitResolved && ((_attackerIsA && !_airA) || (!_attackerIsA && !_airB)))
+        {
+            // Landed the smash — huge impact.
+            _hitResolved = true;
+            var impactPos = new Point(defX + 15, fightY + 10);
+            ShowImpact("SMASH!!", impactPos.X, impactPos.Y - 16);
+            ShowTitle("K.O.!", (_ax + _bx) / 2 + 15, fightY - 80, "AppWarningBrush");
+            _impactUntil = now + 0.6; _titleUntil = now + 0.9;
+            _shakeUntil = now + 0.45; _shakeIsA = !_attackerIsA;
+            // launch the defender away and up
+            int dir = _attackerIsA ? 1 : -1;
+            if (_attackerIsA) { _bvx = 15 * dir; _tgtBy = fightY; _airB = true; _bvy = -16; }
+            else { _avx = 15 * dir; _tgtAy = fightY; _airA = true; _avy = -16; }
+            Shockwave(now, impactPos.X, fightY + 120);
+        }
+    }
+
+    // ===== Skit vignettes (randomized comedy, not always the fight) =====
+    private void StartSkit(double now, double midX, double fightY, double w, double h)
+    {
+        _moveKind = "skit"; _skitStart = now; _skitPhase = 0; _hitResolved = false;
+        _skitKind = _rand.Next(2) == 0 ? "door" : "bulb";
+        _attackerIsA = _rand.Next(2) == 0;   // the prankster
+
+        if (_skitKind == "door")
+        {
+            _skitDur = 3.4;
+            var door = this.FindControl<Canvas>("Door");
+            if (door != null) { door.IsVisible = true; door.RenderTransform = null; Canvas.SetLeft(door, midX - 30); Canvas.SetTop(door, fightY - 20); }
+        }
+        else
+        {
+            _skitDur = 4.0;
+            var ladder = this.FindControl<Canvas>("Ladder");
+            var bulb = this.FindControl<Canvas>("Bulb");
+            if (ladder != null) { ladder.IsVisible = true; Canvas.SetLeft(ladder, midX - 25); Canvas.SetTop(ladder, fightY); }
+            if (bulb != null) { bulb.IsVisible = true; Canvas.SetLeft(bulb, midX - 13); Canvas.SetTop(bulb, fightY - 62); }
+        }
+        RuntimeLog.Info("EasterEgg", $"Skit: {_skitKind}");
+    }
+
+    private void AdvanceSkit(double now, double midX, double fightY, double w, double h)
+    {
+        double t = Math.Clamp((now - _skitStart) / _skitDur, 0, 1);
+        bool prankIsA = _attackerIsA;
+        bool victimIsA = !prankIsA;
+        double propX = midX;
+
+        if (_skitKind == "door")
+        {
+            // Prankster hides behind the door; victim wanders up; door SLAMS open onto them.
+            if (prankIsA) _ax += (propX - 5 - _ax) * 0.2; else _bx += (propX - 5 - _bx) * 0.2;
+            if (t < 0.5)
             {
-                canvas.Children.Remove(p);
-                _projectiles.RemoveAt(i);
+                double vTarget = propX + (prankIsA ? 55 : -55);
+                if (victimIsA) _ax += (vTarget - _ax) * 0.06; else _bx += (vTarget - _bx) * 0.06;
+                if (_skitPhase == 0 && t > 0.18) { _skitPhase = 1; ShowTaunt("Where'd he go?", (victimIsA ? _ax : _bx) + 15, fightY - 26); _tauntUntil = now + 1.3; }
+            }
+            else if (!_hitResolved)
+            {
+                _hitResolved = true;
+                var door = this.FindControl<Canvas>("Door");
+                if (door != null) { door.RenderTransformOrigin = new Avalonia.RelativePoint(0, 0.5, Avalonia.RelativeUnit.Relative); door.RenderTransform = new RotateTransform(prankIsA ? 72 : -72); }
+                int dir = prankIsA ? 1 : -1;
+                if (victimIsA) _avx = 11 * dir; else _bvx = 11 * dir;
+                ShowImpact("WHAM!", (victimIsA ? _ax : _bx) + 15, fightY - 6);
+                _impactUntil = now + 0.5;
+                KnockOut(victimIsA, now, 1.7);
+            }
+            else if (t > 0.6 && _skitPhase < 2)
+            {
+                _skitPhase = 2;
+                ShowTaunt(_rand.Next(2) == 0 ? "Gotcha!" : "Peekaboo!", (prankIsA ? _ax : _bx) + 15, fightY - 26);
+                _tauntUntil = now + 1.5;
             }
         }
+        else // bulb / electrocution
+        {
+            // Prankster climbs to the bulb and calls the victim over; victim gets zapped.
+            if (prankIsA) { _ax += (propX - _ax) * 0.15; _ay += ((fightY - 66) - _ay) * 0.12; }
+            else { _bx += (propX - _bx) * 0.15; _by += ((fightY - 66) - _by) * 0.12; }
+            if (t < 0.5)
+            {
+                if (_skitPhase == 0 && t > 0.2) { _skitPhase = 1; ShowTaunt("Help me fix this bulb!", (prankIsA ? _ax : _bx) + 15, fightY - 104); _tauntUntil = now + 1.8; }
+                double vTarget = propX + (prankIsA ? 48 : -48);
+                if (victimIsA) _ax += (vTarget - _ax) * 0.05; else _bx += (vTarget - _bx) * 0.05;
+            }
+            else if (!_hitResolved)
+            {
+                _hitResolved = true;
+                double vx = victimIsA ? _ax : _bx;
+                var zap = this.FindControl<Avalonia.Controls.Shapes.Path>("ZapBolt");
+                if (zap != null) { zap.IsVisible = true; Canvas.SetLeft(zap, vx + 8); Canvas.SetTop(zap, fightY - 42); }
+                var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+                if (glass != null && Application.Current?.FindResource("AppWarningBrush") is IBrush wb) glass.Fill = wb;
+                ShowImpact("BZZT!", vx + 15, fightY - 22);
+                _impactUntil = now + 0.6;
+                KnockOut(victimIsA, now, 1.7);
+            }
+            else if (t > 0.72) SetVisible("ZapBolt", false);
+        }
+    }
+
+    private void EndSkit(double now)
+    {
+        var door = this.FindControl<Canvas>("Door");
+        if (door != null) door.RenderTransform = null;
+        var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+        if (glass != null && Application.Current?.FindResource("AppPanelBrush") is IBrush pb) glass.Fill = pb;
+        foreach (var n in new[] { "Door", "Ladder", "Bulb", "ZapBolt" }) SetVisible(n, false);
+        _skitKind = ""; _moveKind = "";
+        _nextSkitTime = now + 6 + _rand.NextDouble() * 6;
+        _nextMoveTime = now + 0.5;
+    }
+
+    // Knock a fighter out: they topple from vertical to horizontal with spinning stars overhead.
+    private void KnockOut(bool isA, double now, double holdSec)
+    {
+        if (isA) { _koA = true; _koStartA = now; _koUntilA = now + holdSec; }
+        else { _koB = true; _koStartB = now; _koUntilB = now + holdSec; }
+    }
+
+    // Renders (and auto-recovers) a knocked-out fighter: eased fall to horizontal + orbiting stars.
+    private void RenderKO(double now, bool isA)
+    {
+        bool ko = isA ? _koA : _koB;
+        var f = this.FindControl<Canvas>(isA ? "FighterA" : "FighterB");
+        var stars = this.FindControl<TextBlock>(isA ? "StarsA" : "StarsB");
+        if (f == null) return;
+        if (!ko) return;
+
+        double koStart = isA ? _koStartA : _koStartB;
+        double koUntil = isA ? _koUntilA : _koUntilB;
+        if (now >= koUntil)   // get back up
+        {
+            if (isA) _koA = false; else _koB = false;
+            f.RenderTransform = null;
+            if (stars != null) stars.IsVisible = false;
+            return;
+        }
+
+        double fall = Math.Clamp((now - koStart) / 0.7, 0, 1);   // gradual vertical -> horizontal
+        double ang = 82 * fall * (isA ? -1 : 1);                 // topple away from the prankster
+        f.RenderTransformOrigin = new Avalonia.RelativePoint(15, 120, Avalonia.RelativeUnit.Absolute);
+        f.RenderTransform = new RotateTransform(ang);
+        if (stars != null)
+        {
+            stars.IsVisible = true;
+            double hx = (isA ? _ax : _bx) + 15;
+            double hy = (isA ? _ay : _by) + 30;   // above where the toppled head lies
+            Canvas.SetLeft(stars, hx - 28);
+            Canvas.SetTop(stars, hy - 40);
+            stars.RenderTransformOrigin = new Avalonia.RelativePoint(0.5, 0.5, Avalonia.RelativeUnit.Relative);
+            stars.RenderTransform = new RotateTransform((now * 200) % 360);
+        }
+    }
+
+    private void ApplyScale(Canvas fighter, double scale)
+    {
+        if (scale == 1.0) { if (fighter.RenderTransform is ScaleTransform) fighter.RenderTransform = null; return; }
+        // Anchor scaling at the feet (local x≈15 centre, y≈120 bottom of the stick figure) so it
+        // grows upward instead of drifting — absolute units because the sub-canvas has no fixed bounds.
+        fighter.RenderTransformOrigin = new Avalonia.RelativePoint(15, 120, Avalonia.RelativeUnit.Absolute);
+        fighter.RenderTransform = new ScaleTransform(scale, scale);
+    }
+
+    private void Shockwave(double now, double x, double y)
+    {
+        var ring = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("ShockRing");
+        if (ring == null) return;
+        ring.IsVisible = true;
+        Task.Run(async () =>
+        {
+            for (double s = 10; s < 220; s += 22)
+            {
+                double sz = s; double op = Math.Max(0, 0.7 - s / 300.0);
+                await Task.Delay(20);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    ring.Width = sz; ring.Height = sz * 0.4; ring.Opacity = op;
+                    Canvas.SetLeft(ring, x - sz / 2); Canvas.SetTop(ring, y - sz * 0.2);
+                });
+            }
+            Dispatcher.UIThread.Post(() => { ring.IsVisible = false; ring.Opacity = 0; });
+        });
+    }
+
+    private void ResolveHit(double now, double fightY)
+    {
+        double defX = _attackerIsA ? _bx : _ax;
+        int dir = _attackerIsA ? 1 : -1;
+        var defPos = new Point(defX + 15, fightY + 10);
+
+        if (_defReaction == "dodge")
+        {
+            // Defender hops aside/back — attack whiffs.
+            if (_attackerIsA) _bvy = -14; else _avy = -14;
+            if (_attackerIsA) _bvx = 3.0; else _avx = -3.0;
+            ShowImpact(_rand.Next(2) == 0 ? "MISS!" : "WHIFF!", defPos.X, defPos.Y - 10);
+            _impactUntil = now + 0.3;
+            return;
+        }
+        if (_defReaction == "block")
+        {
+            ShowImpact("BLOCK!", defPos.X, defPos.Y - 10);
+            _impactUntil = now + 0.3;
+            if (_attackerIsA) _bvx = 1.5; else _avx = -1.5;   // tiny shove
+            return;
+        }
+
+        // Clean hit — effect depends on the move.
+        _shakeUntil = now + 0.24; _shakeIsA = !_attackerIsA;
+        ShowImpact(s_impacts[_rand.Next(s_impacts.Length)], defPos.X, defPos.Y - 12);
+        _impactUntil = now + 0.34;
+
+        switch (_moveKind)
+        {
+            case "uppercut":
+                if (_attackerIsA) _bvy = -22; else _avy = -22;         // launch up
+                break;
+            case "kick":
+                if (_attackerIsA) _bvx = 9 * dir; else _avx = 9 * dir; // big horizontal knockback
+                break;
+            case "dash":
+                if (_attackerIsA) { _bvx = 7 * dir; _avx = -4 * dir; } else { _avx = 7 * dir; _bvx = -4 * dir; }
+                break;
+            case "super":
+                DoSuper(now, dir, fightY);
+                break;
+            default: // throw
+                if (_attackerIsA) _bvx = 4 * dir; else _avx = 4 * dir;
+                break;
+        }
+    }
+
+    private void DoSuper(double now, int dir, double fightY)
+    {
+        var flash = this.FindControl<Avalonia.Controls.Shapes.Rectangle>("SuperFlash");
+        if (flash != null) { flash.IsVisible = true; flash.Opacity = 0.5; _superUntil = now + 0.35;
+            Task.Run(async () => { for (double o = 0.5; o > 0; o -= 0.06) { await Task.Delay(24); double oo = o; Dispatcher.UIThread.Post(() => flash.Opacity = oo); } }); }
+        ShowTitle("SUPER!", (_ax + _bx) / 2 + 15, fightY - 70, "AppWarningBrush");
+        _titleUntil = now + 1.0;
+        _shakeUntil = now + 0.4;
+        if (_attackerIsA) { _bvx = 13 * dir; _bvy = -12; } else { _avx = 13 * dir; _avy = -12; }
+    }
+
+    private void RandomizeProjectile()
+    {
+        var proj = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("Projectile");
+        if (proj == null) return;
+        double sz = 12 + _rand.NextDouble() * 12;
+        proj.Width = sz; proj.Height = sz;
+        if (Application.Current?.FindResource(s_projBrush[_rand.Next(s_projBrush.Length)]) is IBrush b) proj.Fill = b;
+    }
+
+    private void MoveProjectile(string name, Point s, Point e, double t, double arc, double yOff)
+    {
+        var proj = this.FindControl<Avalonia.Controls.Shapes.Ellipse>(name);
+        if (proj == null) return;
+        if (t <= 0 || t >= 1) { proj.IsVisible = false; return; }
+        double x = s.X + (e.X - s.X) * t;
+        double y = s.Y + (e.Y - s.Y) * t - Math.Sin(t * Math.PI) * arc + yOff;
+        proj.IsVisible = true;
+        Canvas.SetLeft(proj, x - proj.Width / 2);
+        Canvas.SetTop(proj, y - proj.Height / 2);
+    }
+
+    private void RenderFinisher(double now, Canvas fA, Canvas fB, double baseAx, double baseBx, double fightY, double midX)
+    {
+        var loser = _loserIsA ? fA : fB;
+        // knock the loser down and to the side
+        double kx = (_loserIsA ? baseAx : baseBx) + (_loserIsA ? -40 : 40);
+        Canvas.SetLeft(loser, kx);
+        Canvas.SetTop(loser, fightY + 40);
+        loser.RenderTransform = new Avalonia.Media.RotateTransform(_loserIsA ? -70 : 70);
+        if (!_finisherDone)
+        {
+            _finisherDone = true;
+            _titleUntil = now + 3.0;
+            ShowTitle("VICTORY!", midX, fightY - 70, "AppSuccessBrush");
+            double wx = (_loserIsA ? baseBx : baseAx);
+            ShowImpact("GG", wx + 15, fightY - 30);
+            _impactUntil = now + 3.0;
+        }
+    }
+
+    private void UpdateFighterPoses(string prefix, bool animate, bool striking)
+    {
+        var head = this.FindControl<Avalonia.Controls.Shapes.Ellipse>($"{prefix}_Head");
+        var body = this.FindControl<Avalonia.Controls.Shapes.Line>($"{prefix}_Body");
+        var larm = this.FindControl<Avalonia.Controls.Shapes.Line>($"{prefix}_LArm");
+        var rarm = this.FindControl<Avalonia.Controls.Shapes.Line>($"{prefix}_RArm");
+        var lleg = this.FindControl<Avalonia.Controls.Shapes.Line>($"{prefix}_LLeg");
+        var rleg = this.FindControl<Avalonia.Controls.Shapes.Line>($"{prefix}_RLeg");
+        if (head == null || body == null || larm == null || rarm == null || lleg == null || rleg == null) return;
+
+        Canvas.SetLeft(head, 0); Canvas.SetTop(head, 0);
+        body.StartPoint = new Point(15, 30);
+        body.EndPoint = new Point(15, 80);
+
+        if (striking)
+        {
+            // Punching pose — lead arm thrust straight forward.
+            int dir = prefix == "A" ? 1 : -1;
+            larm.StartPoint = new Point(15, 42); larm.EndPoint = new Point(15 + dir * 42, 40);
+            rarm.StartPoint = new Point(15, 42); rarm.EndPoint = new Point(15 - dir * 14, 56);
+            lleg.StartPoint = new Point(15, 80); lleg.EndPoint = new Point(15 + dir * 22, 120);
+            rleg.StartPoint = new Point(15, 80); rleg.EndPoint = new Point(15 - dir * 8, 120);
+        }
+        else if (animate)
+        {
+            larm.StartPoint = new Point(15, 40); larm.EndPoint = new Point(15 + Math.Sin(_animTime * 2) * 26, 40 + Math.Cos(_animTime * 2) * 22);
+            rarm.StartPoint = new Point(15, 40); rarm.EndPoint = new Point(15 - Math.Sin(_animTime * 2) * 26, 40 - Math.Cos(_animTime * 2) * 22);
+            lleg.StartPoint = new Point(15, 80); lleg.EndPoint = new Point(15 + Math.Sin(_animTime * 2) * 16, 120);
+            rleg.StartPoint = new Point(15, 80); rleg.EndPoint = new Point(15 - Math.Sin(_animTime * 2) * 16, 120);
+        }
+        else
+        {
+            larm.StartPoint = new Point(15, 40); larm.EndPoint = new Point(-10, 60);
+            rarm.StartPoint = new Point(15, 40); rarm.EndPoint = new Point(40, 60);
+            lleg.StartPoint = new Point(15, 80); lleg.EndPoint = new Point(0, 120);
+            rleg.StartPoint = new Point(15, 80); rleg.EndPoint = new Point(30, 120);
+        }
+    }
+
+    private void SetVisible(string name, bool visible)
+    {
+        var c = this.FindControl<Control>(name);
+        if (c != null) c.IsVisible = visible;
+    }
+
+    private void ShowImpact(string text, double x, double y)
+    {
+        var t = this.FindControl<TextBlock>("ImpactBurst");
+        if (t == null) return;
+        t.Text = text;
+        t.IsVisible = true;
+        Canvas.SetLeft(t, x - 20);
+        Canvas.SetTop(t, y - 30);
+    }
+
+    private void ShowTitle(string text, double midX, double y, string brushKey)
+    {
+        var t = this.FindControl<TextBlock>("TitleFlash");
+        if (t == null) return;
+        t.Text = text;
+        if (Application.Current?.FindResource(brushKey) is IBrush b) t.Foreground = b;
+        t.IsVisible = true;
+        Canvas.SetLeft(t, midX - text.Length * 18);
+        Canvas.SetTop(t, y);
+    }
+
+    private void ShowTaunt(string text, double x, double y)
+    {
+        var bubble = this.FindControl<Avalonia.Controls.Shapes.Path>("ComicBubble");
+        var t = this.FindControl<TextBlock>("ComicText");
+        if (bubble != null)
+        {
+            bubble.IsVisible = true;
+            bubble.Data = Avalonia.Media.Geometry.Parse("M 0,0 L -14,20 L 10,16 L 130,16 L 130,-34 L 10,-34 Z");
+            Canvas.SetLeft(bubble, x);
+            Canvas.SetTop(bubble, y);
+        }
+        if (t != null)
+        {
+            t.Text = text;
+            t.IsVisible = true;
+            Canvas.SetLeft(t, x + 12);
+            Canvas.SetTop(t, y - 30);
+        }
+    }
+
+    private void PuffDust(string name, double x, double y)
+    {
+        var d = this.FindControl<Avalonia.Controls.Shapes.Ellipse>(name);
+        if (d == null) return;
+        d.IsVisible = true;
+        d.Opacity = 0.55;
+        Canvas.SetLeft(d, x - 30);
+        Canvas.SetTop(d, y - 9);
+        // fade the puff out
+        Task.Run(async () =>
+        {
+            for (double op = 0.55; op > 0; op -= 0.06)
+            {
+                await Task.Delay(28);
+                double o = op;
+                Dispatcher.UIThread.Post(() => { d.Opacity = o; });
+            }
+            Dispatcher.UIThread.Post(() => { d.IsVisible = false; });
+        });
+    }
+
+    public void HandleTerminalState(string state)
+    {
+        if (!_easterEggActive) return;
+        _easterEggActive = false;
+
+        switch (state)
+        {
+            case "SUCCESS":
+                // Winner = whoever threw the last punch; loser collapses.
+                _loserIsA = !_attackerIsA;
+                PlaySequence("End");
+                break;
+            case "CANCEL":
+                _vectorState = "Cancel";
+                Dispatcher.UIThread.Post(() => ShowTaunt("?!", 0, 0));
+                break;
+            case "ERROR":
+                _vectorState = "Error";
+                Dispatcher.UIThread.Post(() => { ShowTitle("K.O.", 0, 0, "AppDangerBrush"); });
+                break;
+        }
+
+        var window = GetParentWindow();
+        if (window != null)
+        {
+            window.CanResize = true;
+            window.PropertyChanged -= OnWindowPropertyChanged;
+        }
+    }
+
+    private void ProcessEasterEggState(int percent)
+    {
+        if (!_easterEggActive) return;
+        _lastFightProgress = percent;   // feeds fight tempo (IDEA_F) continuously
+        if (percent == _lastPercent) return;
+        _lastPercent = percent;
+
+        if (percent <= 0)
+        {
+            PlaySequence("Entrance");
+        }
+        else if (percent >= 100)
+        {
+            HandleTerminalState("SUCCESS");
+        }
+        // 1..99: no state change — the melee runs continuously and self-schedules.
     }
 
     private void OnTick(object? sender, EventArgs e)

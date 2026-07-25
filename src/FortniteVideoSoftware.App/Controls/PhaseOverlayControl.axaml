@@ -5,9 +5,84 @@
              Background="{DynamicResource AppOverlayBrush}"
              IsVisible="False"
              ZIndex="999">
-    <Grid>
-        <!-- Dynamic Chaos Canvas: Semi-transparent overlay for AI physics -->
-        <Canvas x:Name="FightCanvas" IsHitTestVisible="False" ZIndex="9999" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0.6"/>
+    <Grid PointerPressed="OnOverlayPointerPressed">
+        <!-- Procedural Stick-Fighter Canvas (silent — no audio).
+             IDEA_A: Fighter A = accent (blue), Fighter B = danger (red), thicker strokes,
+             higher opacity + code-applied glow so they read clearly on the dark overlay. -->
+        <Canvas x:Name="FightCanvas" IsHitTestVisible="False" ZIndex="999" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0.9">
+
+            <!-- Dust puffs on entrance landing -->
+            <Ellipse x:Name="DustA" Width="60" Height="18" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="DustB" Width="60" Height="18" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- Power-up: a mushroom a fighter can grab to grow 2x and ground-pound -->
+            <Canvas x:Name="Mushroom" Width="26" Height="24" IsVisible="False" IsHitTestVisible="False">
+                <Path Fill="{DynamicResource AppDangerBrush}" Data="M 0,12 A 13,12 0 0,1 26,12 Z"/>
+                <Ellipse Fill="{DynamicResource AppOnAccentTextBrush}" Width="6" Height="6" Canvas.Left="6" Canvas.Top="4"/>
+                <Ellipse Fill="{DynamicResource AppOnAccentTextBrush}" Width="5" Height="5" Canvas.Left="15" Canvas.Top="5"/>
+                <Rectangle Fill="{DynamicResource AppWarningBrush}" Width="10" Height="12" Canvas.Left="8" Canvas.Top="12"/>
+            </Canvas>
+
+            <!-- Expanding shockwave ring for the ground-pound smash -->
+            <Ellipse x:Name="ShockRing" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="4" Fill="Transparent" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- ===== Skit props (randomized comedy vignettes) ===== -->
+            <!-- Door: a fighter hides behind it, then slams it open onto the other -->
+            <Canvas x:Name="Door" Width="60" Height="150" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="60" Height="150" Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="3"/>
+                <Rectangle Width="40" Height="60" Canvas.Left="10" Canvas.Top="12" Fill="Transparent" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2"/>
+                <Ellipse Width="7" Height="7" Canvas.Left="48" Canvas.Top="78" Fill="{DynamicResource AppWarningBrush}"/>
+            </Canvas>
+
+            <!-- Ladder + light bulb: one climbs to fix the bulb, the other gets zapped -->
+            <Canvas x:Name="Ladder" Width="50" Height="130" IsVisible="False" IsHitTestVisible="False">
+                <Path Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="4" Data="M 8,130 L 20,0 M 44,130 L 32,0 M 11,100 L 41,100 M 14,70 L 38,70 M 17,40 L 35,40"/>
+            </Canvas>
+            <Canvas x:Name="Bulb" Width="26" Height="34" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="10" Height="8" Canvas.Left="8" Fill="{DynamicResource AppTextMutedBrush}"/>
+                <Ellipse x:Name="BulbGlass" Width="24" Height="24" Canvas.Left="1" Canvas.Top="8" Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="2"/>
+            </Canvas>
+            <Path x:Name="ZapBolt" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="4" Fill="Transparent" IsVisible="False" IsHitTestVisible="False" Data="M 0,0 L 10,14 L 2,16 L 14,34"/>
+
+            <!-- Spinning "seeing stars" above a knocked-out fighter's head -->
+            <TextBlock x:Name="StarsA" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
+            <TextBlock x:Name="StarsB" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
+
+            <Canvas x:Name="FighterA" IsHitTestVisible="False">
+                <Ellipse x:Name="A_Head" Width="30" Height="30" Fill="{DynamicResource AppAccentBrush}" />
+                <Line x:Name="A_Body" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_LArm" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_RArm" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_LLeg" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_RLeg" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+            </Canvas>
+
+            <Canvas x:Name="FighterB" IsHitTestVisible="False">
+                <Ellipse x:Name="B_Head" Width="30" Height="30" Fill="{DynamicResource AppDangerBrush}" />
+                <Line x:Name="B_Body" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_LArm" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_RArm" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_LLeg" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_RLeg" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+            </Canvas>
+
+            <!-- Full-canvas flash for rare "super" moves -->
+            <Rectangle x:Name="SuperFlash" Fill="{DynamicResource AppOnAccentTextBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+            <!-- Thrown projectiles arcing between fighters (two, for spread/double throws) -->
+            <Ellipse x:Name="Projectile" Width="16" Height="16" Fill="{DynamicResource AppWarningBrush}" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="Projectile2" Width="14" Height="14" Fill="{DynamicResource AppInfoBrush}" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- IDEA_B: comic impact burst ("POW/BAM/WHAM") flashed on hit -->
+            <TextBlock x:Name="ImpactBurst" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Black" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- IDEA_C: rotating taunt bubble during the fight -->
+            <Path x:Name="ComicBubble" Fill="{DynamicResource AppSurfaceBrush}" Stroke="{DynamicResource AppTextPrimaryBrush}" StrokeThickness="3" IsVisible="False" />
+            <TextBlock x:Name="ComicText" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" IsVisible="False" />
+
+            <!-- IDEA_D/E: dramatic "FIGHT!" entrance flash + "VICTORY" finisher -->
+            <TextBlock x:Name="TitleFlash" Foreground="{DynamicResource AppOnAccentTextBrush}" FontSize="{DynamicResource AppFontSize60}" FontWeight="Black" IsVisible="False" IsHitTestVisible="False"/>
+        </Canvas>
         
         <Grid Margin="40">
         <Grid.RowDefinitions>

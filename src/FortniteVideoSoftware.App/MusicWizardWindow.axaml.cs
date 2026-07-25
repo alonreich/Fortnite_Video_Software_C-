@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -98,6 +98,14 @@ public partial class MusicWizardWindow : Window
     public ObservableCollection<MusicQueueItem> AutoFillQueueItems { get; } = new();
 
     public MusicWizardResult? Result { get; private set; }
+    
+    public static readonly Avalonia.StyledProperty<string> MusicSearchTextProperty =
+        Avalonia.AvaloniaProperty.Register<MusicWizardWindow, string>(nameof(MusicSearchText), string.Empty);
+    public string MusicSearchText
+    {
+        get => GetValue(MusicSearchTextProperty);
+        set => SetValue(MusicSearchTextProperty, value);
+    }
 
 
     private int _currentStep = 1;
@@ -2974,9 +2982,9 @@ public partial class MusicWizardWindow : Window
 
             playBtn.Classes.Add("Danger");
 
-            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
 
-            var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+            var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
 
             if (playIcon != null) playIcon.IsVisible = false;
 
@@ -3099,9 +3107,9 @@ public partial class MusicWizardWindow : Window
 
             playBtn.Classes.Add("Success");
 
-            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
+            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
 
-            var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+            var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
 
             if (playIcon != null) playIcon.IsVisible = true;
 
@@ -4007,9 +4015,8 @@ public partial class MusicWizardWindow : Window
 
             {
 
-                Background = Avalonia.Media.Brush.Parse("#1e293b"),
-
-                BorderBrush = Avalonia.Media.Brush.Parse("#3b82f6"),
+                Background = (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!,
+                BorderBrush = (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")!,
 
                 BorderThickness = new Avalonia.Thickness(1),
 

@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -18,6 +18,27 @@ public class ProcessWorker : IDisposable
     public event Action<int>? ProgressUpdate;
     public event Action<int, string, int>? PhaseUpdate;
     public event Action<bool, string>? Finished;
+
+    // Progress model (FIX_1..FIX_5): audio analysis is fast so it owns only a small band;
+    // encoding (the real CPU/GPU work) owns the bulk; the last few percent are reserved for
+    // the thumbnail + file-copy tail so "100%" only appears when the file is truly ready.
+    private const double AnalysisBandMax = 8.0;   // loudnorm 0..8%
+    private const double EncodeBandMax = 96.0;    // encode fills up to 96%; 96..100 = tail
+    private int _lastEmittedPct = -1;
+
+    /// <summary>
+    /// Single monotonic progress emitter. The bar can NEVER move backwards (kills the
+    /// phase-seam reset-to-zero and the size-retry snap-back), so every consumer sees a
+    /// steady forward sweep. Reset per job by construction (a fresh worker per export).
+    /// </summary>
+    private void EmitProgress(int phase, string title, int pct)
+    {
+        pct = Math.Clamp(pct, 0, 100);
+        if (pct < _lastEmittedPct) pct = _lastEmittedPct;   // forward-only
+        _lastEmittedPct = pct;
+        ProgressUpdate?.Invoke(pct);
+        PhaseUpdate?.Invoke(phase, title, pct);
+    }
 
     public string InputPath { get; set; } = "";
     public double StartTimeMs { get; set; }
@@ -288,13 +309,58 @@ public class ProcessWorker : IDisposable
 
                 double renderDurationSec = gDur + introDurationSec;
 
-                if (VolumeNormalizeDb == 0.0 && sourceHasAudio)
+                bool willAnalyzeAudio = VolumeNormalizeDb == 0.0 && sourceHasAudio;
+                // FIX_2: if analysis runs it owns 0..AnalysisBandMax; otherwise encoding starts at 0
+                // so the bar never opens with a dead jump to 8%.
+                double encodeFloor = willAnalyzeAudio ? AnalysisBandMax : 0.0;
+
+                // FIX_6: cost map — weight each stretch of OUTPUT time by how expensive it is to
+                // encode, so the bar advances by WORK done, not just by output timestamp. Zoom
+                // (esp. slow ramp) and freeze frames encode at very different speeds than plain
+                // passthrough; without this the bar stalls on heavy chunks and races on light ones.
+                double outIntro = introDurationSec;
+                double bodyStart = outIntro, bodyEnd = outIntro + gDur;
+                var costSpans = new List<(double s, double e, double w)>();
+                if (outIntro > 0.001) costSpans.Add((0, outIntro, 0.3));           // cloned still: cheap
+                costSpans.Add((bodyStart, bodyEnd, 1.0));                          // main-body base
+                if (SpeedSegments != null && granularTimeMapper != null)
                 {
-                    PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", 0);
+                    foreach (var seg in SpeedSegments)
+                    {
+                        double os, oe;
+                        try { os = bodyStart + granularTimeMapper(seg.StartMs / 1000.0); oe = bodyStart + granularTimeMapper(seg.EndMs / 1000.0); }
+                        catch { continue; }
+                        os = Math.Max(bodyStart, os); oe = Math.Min(bodyEnd, oe);
+                        if (oe <= os + 1e-3) continue;
+                        bool freeze = seg.Speed < 0.01;
+                        bool zoom = seg.ZoomW.HasValue && seg.ZoomH.HasValue;
+                        double extra = zoom ? (seg.ZoomSlow ? 2.0 : 1.0) : (freeze ? -0.6 : 0.0); // additive delta over base 1.0
+                        if (Math.Abs(extra) > 1e-6) costSpans.Add((os, oe, extra));
+                    }
+                }
+                if (memeDuration > 0.001) costSpans.Add((bodyEnd, bodyEnd + memeDuration, 1.0));
+                double totalCostW = costSpans.Sum(sp => sp.w * (sp.e - sp.s));
+                double EncodeFraction(double outSec)
+                {
+                    if (totalCostW <= 1e-6) return Math.Clamp(outSec / Math.Max(1e-6, bodyEnd + memeDuration), 0, 1);
+                    double acc = 0;
+                    foreach (var sp in costSpans)
+                    {
+                        double hi = Math.Min(sp.e, outSec);
+                        if (hi > sp.s) acc += sp.w * (hi - sp.s);
+                    }
+                    return Math.Clamp(acc / totalCostW, 0, 1);
+                }
+
+                if (willAnalyzeAudio)
+                {
+                    EmitProgress(1, "Analyzing Audio (Two-Pass Normalization)", 0);
                     await PerformLoudnormPassAsync(actualExtractStartMs, actualExtractEndMs, cancellationToken);
                 }
 
-                PhaseUpdate?.Invoke(2, "Encoding Video Pipeline", 0);
+                // FIX_3: hand off to the encode phase at the analysis-band ceiling, NOT 0
+                // (the old PhaseUpdate(...,0) made the bar visibly drop 8 -> 0 -> back up).
+                EmitProgress(2, "Encoding Video Pipeline", (int)Math.Round(encodeFloor));
 
                 List<string> audioChains = new();
                 string finalALabel = sourceHasAudio ? "[0:a]" : "";
@@ -578,11 +644,27 @@ public class ProcessWorker : IDisposable
 
                         var ffmpegArgs = new List<string>
                         {
-                            "-y", "-hide_banner", "-progress", "pipe:1",
+                            "-y", "-hide_banner", "-progress", "pipe:1"
+                        };
+
+                        if (currentEncoder == "h264_nvenc")
+                        {
+                            ffmpegArgs.AddRange(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]);
+                        }
+                        else if (currentEncoder == "h264_amf")
+                        {
+                            ffmpegArgs.AddRange(["-hwaccel", "d3d11va", "-hwaccel_output_format", "d3d11va"]);
+                        }
+                        else if (currentEncoder == "h264_qsv")
+                        {
+                            ffmpegArgs.AddRange(["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"]);
+                        }
+
+                        ffmpegArgs.AddRange([
                             "-ss", (actualExtractStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-t", ((actualExtractEndMs - actualExtractStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-i", InputPath,
-                        };
+                        ]);
 
                         foreach (var track in musicTracks)
                             ffmpegArgs.AddRange(["-i", track.Path]);
@@ -658,10 +740,10 @@ public class ProcessWorker : IDisposable
                                         double currentSec = outTimeUs / 1_000_000.0;
                                         if (totalOutputDurationSec > 0)
                                         {
-                                            int percent = (int)Math.Clamp(currentSec / totalOutputDurationSec * 100, 0, 100);
-                                            int scaledPercent = 50 + (percent / 2);
-                                            ProgressUpdate?.Invoke(scaledPercent);
-                                            PhaseUpdate?.Invoke(2, "Encoding Video", scaledPercent);
+                                            // FIX_2/FIX_6: map cost-weighted output progress into the encode band.
+                                            double frac = EncodeFraction(currentSec);
+                                            int scaledPercent = (int)Math.Round(encodeFloor + frac * (EncodeBandMax - encodeFloor));
+                                            EmitProgress(2, "Encoding Video", scaledPercent);
                                         }
                                     }
                                 }
@@ -765,6 +847,9 @@ public class ProcessWorker : IDisposable
                     CoreLogger.Fail("FFmpeg", $"Export size target not met after retries. Target={targetMb.Value:F2} MB, actual={actualMb:F2} MB. Delivering closest render.");
                 }
 
+                // FIX_5: the encoder tops out at EncodeBandMax (96%); the copy + thumbnail tail
+                // fills the last few percent so 100% only shows when the file is truly ready.
+                EmitProgress(2, "Finalizing", 97);
                 string outputDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 outputDir = Path.Combine(outputDir, "Downloads");
                 string finalOutput = ResolveOutputPath(outputDir);
@@ -773,6 +858,7 @@ public class ProcessWorker : IDisposable
 
                 if (ThumbnailPosMs > 0)
                 {
+                    EmitProgress(2, "Generating Thumbnail", 98);
                     string thumbnailOutput = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
                     double extractTargetSec = granularTimeMapper != null
                         ? Math.Max(0.0, granularTimeMapper(ThumbnailPosMs / 1000.0))
@@ -794,7 +880,7 @@ public class ProcessWorker : IDisposable
                 }
                 pipelineStopwatch.Stop();
                 CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {Path.GetFileName(finalOutput)}");
-                ProgressUpdate?.Invoke(100);
+                EmitProgress(2, "Complete", 100);
                 EmitFinished(true, finalOutput);
             }
             finally
@@ -894,9 +980,9 @@ public class ProcessWorker : IDisposable
                     {
                         double currentSec = ts.TotalSeconds;
                         int percent = totalDurationSec > 0 ? (int)Math.Clamp(currentSec / totalDurationSec * 100, 0, 100) : 0;
-                        int scaledPercent = percent / 2;
-                        ProgressUpdate?.Invoke(scaledPercent);
-                        PhaseUpdate?.Invoke(1, "Analyzing Audio (Two-Pass Normalization)", scaledPercent);
+                        // FIX_2: analysis maps into the small 0..AnalysisBandMax band (was 0..50).
+                        int scaledPercent = (int)Math.Round(percent / 100.0 * AnalysisBandMax);
+                        EmitProgress(1, "Analyzing Audio (Two-Pass Normalization)", scaledPercent);
                     }
                 }
             }

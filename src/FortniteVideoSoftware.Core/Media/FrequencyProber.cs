@@ -52,11 +52,15 @@ public static class FrequencyProber
             proc.StartInfo.CreateNoWindow = true;
             proc.StartInfo.UseShellExecute = false;
             proc.StartInfo.RedirectStandardError = true;
+            
+            CoreLogger.Debug("FrequencyProber", $"Command: {proc.StartInfo.FileName} {proc.StartInfo.Arguments}");
             proc.Start();
             using var killRegistration = cancellationToken.Register(() =>
             {
                 try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
             });
+
+            var errorTask = proc.StandardError.ReadToEndAsync(cancellationToken);
 
             int timeoutMs = Math.Max(12_000, (maxSecondsToProbe + 5) * 1500);
             if (!proc.WaitForExit(timeoutMs))
@@ -66,7 +70,7 @@ public static class FrequencyProber
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            string stderr = proc.StandardError.ReadToEnd();
+            string stderr = errorTask.IsCompleted ? errorTask.Result : proc.StandardError.ReadToEnd();
             if (proc.ExitCode != 0)
             {
                 CoreLogger.Fail("FrequencyProber", $"FFmpeg audio extraction failed with code {proc.ExitCode}. {stderr}");

@@ -1,4 +1,4 @@
-﻿
+
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -310,6 +310,18 @@ public static class CoordinateMath
         return (ScaleRound(x), ScaleRound(y), Math.Max(1, FracCeil(w)), Math.Max(1, FracCeil(h)));
     }
 
+    public static (int width, int height) QuantizeBackendSize(int contentW, int contentH, double scale)
+    {
+        Frac scaleFrac = Frac.FromDouble(scale);
+        Frac backendScale = CoordinateConstants.BackendScale;
+        int rw = Math.Max(2, EvenUp(FracCeil(new Frac(contentW, 1) * scaleFrac * backendScale)));
+        int rh = Math.Max(2, EvenUp(FracCeil(new Frac(contentH, 1) * scaleFrac * backendScale)));
+
+        int width = ScaleRound(new Frac(rw, 1) / backendScale);
+        int height = ScaleRound(new Frac(rh, 1) / backendScale);
+
+        return (width, height);
+    }
 
     private static Frac Max(Frac a, Frac b) => a > b ? a : b;
     private static Frac Min(Frac a, Frac b) => a < b ? a : b;

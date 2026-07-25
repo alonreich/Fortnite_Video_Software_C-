@@ -242,8 +242,16 @@ static async Task<int> RunUiAsync(string[] args)
 
     RuntimeLog.Info("RUN UI", "Running bootstrapper before UI.");
     await BootstrapAsync(showDialog: false);
+
+    // Make the app appear in Explorer's right-click "Open with" for video files (HKCU, no admin).
+    // Opening a file that way relaunches with the path as argv[1] -> loaded like a normal upload.
+    if (OperatingSystem.IsWindows())
+        ShellFileAssociation.EnsureRegistered();
     
     RuntimeLog.Info("RUN UI", "Starting Avalonia App.");
+    // UNCONDITIONAL build fingerprint — printed on EVERY launch so any run of this binary is
+    // instantly identifiable in the log (no more mistaking a stale/leftover log for a fresh run).
+    RuntimeLog.Info("BUILDTAG", "FVS-SWPREVIEW-BUILDCHECK-2026A :: CPU software-preview + frame-gate build ACTIVE");
 
     var builder = Avalonia.AppBuilder.Configure<FortniteVideoSoftware.App.AvaloniaApp>()
         .UsePlatformDetect()

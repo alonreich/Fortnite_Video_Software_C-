@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -11,6 +11,13 @@ namespace FortniteVideoSoftware.App.Controls
 {
     public class SpinningWheelSlider : Control
     {
+        public static readonly DirectProperty<SpinningWheelSlider, int> ValueProperty =
+            AvaloniaProperty.RegisterDirect<SpinningWheelSlider, int>(
+                nameof(Value),
+                o => o.Value,
+                (o, v) => o.Value = v,
+                defaultBindingMode: Avalonia.Data.BindingMode.TwoWay);
+
         private int _value = 0;
         private (int min, int max) _range = (0, 20);
         private List<string> _labels = new List<string>();
@@ -72,7 +79,19 @@ namespace FortniteVideoSoftware.App.Controls
         public int Value 
         {
             get => _value;
-            set => SetValue(value);
+            set
+            {
+                int clamped = Math.Max(_range.min, Math.Min(_range.max, value));
+                if (_value != clamped)
+                {
+                    SetAndRaise(ValueProperty, ref _value, clamped);
+                    if (Math.Abs(_rotation - clamped) > 0.01)
+                    {
+                        Rotation = clamped;
+                    }
+                    ValueChanged?.Invoke(this, clamped);
+                }
+            }
         }
         
         public double Rotation
@@ -121,13 +140,7 @@ namespace FortniteVideoSoftware.App.Controls
         
         private void SetValue(int val, bool animated = true)
         {
-            val = Math.Max(_range.min, Math.Min(_range.max, val));
-            if (val != _value || Math.Abs(_rotation - val) > 0.01)
-            {
-                _value = val;
-                Rotation = val;
-                ValueChanged?.Invoke(this, val);
-            }
+            Value = val;
         }
         
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -233,6 +246,7 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnPointerExited(e);
         }
         
+        private static readonly System.Collections.Generic.Dictionary<(string, Color), (FormattedText normal, FormattedText shadow)> _textCache = new();
         private static readonly Typeface _labelTypeface = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
         private static readonly LinearGradientBrush _rimGrad = new LinearGradientBrush
         {
@@ -353,17 +367,28 @@ namespace FortniteVideoSoftware.App.Controls
                     byte alpha = (byte)(255 * Math.Pow(opacity, 5.0));
                     
                     var typeface = _labelTypeface;
-                    var brush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
-                    var shadowBrush = new SolidColorBrush(Color.FromArgb((byte)(alpha * 0.8), 0, 0, 0));
+                    var key = (txt, baseColor);
+                    if (!_textCache.TryGetValue(key, out var texts))
+                    {
+                        var brush = new SolidColorBrush(baseColor);
+                        var shadowBrush = new SolidColorBrush(Color.Parse("#000000"));
+                        texts.normal = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9, brush);
+                        texts.shadow = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9, shadowBrush);
+                        _textCache[key] = texts;
+                    }
                     
-                    var formattedText = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9 * scale, brush);
-                    var shadowText = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9 * scale, shadowBrush);
+                    double tw = texts.normal.Width * scale;
+                    double th = texts.normal.Height * scale;
                     
-                    double tw = formattedText.Width;
-                    double th = formattedText.Height;
-                    
-                    context.DrawText(shadowText, new Point(xPos - tw / 2 + 2, cy - th / 2 + yBulge + 2));
-                    context.DrawText(formattedText, new Point(xPos - tw / 2, cy - th / 2 + yBulge));
+                    using (context.PushOpacity(alpha / 255.0))
+                    {
+                        var mat = Avalonia.Matrix.CreateScale(scale, scale);
+                        using (context.PushTransform(mat * Avalonia.Matrix.CreateTranslation(xPos - tw / 2 + 2, cy - th / 2 + yBulge + 2)))
+                            context.DrawText(texts.shadow, new Point(0, 0));
+
+                        using (context.PushTransform(mat * Avalonia.Matrix.CreateTranslation(xPos - tw / 2, cy - th / 2 + yBulge)))
+                            context.DrawText(texts.normal, new Point(0, 0));
+                    }
                 }
             }
             

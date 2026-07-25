@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -24,7 +24,7 @@ internal static class CrashLogDigest
     /// <summary>Fire-and-forget: runs off the UI/startup thread so it never delays launch.</summary>
     public static Task RunAsync() => Task.Run(Run);
 
-    private static void Run()
+    private static async Task Run()
     {
         try
         {
@@ -59,8 +59,16 @@ internal static class CrashLogDigest
             using var proc = Process.Start(psi);
             if (proc == null) return;
 
-            string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(15000);
+            var readOutput = proc.StandardOutput.ReadToEndAsync();
+            var readError = proc.StandardError.ReadToEndAsync();
+
+            if (!proc.WaitForExit(15000))
+            {
+                try { proc.Kill(); } catch { }
+            }
+
+            string output = await readOutput;
+            _ = await readError;
 
             int ingested = 0;
             if (!string.IsNullOrWhiteSpace(output))

@@ -1,4 +1,4 @@
-﻿
+
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
 using FortniteVideoSoftware.Core.Ipc;
@@ -58,7 +58,7 @@ public static class HudConfig
             if (!double.IsFinite(raw)) return defaultValue;
             return Math.Round(Math.Max(0.0001, Math.Min(8.0, raw)), 4, MidpointRounding.AwayFromZero);
         }
-        catch { try { return Math.Round(Math.Max(0.0001, Math.Min(8.0, double.Parse(value.ToString()))), 4, MidpointRounding.AwayFromZero); } catch { return defaultValue; } }
+        catch { try { return Math.Round(Math.Max(0.0001, Math.Min(8.0, double.Parse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture))), 4, MidpointRounding.AwayFromZero); } catch { return defaultValue; } }
     }
 
     private static int ReadArrayInt(JsonArray arr, int index, int defaultValue = 0)
@@ -185,8 +185,7 @@ public static class HudConfig
             double cropW = crop != null ? ReadArrayInt(crop, 0) : 0;
             double cropH = crop != null ? ReadArrayInt(crop, 1) : 0;
             double scaleVal = ToScale(scalesObj[key]);
-            int width = Math.Max(1, CoordinateMath.ScaleRound(Frac.FromDouble(cropW * scaleVal)));
-            int height = Math.Max(1, CoordinateMath.ScaleRound(Frac.FromDouble(cropH * scaleVal)));
+            var (width, height) = CoordinateMath.QuantizeBackendSize((int)cropW, (int)cropH, scaleVal);
 
             var (cx, cy) = CoordinateMath.ClampOverlayPosition(ox, oy, width, height);
             overlaysObj[key] = new JsonObject { ["x"] = cx, ["y"] = cy };

@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FortniteVideoSoftware.App.Controls.MemeWallControl"
+             IsHitTestVisible="True"
+             Opacity="0"
+             ZIndex="996">
+    <UserControl.Styles>
+        <Style Selector="Border.MemeWallVisible">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.MemeWallHidden">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15" Easing="CubicEaseIn"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.MemeCell">
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="MinHeight" Value="80"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAlpha80Brush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.MemeCell:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha20Brush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="Border.MemeCellSelected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppSuccessBrush}"/>
+            <Setter Property="BorderThickness" Value="3"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- ISSUE_04 (audit round 4): dimmer + title use named tokens (were raw #C8000000 / FontSize 20) -->
+    <Border Name="BackdropBorder" Classes="MemeWallHidden" Background="{DynamicResource AppDimmerHeavyBrush}">
+        <Grid VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="700">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="🎬 Pick a Meme" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold"
+                       Foreground="{DynamicResource AppTextPrimaryBrush}"
+                       HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto" MaxHeight="400">
+                <WrapPanel Name="MemeGridPanel" HorizontalAlignment="Center"/>
+            </ScrollViewer>
+
+            <Button Name="CloseButton" Grid.Row="2" Content="CLOSE"
+                    Classes="Secondary" HorizontalAlignment="Center"
+                    Margin="0,12,0,0" MinWidth="100" MinHeight="36"/>
+        </Grid>
+    </Border>
+</UserControl>

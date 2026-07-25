@@ -21,9 +21,7 @@
 
                     <!-- Step Progress Bar -->
                     <!-- ISSUE_07: dots live in row 0 and labels in row 1; the connector lines sit in
-                         row 0 with VerticalAlignment="Center", so they stay aligned to the middle of the
-                         numbered dots at ANY Settings font scale (previously a fixed 15px top margin drifted
-                         off the dots as they grew). -->
+                         row 0 with VerticalAlignment="Center", so they stay aligned to the middle of the dots -->
                     <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
                         <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
                         <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
@@ -53,8 +51,8 @@
                                     <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
                                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
-                                    <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Name="ClearSearchBtn" Content="X" Classes="Secondary" MinWidth="36" Margin="8,0,0,0" HorizontalContentAlignment="Center" ToolTip.Tip="Clear search"/>
+                                    <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" Text="{Binding $parent[local:MusicWizardWindow].MusicSearchText, Mode=TwoWay}" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Name="ClearSearchBtn" Content="X" Classes="Secondary" MinWidth="36" Margin="8,0,0,0" HorizontalContentAlignment="Center" ToolTip.Tip="Clear search" AutomationProperties.Name="Clear Search"/>
                                     <ComboBox Grid.Column="2" Name="MusicSortComboBox" MinWidth="150" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center" ToolTip.Tip="Change how the music files are sorted.">
                                         <ComboBoxItem Content="Name"/>
                                         <ComboBoxItem Content="Newest"/>
@@ -167,11 +165,12 @@
                                                             <Button Grid.Column="2" Name="QueueMoveDownBtn" Classes="Secondary" Content="Down" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0" ToolTip.Tip="Move the selected track down in the queue."/>
                                                             <Button Grid.Column="3" Name="QueueRemoveBtn" Classes="Secondary" Content="Remove" MinWidth="74" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="6,0,0,0" ToolTip.Tip="Remove the selected track from the queue."/>
                                                         </Grid>
-                                                        <ListBox Grid.Row="1" Name="AutoFillQueueList" Height="96" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                                        <ListBox Grid.Row="1" Name="AutoFillQueueList" MinHeight="96" MaxHeight="200" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                                             <ListBox.ItemTemplate>
                                                                 <DataTemplate x:DataType="local:MusicQueueItem">
                                                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,2">
-                                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding OrderText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" Width="32"/>
+                                                                        <!-- ISSUE_11 (audit round 4): MinWidth (was fixed Width) per the Font-Scale Sizing Rule -->
+                                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding OrderText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" MinWidth="32"/>
                                                                         <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" TextTrimming="CharacterEllipsis"/>
                                                                         <TextBlock Grid.Column="2" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" Margin="10,0,0,0"/>
                                                                     </Grid>
@@ -276,7 +275,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip nav button labels -->
-                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" MinWidth="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
+                        <!-- ISSUE_08 (audit round 4): CANCEL is Secondary suite-wide (red = destructive data loss only) -->
+                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Secondary" MinWidth="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
                             <Button Name="SkipBackBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
                                 <TextBlock Text="-30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />
@@ -284,15 +284,10 @@
                             <!-- ISSUE_08: transport Play is Primary (blue) so it reads distinctly from the
                                  green "NEXT" progression button sharing this nav pane. -->
                             <Button Name="PlayBtn" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Preview how the music sounds">
-                                <Viewbox Stretch="Uniform" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
-                                    <Panel Width="16" Height="16">
-                                        <Polygon Name="PlayIcon" Points="3,1 14,8 3,15" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                        <StackPanel Name="PauseIcon" IsVisible="False" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                            <Rectangle Width="4" Height="14" Fill="{DynamicResource AppOnAccentTextBrush}"/>
-                                        </StackPanel>
-                                    </Panel>
-                                </Viewbox>
+                                <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                    <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                    <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                </Panel>
                             </Button>
                             <Button Name="SkipForwardBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
                                 <TextBlock Text="+30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />

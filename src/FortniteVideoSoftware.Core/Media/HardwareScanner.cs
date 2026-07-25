@@ -79,6 +79,7 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg.");
+        CoreLogger.Debug("HardwareScanner", $"Command: {psi.FileName} {psi.Arguments}");
         ChildProcessTracker.AddProcess(process);
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);

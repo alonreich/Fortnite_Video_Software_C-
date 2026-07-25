@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
@@ -59,11 +59,14 @@ public partial class AvaloniaApp : Application
                 string title = isInstallWorker ? "Fortnite Video Software Setup" : "Fortnite Video Software Uninstall";
                 var window = new DeploymentProgressWindow(title, DeploymentFootprint.InstallReportPath);
                 
-                DeploymentReporter.OnProgress += (detail, percent) =>
+                void OnProgressHandler(string detail, int? percent)
                 {
                     window.UpdateStatus(detail);
                     if (percent.HasValue) window.UpdateProgress(percent.Value);
-                };
+                }
+                
+                DeploymentReporter.OnProgress += OnProgressHandler;
+                window.Closed += (s, e) => DeploymentReporter.OnProgress -= OnProgressHandler;
 
                 desktop.MainWindow = window;
                 Task.Run(async () =>

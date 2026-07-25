@@ -4,27 +4,7 @@
              x:Class="FortniteVideoSoftware.App.AvaloniaApp">
     <Application.Resources>
         <ResourceDictionary>
-        <!-- Title Bar Tokens (brushed dark grey metal) -->
-        <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
-            <GradientStop Offset="0.00" Color="#969ca4" />
-            <GradientStop Offset="0.08" Color="#c2c7ce" />
-            <GradientStop Offset="0.16" Color="#7e858e" />
-            <GradientStop Offset="0.31" Color="#b5bbc3" />
-            <GradientStop Offset="0.47" Color="#8a919a" />
-            <GradientStop Offset="0.62" Color="#c8cdd3" />
-            <GradientStop Offset="0.78" Color="#737a83" />
-            <GradientStop Offset="1.00" Color="#a8aeb6" />
-        </LinearGradientBrush>
-        <SolidColorBrush x:Key="TitleBarForeground" Color="#111827" />
-        <LinearGradientBrush x:Key="WindowTitleBorder" StartPoint="0%,0%" EndPoint="100%,100%">
-            <GradientStop Offset="0.00" Color="#aeb4bc" />
-            <GradientStop Offset="0.14" Color="#767d86" />
-            <GradientStop Offset="0.29" Color="#d0d4da" />
-            <GradientStop Offset="0.46" Color="#868d96" />
-            <GradientStop Offset="0.63" Color="#bdc3ca" />
-            <GradientStop Offset="0.81" Color="#6f7780" />
-            <GradientStop Offset="1.00" Color="#b2b8c0" />
-        </LinearGradientBrush>
+        <!-- Title Bar Tokens moved to ThemeDictionaries to fix Issue 02 -->
 
         <!-- Semantic / brand / state tokens (theme-agnostic) -->
         <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
@@ -43,6 +23,13 @@
         <!-- Always-white text/icons for saturated colored buttons (theme-agnostic) -->
         <SolidColorBrush x:Key="AppOnAccentTextBrush" Color="#ffffff" />
 
+        <!-- Geometry Resources -->
+        <StreamGeometry x:Key="AppPlayIconGeometry">M3,1 L14,8 L3,15 Z</StreamGeometry>
+        <StreamGeometry x:Key="AppPauseIconGeometry">M2,1 h4 v14 h-4 Z M10,1 h4 v14 h-4 Z</StreamGeometry>
+        <StreamGeometry x:Key="AppMusicNoteIconGeometry">M12,3v10.55c-0.59-0.34-1.27-0.55-2-0.55c-2.21,0-4,1.79-4,4s1.79,4,4,4s4-1.79,4-4V7h4V3H12z</StreamGeometry>
+        <StreamGeometry x:Key="AppFastBackwardIconGeometry">M6,2 L6,14 L0,8 Z M14,2 L14,14 L8,8 Z</StreamGeometry>
+        <StreamGeometry x:Key="AppFastForwardIconGeometry">M2,2 L8,8 L2,14 Z M8,2 L14,8 L8,14 Z</StreamGeometry>
+
         <!-- Global font-size tokens (base defaults; scaled at runtime by ThemeManager.ApplyFontScale) -->
         <sys:Double x:Key="AppFontSizeSmall">10</sys:Double>
         <sys:Double x:Key="AppFontSizeBase">11</sys:Double>
@@ -60,6 +47,7 @@
         <sys:Double x:Key="AppFontSize16">16</sys:Double>
         <sys:Double x:Key="AppFontSize18">18</sys:Double>
         <sys:Double x:Key="AppFontSize20">20</sys:Double>
+        <sys:Double x:Key="AppFontSize24">24</sys:Double>
         <sys:Double x:Key="AppFontSize28">28</sys:Double>
         <sys:Double x:Key="AppFontSize36">36</sys:Double>
         <sys:Double x:Key="AppFontSize48">48</sys:Double>
@@ -94,6 +82,12 @@
         <SolidColorBrush x:Key="AppYouTubeBrush" Color="#FF0000" />
         <SolidColorBrush x:Key="AppTikTokBrush" Color="#000000" />
         <SolidColorBrush x:Key="AppTikTokBorderBrush" Color="#00f2fe" />
+        <!-- ISSUE_10: brand button hover variants (brighter, matching Primary/Success/Danger
+             hover ramps) so the share buttons visibly react to the pointer. -->
+        <SolidColorBrush x:Key="AppWhatsAppHoverBrush" Color="#45DF7E" />
+        <SolidColorBrush x:Key="AppInstagramHoverBrush" Color="#D3529C" />
+        <SolidColorBrush x:Key="AppYouTubeHoverBrush" Color="#FF3B3B" />
+        <SolidColorBrush x:Key="AppTikTokHoverBrush" Color="#2A2A2A" />
 
         <!-- Color struct resources for GradientStop.Color bindings -->
         <Color x:Key="AppFocusOuterColor">#7dd3fc</Color>
@@ -167,11 +161,20 @@
         <BoxShadows x:Key="AppDropIndicatorShadow">0 0 6 1 #6638bdf8</BoxShadows>
         <BoxShadows x:Key="AppPhaseGlowShadow">0 0 15 2 #4ade80</BoxShadows>
 
+        <!-- ISSUE_04 (audit round 4): full-screen dimmer + drop-zone pulse tokens (previously
+             raw hex inline in MemeWallControl / AmbientDropzoneControl). -->
+        <SolidColorBrush x:Key="AppDimmerHeavyBrush" Color="#C8000000" />
+        <SolidColorBrush x:Key="AppDimmerSoftBrush" Color="#A0000000" />
+        <BoxShadows x:Key="AppDropzonePulseShadow">0 0 50 10 #6000BFFF</BoxShadows>
+
         <!-- Theme-dependent surface, text, focus & disabled tokens.
              These now switch with the selected ThemeVariant (Settings > Appearance > Theme). -->
         <ResourceDictionary.ThemeDictionaries>
             <ResourceDictionary x:Key="Dark">
                 <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1e293b" />
+                <!-- ISSUE_01: previously referenced but never defined (MemeWall cells,
+                     RadialMenu hub). 80%-alpha variant of AppSurfaceBrush per theme. -->
+                <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CC1e293b" />
                 <SolidColorBrush x:Key="AppPanelBrush" Color="#334155" />
                 <SolidColorBrush x:Key="AppBorderBrush" Color="#475569" />
                 <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#ffffff" />
@@ -183,9 +186,22 @@
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#b0c4de" />
                 <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#475569" />
                 <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#334155" />
+                <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
+                    <GradientStop Offset="0.00" Color="#1e293b" />
+                    <GradientStop Offset="0.50" Color="#334155" />
+                    <GradientStop Offset="1.00" Color="#0f172a" />
+                </LinearGradientBrush>
+                <SolidColorBrush x:Key="TitleBarForeground" Color="#ffffff" />
+                <LinearGradientBrush x:Key="WindowTitleBorder" StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Offset="0.00" Color="#475569" />
+                    <GradientStop Offset="1.00" Color="#1e293b" />
+                </LinearGradientBrush>
             </ResourceDictionary>
             <ResourceDictionary x:Key="Light">
                 <SolidColorBrush x:Key="AppSurfaceBrush" Color="#f8fafc" />
+                <!-- ISSUE_01: previously referenced but never defined (MemeWall cells,
+                     RadialMenu hub). 80%-alpha variant of AppSurfaceBrush per theme. -->
+                <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CCf8fafc" />
                 <SolidColorBrush x:Key="AppPanelBrush" Color="#e2e8f0" />
                 <SolidColorBrush x:Key="AppBorderBrush" Color="#cbd5e1" />
                 <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#0f172a" />
@@ -197,6 +213,26 @@
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#64748b" />
                 <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#cbd5e1" />
                 <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#94a3b8" />
+                <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
+                    <GradientStop Offset="0.00" Color="#969ca4" />
+                    <GradientStop Offset="0.08" Color="#c2c7ce" />
+                    <GradientStop Offset="0.16" Color="#7e858e" />
+                    <GradientStop Offset="0.31" Color="#b5bbc3" />
+                    <GradientStop Offset="0.47" Color="#8a919a" />
+                    <GradientStop Offset="0.62" Color="#c8cdd3" />
+                    <GradientStop Offset="0.78" Color="#737a83" />
+                    <GradientStop Offset="1.00" Color="#a8aeb6" />
+                </LinearGradientBrush>
+                <SolidColorBrush x:Key="TitleBarForeground" Color="#111827" />
+                <LinearGradientBrush x:Key="WindowTitleBorder" StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Offset="0.00" Color="#aeb4bc" />
+                    <GradientStop Offset="0.14" Color="#767d86" />
+                    <GradientStop Offset="0.29" Color="#d0d4da" />
+                    <GradientStop Offset="0.46" Color="#868d96" />
+                    <GradientStop Offset="0.63" Color="#bdc3ca" />
+                    <GradientStop Offset="0.81" Color="#6f7780" />
+                    <GradientStop Offset="1.00" Color="#b2b8c0" />
+                </LinearGradientBrush>
             </ResourceDictionary>
         </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -252,6 +288,15 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
+        <Style Selector="ToggleSwitch:focus /template/ Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus-visible /template/ Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
         <Style Selector="Border.InteractiveFocus:focus">
             <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
@@ -284,13 +329,17 @@
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.SpeedPreset:pointerover">
-            <Setter Property="Background" Value="{DynamicResource AppSpeedPresetHoverBackground}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppSpeedPresetHoverForeground}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppSpeedPresetHoverBorder}"/>
         </Style>
+        <Style Selector="Button.SpeedPreset:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSpeedPresetHoverBackground}"/>
+        </Style>
         <Style Selector="Button.SpeedPreset:pressed">
-            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="Button.SpeedPreset:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
 
         <Style Selector="Button.BaseSpeedPreset">
@@ -298,12 +347,14 @@
             <Setter Property="Background" Value="{DynamicResource AppBaseSpeedPresetBackground}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppBaseSpeedPresetForeground}"/>
         </Style>
-        <Style Selector="Button.BaseSpeedPreset:pointerover">
+        <Style Selector="Button.BaseSpeedPreset:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppBaseSpeedPresetHoverBackground}"/>
         </Style>
         <Style Selector="Button.BaseSpeedPreset:pressed">
-            <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="Button.BaseSpeedPreset:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
         </Style>
 
         <!-- Primary Buttons (VoiceOver-style depth gradient — bright top rim into a deep base) -->
@@ -410,19 +461,33 @@
             <Setter Property="Background" Value="{DynamicResource AppWhatsAppBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
         </Style>
+        <!-- ISSUE_10: hover states now use dedicated brighter Hover brushes (previously the
+             resting brand brush was re-applied, producing zero visible hover feedback). -->
+        <Style Selector="Button.WhatsApp:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppWhatsAppHoverBrush}"/>
+        </Style>
         <Style Selector="Button.Instagram">
             <Setter Property="Background" Value="{DynamicResource AppInstagramBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
         </Style>
+        <Style Selector="Button.Instagram:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppInstagramHoverBrush}"/>
+        </Style>
         <Style Selector="Button.YouTube">
             <Setter Property="Background" Value="{DynamicResource AppYouTubeBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+        </Style>
+        <Style Selector="Button.YouTube:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppYouTubeHoverBrush}"/>
         </Style>
         <Style Selector="Button.TikTok">
             <Setter Property="Background" Value="{DynamicResource AppTikTokBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppTikTokBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.TikTok:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppTikTokHoverBrush}"/>
         </Style>
 
         <!-- Universal slider thumb — enlarged resting dot (~1.5x) that grows SLOWLY to 2x when grabbed.
@@ -513,6 +578,28 @@
         <Style Selector="TextBox.error /template/ Border#PART_BorderElement">
             <Setter Property="BorderBrush" Value="{DynamicResource AppDangerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
+        <Style Selector="DataValidationErrors">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <DockPanel LastChildFill="True">
+                        <ContentControl DockPanel.Dock="Right" ContentTemplate="{TemplateBinding ErrorTemplate}" DataContext="{TemplateBinding Owner}" Content="{Binding (DataValidationErrors.Errors)}" IsVisible="{Binding (DataValidationErrors.HasErrors)}"/>
+                        <ContentPresenter Name="PART_ContentPresenter" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}" CornerRadius="{TemplateBinding CornerRadius}" />
+                    </DockPanel>
+                </ControlTemplate>
+            </Setter>
+            <Setter Property="ErrorTemplate">
+                <DataTemplate x:CompileBindings="False">
+                    <ItemsControl ItemsSource="{Binding}" Foreground="{DynamicResource AppDangerBrush}" Margin="4,0,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:CompileBindings="False">
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DataTemplate>
+            </Setter>
         </Style>
 
         <!-- CheckBox hover/focus feedback -->
@@ -633,15 +720,32 @@
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Button.CloseBtn:pointerover">
-            <Setter Property="Background" Value="{DynamicResource AppCloseBtnHoverBackgroundBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource AppCloseBtnHoverForegroundBrush}" />
         </Style>
-        <Style Selector="Button.CloseBtn:pressed">
+        <Style Selector="Button.CloseBtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppCloseBtnHoverBackgroundBrush}" />
+        </Style>
+        <Style Selector="Button.CloseBtn:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppCloseBtnPressedBackgroundBrush}" />
         </Style>
 
         <Style Selector="MenuItem">
             <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style Selector="FlyoutPresenter.CustomFlyout">
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+                        <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Margin="{TemplateBinding Padding}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
         </Style>
     </Application.Styles>
 </Application>

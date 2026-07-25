@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:CompileBindings="True"
         x:DataType="local:CropToolWindow"
         x:Class="FortniteVideoSoftware.App.CropToolWindow"
@@ -34,12 +35,22 @@
                             Padding="16,10">
                         <!-- ISSUE_05: Auto rows (were fixed 20/20/8px) so scaled fonts never clip the wizard labels -->
                         <Grid RowDefinitions="Auto,Auto,Auto">
-                            <ProgressBar Name="WizardProgress"
-                                         Grid.Row="0"
-                                         Minimum="0"
-                                         Maximum="100"
-                                         Value="20"
-                                         Height="18" />
+                            <Grid Grid.Row="0" Margin="0,0,0,10" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
+                                <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="30,0,30,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
+                                <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="30,0,30,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
+                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Text="1" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Text="Upload" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" FontWeight="Bold" Margin="0,4,0,0"/>
+                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Text="2" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Text="Crop" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Text="3" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Text="Save" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                            </Grid>
                             <TextBlock Name="GoalLabel"
                                        Grid.Row="1"
                                        Text="Goal: Upload Video"
@@ -74,11 +85,13 @@
                         </Border>
                     </Grid>
 
+                    <!-- ISSUE_07 (audit round 4): toolbar row is Auto (was fixed 44) per the suite Font-Scale
+                         Sizing Rule, so the element-name box and ADD SELECTION never clip at large font scale -->
                     <Grid Name="SnapshotPanel"
                           Grid.Row="1"
                           Background="{DynamicResource AppSurfaceBrush}"
                           IsVisible="False"
-                          RowDefinitions="*,44">
+                          RowDefinitions="*,Auto">
                         <ScrollViewer Grid.Row="0"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
@@ -105,7 +118,8 @@
                                              Watermark="Element Name (e.g. Ammo)"
                                              HorizontalAlignment="Stretch"
                                              Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
+                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element."
+                                             x:CompileBindings="False" Text="{Binding RoleName, Mode=TwoWay}" />
                                 </StackPanel>
                                 <TextBlock Name="SelectionInfo"
                                            Grid.Column="1"
@@ -146,7 +160,7 @@
                                     <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
                                     <Grid Height="44" ClipToBounds="False">
                                         <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
-                                        <Canvas Name="CropTimelineMarkersCanvas" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
+                                        <Canvas Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
                                             <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                                 <Border.Transitions>
                                                     <Transitions>
@@ -220,7 +234,7 @@
                             <TextBlock Text="Active Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize11}"/>
                             <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" HorizontalAlignment="Stretch" ToolTip.Tip="Select an existing mask overlay profile."/>
                             <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" HorizontalAlignment="Stretch" MinWidth="130">
-                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
+                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." x:CompileBindings="False" Text="{Binding NewMaskOverlayName, Mode=TwoWay}" />
                             </StackPanel>
                             <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="{DynamicResource AppFontSize10}" />
                         </Grid>
@@ -308,8 +322,8 @@
                                         <RowDefinition Height="162*" />
                                         <RowDefinition Height="15*" />
                                     </Grid.RowDefinitions>
-                                    <Rectangle Grid.Row="0" Fill="Black" />
-                                    <Rectangle Grid.Row="2" Fill="Black" />
+                                    <Rectangle Grid.Row="0" Fill="{DynamicResource AppVideoSurfaceBrush}" />
+                                    <Rectangle Grid.Row="2" Fill="{DynamicResource AppVideoSurfaceBrush}" />
                                 </Grid>
                             </Grid>
                             </Viewbox>
@@ -388,7 +402,7 @@
                                         ToolTip.Tip="Throw this piece into the trash."
                                         IsEnabled="False">
                                     <Button.Flyout>
-                                        <Flyout Placement="Top">
+                                        <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
                                             <StackPanel Spacing="8" Margin="8">
                                                 <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
                                                 <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently delete the selected layer." />
@@ -437,7 +451,11 @@
                     </StackPanel>
                 </Border>
             </Grid>
+            <!-- Contextual Radial Menu (IDEA 2) -->
+            <controls:RadialMenuControl x:Name="RadialMenu" ZIndex="999"/>
 
+            <!-- Ambient Pulsing Dropzone (IDEA 4) -->
+            <controls:AmbientDropzoneControl x:Name="AmbientDropzone" ZIndex="998"/>
         </Grid>
     </Border>
 </Window>

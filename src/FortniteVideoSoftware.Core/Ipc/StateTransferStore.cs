@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -48,12 +48,19 @@ public sealed class StateTransferStore
         {
             Paths.EnsureWritableDirectories();
 
-            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-                MutexName,
-                DefaultMutexTimeout,
-                cancellationToken);
+            try
+            {
+                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                    MutexName,
+                    DefaultMutexTimeout,
+                    cancellationToken);
 
-            return LoadUnlocked();
+                return LoadUnlocked();
+            }
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            {
+                return new JsonObject();
+            }
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -81,15 +88,21 @@ public sealed class StateTransferStore
         {
             Paths.EnsureWritableDirectories();
 
-            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-                MutexName,
-                DefaultMutexTimeout,
-                cancellationToken);
+            try
+            {
+                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                    MutexName,
+                    DefaultMutexTimeout,
+                    cancellationToken);
 
-            JsonObject payload = Clone(state);
-            ValidateKnownProperties(payload);
-            payload["schema_version"] = SchemaVersion;
-            AtomicJsonFile.WriteObject(Paths.SessionStateFile, payload);
+                JsonObject payload = Clone(state);
+                ValidateKnownProperties(payload);
+                payload["schema_version"] = SchemaVersion;
+                AtomicJsonFile.WriteObject(Paths.SessionStateFile, payload);
+            }
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            {
+            }
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -99,20 +112,26 @@ public sealed class StateTransferStore
         {
             Paths.EnsureWritableDirectories();
 
-            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-                MutexName,
-                DefaultMutexTimeout,
-                cancellationToken);
-
-            JsonObject current = LoadUnlocked();
-            foreach (KeyValuePair<string, JsonNode?> property in updates)
+            try
             {
-                ValidateKnownProperty(property.Key, property.Value);
-                current[property.Key] = property.Value?.DeepClone();
-            }
+                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                    MutexName,
+                    DefaultMutexTimeout,
+                    cancellationToken);
 
-            current["schema_version"] = SchemaVersion;
-            AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+                JsonObject current = LoadUnlocked();
+                foreach (KeyValuePair<string, JsonNode?> property in updates)
+                {
+                    ValidateKnownProperty(property.Key, property.Value);
+                    current[property.Key] = property.Value?.DeepClone();
+                }
+
+                current["schema_version"] = SchemaVersion;
+                AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
+            }
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            {
+            }
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -152,12 +171,18 @@ public sealed class StateTransferStore
         {
             Paths.EnsureWritableDirectories();
 
-            using NamedSystemMutex guard = NamedSystemMutex.Acquire(
-                MutexName,
-                DefaultMutexTimeout,
-                cancellationToken);
+            try
+            {
+                using NamedSystemMutex guard = NamedSystemMutex.Acquire(
+                    MutexName,
+                    DefaultMutexTimeout,
+                    cancellationToken);
 
-            AtomicJsonFile.TryDelete(Paths.SessionStateFile);
+                AtomicJsonFile.TryDelete(Paths.SessionStateFile);
+            }
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            {
+            }
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -307,6 +332,10 @@ public sealed class StateTransferStore
         {
             if (!TryGetInt(version, out int schemaVersion) || schemaVersion < 1)
                 throw new InvalidDataException($"Invalid schema_version inside subprocess object '{key}'.");
+        }
+        else
+        {
+            throw new InvalidDataException($"Missing schema_version inside subprocess object '{key}'.");
         }
     }
 

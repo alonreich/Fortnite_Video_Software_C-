@@ -114,8 +114,9 @@ public partial class VoiceOverWindow : Window
     private Image? _waveformLaneImage;
     private Border? _thumbLoadingOverlay;
     private Border? _waveformLoadingOverlay;
-    private Polygon? _playIcon;
-    private StackPanel? _pauseIcon;
+    // ISSUE_06 (audit round 4): icons converted to shared Path geometries in XAML
+    private Avalonia.Controls.Shapes.Path? _playIcon;
+    private Avalonia.Controls.Shapes.Path? _pauseIcon;
     private CheckBox? _muteMaleCb;
     private CheckBox? _muteFemaleCb;
     private CheckBox? _muteChildCb;
@@ -358,8 +359,8 @@ public partial class VoiceOverWindow : Window
         _waveformLaneImage = this.FindControl<Image>("WaveformLaneImage");
         _thumbLoadingOverlay = this.FindControl<Border>("ThumbLoadingOverlay");
         _waveformLoadingOverlay = this.FindControl<Border>("WaveformLoadingOverlay");
-        _playIcon = this.FindControl<Polygon>("PlayIcon");
-        _pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        _playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+        _pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         _muteMaleCb = this.FindControl<CheckBox>("MuteMaleCb");
         _muteFemaleCb = this.FindControl<CheckBox>("MuteFemaleCb");
         _muteChildCb = this.FindControl<CheckBox>("MuteChildCb");

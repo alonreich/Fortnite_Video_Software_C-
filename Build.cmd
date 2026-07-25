@@ -77,7 +77,6 @@ mkdir "%STAGING_DIR%\backend"
 mkdir "%STAGING_DIR%\frontend"
 
 copy /y ".\binaries\ffmpeg.exe" "%STAGING_DIR%\backend\" >nul
-copy /y ".\binaries\ffplay.exe" "%STAGING_DIR%\backend\" >nul
 copy /y ".\binaries\ffprobe.exe" "%STAGING_DIR%\backend\" >nul
 copy /y ".\binaries\av*.dll" "%STAGING_DIR%\backend\" >nul
 copy /y ".\binaries\sw*.dll" "%STAGING_DIR%\backend\" >nul
@@ -85,7 +84,6 @@ copy /y ".\binaries\postproc*.dll" "%STAGING_DIR%\backend\" >nul
 
 copy /y ".\binaries\libmpv-2.dll" "%STAGING_DIR%\frontend\" >nul
 copy /y ".\binaries\mpv.exe" "%STAGING_DIR%\frontend\" >nul
-copy /y ".\binaries\mpv.com" "%STAGING_DIR%\frontend\" >nul
 
 echo [NativeAOT] 3. Zipping payload...
 tar.exe -a -c -f "src\FortniteVideoSoftware.App\payload.zip" -C "%STAGING_DIR%" .

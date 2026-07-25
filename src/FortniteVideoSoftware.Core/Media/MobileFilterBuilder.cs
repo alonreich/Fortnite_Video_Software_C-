@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -77,9 +77,9 @@ public class MobileFilterBuilder
                 parts.Add($"{inputHudPad}split={activeLayers.Count}{splitLabels}");
             }
 
-            parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
-                      $"force_original_aspect_ratio=increase:flags=lanczos," +
-                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
+            var plan = CoordinateMath.ScalePlan(originalResolution);
+            parts.Add($"{inputMainPad}scale={plan.scaledW}:{plan.scaledH}:flags=lanczos," +
+                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:{plan.cropX}:{plan.cropY}[main_base]");
             currV = "[main_base]";
 
             for (int i = 0; i < activeLayers.Count; i++)
@@ -125,9 +125,9 @@ public class MobileFilterBuilder
         }
         else
         {
-            parts.Add($"{inputMainPad}scale={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:" +
-                      $"force_original_aspect_ratio=increase:flags=lanczos," +
-                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}[main_base]");
+            var plan = CoordinateMath.ScalePlan(originalResolution);
+            parts.Add($"{inputMainPad}scale={plan.scaledW}:{plan.scaledH}:flags=lanczos," +
+                      $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:{plan.cropX}:{plan.cropY}[main_base]");
             currV = "[main_base]";
         }
 

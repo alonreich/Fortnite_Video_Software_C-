@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -32,6 +32,14 @@ public partial class GranularSpeedEditorWindow : Window
     private double _baseSpeed    = 1.1;
 
     private bool _isSafeToClose = false;
+
+    // GPU-conditional LIVE zoom preview (project_structure.txt Section 8 item b):
+    // when the boot-time GPU probe reports hardware acceleration, the editor simulates
+    // the export crop-zoom 1:1 inside mpv via the `video-crop` property (instant snap or
+    // SLOW steal-up-to-1s ramp, mirroring GranularSpeedBuilder's ZoomPhase math).
+    // On CPU-only machines this stays OFF and the yellow-box-only behavior is kept.
+    private bool _gpuLiveZoomPreview;
+    private string _lastLiveCrop = "";
 
     private int _selectedSegmentIndex = -1;
     private DispatcherTimer? _marchingAntsTimer;
@@ -104,6 +112,12 @@ public partial class GranularSpeedEditorWindow : Window
         _isMobileFormat = isMobileFormat;
         if (!string.IsNullOrWhiteSpace(originalResolution)) _originalResolution = originalResolution;
         _selectedFreezePresetS = -1.0;
+
+        // GPU probe decides the zoom-preview path (see field docs). Defensive: probe is
+        // initialized by AvaloniaApp at startup; fall back to CPU behavior if not.
+        try { _gpuLiveZoomPreview = FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration; }
+        catch { _gpuLiveZoomPreview = false; }
+        RuntimeLog.Info("Granular", $"Live zoom preview path: {(_gpuLiveZoomPreview ? "GPU (mpv video-crop simulation)" : "CPU (yellow box overlay only)")}");
 
         InitializeComponent();
 
@@ -574,6 +588,10 @@ public partial class GranularSpeedEditorWindow : Window
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
                 UpdateDragReadout(newStart, newEnd);
                 UpdateDraggingVisuals(idx, newStart, newEnd);
+                // Playhead follows the edited edge LIVE while dragging (ResizeEnd -> end, else start).
+                // Seek coalesces via SeekInternal; the preview caret tracks the marker in real time.
+                double followRelSec = (_segDragMode == SegDragMode.ResizeEnd ? newEnd : newStart) / 1000.0;
+                _ = SeekInternal(followRelSec);
                 e.Handled = true;
             };
         }
@@ -1698,8 +1716,8 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.PointerReleased += ZoomCanvas_PointerReleased;
         }
 
-        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
-        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
+        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
         if (slowCb != null) slowCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: true);
         if (instCb != null) instCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: false);
 
@@ -1736,13 +1754,13 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _syncingZoomChecks;
 
     /// <summary>true when the user has selected the SLOW (gradual) zoom ramp; false = INSTANT.</summary>
-    private bool ZoomSlowSelected => this.FindControl<CheckBox>("SlowZoomCheck")?.IsChecked == true;
+    private bool ZoomSlowSelected => this.FindControl<RadioButton>("SlowZoomCheck")?.IsChecked == true;
 
     private void OnZoomModeChanged(bool fromSlow)
     {
         if (_syncingZoomChecks) return;
-        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
-        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
+        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
         if (slowCb == null || instCb == null) return;
 
         bool slow = fromSlow ? (slowCb.IsChecked == true) : (instCb.IsChecked != true);
@@ -1774,8 +1792,8 @@ public partial class GranularSpeedEditorWindow : Window
             slow = _segments[_selectedSegmentIndex].ZoomSlow;
         else
             slow = Infrastructure.SettingsManager.Instance.Defaults.DefaultZoomSlow;
-        var slowCb = this.FindControl<CheckBox>("SlowZoomCheck");
-        var instCb = this.FindControl<CheckBox>("InstantZoomCheck");
+        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
+        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
         _syncingZoomChecks = true;
         if (slowCb != null) slowCb.IsChecked = slow;
         if (instCb != null) instCb.IsChecked = !slow;
@@ -1798,8 +1816,122 @@ public partial class GranularSpeedEditorWindow : Window
     private void ToggleZoomMode()
     {
         if (_selectedSegmentIndex < 0 || _selectedSegmentIndex >= _segments.Count) return;
-        if (_zoomModeActive) ExitZoomMode();
+        if (_zoomModeActive) _ = ApplyZoomWithBusyOverlayAsync();
         else EnterZoomMode();
+    }
+
+    /// <summary>
+    /// APPLY ZOOM-IN commit path. On the GPU preview path, stall the UI behind a
+    /// blocking "Applying changes..." overlay while the simulated crop is primed in
+    /// mpv (buffering round-trip), per project_structure.txt Section 8 item (b).
+    /// On CPU-only machines this is a plain ExitZoomMode (no overlay, no simulation).
+    /// </summary>
+    private async System.Threading.Tasks.Task ApplyZoomWithBusyOverlayAsync()
+    {
+        ExitZoomMode();
+        if (!_gpuLiveZoomPreview) return;
+
+        var busy = this.FindControl<Border>("ZoomApplyBusyOverlay");
+        if (busy != null) busy.IsVisible = true;
+        try
+        {
+            // Prime the simulated crop immediately so mpv starts presenting the new view.
+            UpdateLiveZoomCrop();
+
+            // Round-trip: wait (max ~1s) until mpv reports a live crop when one was requested.
+            string want = _lastLiveCrop;
+            for (int i = 0; i < 20 && want.Length > 0; i++)
+            {
+                var applied = _videoHost?.IpcClient?.GetPropertyString("video-crop");
+                if (!string.IsNullOrEmpty(applied) && applied != "no") break;
+                await System.Threading.Tasks.Task.Delay(50);
+            }
+            await System.Threading.Tasks.Task.Delay(150); // one settle frame for the reconfigure
+            RuntimeLog.Info("Granular", "APPLY ZOOM-IN: GPU live zoom preview primed.");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Granular", $"GPU live zoom prime failed (falling back to box overlay): {ex.Message}");
+        }
+        finally
+        {
+            if (busy != null) busy.IsVisible = false;
+        }
+    }
+
+    /// <summary>Removes any simulated live crop from the mpv preview.</summary>
+    private void ClearLiveZoomCrop()
+    {
+        if (!_gpuLiveZoomPreview || _lastLiveCrop.Length == 0) return;
+        _lastLiveCrop = "";
+        _ = _videoHost?.IpcClient?.SetPropertyAsync("video-crop", "");
+    }
+
+    /// <summary>
+    /// GPU live zoom preview engine. Mirrors GranularSpeedBuilder's export math 1:1:
+    /// steal windows (>=0.5s available, capped at 1.0s, vs neighboring zooms only),
+    /// linear ramp progress, zVal = 1 + (targetZ - 1) * p with the view center lerping
+    /// from frame center to the zoom-box center. The equivalent visible source region
+    /// is applied via mpv `video-crop` ("WxH+X+Y"); mpv's own aspect-fit letterboxing
+    /// then matches the export's force_original_aspect_ratio=decrease + pad stage.
+    /// NOTE: near frame edges the export shows black padding where this preview clamps
+    /// the crop inside the frame — an accepted, minor visual difference.
+    /// </summary>
+    private void UpdateLiveZoomCrop()
+    {
+        if (!_gpuLiveZoomPreview || _videoHost?.IpcClient == null) return;
+        if (_zoomModeActive) { ClearLiveZoomCrop(); return; } // always draw/edit on the uncropped frame
+
+        var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        if (sw <= 0 || sh <= 0) return;
+
+        double tSec = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs) / 1000.0;
+        double durSec = Math.Max(0.1, ((_trimEndMs > 0 ? _trimEndMs : _videoHost.IpcClient.Duration * 1000.0) - _trimStartMs) / 1000.0);
+
+        // Zoom windows in clip-relative seconds (detached zoom start/end, block edges as fallback)
+        var zooms = new List<(double zs, double ze, SpeedSegment seg)>();
+        foreach (var s in _segments)
+            if (s.ZoomW.HasValue && s.ZoomH.HasValue && s.ZoomX.HasValue && s.ZoomY.HasValue)
+                zooms.Add(((s.ZoomStartMs ?? s.StartMs) / 1000.0, (s.ZoomEndMs ?? s.EndMs) / 1000.0, s));
+        zooms.Sort((a, b) => a.zs.CompareTo(b.zs));
+
+        double p = 0; SpeedSegment? active = null;
+        for (int i = 0; i < zooms.Count; i++)
+        {
+            var (zs, ze, seg) = zooms[i];
+            if (tSec >= zs && tSec <= ze) { p = 1.0; active = seg; break; }
+            if (!seg.ZoomSlow) continue;
+
+            double prevEnd = i > 0 ? zooms[i - 1].ze : 0.0;
+            double nextStart = i < zooms.Count - 1 ? zooms[i + 1].zs : durSec;
+            double availBefore = zs - prevEnd;
+            double stealBefore = availBefore >= 0.5 ? Math.Min(1.0, availBefore) : 0.0;
+            double availAfter = nextStart - ze;
+            double stealAfter = availAfter >= 0.5 ? Math.Min(1.0, availAfter) : 0.0;
+
+            if (stealBefore > 0 && tSec >= zs - stealBefore && tSec < zs) { p = (tSec - (zs - stealBefore)) / stealBefore; active = seg; break; }
+            if (stealAfter > 0 && tSec > ze && tSec <= ze + stealAfter) { p = 1.0 - (tSec - ze) / stealAfter; active = seg; break; }
+        }
+
+        if (active == null || p <= 0.001) { ClearLiveZoomCrop(); return; }
+
+        double targetZ = Math.Min((double)sw / active.ZoomW!.Value, (double)sh / active.ZoomH!.Value);
+        double zVal = 1.0 + (targetZ - 1.0) * p;
+        double cx = sw / 2.0 + ((active.ZoomX!.Value + active.ZoomW!.Value / 2.0) - sw / 2.0) * p;
+        double cy = sh / 2.0 + ((active.ZoomY!.Value + active.ZoomH!.Value / 2.0) - sh / 2.0) * p;
+        double visW = sw / zVal, visH = sh / zVal;
+        double x = Math.Clamp(cx - visW / 2.0, 0, Math.Max(0, sw - visW));
+        double y = Math.Clamp(cy - visH / 2.0, 0, Math.Max(0, sh - visH));
+
+        int iw = Math.Max(2, (int)Math.Round(visW / 2.0) * 2);
+        int ih = Math.Max(2, (int)Math.Round(visH / 2.0) * 2);
+        int ix = Math.Max(0, Math.Min(sw - iw, (int)Math.Round(x)));
+        int iy = Math.Max(0, Math.Min(sh - ih, (int)Math.Round(y)));
+
+        string crop = $"{iw}x{ih}+{ix}+{iy}";
+        if (crop == _lastLiveCrop) return;
+        _lastLiveCrop = crop;
+        _ = _videoHost.IpcClient.SetPropertyAsync("video-crop", crop);
     }
 
     private void EnterZoomMode()
@@ -1807,6 +1939,9 @@ public partial class GranularSpeedEditorWindow : Window
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
         var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
         if (canvas == null) return;
+
+        // Drawing must happen on the uncropped frame — drop any simulated live crop first.
+        ClearLiveZoomCrop();
 
         _zoomModeActive = true;
         EnsureZoomVisuals(canvas);
@@ -1883,45 +2018,52 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 
+    private bool _isZoomRenderPending = false;
     private void RenderZoomBox()
     {
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
-        if (canvas == null || _zoomBoxRect == null) return;
-        double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
-
-        if (!_hasZoomBox)
+        if (_isZoomRenderPending) return;
+        _isZoomRenderPending = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            _zoomBoxRect.IsVisible = false;
-            foreach (var h in _zoomHandles) h.IsVisible = false;
-            for (int i = 0; i < 4; i++) if (_zoomDim[i] != null) { _zoomDim[i].Width = 0; _zoomDim[i].Height = 0; }
-            return;
-        }
+            _isZoomRenderPending = false;
+            var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+            if (canvas == null || _zoomBoxRect == null) return;
+            double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
 
-        var r = _zoomUiRect;
-        _zoomBoxRect.IsVisible = true;
-        _zoomBoxRect.Width = r.Width; _zoomBoxRect.Height = r.Height;
-        Avalonia.Controls.Canvas.SetLeft(_zoomBoxRect, r.X);
-        Avalonia.Controls.Canvas.SetTop(_zoomBoxRect, r.Y);
+            if (!_hasZoomBox)
+            {
+                _zoomBoxRect.IsVisible = false;
+                foreach (var h in _zoomHandles) h.IsVisible = false;
+                for (int i = 0; i < 4; i++) if (_zoomDim[i] != null) { _zoomDim[i].Width = 0; _zoomDim[i].Height = 0; }
+                return;
+            }
 
-        void Dim(int i, double x, double y, double w, double h)
-        {
-            var d = _zoomDim[i]; if (d == null) return;
-            d.Width = Math.Max(0, w); d.Height = Math.Max(0, h);
-            Avalonia.Controls.Canvas.SetLeft(d, x); Avalonia.Controls.Canvas.SetTop(d, y);
-        }
-        Dim(0, 0, 0, cw, r.Y);
-        Dim(1, 0, r.Bottom, cw, ch - r.Bottom);
-        Dim(2, 0, r.Y, r.X, r.Height);
-        Dim(3, r.Right, r.Y, cw - r.Right, r.Height);
+            var r = _zoomUiRect;
+            _zoomBoxRect.IsVisible = true;
+            _zoomBoxRect.Width = r.Width; _zoomBoxRect.Height = r.Height;
+            Avalonia.Controls.Canvas.SetLeft(_zoomBoxRect, r.X);
+            Avalonia.Controls.Canvas.SetTop(_zoomBoxRect, r.Y);
 
-        var corners = new[] { new Avalonia.Point(r.X, r.Y), new Avalonia.Point(r.Right, r.Y),
-                              new Avalonia.Point(r.X, r.Bottom), new Avalonia.Point(r.Right, r.Bottom) };
-        for (int i = 0; i < 4; i++)
-        {
-            _zoomHandles[i].IsVisible = true;
-            Avalonia.Controls.Canvas.SetLeft(_zoomHandles[i], corners[i].X - ZoomHandleVisualPx / 2);
-            Avalonia.Controls.Canvas.SetTop(_zoomHandles[i], corners[i].Y - ZoomHandleVisualPx / 2);
-        }
+            void Dim(int i, double x, double y, double w, double h)
+            {
+                var d = _zoomDim[i]; if (d == null) return;
+                d.Width = Math.Max(0, w); d.Height = Math.Max(0, h);
+                Avalonia.Controls.Canvas.SetLeft(d, x); Avalonia.Controls.Canvas.SetTop(d, y);
+            }
+            Dim(0, 0, 0, cw, r.Y);
+            Dim(1, 0, r.Bottom, cw, ch - r.Bottom);
+            Dim(2, 0, r.Y, r.X, r.Height);
+            Dim(3, r.Right, r.Y, cw - r.Right, r.Height);
+
+            var corners = new[] { new Avalonia.Point(r.X, r.Y), new Avalonia.Point(r.Right, r.Y),
+                                  new Avalonia.Point(r.X, r.Bottom), new Avalonia.Point(r.Right, r.Bottom) };
+            for (int i = 0; i < 4; i++)
+            {
+                _zoomHandles[i].IsVisible = true;
+                Avalonia.Controls.Canvas.SetLeft(_zoomHandles[i], corners[i].X - ZoomHandleVisualPx / 2);
+                Avalonia.Controls.Canvas.SetTop(_zoomHandles[i], corners[i].Y - ZoomHandleVisualPx / 2);
+            }
+        }, Avalonia.Threading.DispatcherPriority.Render);
     }
 
     private void ZoomCanvas_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -2160,6 +2302,14 @@ public partial class GranularSpeedEditorWindow : Window
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
         if (canvas == null || _videoHost?.IpcClient == null) return;
 
+        // GPU path: the zoom itself is simulated live in mpv (UpdateLiveZoomCrop), so the
+        // yellow guide box would be redundant and mis-positioned on the cropped frame.
+        if (_gpuLiveZoomPreview)
+        {
+            if (canvas.IsVisible) canvas.IsVisible = false;
+            return;
+        }
+
         double tRelMs = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
         SpeedSegment? active = null;
         foreach (var s in _segments)
@@ -2191,6 +2341,7 @@ public partial class GranularSpeedEditorWindow : Window
             if (liveRes != _originalResolution) _originalResolution = liveRes;
         }
         UpdateZoomPlayheadOverlay();
+        UpdateLiveZoomCrop();
 
         double t = _videoHost.IpcClient.CurrentTime;
         double fullDur = _videoHost.IpcClient.Duration;
@@ -2258,8 +2409,8 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
-        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+        var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
         {
             bool isPaused = _videoHost.IpcClient.IsPaused;
@@ -2412,6 +2563,7 @@ public partial class GranularSpeedEditorWindow : Window
         this.Hide();
 
         RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
+        ClearLiveZoomCrop();
         _playbackTimer?.Stop();
 
         _isSafeToClose = true;

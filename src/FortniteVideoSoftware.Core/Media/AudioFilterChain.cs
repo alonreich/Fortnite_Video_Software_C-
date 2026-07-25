@@ -215,7 +215,6 @@ public class AudioFilterChain
 
         chain.Add($"[game_out_pre][a_music_reconstructed]amix=inputs=2:" +
                   $"duration=first:dropout_transition=3:weights='1 1':normalize=0," +
-                  $"alimiter=limit=0.95:attack=5:release=50," +
                   $"aresample={targetSampleRate}:async=1[a_music_prepared]");
 
         return (chain, "[a_music_prepared]");

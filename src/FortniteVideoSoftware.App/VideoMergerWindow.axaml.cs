@@ -1,4 +1,4 @@
-﻿using Avalonia.Input;
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -41,6 +41,22 @@ public partial class VideoMergerWindow : Window
     {
         get => GetValue(HasVideosProperty);
         set => SetValue(HasVideosProperty, value);
+    }
+
+    public static readonly Avalonia.StyledProperty<double> QualitySliderValueProperty =
+        Avalonia.AvaloniaProperty.Register<VideoMergerWindow, double>(nameof(QualitySliderValue), 100.0);
+    public double QualitySliderValue
+    {
+        get => GetValue(QualitySliderValueProperty);
+        set => SetValue(QualitySliderValueProperty, value);
+    }
+
+    public static readonly Avalonia.StyledProperty<double> MainSpeedSliderValueProperty =
+        Avalonia.AvaloniaProperty.Register<VideoMergerWindow, double>(nameof(MainSpeedSliderValue), 1.0);
+    public double MainSpeedSliderValue
+    {
+        get => GetValue(MainSpeedSliderValueProperty);
+        set => SetValue(MainSpeedSliderValueProperty, value);
     }
 
     private MusicWizardResult? _musicResult;
@@ -1541,8 +1557,8 @@ public partial class VideoMergerWindow : Window
     {
         if (_videoHost?.IpcClient == null) return;
 
-        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Polygon>("PlayIcon");
-        var pauseIcon = this.FindControl<StackPanel>("PauseIcon");
+        var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+        var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
         {
             playIcon.IsVisible = _videoHost.IpcClient.IsPaused;
@@ -1650,7 +1666,7 @@ public partial class VideoMergerWindow : Window
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)
         {
-            Task.Run(() => { try { p.WaitForInputIdle(5000); Task.Delay(500).Wait(); } catch { } Environment.Exit(0); });
+            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
         }
         else Environment.Exit(0);
     }
@@ -1676,6 +1692,7 @@ public partial class VideoMergerWindow : Window
                 var timeoutTask = Task.Delay(2000);
                 await Task.WhenAny(stopTask, timeoutTask);
             }
+            _videoHost?.Dispose();
         }
         catch { }
         finally { _isSafeToClose = true; this.Close(); }
@@ -1876,7 +1893,7 @@ public partial class VideoMergerWindow : Window
     {
         var frame = this.FindControl<Border>("VideoListFrame");
         if (frame == null) return;
-        frame.Background = Avalonia.Media.SolidColorBrush.Parse(active ? "#243447" : "#1e293b");
-        frame.BorderBrush = Avalonia.Media.SolidColorBrush.Parse(active ? "#38bdf8" : "#475569");
+        frame.Background = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppPanelBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!;
+        frame.BorderBrush = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppBorderBrush")!;
     }
 }
