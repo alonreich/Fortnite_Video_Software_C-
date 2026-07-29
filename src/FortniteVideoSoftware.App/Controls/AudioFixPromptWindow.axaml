@@ -1,0 +1,100 @@
+<!-- Audio warning dialog, shared by BOTH audio checks (loudness-off-standard and harsh peaks).
+     WindowStartupLocation="CenterOwner" is the same INTENTIONAL exception documented on
+     ConfirmDialogWindow and ErrorDialogWindow: this is a transient modal, not one of the 8
+     windows tracked by WindowBoundsHelper, so centring on its parent is correct here. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        x:Class="FortniteVideoSoftware.App.Controls.AudioFixPromptWindow"
+        Title="Warning"
+        MinWidth="560" MinHeight="340" MaxWidth="760" SizeToContent="WidthAndHeight"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}"
+                BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, Auto, Auto, Auto, Auto">
+
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="DialogTitle" Text="Warning"
+                               Classes="WindowTitleText"
+                               Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <!-- Headline + the plain-English explanation -->
+                <Border Grid.Row="1" Padding="25,20,25,8">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <TextBlock Text="&#x26A0;"
+                                   FontSize="{DynamicResource AppFontSize36}"
+                                   Foreground="{DynamicResource AppWarningBrush}"
+                                   VerticalAlignment="Top" />
+                        <StackPanel Spacing="8" MaxWidth="620">
+                            <TextBlock Text="Warning!"
+                                       FontSize="{DynamicResource AppFontSize18}"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                            <TextBlock Name="MessageText" Text=""
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                       FontSize="{DynamicResource AppFontSize13}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Name="QuestionText" Text=""
+                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                       FontSize="{DynamicResource AppFontSize13}"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- The measured numbers, for anyone who wants them. Muted so it never competes
+                     with the plain-English sentence above. -->
+                <Border Grid.Row="2" Padding="25,0,25,14">
+                    <TextBlock Name="DetailText" Text=""
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               FontSize="{DynamicResource AppFontSize11}"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Yes / No. Tooltips spell out the consequence of each in one short sentence. -->
+                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center"
+                            Spacing="15" Margin="0,0,0,16">
+                    <Button Name="YesBtn" Classes="Success" Content="YES"
+                            MinWidth="150" MinHeight="38" Cursor="Hand" IsDefault="True"
+                            AutomationProperties.Name="Yes, fix the audio" />
+                    <Button Name="NoBtn" Classes="Secondary" Content="NO"
+                            MinWidth="150" MinHeight="38" Cursor="Hand" IsCancel="True"
+                            AutomationProperties.Name="No, leave the audio alone" />
+                </StackPanel>
+
+                <!-- Remember-my-answer. Mutually exclusive: ticking one clears the other, because
+                     "always fix" and "never fix" are contradictory instructions. -->
+                <Border Grid.Row="4" Padding="25,0,25,22">
+                    <StackPanel Spacing="8">
+                        <Border Background="{DynamicResource AppPanelBrush}" CornerRadius="6" Padding="12,10">
+                            <StackPanel Spacing="10">
+                                <CheckBox Name="AlwaysCheck"
+                                          Content="Do not show this dialog again. Always perform the fix automatically."
+                                          Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                          FontSize="{DynamicResource AppFontSize11}"
+                                          ToolTip.Tip="From now on the app fixes this by itself and stays quiet about it." />
+                                <CheckBox Name="NeverCheck"
+                                          Content="Do not show this dialog again. Never perform or offer to perform this fix again."
+                                          Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                          FontSize="{DynamicResource AppFontSize11}"
+                                          ToolTip.Tip="From now on the app leaves your sound exactly as you recorded it and stays quiet about it." />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="You can change this later in Settings → Audio."
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize10}"
+                                   FontStyle="Italic"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

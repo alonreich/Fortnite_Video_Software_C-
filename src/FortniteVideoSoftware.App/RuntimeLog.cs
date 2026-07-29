@@ -24,6 +24,7 @@ public static class RuntimeLog
     private static long _estimatedSize = -1;
     private static long _droppedCount;
     private static readonly string _sessionId = Guid.NewGuid().ToString("N")[..8];
+    public static string SessionId => _sessionId;
     private static Task? _processTask;
 
     static RuntimeLog()
@@ -168,8 +169,17 @@ public static class RuntimeLog
     /// </summary>
     public static void EmergencyWrite(string step, string detail)
     {
+        bool acquired = false;
         try
         {
+            try
+            {
+                _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+                acquired = _globalMutex.WaitOne(500);
+            }
+            catch (AbandonedMutexException) { acquired = true; }
+            catch { }
+
             string? path = _cachedLogPath;
             if (path == null)
             {
@@ -178,13 +188,23 @@ public static class RuntimeLog
                 else if (DeploymentFootprint.IsRunningFromInstallPath()) path = Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().LogsDirectory, "Fortnite_Video_Software.log");
                 else path = DeploymentFootprint.InstallReportPath;
             }
-            string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [FATAL] {step} - {detail}{Environment.NewLine}";
+            
+            if (!acquired) path += $".crash.{Environment.ProcessId}.log";
+
+            string line = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [FATAL] {step} - {detail}{Environment.NewLine}";
             byte[] bytes = Encoding.UTF8.GetBytes(line);
             using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
             fs.Write(bytes, 0, bytes.Length);
             fs.Flush(true);
         }
         catch { }
+        finally
+        {
+            if (acquired && _globalMutex != null)
+            {
+                try { _globalMutex.ReleaseMutex(); } catch { }
+            }
+        }
     }
 
     public static void Fail(string step, Exception exception)
@@ -200,7 +220,7 @@ public static class RuntimeLog
             ResetForProcess();
         }
 
-        string line = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
+        string line = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
         SafeWrite(line);
         try { LogAppended?.Invoke(line.TrimEnd()); } catch { }
     }
@@ -226,75 +246,89 @@ public static class RuntimeLog
         }
         catch
         {
+            _cachedLogPath = LogPath + $".{Environment.ProcessId}.local.log";
             _globalMutex = new Mutex(false);
         }
         
         foreach (string firstText in _logQueue.GetConsumingEnumerable())
         {
-            var sb = new StringBuilder();
-            sb.Append(firstText);
-            
-            while (_logQueue.TryTake(out string? moreText))
+            try
             {
-                sb.Append(moreText);
-            }
-            
-            string combinedText = sb.ToString();
-
-            long dropped = Interlocked.Exchange(ref _droppedCount, 0);
-            if (dropped > 0)
-            {
-                combinedText = $"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {dropped} log line(s) dropped due to queue saturation.{Environment.NewLine}" + combinedText;
-            }
-
-            bool written = false;
-            while (!written)
-            {
-                bool acquired = false;
-                try
+                var sb = new StringBuilder();
+                sb.Append(firstText);
+                
+                while (_logQueue.TryTake(out string? moreText))
                 {
-                    try { acquired = _globalMutex.WaitOne(5000); } catch (AbandonedMutexException) { acquired = true; }
-                    if (!acquired)
-                    {
-                        if (_logQueue.IsAddingCompleted) break;
-                        Thread.Sleep(500);
-                        continue;
-                    }
+                    sb.Append(moreText);
+                }
+                
+                string combinedText = sb.ToString();
 
-                    var fi = new FileInfo(LogPath);
-                    _estimatedSize = fi.Exists ? fi.Length : 0;
-                    long incomingBytes = Encoding.UTF8.GetByteCount(combinedText);
+                long dropped = Interlocked.Exchange(ref _droppedCount, 0);
+                if (dropped > 0)
+                {
+                    combinedText = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {dropped} log line(s) dropped due to queue saturation.{Environment.NewLine}" + combinedText;
+                }
 
-                    if (_estimatedSize + incomingBytes >= MaxLogSize)
+                bool written = false;
+                while (!written)
+                {
+                    bool acquired = false;
+                    try
                     {
-                        string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeMilliseconds()}.{Guid.NewGuid():N}.old";
-                        try
+                        try { acquired = _globalMutex.WaitOne(5000); } catch (AbandonedMutexException) { acquired = true; }
+                        if (!acquired)
                         {
-                            if (File.Exists(LogPath))
-                            {
-                                File.Move(LogPath, oldLog);
-                                _estimatedSize = 0;
-                                CleanupOldLogs();
-                            }
+                            if (_logQueue.IsAddingCompleted) break;
+                            Thread.Sleep(500);
+                            continue;
                         }
-                        catch { }
-                    }
 
-                    using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                    using var sw = new StreamWriter(fs, new UTF8Encoding(false));
-                    sw.Write(combinedText);
-                    _estimatedSize += incomingBytes;
-                    written = true;
-                }
-                catch (Exception)
-                {
-                    break;
-                }
-                finally
-                {
-                    if (acquired) _globalMutex.ReleaseMutex();
+                        var fi = new FileInfo(LogPath);
+                        _estimatedSize = fi.Exists ? fi.Length : 0;
+                        long incomingBytes = Encoding.UTF8.GetByteCount(combinedText);
+
+                        if (_estimatedSize + incomingBytes >= MaxLogSize)
+                        {
+                            string oldLog = LogPath + $".{DateTimeOffset.Now.ToUnixTimeMilliseconds()}.{Guid.NewGuid():N}.old";
+                            try
+                            {
+                                if (File.Exists(LogPath))
+                                {
+                                    File.Move(LogPath, oldLog);
+                                    _estimatedSize = 0;
+                                    CleanupOldLogs();
+                                }
+                            }
+                            catch { }
+                        }
+
+                        using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                        using var sw = new StreamWriter(fs, new UTF8Encoding(false));
+                        sw.Write(combinedText);
+                        _estimatedSize += incomingBytes;
+
+                        int burstCount = 0;
+                        while (burstCount < 500 && _logQueue.TryTake(out string? followUp))
+                        {
+                            sw.Write(followUp);
+                            _estimatedSize += Encoding.UTF8.GetByteCount(followUp);
+                            burstCount++;
+                        }
+                        sw.Flush();
+                        written = true;
+                    }
+                    catch (Exception)
+                    {
+                        break;
+                    }
+                    finally
+                    {
+                        if (acquired) _globalMutex.ReleaseMutex();
+                    }
                 }
             }
+            catch { }
         }
     }
 
@@ -305,8 +339,9 @@ public static class RuntimeLog
             var dir = Path.GetDirectoryName(LogPath);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
 
-            var oldLogs = Directory.GetFiles(dir, "*.old")
-                                   .Where(f => f.Contains("Fortnite_Video_Software"))
+            var oldLogs = Directory.GetFiles(dir, "*.*")
+                                   .Where(f => (f.EndsWith(".old", StringComparison.OrdinalIgnoreCase) && f.Contains("Fortnite_Video_Software")) ||
+                                               (f.EndsWith(".log", StringComparison.OrdinalIgnoreCase) && f.Contains("mpv_debug_")))
                                    .Select(f => new FileInfo(f))
                                    .OrderByDescending(f => f.CreationTimeUtc)
                                    .ToList();
@@ -317,7 +352,7 @@ public static class RuntimeLog
             {
                 FileInfo f = oldLogs[i];
                 runningTotal += f.Length;
-                bool overCount = i >= MaxOldLogs;
+                bool overCount = i >= MaxOldLogs * 2;
                 bool overSize = runningTotal > MaxTotalOldBytes;
                 bool tooOld = f.CreationTimeUtc < cutoff;
                 if (overCount || overSize || tooOld)

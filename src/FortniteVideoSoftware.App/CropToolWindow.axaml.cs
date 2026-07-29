@@ -25,8 +25,33 @@ using IOPath = System.IO.Path;
 
 namespace FortniteVideoSoftware.App;
 
-public partial class CropToolWindow : Window
+public partial class CropToolWindow : Window, System.ComponentModel.INotifyPropertyChanged, System.ComponentModel.INotifyDataErrorInfo
 {
+    private string _roleName = "";
+    public string RoleName 
+    { 
+        get => _roleName; 
+        set 
+        {
+            if (_roleName != value) 
+            {
+                _roleName = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(RoleName)));
+                ErrorsChanged?.Invoke(this, new System.ComponentModel.DataErrorsChangedEventArgs(nameof(RoleName)));
+            }
+        } 
+    }
+
+    public new event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+    public event System.EventHandler<System.ComponentModel.DataErrorsChangedEventArgs>? ErrorsChanged;
+
+    public bool HasErrors => string.IsNullOrWhiteSpace(RoleName);
+
+    public System.Collections.IEnumerable GetErrors(string? propertyName)
+    {
+        if (propertyName == nameof(RoleName) && string.IsNullOrWhiteSpace(RoleName))
+            yield return "Element name cannot be empty.";
+    }
     private const double PortraitWidth = CoordinateConstants.PortraitW;
     private const double PortraitHeight = CoordinateConstants.PortraitH;
     private const double ContentTop = CoordinateConstants.UIPaddingTop;
@@ -53,13 +78,13 @@ public partial class CropToolWindow : Window
     private Canvas? _portraitCanvas;
     private Image? _snapshotImage;
     private Image? _composerBackgroundImage;
-    private TextBox? _roleTextBox;
     private ListBox? _layerList;
     private Slider? _timelineSlider;
     private TextBlock? _currentTimeLabel;
     private TextBlock? _totalTimeLabel;
     private TextBlock? _statusLabel;
     private TextBlock? _goalLabel;
+    private Canvas? _timelineCanvas;
     private TextBlock? _selectionInfo;
     private ProgressBar? _wizardProgress;
 
@@ -148,13 +173,13 @@ public partial class CropToolWindow : Window
         _portraitCanvas = this.FindControl<Canvas>("PortraitCanvas");
         _snapshotImage = this.FindControl<Image>("SnapshotImage");
         _composerBackgroundImage = this.FindControl<Image>("ComposerBackgroundImage");
-        _roleTextBox = this.FindControl<TextBox>("RoleTextBox");
         _layerList = this.FindControl<ListBox>("LayerList");
         _timelineSlider = this.FindControl<Slider>("TimelineSlider");
         _currentTimeLabel = this.FindControl<TextBlock>("CurrentTimeLabel");
         _totalTimeLabel = this.FindControl<TextBlock>("TotalTimeLabel");
         _statusLabel = this.FindControl<TextBlock>("StatusLabel");
         _goalLabel = this.FindControl<TextBlock>("GoalLabel");
+        _timelineCanvas = this.FindControl<Canvas>("CropTimelineScaleCanvas");
         _selectionInfo = this.FindControl<TextBlock>("SelectionInfo");
         _wizardProgress = this.FindControl<ProgressBar>("WizardProgress");
     }
@@ -774,14 +799,8 @@ public partial class CropToolWindow : Window
         using (var internalCanvas = new SKCanvas(internalBitmap))
         {
             internalCanvas.Clear(SKColors.Black);
-            double scale = Math.Max(
-                (double)CoordinateConstants.InternalW / source.Width,
-                (double)CoordinateConstants.InternalH / source.Height);
-            double scaledW = source.Width * scale;
-            double scaledH = source.Height * scale;
-            float left = (float)((CoordinateConstants.InternalW - scaledW) / 2.0);
-            float top = (float)((CoordinateConstants.InternalH - scaledH) / 2.0);
-            var dst = new SKRect(left, top, left + (float)scaledW, top + (float)scaledH);
+            var (scaledW, scaledH, cropX, cropY, _) = CoordinateMath.ScalePlan($"{source.Width}x{source.Height}");
+            var dst = new SKRect(-cropX, -cropY, -cropX + scaledW, -cropY + scaledH);
             internalCanvas.DrawBitmap(source, dst);
             internalCanvas.Flush();
         }
@@ -810,8 +829,10 @@ public partial class CropToolWindow : Window
 
         using SKImage image = SKImage.FromBitmap(finalBitmap);
         using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
-        using FileStream fs = File.OpenWrite(output);
-        data.SaveTo(fs);
+        using (var fs = new FileStream(output, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+        {
+            data.SaveTo(fs);
+        }
         return output;
     }
 
@@ -943,10 +964,7 @@ public partial class CropToolWindow : Window
         HudRole role = roleKey != null && RoleByKey.TryGetValue(roleKey, out var found)
             ? found
             : SuggestRole(rect);
-        if (_roleTextBox != null)
-        {
-            _roleTextBox.Text = role.DisplayName;
-        }
+        RoleName = role.DisplayName;
     }
 
     private void ClearSourceSelection()
@@ -972,7 +990,7 @@ public partial class CropToolWindow : Window
             return;
         }
 
-        string roleName = _roleTextBox?.Text?.Trim() ?? "";
+        string roleName = RoleName?.Trim() ?? "";
         if (string.IsNullOrEmpty(roleName))
         {
             SetStatus("Please enter a name for the HUD element.");
@@ -1003,7 +1021,7 @@ public partial class CropToolWindow : Window
             }
 
             string snapshotPath = _snapshotPath;
-            string cropPath = await Task.Run(() => CropSnapshotRegionForExportPreview(snapshotPath, sourceRect, role.Key));
+            string cropPath = await CropSnapshotRegionForExportPreviewAsync(snapshotPath, sourceRect, role.Key);
             _tempFiles.Add(cropPath);
 
             CropEditorItem? existing = _items.FirstOrDefault(i => i.RoleKey == role.Key);
@@ -1045,39 +1063,48 @@ public partial class CropToolWindow : Window
         }
     }
 
-    private string CropSnapshotRegionForExportPreview(string snapshotPath, SourceRect sourceRect, string roleKey)
+    private async Task<string> CropSnapshotRegionForExportPreviewAsync(string snapshotPath, SourceRect sourceRect, string roleKey)
     {
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
-            _originalResolution);
+            _originalResolution,
+            HudConfig.CropDriftType(roleKey));
         var exportRect = CoordinateMath.InverseTransformFromContentAreaInt(
             (contentRect.x, contentRect.y, contentRect.w, contentRect.h),
             _originalResolution,
             HudConfig.CropDriftType(roleKey));
-        return CropSnapshotRegion(snapshotPath, new SourceRect(exportRect.x, exportRect.y, exportRect.w, exportRect.h));
+        return await CropSnapshotRegionAsync(snapshotPath, new SourceRect(exportRect.x, exportRect.y, exportRect.w, exportRect.h)).ConfigureAwait(false);
     }
 
-    private string CropSnapshotRegion(string snapshotPath, SourceRect rect)
+    private async Task<string> CropSnapshotRegionAsync(string snapshotPath, SourceRect rect)
     {
         _paths.EnsureWritableDirectories();
         string output = IOPath.Combine(_paths.TempDirectory, $"crop_item_{Guid.NewGuid():N}.png");
 
-        using SKBitmap source = SKBitmap.Decode(snapshotPath) ?? throw new IOException("Could not decode snapshot.");
-        SourceRect clamped = ClampSourceRect(rect, source.Width, source.Height);
+        using var data = await Task.Run(() =>
+        {
+            using SKBitmap source = SKBitmap.Decode(snapshotPath) ?? throw new IOException("Could not decode snapshot.");
+            SourceRect clamped = ClampSourceRect(rect, source.Width, source.Height);
 
-        using var target = new SKBitmap(clamped.Width, clamped.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var canvas = new SKCanvas(target);
-        canvas.Clear(SKColors.Transparent);
+            using var target = new SKBitmap(clamped.Width, clamped.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using var canvas = new SKCanvas(target);
+            canvas.Clear(SKColors.Transparent);
 
-        var src = new SKRect(clamped.X, clamped.Y, clamped.X + clamped.Width, clamped.Y + clamped.Height);
-        var dst = new SKRect(0, 0, clamped.Width, clamped.Height);
-        canvas.DrawBitmap(source, src, dst);
-        canvas.Flush();
+            var src = new SKRect(clamped.X, clamped.Y, clamped.X + clamped.Width, clamped.Y + clamped.Height);
+            var dst = new SKRect(0, 0, clamped.Width, clamped.Height);
+            canvas.DrawBitmap(source, src, dst);
+            canvas.Flush();
 
-        using SKImage image = SKImage.FromBitmap(target);
-        using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
-        using FileStream fs = File.OpenWrite(output);
-        data.SaveTo(fs);
+            using SKImage image = SKImage.FromBitmap(target);
+            return image.Encode(SKEncodedImageFormat.Png, 100);
+        }).ConfigureAwait(false);
+
+        using (var fs = new FileStream(output, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 4096, FileOptions.Asynchronous))
+        {
+            data.SaveTo(fs);
+            await fs.FlushAsync().ConfigureAwait(false);
+        }
+
         return output;
     }
 
@@ -1299,7 +1326,7 @@ public partial class CropToolWindow : Window
 
     private void ResizeFromBottomRight(CropEditorItem item, double dx)
     {
-        double aspect = _editStartHeight / Math.Max(1, _editStartWidth);
+        double aspect = (double)_editStartHeight / Math.Max(1, _editStartWidth);
         double width = Math.Max(MinItemSize, _editStartWidth + dx);
         double height = width * aspect;
 
@@ -1318,13 +1345,14 @@ public partial class CropToolWindow : Window
         var quantized = QuantizeItemSize(item.SourceRect, width, item.RoleKey);
         item.Width = quantized.width;
         item.Height = quantized.height;
+        (item.X, item.Y) = ClampOverlay(_editStartX, _editStartY, item.Width, item.Height);
     }
 
     private void ResizeFromTopLeft(CropEditorItem item, double dx)
     {
-        double aspect = _editStartHeight / Math.Max(1, _editStartWidth);
-        double anchorRight = _editStartX + _editStartWidth;
-        double anchorBottom = _editStartY + _editStartHeight;
+        double aspect = (double)_editStartHeight / Math.Max(1, _editStartWidth);
+        int anchorRight = (int)(_editStartX + _editStartWidth);
+        int anchorBottom = (int)(_editStartY + _editStartHeight);
 
         double width = Math.Max(MinItemSize, _editStartWidth - dx);
         double height = width * aspect;
@@ -1335,23 +1363,20 @@ public partial class CropToolWindow : Window
         {
             width = anchorRight;
             height = width * aspect;
-            x = 0;
-            y = anchorBottom - height;
         }
 
         if (y < ContentTop)
         {
             height = anchorBottom - ContentTop;
             width = height / aspect;
-            y = ContentTop;
-            x = anchorRight - width;
         }
 
         var quantized = QuantizeItemSize(item.SourceRect, width, item.RoleKey);
         item.Width = quantized.width;
         item.Height = quantized.height;
-        item.X = Math.Max(0, RoundPixel(anchorRight - item.Width));
-        item.Y = Math.Max((int)ContentTop, RoundPixel(anchorBottom - item.Height));
+        item.X = Math.Max(0, anchorRight - item.Width);
+        item.Y = Math.Max((int)ContentTop, anchorBottom - item.Height);
+        (item.X, item.Y) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
     }
 
     private void ApplyItemLayout(CropEditorItem item)
@@ -1388,17 +1413,18 @@ public partial class CropToolWindow : Window
         item.LabelText.Text = item.DisplayName.ToUpperInvariant();
     }
 
-    private (int width, int height, double scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
+    private (int width, int height, Frac scale) QuantizeItemSize(SourceRect sourceRect, double desiredWidth, string? roleKey = null)
     {
         var contentRect = CoordinateMath.TransformToContentAreaInt(
             (sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height),
-            _originalResolution);
+            _originalResolution,
+            HudConfig.CropDriftType(roleKey ?? ""));
 
         int contentW = Math.Max(2, contentRect.w);
         int contentH = Math.Max(2, contentRect.h);
 
-        double maxDesW = Math.Max(MinItemSize, desiredWidth);
-        double quantizedScale = Math.Round(Math.Max(0.0001, maxDesW / contentW), 4, MidpointRounding.AwayFromZero);
+        long maxDesW = (long)Math.Round(Math.Max(MinItemSize, desiredWidth));
+        var quantizedScale = new Frac(maxDesW, contentW);
 
         var (width, height) = CoordinateMath.QuantizeBackendSize(contentW, contentH, quantizedScale);
 
@@ -1455,6 +1481,13 @@ public partial class CropToolWindow : Window
         {
             _portraitCanvas.Children.Remove(item.Root);
         }
+
+        try
+        {
+            (item.Image.Source as IDisposable)?.Dispose();
+            item.Image.Source = null;
+        }
+        catch { }
 
         _items.Remove(item);
     }
@@ -1526,18 +1559,18 @@ public partial class CropToolWindow : Window
                     continue;
                 }
 
-                int w = ReadInt(crop[0], 0);
-                int h = ReadInt(crop[1], 0);
-                if (w <= 1 || h <= 1)
-                {
-                    continue;
-                }
-
-                double scale = ReadDouble(scales[role.Key], 1.0);
-                var (scaledW, scaledH) = CoordinateMath.QuantizeBackendSize(w, h, scale);
-                double x = ReadDouble(overlay["x"], role.DefaultX);
-                double y = ReadDouble(overlay["y"], role.DefaultY);
-                int z = ReadInt(zOrders[role.Key], role.DefaultZ);
+                  int w = ReadInt(crop[0], 0);
+                  int h = ReadInt(crop[1], 0);
+                  if (w <= 1 || h <= 1)
+                  {
+                      continue;
+                  }
+  
+                  Frac scale = ReadFrac(scales[role.Key], Frac.One);
+                  var (scaledW, scaledH) = CoordinateMath.QuantizeBackendSize(w, h, scale);
+                  double x = ReadDouble(overlay["x"], role.DefaultX);
+                  double y = ReadDouble(overlay["y"], role.DefaultY);
+                  int z = ReadInt(zOrders[role.Key], role.DefaultZ);
 
                 var rect = new Rectangle
                 {
@@ -1634,10 +1667,10 @@ public partial class CropToolWindow : Window
     private CandidateSpec CandidateFromRatio(string roleKey, double x, double y, double w, double h)
     {
         var rect = new SourceRect(
-            (int)Math.Round(_snapshotWidth * x),
-            (int)Math.Round(_snapshotHeight * y),
-            (int)Math.Round(_snapshotWidth * w),
-            (int)Math.Round(_snapshotHeight * h));
+            CoordinateMath.ScaleRound(Frac.FromDouble(_snapshotWidth * x)),
+            CoordinateMath.ScaleRound(Frac.FromDouble(_snapshotHeight * y)),
+            CoordinateMath.ScaleRound(Frac.FromDouble(_snapshotWidth * w)),
+            CoordinateMath.ScaleRound(Frac.FromDouble(_snapshotHeight * h)));
         return new CandidateSpec(roleKey, ClampSourceRect(rect));
     }
 
@@ -1736,6 +1769,9 @@ public partial class CropToolWindow : Window
             
             try
             {
+                using var guard = FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.Acquire(
+                    FortniteVideoSoftware.Core.Ipc.StateTransferStore.MutexName,
+                    TimeSpan.FromSeconds(5));
                 string confPath = _paths.CropCoordinatesFile;
                 if (System.IO.File.Exists(confPath))
                 {
@@ -1771,27 +1807,30 @@ public partial class CropToolWindow : Window
 
                 var transformed = CoordinateMath.TransformToContentAreaInt(
                     (item.SourceRect.X, item.SourceRect.Y, item.SourceRect.Width, item.SourceRect.Height),
-                    _originalResolution);
+                    _originalResolution,
+                    HudConfig.CropDriftType(item.RoleKey));
 
-                int cropW = Math.Max(2, transformed.w);
-                int cropH = Math.Max(2, transformed.h);
-                double scale = quantized.scale;
+                var clampedCrop = CoordinateMath.ClampContentCrop((Math.Max(2, transformed.w), Math.Max(2, transformed.h), transformed.x, transformed.y));
+                int cropW = clampedCrop.w;
+                int cropH = clampedCrop.h;
+                Frac scale = quantized.scale;
                 (int ox, int oy) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
 
-                crops[item.RoleKey] = new JsonArray(cropW, cropH, transformed.x, transformed.y);
-                scales[item.RoleKey] = scale;
+                crops[item.RoleKey] = new JsonArray(cropW, cropH, clampedCrop.x, clampedCrop.y);
+                scales[item.RoleKey] = scale.ToString();
                 overlays[item.RoleKey] = new JsonObject
                 {
                     ["x"] = ox,
                     ["y"] = oy
                 };
                 zOrders[item.RoleKey] = item.Z;
-                RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{transformed.x}+{transformed.y}] scale={scale:F4} overlay=({ox},{oy}) z={item.Z}");
+                RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{clampedCrop.x}+{clampedCrop.y}] scale={scale} overlay=({ox},{oy}) z={item.Z}");
             }
 
             RuntimeLog.Info("CROP", $"Saving {_items.Count} item(s) to config (schema v{CropConfigDefaults.SchemaVersion}).");
             config["schema_version"] = CropConfigDefaults.SchemaVersion;
             config["coordinate_space"] = CropConfigDefaults.CoordinateSpace;
+            HudConfig.Sanitize(config);
             await store.SaveAsync(config);
 
             FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.SyncActiveProfileFromCurrentConfig();
@@ -2145,24 +2184,24 @@ public partial class CropToolWindow : Window
         var xTargets = new List<(double value, string label)>
         {
             (0, "Canvas Left"),
-            (PortraitWidth / 2, "Canvas Center"),
+            (CoordinateMath.ScaleRound(Frac.FromDouble(PortraitWidth / 2.0)), "Canvas Center"),
             (PortraitWidth, "Canvas Right")
         };
         var yTargets = new List<(double value, string label)>
         {
             (ContentTop, "Content Top"),
-            (PortraitHeight / 2, "Canvas Center"),
+            (CoordinateMath.ScaleRound(Frac.FromDouble(PortraitHeight / 2.0)), "Canvas Center"),
             (ContentBottom, "Content Bottom")
         };
 
         foreach (CropEditorItem other in _items.Where(i => !ReferenceEquals(i, item)))
         {
             xTargets.Add((other.X, other.DisplayName + " Left"));
-            xTargets.Add((other.X + other.Width / 2, other.DisplayName + " Center"));
+            xTargets.Add((other.X + CoordinateMath.ScaleRound(Frac.FromDouble(other.Width / 2.0)), other.DisplayName + " Center"));
             xTargets.Add((other.X + other.Width, other.DisplayName + " Right"));
 
             yTargets.Add((other.Y, other.DisplayName + " Top"));
-            yTargets.Add((other.Y + other.Height / 2, other.DisplayName + " Center"));
+            yTargets.Add((other.Y + CoordinateMath.ScaleRound(Frac.FromDouble(other.Height / 2.0)), other.DisplayName + " Center"));
             yTargets.Add((other.Y + other.Height, other.DisplayName + " Bottom"));
         }
 
@@ -2184,7 +2223,8 @@ public partial class CropToolWindow : Window
     private static (double pos, double? guide) SnapAxis(double pos, double size, List<(double value, string label)> targets)
     {
         double start = pos;
-        double center = pos + size / 2;
+        double halfSize = CoordinateMath.ScaleRound(Frac.FromDouble(size / 2.0));
+        double center = pos + halfSize;
         double end = pos + size;
         double bestDistance = SnapThreshold + 1;
         double bestPos = pos;
@@ -2193,7 +2233,7 @@ public partial class CropToolWindow : Window
         foreach ((double target, _) in targets)
         {
             Check(start, target, target);
-            Check(center, target, target - size / 2);
+            Check(center, target, target - halfSize);
             Check(end, target, target - size);
         }
 
@@ -2275,10 +2315,10 @@ public partial class CropToolWindow : Window
 
     private SourceRect ToSourceRect(Rect rect)
     {
-        int x = (int)Math.Floor(rect.X);
-        int y = (int)Math.Floor(rect.Y);
-        int right = (int)Math.Ceiling(rect.Right);
-        int bottom = (int)Math.Ceiling(rect.Bottom);
+        int x = CoordinateMath.ScaleRound(Frac.FromDouble(rect.X));
+        int y = CoordinateMath.ScaleRound(Frac.FromDouble(rect.Y));
+        int right = CoordinateMath.ScaleRound(Frac.FromDouble(rect.Right));
+        int bottom = CoordinateMath.ScaleRound(Frac.FromDouble(rect.Bottom));
         return ClampSourceRect(new SourceRect(x, y, Math.Max(1, right - x), Math.Max(1, bottom - y)));
     }
 
@@ -2331,6 +2371,23 @@ public partial class CropToolWindow : Window
         }
     }
 
+    private static Frac ReadFrac(JsonNode? node, Frac fallback)
+    {
+        try
+        {
+            if (node == null) return fallback;
+            if (node.AsValue().TryGetValue(out string? s) && !string.IsNullOrWhiteSpace(s))
+                return Frac.FromString(s);
+            if (node.AsValue().TryGetValue(out double d))
+                return Frac.FromDouble(d);
+            return fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
     private static double ReadDouble(JsonNode? node, double fallback)
     {
         try
@@ -2367,7 +2424,60 @@ public partial class CropToolWindow : Window
         {
             _goalLabel.Text = $"Step {step}: {goal}";
         }
+        UpdateStepDots(step);
         SetStatus(status);
+    }
+
+    /// <summary>
+    /// ISSUE_03: drives the three-dot wizard tracker in the header. Nothing used to call into
+    /// Step1Dot/Step2Dot/Step3Dot at all, so the indicator sat frozen on "step 1" for the whole
+    /// session while <see cref="SetWizardState"/> silently tracked the real progress next to it.
+    /// The internal wizard has FOUR states but the header shows THREE user-facing stages, so
+    /// steps 2 and 3 (Find HUD Frame / Refine Box) both map to the "Crop" dot.
+    /// </summary>
+    private void UpdateStepDots(int step)
+    {
+        int stage = step <= 1 ? 0 : step >= 4 ? 2 : 1;
+
+        var dots = new[]
+        {
+            (Dot: this.FindControl<Border>("Step1Dot"),
+             Icon: this.FindControl<TextBlock>("Step1Icon"),
+             Label: this.FindControl<TextBlock>("Step1Label"), Numeral: "1"),
+            (Dot: this.FindControl<Border>("Step2Dot"),
+             Icon: this.FindControl<TextBlock>("Step2Icon"),
+             Label: this.FindControl<TextBlock>("Step2Label"), Numeral: "2"),
+            (Dot: this.FindControl<Border>("Step3Dot"),
+             Icon: this.FindControl<TextBlock>("Step3Icon"),
+             Label: this.FindControl<TextBlock>("Step3Label"), Numeral: "3"),
+        };
+
+        for (int i = 0; i < dots.Length; i++)
+        {
+            var (dot, icon, label, numeral) = dots[i];
+            if (dot == null || icon == null || label == null) continue;
+
+            string dotClass = i < stage ? "WizDotDone" : i == stage ? "WizDotActive" : "WizDotPending";
+            string iconClass = i <= stage ? "WizIconOn" : "WizIconPending";
+            string labelClass = i < stage ? "WizLabelDone" : i == stage ? "WizLabelActive" : "WizLabelPending";
+
+            SwapClass(dot, dotClass, "WizDotPending", "WizDotActive", "WizDotDone");
+            SwapClass(icon, iconClass, "WizIconPending", "WizIconOn");
+            SwapClass(label, labelClass, "WizLabelPending", "WizLabelActive", "WizLabelDone");
+
+            icon.Text = i < stage ? "✓" : numeral;
+        }
+    }
+
+    /// <summary>Applies exactly one of a mutually exclusive class group to a control.</summary>
+    private static void SwapClass(StyledElement target, string keep, params string[] group)
+    {
+        foreach (var c in group)
+        {
+            if (c == keep) continue;
+            target.Classes.Remove(c);
+        }
+        if (!target.Classes.Contains(keep)) target.Classes.Add(keep);
     }
 
     private void SetStatus(string text)
@@ -2490,7 +2600,13 @@ public partial class CropToolWindow : Window
         try
         {
             _timelineTimer?.Stop();
+            _timelineTimer = null;
 
+            if (_playheadBadgeTimer != null)
+            {
+                _playheadBadgeTimer.Stop();
+                _playheadBadgeTimer = null;
+            }
 
             if (_videoHost != null)
             {
@@ -2499,6 +2615,7 @@ public partial class CropToolWindow : Window
                     await _videoHost.IpcClient.SendCommandAsync("stop");
                 }
                 _videoHost.Dispose();
+                _videoHost = null;
             }
         }
         catch (Exception ex)

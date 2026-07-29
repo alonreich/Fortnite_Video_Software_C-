@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -25,15 +25,10 @@ public partial class ButlerRibbon : UserControl
 
     private ButlerAction? _currentAction;
     private readonly HashSet<string> _dismissed = new();
-    private string _dismissalPath = string.Empty;
     private DispatcherTimer? _showTimer;
 
     /// <summary>Fired when the user clicks the card; passes the action Id.</summary>
     public event Action<string>? ActionInvoked;
-
-    private static readonly string SettingsDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "FortniteVideoSoftware", "Settings");
 
     public ButlerRibbon()
     {
@@ -44,7 +39,6 @@ public partial class ButlerRibbon : UserControl
         _iconText = this.FindControl<TextBlock>("IconText");
         _labelText = this.FindControl<TextBlock>("LabelText");
 
-        _dismissalPath = Path.Combine(SettingsDir, "butler_dismissals.json");
         LoadDismissals();
 
         if (_cardButton != null)
@@ -83,10 +77,8 @@ public partial class ButlerRibbon : UserControl
         if (_dismissed.Contains(action.Id))
             return;
 
-        // Cancel any pending show timer
         _showTimer?.Stop();
 
-        // Debounce: wait 800ms before showing to avoid flicker during rapid state changes
         _currentAction = action;
         _showTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
         _showTimer.Tick += (_, _) =>
@@ -113,6 +105,9 @@ public partial class ButlerRibbon : UserControl
             _container.Classes.Remove("ButlerHidden");
             _container.Classes.Add("ButlerVisible");
         }
+        IsVisible = true;
+        Opacity = 1;
+        IsHitTestVisible = true;
     }
 
     private void HideCard()
@@ -123,21 +118,34 @@ public partial class ButlerRibbon : UserControl
             _container.Classes.Remove("ButlerVisible");
             _container.Classes.Add("ButlerHidden");
         }
+        IsHitTestVisible = false;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(260) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!IsHitTestVisible)
+            {
+                Opacity = 0;
+                IsVisible = false;
+            }
+        };
+        timer.Start();
     }
+
+    private const string DismissalFile = "butler_dismissals.json";
 
     private void LoadDismissals()
     {
         try
         {
-            if (File.Exists(_dismissalPath))
+            string json = FortniteVideoSoftware.Core.Infrastructure.UiStateStore.ReadText(DismissalFile);
+            if (string.IsNullOrWhiteSpace(json)) return;
+
+            var items = JsonSerializer.Deserialize<string[]>(json);
+            if (items != null)
             {
-                var json = File.ReadAllText(_dismissalPath);
-                var items = JsonSerializer.Deserialize<string[]>(json);
-                if (items != null)
-                {
-                    foreach (var id in items)
-                        _dismissed.Add(id);
-                }
+                foreach (var id in items)
+                    _dismissed.Add(id);
             }
         }
         catch { /* swallow — non-critical */ }
@@ -147,9 +155,8 @@ public partial class ButlerRibbon : UserControl
     {
         try
         {
-            Directory.CreateDirectory(SettingsDir);
-            var json = JsonSerializer.Serialize(_dismissed);
-            File.WriteAllText(_dismissalPath, json);
+            FortniteVideoSoftware.Core.Infrastructure.UiStateStore.WriteText(
+                DismissalFile, JsonSerializer.Serialize(_dismissed));
         }
         catch { /* swallow — non-critical */ }
     }

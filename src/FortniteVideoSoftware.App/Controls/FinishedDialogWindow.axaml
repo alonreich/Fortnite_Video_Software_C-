@@ -67,17 +67,23 @@
                     <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
                         <Button Content="OPEN FOLDER"
                                 Click="OnOpenFolderClicked" MinWidth="180" MinHeight="48"
-                                Classes="Primary" FontWeight="Bold"
+                                Classes="Primary" FontWeight="Bold" Cursor="Hand"
+                                ToolTip.Tip="Open the folder containing your saved video in Windows Explorer."
+                                AutomationProperties.Name="Open containing folder in Windows Explorer"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                         <Button Content="NEW FILE"
                                 Click="OnUploadNewClicked" MinWidth="180" MinHeight="48"
-                                Classes="Secondary" FontWeight="Bold"
+                                Classes="Secondary" FontWeight="Bold" Cursor="Hand"
+                                ToolTip.Tip="Start a new video editing project from scratch."
+                                AutomationProperties.Name="Start a new video editing project"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                         <Button Content="EXIT APP"
                                 Click="OnExitClicked" MinWidth="180" MinHeight="48"
-                                Classes="Danger" FontWeight="Bold"
+                                Classes="Danger" FontWeight="Bold" Cursor="Hand"
+                                ToolTip.Tip="Close the application and end your session."
+                                AutomationProperties.Name="Exit application"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                     </StackPanel>

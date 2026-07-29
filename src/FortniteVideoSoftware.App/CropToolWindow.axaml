@@ -20,7 +20,8 @@
         <Grid RowDefinitions="30,*">
             <Border Name="TitleBarBorder"
                     Grid.Row="0"
-                    Background="{DynamicResource TitleBarBackground}">
+                    Background="{DynamicResource TitleBarBackground}"
+                    IsHitTestVisible="False">
                 <TextBlock Classes="WindowTitleText"
                            Text="{Binding $parent[Window].Title}"
                            Foreground="{DynamicResource TitleBarForeground}" />
@@ -36,20 +37,22 @@
                         <!-- ISSUE_05: Auto rows (were fixed 20/20/8px) so scaled fonts never clip the wizard labels -->
                         <Grid RowDefinitions="Auto,Auto,Auto">
                             <Grid Grid.Row="0" Margin="0,0,0,10" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
-                                <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="30,0,30,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
-                                <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="30,0,30,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
-                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Text="1" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <!-- ISSUE_03: connectors are AppBorderBrush, NOT AppPanelBrush — the
+                                     header Border they sit on is AppPanelBrush, so the old value gave
+                                     literally zero contrast in both Dark and Light. -->
+                                <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" Margin="40,0,40,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>
+                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" Classes="WizDotActive" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Text="Upload" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" FontWeight="Bold" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Text="2" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Classes="WizLabelActive" Text="Upload" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Text="Crop" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" MinWidth="24" MinHeight="24" CornerRadius="100" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Text="3" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Classes="WizLabelPending" Text="Crop" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Text="Save" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Classes="WizLabelPending" Text="Save" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                             </Grid>
                             <TextBlock Name="GoalLabel"
                                        Grid.Row="1"
@@ -103,7 +106,7 @@
                                         VerticalAlignment="Stretch"
                                         Background="Transparent"
                                         Cursor="Cross"
-                                        Focusable="True"
+                                        Focusable="True" KeyboardNavigation.IsTabStop="True"
                                         AutomationProperties.Name="Source snapshot selection canvas" />
                             </Grid>
                         </ScrollViewer>
@@ -111,15 +114,23 @@
                                 Background="{DynamicResource AppPanelBrush}"
                                 BorderBrush="{DynamicResource AppPanelBrush}"
                                 BorderThickness="0,1,0,0"
-                                Padding="12,6">
+                                Padding="12,12">
                             <Grid ColumnDefinitions="Auto,*,Auto">
                                 <StackPanel Grid.Column="0" MinWidth="220">
+                                    <!-- ISSUE_04: dropped `x:CompileBindings="False" Text="{Binding RoleName,
+                                         Mode=TwoWay}"`. No `RoleName` property exists anywhere in the C# source
+                                         and this window never assigns a DataContext, so the binding resolved
+                                         against null; x:CompileBindings="False" was the only reason it compiled.
+                                         Under PublishAot + TrimMode=full a reflection binding is exactly the
+                                         construct trimming breaks. The value is read directly from this control
+                                         via FindControl("RoleTextBox") in the code-behind, so behaviour is
+                                         unchanged — only the phantom binding is gone. -->
                                     <TextBox Name="RoleTextBox"
+                                             Text="{Binding $parent[local:CropToolWindow].RoleName, Mode=TwoWay}"
                                              Watermark="Element Name (e.g. Ammo)"
                                              HorizontalAlignment="Stretch"
                                              Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element."
-                                             x:CompileBindings="False" Text="{Binding RoleName, Mode=TwoWay}" />
+                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
                                 </StackPanel>
                                 <TextBlock Name="SelectionInfo"
                                            Grid.Column="1"
@@ -143,7 +154,8 @@
                             Background="{DynamicResource AppSurfaceBrush}"
                             BorderBrush="{DynamicResource AppPanelBrush}"
                             BorderThickness="0,1,0,0"
-                            Padding="16,5"
+                            Padding="16,16"
+                            Margin="0,8,0,0"
                             IsVisible="False">
                         <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                             <TextBlock Name="CurrentTimeLabel"
@@ -159,7 +171,7 @@
                                     <Canvas Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
                                     <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
                                     <Grid Height="44" ClipToBounds="False">
-                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag to scrub through the video" />
+                                        <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Crop tool video timeline scrub slider" ToolTip.Tip="Drag to scrub through the video" />
                                         <Canvas Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32">
                                             <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                                 <Border.Transitions>
@@ -234,7 +246,10 @@
                             <TextBlock Text="Active Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize11}"/>
                             <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" HorizontalAlignment="Stretch" ToolTip.Tip="Select an existing mask overlay profile."/>
                             <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" HorizontalAlignment="Stretch" MinWidth="130">
-                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." x:CompileBindings="False" Text="{Binding NewMaskOverlayName, Mode=TwoWay}" />
+                                <!-- ISSUE_04: dropped `x:CompileBindings="False" Text="{Binding
+                                     NewMaskOverlayName, Mode=TwoWay}"` — same phantom-property/null-DataContext
+                                     defect as RoleTextBox above. Read via FindControl("NewMaskOverlayTextBox"). -->
+                                <TextBox Name="NewMaskOverlayTextBox" Text="" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
                             </StackPanel>
                             <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="{DynamicResource AppFontSize10}" />
                         </Grid>
@@ -289,12 +304,12 @@
                                  exact 1:1 alignment at any window size or DPI. Pointer positions
                                  obtained via GetPosition(PortraitCanvas) are automatically
                                  transformed back into 1080x1920 space by Avalonia. -->
-                            <Viewbox Stretch="Uniform">
+                            <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Grid Width="1080" Height="1920">
                                 <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
                                 <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.22" />
                                 
-                                <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
+                                <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
 
                                 <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
                                     <Grid.Transitions>
@@ -451,11 +466,16 @@
                     </StackPanel>
                 </Border>
             </Grid>
+            <!-- ISSUE_10: both overlays are children of the outer RowDefinitions="30,*" grid and
+                 carried no Grid.Row/Grid.RowSpan, so they defaulted to row 0 — the 30px title-bar
+                 strip — while their ThinkingOverlay/SummaryOverlay siblings correctly declare
+                 Grid.RowSpan="2". RadialMenuControl is itself 300x300, so it was being crushed into
+                 a 30px band. Now spanning the full window like every other overlay in the suite. -->
             <!-- Contextual Radial Menu (IDEA 2) -->
-            <controls:RadialMenuControl x:Name="RadialMenu" ZIndex="999"/>
+            <controls:RadialMenuControl x:Name="RadialMenu" Grid.Row="0" Grid.RowSpan="2" ZIndex="999"/>
 
             <!-- Ambient Pulsing Dropzone (IDEA 4) -->
-            <controls:AmbientDropzoneControl x:Name="AmbientDropzone" ZIndex="998"/>
+            <controls:AmbientDropzoneControl x:Name="AmbientDropzone" Grid.Row="0" Grid.RowSpan="2" ZIndex="998"/>
         </Grid>
     </Border>
 </Window>

@@ -19,11 +19,8 @@ public class ProcessWorker : IDisposable
     public event Action<int, string, int>? PhaseUpdate;
     public event Action<bool, string>? Finished;
 
-    // Progress model (FIX_1..FIX_5): audio analysis is fast so it owns only a small band;
-    // encoding (the real CPU/GPU work) owns the bulk; the last few percent are reserved for
-    // the thumbnail + file-copy tail so "100%" only appears when the file is truly ready.
-    private const double AnalysisBandMax = 8.0;   // loudnorm 0..8%
-    private const double EncodeBandMax = 96.0;    // encode fills up to 96%; 96..100 = tail
+    private const double AnalysisBandMax = 8.0;
+    private const double EncodeBandMax = 96.0;
     private int _lastEmittedPct = -1;
 
     /// <summary>
@@ -34,7 +31,7 @@ public class ProcessWorker : IDisposable
     private void EmitProgress(int phase, string title, int pct)
     {
         pct = Math.Clamp(pct, 0, 100);
-        if (pct < _lastEmittedPct) pct = _lastEmittedPct;   // forward-only
+        if (pct < _lastEmittedPct) pct = _lastEmittedPct;
         _lastEmittedPct = pct;
         ProgressUpdate?.Invoke(pct);
         PhaseUpdate?.Invoke(phase, title, pct);
@@ -61,10 +58,22 @@ public class ProcessWorker : IDisposable
     public double ThumbnailPosMs { get; set; }
     public double VolumeNormalizeDb { get; set; }
     public double IntroStillSec { get; set; }
-    public bool IntroFromMidpoint { get; set; }
     public double? IntroAbsTimeMs { get; set; }
-    public double MusicVolume { get; set; } = 0.8;
     public bool KeepMusicDuringMeme { get; set; }
+
+    /// <summary>
+    /// ISSUE_04 — false when the music-start note marker sits to the RIGHT of MARK START, i.e.
+    /// the music deliberately begins partway into the video. It then enters at full level with
+    /// no fade-up. Set by the UI, which is the only layer that knows where the markers are.
+    /// </summary>
+    public bool MusicLeadFadeIn { get; set; } = true;
+
+    /// <summary>
+    /// ISSUE_04 — false when the music-end note marker sits to the RIGHT of MARK END, i.e. the
+    /// music is asking to outlast the video. There is no video left to fade over, so it is cut
+    /// dead at MARK END instead of fading out.
+    /// </summary>
+    public bool MusicTailFadeOut { get; set; } = true;
 
     public string? VoiceOverWavPath { get; set; }
     public double VoiceOverStartSec { get; set; } 
@@ -75,9 +84,56 @@ public class ProcessWorker : IDisposable
     public bool AutoVoiceNormalization { get; set; } = true;
     public bool AutoSpikeFlattening { get; set; } = true;
 
+    /// <summary>
+    /// Whether to normalise the SOURCE video's loudness to the streaming standard on export.
+    ///
+    /// This used to be unconditional and invisible: every export silently retargeted the user's
+    /// audio to -14 LUFS whether they wanted it or not, and nothing in the UI ever said so. It is
+    /// now the user's decision, taken on upload via the loudness warning dialog and remembered in
+    /// Settings → Audio. Default stays true so behaviour is unchanged for anyone who never
+    /// answers the dialog.
+    /// </summary>
+    public bool ApplyLoudnessNormalization { get; set; } = true;
+
+    /// <summary>
+    /// The source's measured integrated loudness (LUFS) from the upload-time probe, when the UI
+    /// has one.
+    ///
+    /// This exists so the rest of the mix can stay anchored to the game even when the user
+    /// declined normalisation — in that case no measurement pass runs during export, and without
+    /// this the voice-over had nothing truthful to match itself against. Null simply means
+    /// "nobody measured", and every consumer falls back rather than assuming a level.
+    /// </summary>
+    public double? SourceMeasuredLufs { get; set; }
+
     public bool VoiceOverMuteMale { get; set; }
     public bool VoiceOverMuteFemale { get; set; }
     public bool VoiceOverMuteChild { get; set; }
+
+    /// <summary>
+    /// ISSUE_04 — destination folder for the finished file, resolved by the UI layer
+    /// (OutputFolderResolver) BEFORE the render starts. Null keeps the legacy behaviour of
+    /// resolving Downloads here, but the UI always sets it so a missing Downloads folder is
+    /// handled with a picker instead of a crash.
+    /// </summary>
+    public string? OutputDirectory { get; set; }
+
+    /// <summary>
+    /// ISSUE_06 — the raw error text (FFmpeg stderr tail / exception detail) behind the last
+    /// failure. The UI feeds this to ErrorReporter, which mines the root-cause line out of it
+    /// for the failure dialog. Never shown raw to the user.
+    /// </summary>
+    public string? FailureDetail { get; private set; }
+
+    /// <summary>
+    /// ISSUE_13 — measured loudness stats from the real first pass. When populated, the export
+    /// graph runs a genuine second-pass <c>loudnorm</c> (linear mode) instead of the old flat
+    /// gain delta, so true-peak and loudness range are actually corrected.
+    /// </summary>
+    private LoudnormMeasurement? _loudnorm;
+
+    private sealed record LoudnormMeasurement(
+        double InputI, double InputTp, double InputLra, double InputThresh, double TargetOffset);
 
     public ProcessWorker(ApplicationPaths? paths = null)
     {
@@ -85,6 +141,22 @@ public class ProcessWorker : IDisposable
         _ffmpegPath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
         _ffprobePath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries");
     }
+
+    /// <summary>
+    /// ISSUE_04 — the single message used for a user-initiated stop, so the UI can distinguish
+    /// "you cancelled" from "something broke" without string-guessing.
+    /// </summary>
+    public const string CancelledMessage = "Export cancelled.";
+
+    /// <summary>True when this job ended because the user stopped it, not because it failed.</summary>
+    public bool WasCanceled => _isCanceled;
+
+    /// <summary>
+    /// ISSUE_12 — non-fatal problems that happened AFTER the video itself was written (currently
+    /// only the thumbnail grab). The export still succeeded; the UI surfaces this as a warning so
+    /// the user is not left hunting for a file that was never created.
+    /// </summary>
+    public string? CompletionWarning { get; private set; }
 
     public void Cancel()
     {
@@ -97,17 +169,55 @@ public class ProcessWorker : IDisposable
     }
 
     /// <summary>
+    /// ISSUE_04 — reads a child process's exit code without ever throwing.
+    ///
+    /// Callers reach here after a CANCELLABLE wait, so the process may not have finished dying
+    /// yet (Kill is asynchronous). Give it a short grace period, then fall back to a sentinel
+    /// rather than letting InvalidOperationException masquerade as a pipeline crash.
+    /// </summary>
+    private static int ReadExitCodeSafely(Process proc, string logTag, int graceMs = 5000)
+    {
+        try
+        {
+            if (!proc.HasExited)
+            {
+                if (!proc.WaitForExit(graceMs))
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    proc.WaitForExit(2000);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Debug(logTag, $"Could not confirm process exit: {ex.Message}");
+        }
+
+        try { return proc.HasExited ? proc.ExitCode : -1; }
+        catch (Exception ex)
+        {
+            CoreLogger.Debug(logTag, $"Exit code unavailable: {ex.Message}");
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// Runs the complete rendering pipeline. Returns true on success.
     /// Exact port of ProcessThread.run() logic flow.
     /// </summary>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        using var cancelMirror = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(() => _isCanceled = true)
+            : default;
+
         try
         {
             var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var encoderMgr = await Task.Run(() => new EncoderManager(HardwareStrategy, _ffmpegPath), cancellationToken).ConfigureAwait(false);
             if (encoderMgr.EncoderPreflightError != null)
             {
+                FailureDetail = encoderMgr.EncoderPreflightError;
                 EmitFinished(false, encoderMgr.EncoderPreflightError);
                 return;
             }
@@ -255,7 +365,8 @@ public class ProcessWorker : IDisposable
                         actualExtractStartMs,
                         "[0:v]",
                         sourceHasAudio ? baseAudioLabel : null,
-                        targetFps);
+                        targetFps,
+                        needHudBranch: IsMobileFormat);
                     granularFilters = filterGraph;
                     gV = vLabel;
                     gVHud = hudLabel;
@@ -264,7 +375,10 @@ public class ProcessWorker : IDisposable
                     granularTimeMapper = timeMapper;
                 }
 
-                int audioKbps = MediaProber.ChooseAudioBitrate(sourceAudioKbps, gDur, targetMb);
+                double introDurationSec = Math.Max(0, IntroStillSec);
+                double budgetDurationSec = gDur + introDurationSec + memeDuration;
+
+                int audioKbps = MediaProber.ChooseAudioBitrate(sourceAudioKbps, budgetDurationSec, targetMb);
                 int? videoBitrateKbps;
                 if (keepHighestRes && qualityLevel >= 20 && !targetMb.HasValue)
                 {
@@ -274,7 +388,7 @@ public class ProcessWorker : IDisposable
                 {
                     string outputRes = IsMobileFormat ? "1080x1920" : OriginalResolution;
                     videoBitrateKbps = MediaProber.CalculateVideoBitrate(
-                        gDur, audioKbps, targetMb, keepHighestRes, qualityLevel, outputRes, targetFps);
+                        budgetDurationSec, audioKbps, targetMb, keepHighestRes, qualityLevel, outputRes, targetFps);
                 }
 
                 var musicTracks = MusicTracks != null ? new List<MusicTrack>(MusicTracks) : new List<MusicTrack>();
@@ -293,11 +407,10 @@ public class ProcessWorker : IDisposable
                 {
                     for (int i = 0; i < musicTracks.Count; i++)
                     {
-                        musicTracks[i] = musicTracks[i] with { Duration = musicTracks[i].Duration + memeDuration, ApplyFadeOut = false };
+                        musicTracks[i] = musicTracks[i] with { Duration = musicTracks[i].Duration + memeDuration };
                     }
                 }
 
-                double introDurationSec = Math.Max(0, IntroStillSec);
                 int? introInputIndex = introDurationSec > 0.001 ? 1 + musicTracks.Count : null;
                 string? textInputLabel = textPngPath != null
                     ? $"[{1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0)}:v]"
@@ -309,20 +422,27 @@ public class ProcessWorker : IDisposable
 
                 double renderDurationSec = gDur + introDurationSec;
 
-                bool willAnalyzeAudio = VolumeNormalizeDb == 0.0 && sourceHasAudio;
-                // FIX_2: if analysis runs it owns 0..AnalysisBandMax; otherwise encoding starts at 0
-                // so the bar never opens with a dead jump to 8%.
+                {
+                    long estimatedBytes = DiskSpaceGuard.EstimateOutputBytes(
+                        renderDurationSec + memeDuration, videoBitrateKbps, targetMb);
+                    string plannedOutputDir = ResolveOutputDirectory();
+                    var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);
+                    if (!space.Ok)
+                    {
+                        FailureDetail = space.Message;
+                        EmitFinished(false, space.Message ?? "Not enough free disk space.");
+                        return;
+                    }
+                }
+
+                bool willAnalyzeAudio = ApplyLoudnessNormalization && VolumeNormalizeDb == 0.0 && sourceHasAudio;
                 double encodeFloor = willAnalyzeAudio ? AnalysisBandMax : 0.0;
 
-                // FIX_6: cost map — weight each stretch of OUTPUT time by how expensive it is to
-                // encode, so the bar advances by WORK done, not just by output timestamp. Zoom
-                // (esp. slow ramp) and freeze frames encode at very different speeds than plain
-                // passthrough; without this the bar stalls on heavy chunks and races on light ones.
                 double outIntro = introDurationSec;
                 double bodyStart = outIntro, bodyEnd = outIntro + gDur;
                 var costSpans = new List<(double s, double e, double w)>();
-                if (outIntro > 0.001) costSpans.Add((0, outIntro, 0.3));           // cloned still: cheap
-                costSpans.Add((bodyStart, bodyEnd, 1.0));                          // main-body base
+                if (outIntro > 0.001) costSpans.Add((0, outIntro, 0.3));
+                costSpans.Add((bodyStart, bodyEnd, 1.0));
                 if (SpeedSegments != null && granularTimeMapper != null)
                 {
                     foreach (var seg in SpeedSegments)
@@ -334,7 +454,7 @@ public class ProcessWorker : IDisposable
                         if (oe <= os + 1e-3) continue;
                         bool freeze = seg.Speed < 0.01;
                         bool zoom = seg.ZoomW.HasValue && seg.ZoomH.HasValue;
-                        double extra = zoom ? (seg.ZoomSlow ? 2.0 : 1.0) : (freeze ? -0.6 : 0.0); // additive delta over base 1.0
+                        double extra = zoom ? (seg.ZoomSlow ? 2.0 : 1.0) : (freeze ? -0.6 : 0.0);
                         if (Math.Abs(extra) > 1e-6) costSpans.Add((os, oe, extra));
                     }
                 }
@@ -358,32 +478,7 @@ public class ProcessWorker : IDisposable
                     await PerformLoudnormPassAsync(actualExtractStartMs, actualExtractEndMs, cancellationToken);
                 }
 
-                // FIX_3: hand off to the encode phase at the analysis-band ceiling, NOT 0
-                // (the old PhaseUpdate(...,0) made the bar visibly drop 8 -> 0 -> back up).
                 EmitProgress(2, "Encoding Video Pipeline", (int)Math.Round(encodeFloor));
-
-                List<string> audioChains = new();
-                string finalALabel = sourceHasAudio ? "[0:a]" : "";
-                
-                if (!mixMusicAfterMeme)
-                {
-                    var built = AudioFilterChain.Build(
-                        MusicConfig,
-                        actualExtractStartMs / 1000.0,
-                        actualExtractEndMs / 1000.0,
-                        SpeedFactor,
-                        true,
-                        0,
-                        null,
-                        48000,
-                        musicTracks,
-                        1,
-                        gDur,
-                        sourceHasAudio ? baseAudioLabel : "",
-                        VolumeNormalizeDb);
-                    audioChains = built.chains;
-                    finalALabel = built.finalLabel;
-                }
 
                 JsonObject mobileCoords = await VideoConfig.GetMobileCoordinatesAsync(_paths);
 
@@ -420,9 +515,17 @@ public class ProcessWorker : IDisposable
                 {
                     int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
 
-                    double rawGameLufs = -14.0 - VolumeNormalizeDb;
-                    rawGameLufs = Math.Clamp(rawGameLufs, -70.0, -5.0);
-                    string voLoudnorm = AutoVoiceNormalization ? $"loudnorm=I={rawGameLufs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5" : "anull";
+                    double gameLufsForVoice =
+                        _loudnorm?.InputI
+                        ?? SourceMeasuredLufs
+                        ?? (-14.0 - VolumeNormalizeDb);
+                    gameLufsForVoice = Math.Clamp(gameLufsForVoice, -70.0, -5.0);
+                    string voLoudnorm = AutoVoiceNormalization
+                        ? $"loudnorm=I={gameLufsForVoice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5"
+                        : "anull";
+                    CoreLogger.Info("Audio",
+                        $"Voice-over target {gameLufsForVoice:F2} LUFS (matched to the game bus), " +
+                        $"voice normalisation {(AutoVoiceNormalization ? "ON" : "OFF")}.");
 
                     for (int t = 0; t < effectiveTakes.Count; t++)
                     {
@@ -435,8 +538,7 @@ public class ProcessWorker : IDisposable
                         string delayLabel = $"[vo_delayed_{t}]";
                         string mixedLabel = $"[a_mixed_vo_{t}]";
 
-                        string voAtempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},{voAtempo},adelay={delayMs}|{delayMs}{delayLabel}");
+                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},adelay={delayMs}|{delayMs}{delayLabel}");
                         coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0{mixedLabel}");
                         aPreparedPad = mixedLabel;
                     }
@@ -445,11 +547,30 @@ public class ProcessWorker : IDisposable
                 string currentALabel = aPreparedPad;
                 if (!mixMusicAfterMeme)
                 {
-                    currentALabel = finalALabel;
-                    foreach (var part in audioChains)
+                    var built = AudioFilterChain.Build(
+                        MusicConfig,
+                        actualExtractStartMs / 1000.0,
+                        actualExtractEndMs / 1000.0,
+                        SpeedFactor,
+                        false,
+                        0,
+                        null,
+                        48000,
+                        musicTracks,
+                        1,
+                        gDur,
+                        aPreparedPad,
+                        VolumeNormalizeDb,
+                        BuildLoudnormSecondPassFilter(),
+                        musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
+                        musicLeadFadeIn: MusicLeadFadeIn,
+                        musicTailFadeOut: MusicTailFadeOut);
+
+                    foreach (var part in built.chains)
                     {
-                        coreFilters.Add(part.Replace(sourceHasAudio ? baseAudioLabel : "[0:a]", aPreparedPad));
+                        coreFilters.Add(part);
                     }
+                    currentALabel = built.finalLabel;
                 }
 
                 if (padStartHumanSec > 0 || padEndHumanSec > 0)
@@ -545,18 +666,31 @@ public class ProcessWorker : IDisposable
                 }
 
                 coreFilters.Add($"{vOutputPad}fps={targetFps}:start_time=0:round=near," +
-                               $"setpts=N/({targetFps})/TB[v_render_out]");
+                               $"setpts=N/({targetFps})/TB,format=yuv420p[v_render_out]");
 
                 string vOutputFinal = "[v_render_out]";
                 string aOutputFinal = currentALabel;
 
                 if (memeInputIndex.HasValue)
                 {
-                    string canvas = IsMobileFormat ? "1080:1920" : "1920:1080";
+                    string canvas;
+                    if (IsMobileFormat)
+                    {
+                        canvas = $"{CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}";
+                    }
+                    else
+                    {
+                        var (srcW, srcH) = CoordinateMath.GetResolutionInts(OriginalResolution);
+                        int memeCanvasW = Math.Max(2, srcW - (srcW % 2));
+                        int memeCanvasH = Math.Max(2, srcH - (srcH % 2));
+                        canvas = $"{memeCanvasW}:{memeCanvasH}";
+                    }
+                    CoreLogger.Info("FFmpeg", $"Meme canvas sized to {canvas.Replace(':', 'x')} to match the video output.");
+
                     string memeScale =
                         $"scale={canvas}:force_original_aspect_ratio=decrease," +
                         $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
-                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,fps={targetFps}:start_time=0:round=near";
+                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1,fps={targetFps}:start_time=0:round=near";
 
                     string memeAudio = "aresample=48000:async=1";
 
@@ -589,7 +723,7 @@ public class ProcessWorker : IDisposable
                         actualExtractStartMs / 1000.0,
                         actualExtractEndMs / 1000.0,
                         SpeedFactor,
-                        true, 
+                        false,
                         0,
                         null,
                         48000,
@@ -597,8 +731,12 @@ public class ProcessWorker : IDisposable
                         1,
                         gDur + memeDuration,
                         aOutputFinal,
-                        VolumeNormalizeDb);
-                        
+                        VolumeNormalizeDb,
+                        BuildLoudnormSecondPassFilter(),
+                        musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
+                        musicLeadFadeIn: MusicLeadFadeIn,
+                        musicTailFadeOut: MusicTailFadeOut);
+
                     foreach (var part in built.chains)
                     {
                         coreFilters.Add(part);
@@ -649,15 +787,15 @@ public class ProcessWorker : IDisposable
 
                         if (currentEncoder == "h264_nvenc")
                         {
-                            ffmpegArgs.AddRange(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]);
+                            ffmpegArgs.AddRange(["-hwaccel", "cuda"]);
                         }
                         else if (currentEncoder == "h264_amf")
                         {
-                            ffmpegArgs.AddRange(["-hwaccel", "d3d11va", "-hwaccel_output_format", "d3d11va"]);
+                            ffmpegArgs.AddRange(["-hwaccel", "d3d11va"]);
                         }
                         else if (currentEncoder == "h264_qsv")
                         {
-                            ffmpegArgs.AddRange(["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"]);
+                            ffmpegArgs.AddRange(["-hwaccel", "qsv"]);
                         }
 
                         ffmpegArgs.AddRange([
@@ -702,23 +840,31 @@ public class ProcessWorker : IDisposable
                             "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-movflags", "+faststart", corePath]);
 
-                        string cmdLine = string.Join(" ", ffmpegArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+                        string cmdLine = FormatForLog(ffmpegArgs);
                         CoreLogger.Info("FFmpeg", $"Starting encode: encoder={currentEncoder}, mode={rcLabel}, attempt={attemptNum}.");
                         CoreLogger.Debug("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
                         var psi = new ProcessStartInfo
                         {
                             FileName = _ffmpegPath,
-                            Arguments = cmdLine,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
                             CreateNoWindow = true,
                         };
 
+                        foreach (string arg in ffmpegArgs)
+                        {
+                            psi.ArgumentList.Add(arg);
+                        }
+
                         var proc = Process.Start(psi);
                         if (proc == null) return false;
                         _currentProcess = proc;
+
+                        bool disposedByGuard = false;
+                        try
+                        {
 
                         try { ChildProcessTracker.AddProcess(proc); } catch { }
 
@@ -740,7 +886,6 @@ public class ProcessWorker : IDisposable
                                         double currentSec = outTimeUs / 1_000_000.0;
                                         if (totalOutputDurationSec > 0)
                                         {
-                                            // FIX_2/FIX_6: map cost-weighted output progress into the encode band.
                                             double frac = EncodeFraction(currentSec);
                                             int scaledPercent = (int)Math.Round(encodeFloor + frac * (EncodeBandMax - encodeFloor));
                                             EmitProgress(2, "Encoding Video", scaledPercent);
@@ -780,19 +925,36 @@ public class ProcessWorker : IDisposable
                         string[] stderrLines;
                         lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
 
-                        int exitCode = proc.ExitCode;
+                        int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
                         _currentProcess = null;
                         proc.Dispose();
+                        disposedByGuard = true;
+
+                        if (_isCanceled || cancellationToken.IsCancellationRequested)
+                        {
+                            CoreLogger.Info("FFmpeg", "Encode stopped because the user cancelled.");
+                            lastError = CancelledMessage;
+                            FailureDetail = null;
+                            return false;
+                        }
 
                         if (exitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                         {
                             lastSuccessfulEncoder = currentEncoder;
+
+                            bool cpuFallback = currentEncoder == "libx264" && useCuda && !encoderMgr.ForcedCpu;
+                            CoreLogger.Info("FFmpeg",
+                                cpuFallback
+                                    ? $"Encode SUCCEEDED on {currentEncoder} — NOTE: this is the CPU fallback, the requested hardware encoder failed."
+                                    : $"Encode SUCCEEDED on {currentEncoder}.");
+
                             if (stderrLines.Length > 0)
                                 CoreLogger.Debug("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
                             return true;
                         }
 
                         lastError = $"FFmpeg exited with code {exitCode}";
+                        FailureDetail = stderrLines.Length > 0 ? string.Join("\n", stderrLines) : lastError;
                         CoreLogger.Fail("FFmpeg", lastError);
                         if (stderrLines.Length > 0)
                             CoreLogger.Fail("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
@@ -803,40 +965,160 @@ public class ProcessWorker : IDisposable
                             if (fallbacks.Count > 0)
                             {
                                 currentEncoder = fallbacks[0];
+                                CoreLogger.Info("FFmpeg", $"Retrying with fallback encoder: {currentEncoder}.");
                                 continue;
                             }
                         }
                         return false;
+                        }
+                        finally
+                        {
+                            if (!disposedByGuard)
+                            {
+                                _currentProcess = null;
+                                try { proc.Dispose(); } catch { }
+                            }
+                        }
                     }
                 }
+
+                string bestPath = corePath + ".best";
+                long bestSize = 0;
+                bool haveBest = false;
 
                 int? currentBitrate = videoBitrateKbps;
                 bool sizeTargetMet = !targetMb.HasValue;
                 long finalActualSize = 0;
                 long finalTargetSize = targetMb.HasValue ? (long)(targetMb.Value * 1024 * 1024) : 0;
-                for (int attempt = 1; attempt <= 2; attempt++)
+
+                try
                 {
-                    if (File.Exists(corePath)) File.Delete(corePath);
-                    success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
-                    if (!success || !targetMb.HasValue) break;
-
-                    finalActualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;
-                    double variance = finalTargetSize * 0.05;
-
-                    if (Math.Abs(finalActualSize - finalTargetSize) <= variance)
+                    for (int attempt = 1; attempt <= 2; attempt++)
                     {
-                        sizeTargetMet = true;
-                        break;
-                    }
+                        if (File.Exists(corePath)) File.Delete(corePath);
 
-                    if (finalActualSize > 0 && currentBitrate.HasValue)
-                    {
+                        success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
+
+                        if (_isCanceled || cancellationToken.IsCancellationRequested)
+                        {
+                            success = false;
+                            break;
+                        }
+
+                        if (!success)
+                        {
+                            if (haveBest)
+                            {
+                                CoreLogger.Fail("FFmpeg",
+                                    "Size-target retry failed — delivering the earlier successful render instead of failing the export.");
+                                if (File.Exists(corePath)) { try { File.Delete(corePath); } catch { } }
+
+                                try
+                                {
+                                    File.Move(bestPath, corePath, overwrite: true);
+                                    haveBest = false;
+                                    finalActualSize = bestSize;
+                                    success = true;
+                                    sizeTargetMet = false;
+                                }
+                                catch (Exception ex)
+                                {
+                                    CoreLogger.Fail("FFmpeg",
+                                        $"Could not restore the preserved render ({ex.Message}) — reporting the export as failed.");
+                                    FailureDetail ??= $"The retry failed and the preserved render could not be restored: {ex.Message}";
+                                }
+                            }
+                            break;
+                        }
+
+                        if (!targetMb.HasValue) break;
+
+                        finalActualSize = File.Exists(corePath) ? new FileInfo(corePath).Length : 0;
+                        double variance = finalTargetSize * 0.05;
+
+                        if (Math.Abs(finalActualSize - finalTargetSize) <= variance)
+                        {
+                            sizeTargetMet = true;
+                            break;
+                        }
+
+                        if (attempt >= 2)
+                        {
+                            if (haveBest &&
+                                Math.Abs(bestSize - finalTargetSize) < Math.Abs(finalActualSize - finalTargetSize))
+                            {
+                                CoreLogger.Info("FFmpeg",
+                                    $"Retry landed further from the target ({finalActualSize / 1048576.0:F2} MB vs {bestSize / 1048576.0:F2} MB) — keeping the first render.");
+
+                                try
+                                {
+                                    try { File.Delete(corePath); } catch { }
+                                    File.Move(bestPath, corePath, overwrite: true);
+                                    haveBest = false;
+                                    finalActualSize = bestSize;
+                                }
+                                catch (Exception ex)
+                                {
+                                    CoreLogger.Fail("FFmpeg",
+                                        $"Could not swap in the closer render ({ex.Message}) — delivering the retry instead.");
+
+                                    if (!File.Exists(corePath) && File.Exists(bestPath))
+                                    {
+                                        try
+                                        {
+                                            File.Move(bestPath, corePath, overwrite: true);
+                                            haveBest = false;
+                                            finalActualSize = bestSize;
+                                        }
+                                        catch (Exception ex2)
+                                        {
+                                            CoreLogger.Fail("FFmpeg", $"Recovery move also failed: {ex2.Message}");
+                                            success = false;
+                                            FailureDetail ??= $"Both renders became unavailable while selecting the closest size match: {ex2.Message}";
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+
+                        if (finalActualSize <= 0 || !currentBitrate.HasValue)
+                        {
+                            break;
+                        }
+
+                        try
+                        {
+                            if (File.Exists(bestPath)) File.Delete(bestPath);
+                            File.Move(corePath, bestPath);
+                            bestSize = finalActualSize;
+                            haveBest = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            CoreLogger.Fail("FFmpeg",
+                                $"Could not preserve the first render before retrying ({ex.Message}) — delivering it as-is.");
+                            break;
+                        }
+
                         currentBitrate = (int)(currentBitrate.Value * ((double)finalTargetSize / finalActualSize));
                     }
+                }
+                finally
+                {
+                    if (File.Exists(bestPath)) { try { File.Delete(bestPath); } catch { } }
                 }
 
                 if (!success)
                 {
+                    if (_isCanceled || cancellationToken.IsCancellationRequested)
+                    {
+                        FailureDetail = null;
+                        CoreLogger.Info("Process", "Export cancelled by the user.");
+                        EmitFinished(false, CancelledMessage);
+                        return;
+                    }
+
                     EmitFinished(false, lastError);
                     return;
                 }
@@ -847,13 +1129,44 @@ public class ProcessWorker : IDisposable
                     CoreLogger.Fail("FFmpeg", $"Export size target not met after retries. Target={targetMb.Value:F2} MB, actual={actualMb:F2} MB. Delivering closest render.");
                 }
 
-                // FIX_5: the encoder tops out at EncodeBandMax (96%); the copy + thumbnail tail
-                // fills the last few percent so 100% only shows when the file is truly ready.
                 EmitProgress(2, "Finalizing", 97);
-                string outputDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                outputDir = Path.Combine(outputDir, "Downloads");
+                string outputDir = ResolveOutputDirectory();
                 string finalOutput = ResolveOutputPath(outputDir);
-                File.Copy(corePath, finalOutput, true);
+
+                try
+                {
+                    File.Copy(corePath, finalOutput, true);
+                }
+                catch (Exception copyEx)
+                {
+                    string? rescued = TryRescueFinishedRender(corePath);
+
+                    CoreLogger.Fail("Output",
+                        $"The finished render could not be copied to the destination: {copyEx.Message}");
+                    CoreLogger.Debug("Output", $"Destination was: {finalOutput}");
+
+                    if (rescued != null)
+                    {
+                        CoreLogger.Info("Output", $"Finished render preserved at: {Path.GetFileName(rescued)}");
+                        CoreLogger.Debug("Output", $"Preserved render full path: {rescued}");
+                        FailureDetail =
+                            $"The video finished encoding but could not be written to the destination folder.{Environment.NewLine}" +
+                            $"Reason: {copyEx.Message}{Environment.NewLine}" +
+                            $"Your finished video has NOT been lost — it is here:{Environment.NewLine}{rescued}";
+                        EmitFinished(false,
+                            "Your video finished, but it could not be saved to the destination folder. " +
+                            "It has been kept safe — see the details for where to find it.");
+                    }
+                    else
+                    {
+                        FailureDetail =
+                            $"The video finished encoding but could not be written to the destination folder, " +
+                            $"and the temporary copy could not be preserved either.{Environment.NewLine}Reason: {copyEx.Message}";
+                        EmitFinished(false, "Your video finished, but it could not be saved to the destination folder.");
+                    }
+                    return;
+                }
+
                 try { File.Delete(corePath); } catch { }
 
                 if (ThumbnailPosMs > 0)
@@ -868,15 +1181,88 @@ public class ProcessWorker : IDisposable
                         extractTargetSec += introDurationSec;
                     }
                     string targetStr = extractTargetSec.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+
+                    var thumbArgs = new List<string>
+                    {
+                        "-y", "-hide_banner",
+                        "-ss", targetStr,
+                        "-i", finalOutput,
+                        "-vframes", "1",
+                        "-q:v", "2",
+                        thumbnailOutput
+                    };
+                    CoreLogger.Debug("Thumbnail", $"Executing: {_ffmpegPath} {FormatForLog(thumbArgs)}");
+
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = _ffmpegPath,
-                        Arguments = $"-y -ss {targetStr} -i \"{finalOutput}\" -vframes 1 -q:v 2 \"{thumbnailOutput}\"",
+                        RedirectStandardError = true,
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
-                    using var p = System.Diagnostics.Process.Start(psi);
-                    if (p != null) await p.WaitForExitAsync(cancellationToken);
+                    foreach (string arg in thumbArgs) psi.ArgumentList.Add(arg);
+
+                    try
+                    {
+                        using var p = System.Diagnostics.Process.Start(psi);
+                        if (p == null)
+                        {
+                            CompletionWarning = "The preview thumbnail could not be created (FFmpeg would not start).";
+                            CoreLogger.Fail("Thumbnail", "Process.Start returned null for the thumbnail grab.");
+                        }
+                        else
+                        {
+                            var thumbErrTask = Task.Run(async () =>
+                            {
+                                var q = new System.Collections.Generic.Queue<string>(400);
+                                using var reader = p.StandardError;
+                                while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+                                {
+                                    var line = await reader.ReadLineAsync(cancellationToken);
+                                    if (line != null)
+                                    {
+                                        q.Enqueue(line);
+                                        if (q.Count > 400) q.Dequeue();
+                                    }
+                                }
+                                return string.Join("\n", q);
+                            }, cancellationToken);
+
+                            try { await p.WaitForExitAsync(cancellationToken); }
+                            catch (OperationCanceledException) { }
+
+                            string thumbErr = string.Empty;
+                            try { thumbErr = await thumbErrTask; } catch { }
+
+                            int thumbExit = ReadExitCodeSafely(p, "Thumbnail", graceMs: 2000);
+                            bool thumbWritten = File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length > 0;
+
+                            if (thumbExit == 0 && thumbWritten)
+                            {
+                                CoreLogger.Info("Thumbnail", $"Thumbnail written: {Path.GetFileName(thumbnailOutput)}");
+                            }
+                            else if (!_isCanceled && !cancellationToken.IsCancellationRequested)
+                            {
+                                CompletionWarning =
+                                    "Your video was exported, but the preview thumbnail could not be created.";
+                                CoreLogger.Fail("Thumbnail",
+                                    $"Thumbnail grab failed (exit {thumbExit}, file written: {thumbWritten}).");
+                                if (!string.IsNullOrWhiteSpace(thumbErr))
+                                    CoreLogger.Fail("Thumbnail", $"FFmpeg stderr:\n{thumbErr.Trim()}");
+
+                                if (File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length == 0)
+                                {
+                                    try { File.Delete(thumbnailOutput); } catch { }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        CompletionWarning =
+                            "Your video was exported, but the preview thumbnail could not be created.";
+                        CoreLogger.Fail("Thumbnail", $"Thumbnail grab threw: {ex.Message}");
+                    }
                 }
                 pipelineStopwatch.Stop();
                 CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {Path.GetFileName(finalOutput)}");
@@ -888,27 +1274,93 @@ public class ProcessWorker : IDisposable
                 try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch { }
             }
         }
+        catch (OperationCanceledException)
+        {
+            _isCanceled = true;
+            FailureDetail = null;
+            CoreLogger.Info("Process", "Export cancelled by the user.");
+            EmitFinished(false, CancelledMessage);
+        }
         catch (Exception ex)
         {
+            if (_isCanceled || cancellationToken.IsCancellationRequested)
+            {
+                FailureDetail = null;
+                CoreLogger.Info("Process", $"Export cancelled by the user (during: {ex.Message}).");
+                EmitFinished(false, CancelledMessage);
+                return;
+            }
+
             CoreLogger.Fail("Process", $"Pipeline failed with exception: {ex.Message}");
             CoreLogger.Debug("Process", $"Pipeline failed with exception detail: {ex}");
+            FailureDetail = ex.ToString();
             EmitFinished(false, ex.Message);
         }
     }
 
-    private static string ResolveOutputPath(string defaultDir)
+    /// <summary>
+    /// ISSUE_04 — where the finished file goes.
+    /// <see cref="OutputDirectory"/> is set by the UI layer, which has already validated it and
+    /// (if needed) asked the user to pick one. The shell-resolved Downloads folder and the
+    /// %USERPROFILE% guess below exist only so a headless/gated code path still produces a file
+    /// rather than throwing.
+    /// </summary>
+    private string ResolveOutputDirectory()
     {
-        string outputDir = defaultDir;
+        if (!string.IsNullOrWhiteSpace(OutputDirectory))
+        {
+            return OutputDirectory!;
+        }
+
+        string? downloads = KnownFolders.GetDownloads();
+        if (!string.IsNullOrWhiteSpace(downloads))
+        {
+            return downloads!;
+        }
+
+        CoreLogger.Fail("Output",
+            "No output folder was supplied and Downloads could not be resolved — falling back to the user profile.");
+        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    }
+
+    /// <summary>
+    /// ISSUE_03 — moves a COMPLETED render out of the per-job temp folder, which the pipeline's
+    /// <c>finally</c> block deletes wholesale, into the temp ROOT where it will survive.
+    ///
+    /// This is the safety net for the one moment where the expensive work is already done but the
+    /// file is not yet at its destination. Returns the preserved path, or null if even that could
+    /// not be managed (in which case there is genuinely nothing left to save).
+    /// </summary>
+    private string? TryRescueFinishedRender(string corePath)
+    {
         try
         {
-            if (OperatingSystem.IsWindows())
+            if (!File.Exists(corePath)) return null;
+
+            Directory.CreateDirectory(_paths.TempDirectory);
+
+            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            string rescued = Path.Combine(_paths.TempDirectory, $"Fortnite-Video-RECOVERED-{stamp}.mp4");
+
+            int n = 1;
+            while (File.Exists(rescued))
             {
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders");
-                if (key?.GetValue("{374DE290-123F-4565-9164-39C4925E467B}") is string path && Directory.Exists(path))
-                    outputDir = path;
+                rescued = Path.Combine(_paths.TempDirectory, $"Fortnite-Video-RECOVERED-{stamp}-{n}.mp4");
+                n++;
             }
+
+            File.Move(corePath, rescued);
+            return rescued;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("Output", $"Could not preserve the finished render: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string ResolveOutputPath(string outputDir)
+    {
         Directory.CreateDirectory(outputDir);
         int idx = 1;
         while (true)
@@ -917,6 +1369,16 @@ public class ProcessWorker : IDisposable
             if (!File.Exists(path)) return path;
             idx++;
         }
+    }
+
+    /// <summary>
+    /// ISSUE_15 — renders an argument list into a human-readable, copy-pasteable command for
+    /// the DEBUG log only. Never used to launch a process.
+    /// </summary>
+    private static string FormatForLog(IEnumerable<string> args)
+    {
+        return string.Join(" ", args.Select(a =>
+            a.Length == 0 || a.Contains(' ') || a.Contains('"') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
     }
 
     private void EmitFinished(bool success, string message)
@@ -942,21 +1404,27 @@ public class ProcessWorker : IDisposable
                 "-f", "null", "-"
             };
 
-            string cmdLine = string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-            CoreLogger.Info("Loudnorm", "Executing pass 1.");
-            CoreLogger.Debug("Loudnorm", $"Executing pass 1: {_ffmpegPath} {cmdLine}");
+            CoreLogger.Info("Loudnorm", "Executing pass 1 (measurement).");
+            CoreLogger.Debug("Loudnorm", $"Executing pass 1: {_ffmpegPath} {FormatForLog(args)}");
 
             var psi = new ProcessStartInfo
             {
                 FileName = _ffmpegPath,
-                Arguments = cmdLine,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            foreach (string arg in args) psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
             if (process == null) return;
+
+            try { ChildProcessTracker.AddProcess(process); } catch { }
+
+            using var loudnormKill = cancellationToken.Register(() =>
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+            });
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
             double totalDurationSec = (measureEndMs - measureStartMs) / 1000.0;
@@ -980,14 +1448,17 @@ public class ProcessWorker : IDisposable
                     {
                         double currentSec = ts.TotalSeconds;
                         int percent = totalDurationSec > 0 ? (int)Math.Clamp(currentSec / totalDurationSec * 100, 0, 100) : 0;
-                        // FIX_2: analysis maps into the small 0..AnalysisBandMax band (was 0..50).
                         int scaledPercent = (int)Math.Round(percent / 100.0 * AnalysisBandMax);
                         EmitProgress(1, "Analyzing Audio (Two-Pass Normalization)", scaledPercent);
                     }
                 }
             }
 
-            await process.WaitForExitAsync(cancellationToken);
+            try { await process.WaitForExitAsync(cancellationToken); }
+            catch (OperationCanceledException) { return; }
+
+            if (_isCanceled || cancellationToken.IsCancellationRequested) return;
+
             string stdErr = string.Join("\n", lastLines);
 
             int jsonStart = stdErr.LastIndexOf("{");
@@ -998,10 +1469,33 @@ public class ProcessWorker : IDisposable
                 var node = JsonNode.Parse(jsonStr);
                 if (node != null && node["input_i"] != null)
                 {
-                    if (double.TryParse(node["input_i"]!.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double inputI))
+                    double inputI = 0, inputTp = 0, inputLra = 0, inputThresh = 0, targetOffset = 0;
+
+                    bool haveAll =
+                        TryReadDouble(node, "input_i", out inputI) &&
+                        TryReadDouble(node, "input_tp", out inputTp) &&
+                        TryReadDouble(node, "input_lra", out inputLra) &&
+                        TryReadDouble(node, "input_thresh", out inputThresh) &&
+                        TryReadDouble(node, "target_offset", out targetOffset);
+
+                    if (haveAll)
                     {
+                        _loudnorm = new LoudnormMeasurement(inputI, inputTp, inputLra, inputThresh, targetOffset);
+
                         VolumeNormalizeDb = targetLufs - inputI;
-                        CoreLogger.Info("Loudnorm", $"Pass 1 complete. input_i={inputI} LUFS. Normalization DB applied: {VolumeNormalizeDb:F2} dB.");
+
+                        CoreLogger.Info("Loudnorm",
+                            $"Pass 1 complete. I={inputI:F2} LUFS, TP={inputTp:F2} dBTP, LRA={inputLra:F2} LU, " +
+                            $"thresh={inputThresh:F2}, offset={targetOffset:F2}. Second pass will run in linear mode.");
+                        return;
+                    }
+
+                    if (double.TryParse(node["input_i"]!.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double fallbackI))
+                    {
+                        _loudnorm = null;
+                        VolumeNormalizeDb = targetLufs - fallbackI;
+                        CoreLogger.Info("Loudnorm",
+                            $"Pass 1 returned a partial measurement (input_i={fallbackI}). Falling back to a flat {VolumeNormalizeDb:F2} dB gain.");
                         return;
                     }
                 }
@@ -1014,6 +1508,40 @@ public class ProcessWorker : IDisposable
         }
     }
 
+    private static bool TryReadDouble(JsonNode node, string key, out double value)
+    {
+        value = 0;
+        string? raw = node[key]?.ToString();
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+
+        if (raw.Contains("inf", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
+    /// <summary>
+    /// ISSUE_13 — builds the genuine SECOND pass of a two-pass loudnorm from the pass-1
+    /// measurement. Returns null when no usable measurement exists, in which case the caller
+    /// keeps the legacy flat-gain behaviour.
+    ///
+    /// <c>linear=true</c> is what makes this a real two-pass: with the measured values supplied,
+    /// loudnorm computes ONE constant gain for the whole track instead of the dynamic,
+    /// range-squashing single-pass behaviour, and it backs that gain off if it would breach the
+    /// true-peak ceiling.
+    /// </summary>
+    private string? BuildLoudnormSecondPassFilter()
+    {
+        if (_loudnorm is null) return null;
+
+        var ci = CultureInfo.InvariantCulture;
+        return "loudnorm=I=-14:TP=-1.5:LRA=11:linear=true" +
+               $":measured_I={_loudnorm.InputI.ToString("F2", ci)}" +
+               $":measured_TP={_loudnorm.InputTp.ToString("F2", ci)}" +
+               $":measured_LRA={_loudnorm.InputLra.ToString("F2", ci)}" +
+               $":measured_thresh={_loudnorm.InputThresh.ToString("F2", ci)}" +
+               $":offset={_loudnorm.TargetOffset.ToString("F2", ci)}";
+    }
+
     private List<VoiceOverTake> GetEffectiveVoiceOverTakes()
     {
         if (VoiceOverTakes != null && VoiceOverTakes.Count > 0)
@@ -1023,9 +1551,38 @@ public class ProcessWorker : IDisposable
         return [];
     }
 
+    /// <summary>
+    /// ISSUE_11 — disposing the worker now also STOPS the encoder.
+    ///
+    /// WHAT WAS WRONG: this released the bookkeeping object and never told FFmpeg anything. Every
+    /// caller is *expected* to call <see cref="Cancel"/> first, but nothing enforced it — so any
+    /// path that disposed a worker without cancelling (an early return, an exception, a UI teardown
+    /// that skipped a step) left a full-speed encode running on a file that would never be
+    /// delivered, with the progress overlay already gone. The user saw fans at full tilt and a
+    /// pegged CPU with nothing on screen to explain it.
+    ///
+    /// Killing the tree here makes teardown self-sufficient. Calling Cancel() first remains the
+    /// correct, orderly path — this is the backstop, not a replacement for it.
+    /// </summary>
     public void Dispose()
     {
-        _currentProcess?.Dispose();
+        var proc = _currentProcess;
+        if (proc != null)
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    _isCanceled = true;
+                    CoreLogger.Info("Process", "Worker disposed while the encoder was still running — terminating the FFmpeg process tree.");
+                    proc.Kill(entireProcessTree: true);
+                }
+            }
+            catch { }
+
+            try { proc.Dispose(); } catch { }
+            _currentProcess = null;
+        }
     }
 }
 

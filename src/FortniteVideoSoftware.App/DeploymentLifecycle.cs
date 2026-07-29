@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -82,9 +82,13 @@ internal static class DeploymentLifecycle
         {
             await DeploymentReporter.ResetAsync("INSTALL ELEVATION").ConfigureAwait(false);
             await DeploymentReporter.StepAsync("ELEVATION", "Current worker is not elevated. Requesting Administrator permission.", 10).ConfigureAwait(false);
-            StartElevated(Environment.ProcessPath ?? DeploymentFootprint.InstallPath, BuildInstallWorkerArgs(noLaunch, quiet));
+            StartElevated(
+                Environment.ProcessPath ?? DeploymentFootprint.InstallPath,
+                BuildInstallWorkerArgs(noLaunch, quiet, ReadUserDesktopArgument(args) ?? ProbeInvokingUserDesktop()));
             return 0;
         }
+
+        string? invokingUserDesktop = ReadUserDesktopArgument(args);
 
         using Semaphore installerGate = CreateInstallerGate();
         if (!AcquireInstallerGate(installerGate))
@@ -100,17 +104,34 @@ internal static class DeploymentLifecycle
             await DeploymentReporter.StepAsync("INIT", "Starting elevated install/upgrade worker.", 1).ConfigureAwait(false);
 
             bool preserve = false;
-            bool isUpgrade = await ReportExistingVersionAsync().ConfigureAwait(false);
+            (bool isUpgrade, string? existingVersion) = await ReportExistingVersionAsync().ConfigureAwait(false);
+
             if (isUpgrade)
             {
+                if (!ConfirmVersionTransition(existingVersion))
+                {
+                    await DeploymentReporter.StepAsync("CANCELLED",
+                        "The user cancelled after being shown the version comparison.", 100).ConfigureAwait(false);
+                    return 0;
+                }
+
                 preserve = NativeDialog.ShowQuestion(
-                    "Previous Installation Detected!\r\nWould you like to preserve settings from the older installed app?",
+                    "Previous Installation Detected!\r\n" +
+                    $"Installed version: {existingVersion ?? "unknown"}\r\n" +
+                    $"This installer:    {GetCurrentVersion()}\r\n\r\n" +
+                    "Would you like to preserve your settings, window layout and preferences from the older installed app?",
                     "Fortnite Video Software Setup");
+
+                await DeploymentReporter.StepAsync("PRESERVE CHOICE",
+                    preserve
+                        ? "User chose to PRESERVE existing settings. ProgramData, Roaming and Local app data will be kept."
+                        : "User chose a CLEAN install. All existing settings will be removed.",
+                    4).ConfigureAwait(false);
             }
 
-            await PerformFullHostCleanupAsync("Pre-Install Cleanup", 5, 55, requireZeroFootprint: false, purgeUserArtifacts: false, includeProgramData: !preserve).ConfigureAwait(false);
-            await InstallFreshAsync().ConfigureAwait(false);
-            await DeploymentReporter.StepAsync("SUCCESS", "Install/upgrade finished. All files, registry entries, and Start Menu shortcut are in place.", 100).ConfigureAwait(false);
+            await PerformFullHostCleanupAsync("Pre-Install Cleanup", 5, 55, requireZeroFootprint: false, purgeUserArtifacts: false, includeUserData: !preserve, invokingUserDesktop: invokingUserDesktop).ConfigureAwait(false);
+            await InstallFreshAsync(invokingUserDesktop).ConfigureAwait(false);
+            await DeploymentReporter.StepAsync("SUCCESS", "Install/upgrade finished. All files, registry entries, Start Menu and desktop shortcuts are in place.", 100).ConfigureAwait(false);
 
             if (!noLaunch)
             {
@@ -157,6 +178,9 @@ internal static class DeploymentLifecycle
 
         int parentPid = Environment.ProcessId;
         string workerArgs = $"--uninstall --cleanup-worker {parentPid}" + (quiet ? " --quiet" : "");
+
+        workerArgs = AppendUserDesktopArgument(workerArgs, ProbeInvokingUserDesktop());
+
         if (!TryStartElevated(tempUninstaller, workerArgs))
         {
             await DeploymentReporter.FailAsync("ELEVATION", "User cancelled Administrator permission or Windows refused to start the elevated cleanup worker.", 10).ConfigureAwait(false);
@@ -178,7 +202,11 @@ internal static class DeploymentLifecycle
         bool quiet = args.Any(a => a.Equals("--quiet", StringComparison.OrdinalIgnoreCase));
         if (!IsElevated())
         {
-            StartElevated(Environment.ProcessPath ?? DeploymentFootprint.UninstallPath, "--uninstall --cleanup-worker" + (quiet ? " --quiet" : ""));
+            string reElevateArgs = AppendUserDesktopArgument(
+                "--uninstall --cleanup-worker" + (quiet ? " --quiet" : ""),
+                ReadUserDesktopArgument(args) ?? ProbeInvokingUserDesktop());
+
+            StartElevated(Environment.ProcessPath ?? DeploymentFootprint.UninstallPath, reElevateArgs);
             return 0;
         }
 
@@ -200,7 +228,7 @@ internal static class DeploymentLifecycle
 
             await DeploymentReporter.ResetAsync("UNINSTALL").ConfigureAwait(false);
             await DeploymentReporter.StepAsync("UNINSTALL", "Starting full cleanup.", 10).ConfigureAwait(false);
-            await PerformFullHostCleanupAsync("Uninstall", 10, 90, requireZeroFootprint: true, purgeUserArtifacts: true, includeProgramData: true).ConfigureAwait(false);
+            await PerformFullHostCleanupAsync("Uninstall", 10, 90, requireZeroFootprint: true, purgeUserArtifacts: true, includeUserData: true, invokingUserDesktop: ReadUserDesktopArgument(args)).ConfigureAwait(false);
 
             bool clean = await VerifyZeroFootprintAsync().ConfigureAwait(false);
             string status = clean && _pendingRebootDeletes == 0 ? "All components removed successfully." : "Cleanup finished. Some locked files may require a reboot for final removal.";
@@ -220,7 +248,7 @@ internal static class DeploymentLifecycle
         }
     }
 
-    private static async Task<bool> ReportExistingVersionAsync()
+    private static async Task<(bool IsUpgrade, string? ExistingVersion)> ReportExistingVersionAsync()
     {
         string? existingVersion = GetInstalledVersion();
         bool hasFolder = Directory.Exists(DeploymentFootprint.InstallFolder);
@@ -228,26 +256,89 @@ internal static class DeploymentLifecycle
 
         if (hasFolder || hasExe || !string.IsNullOrWhiteSpace(existingVersion))
         {
+            string direction = DescribeVersionTransition(existingVersion);
             await DeploymentReporter.StepAsync(
-                "UPGRADE DETECTED",
-                $"Existing install detected. Version='{existingVersion ?? "unknown"}', folderExists={hasFolder}, exeExists={hasExe}. It will be upgraded automatically.",
+                "EXISTING INSTALL DETECTED",
+                $"Installed='{existingVersion ?? "unknown"}', installer='{GetCurrentVersion()}' ({direction}). " +
+                $"folderExists={hasFolder}, exeExists={hasExe}.",
                 3).ConfigureAwait(false);
-            return true;
+            return (true, existingVersion);
         }
-        else
-        {
-            await DeploymentReporter.StepAsync("FRESH INSTALL", "No previous installation was detected.", 3).ConfigureAwait(false);
-            return false;
-        }
+
+        await DeploymentReporter.StepAsync("FRESH INSTALL", "No previous installation was detected.", 3).ConfigureAwait(false);
+        return (false, null);
     }
 
+    /// <summary>ISSUE_02 — classifies installer version vs installed version.</summary>
+    private static string DescribeVersionTransition(string? existingVersion)
+    {
+        if (!TryParseVersion(existingVersion, out Version installed) ||
+            !TryParseVersion(GetCurrentVersion(), out Version current))
+        {
+            return "comparison unavailable";
+        }
+
+        int cmp = current.CompareTo(installed);
+        return cmp > 0 ? "UPGRADE" : cmp < 0 ? "DOWNGRADE" : "REINSTALL (same version)";
+    }
+
+    /// <summary>
+    /// ISSUE_02 — a downgrade or same-version reinstall is a deliberate choice, so confirm it.
+    /// A straight upgrade proceeds without an extra prompt. Returns true to continue.
+    /// </summary>
+    private static bool ConfirmVersionTransition(string? existingVersion)
+    {
+        if (!TryParseVersion(existingVersion, out Version installed) ||
+            !TryParseVersion(GetCurrentVersion(), out Version current))
+        {
+            return true;
+        }
+
+        int cmp = current.CompareTo(installed);
+        if (cmp > 0) return true;
+
+        string heading = cmp < 0
+            ? "You are about to install an OLDER version than the one already installed."
+            : "This exact version is already installed.";
+
+        return NativeDialog.ShowQuestion(
+            heading + "\r\n\r\n" +
+            $"Installed version: {installed}\r\n" +
+            $"This installer:    {current}\r\n\r\n" +
+            (cmp < 0
+                ? "Going backwards can make settings saved by the newer version unreadable.\r\n\r\nContinue anyway?"
+                : "Continue and reinstall?"),
+            "Fortnite Video Software Setup");
+    }
+
+    private static bool TryParseVersion(string? value, out Version version)
+    {
+        version = new Version(0, 0);
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        string cleaned = new string(value!.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray()).Trim('.');
+        return Version.TryParse(cleaned, out version!);
+    }
+
+    /// <param name="includeUserData">
+    /// ISSUE_02 — false ONLY when the user asked to preserve their settings during an upgrade.
+    /// Gates every user-state root (see <see cref="DeploymentFootprint.GetDirectoryPurgeTargets"/>),
+    /// not just ProgramData. Uninstall always passes true.
+    /// </param>
+    /// <param name="invokingUserDesktop">
+    /// The real (possibly OneDrive/Group-Policy-redirected) desktop of the user who launched the
+    /// operation, resolved BEFORE elevation. Swept for our .lnk files in addition to the
+    /// shell-resolved and legacy locations, because an elevated worker's own per-user probe can
+    /// resolve to the administrator's profile instead. Null is fine.
+    /// </param>
     private static async Task PerformFullHostCleanupAsync(
         string operation,
         int start,
         int end,
         bool requireZeroFootprint,
         bool purgeUserArtifacts,
-        bool includeProgramData)
+        bool includeUserData,
+        string? invokingUserDesktop = null)
     {
         Interlocked.Exchange(ref _pendingRebootDeletes, 0);
         await DeploymentReporter.StepAsync("CLEANUP START", $"Performing thorough cleanup for {operation}.", start).ConfigureAwait(false);
@@ -258,9 +349,15 @@ internal static class DeploymentLifecycle
         await DeploymentReporter.StepAsync("CLEANUP TASKS", "Removing scheduled startup task if it exists.", start + 10).ConfigureAwait(false);
         await RunHiddenProcessAsync("schtasks.exe", $"/Delete /TN \"{DeploymentFootprint.ScheduledTaskName}\" /F", 5000).ConfigureAwait(false);
 
-        List<string> targets = DeploymentFootprint.GetDirectoryPurgeTargets(includeInstallFolder: true, includeProgramData: includeProgramData)
+        List<string> targets = DeploymentFootprint.GetDirectoryPurgeTargets(includeInstallFolder: true, includeUserData: includeUserData)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        await DeploymentReporter.StepAsync("CLEANUP SCOPE",
+            includeUserData
+                ? "User data WILL be removed (settings, window layout, preferences)."
+                : "User data will be PRESERVED (settings, window layout, preferences are kept).",
+            start + 12).ConfigureAwait(false);
 
         for (int i = 0; i < targets.Count; i++)
         {
@@ -270,7 +367,7 @@ internal static class DeploymentLifecycle
         }
 
         await DeploymentReporter.StepAsync("CLEANUP SHELL", "Removing Start Menu, Desktop, and Startup shortcuts.", end - 18).ConfigureAwait(false);
-        await DeleteKnownShortcutsAsync().ConfigureAwait(false);
+        await DeleteKnownShortcutsAsync(invokingUserDesktop).ConfigureAwait(false);
 
         await DeploymentReporter.StepAsync("CLEANUP REGISTRY", "Removing uninstall, app, shell cache, and run-key registry footprint.", end - 12).ConfigureAwait(false);
         await DeleteRegistryFootprintAsync().ConfigureAwait(false);
@@ -291,7 +388,12 @@ internal static class DeploymentLifecycle
         }
     }
 
-    private static async Task InstallFreshAsync()
+    /// <param name="invokingUserDesktop">
+    /// The desktop folder of the user who launched the installer, resolved BEFORE elevation and
+    /// handed over on the command line. Null falls back to the Public desktop. See
+    /// <see cref="ProbeInvokingUserDesktop"/>.
+    /// </param>
+    private static async Task InstallFreshAsync(string? invokingUserDesktop = null)
     {
         await DeploymentReporter.StepAsync("DEPLOY FILES", $"Extracting application payload to: {DeploymentFootprint.InstallFolder}", 60).ConfigureAwait(false);
         Directory.CreateDirectory(DeploymentFootprint.InstallFolder);
@@ -338,6 +440,9 @@ internal static class DeploymentLifecycle
 
         await DeploymentReporter.StepAsync("DEPLOY SHORTCUT", "Creating Start Menu shortcut with the app icon.", 84).ConfigureAwait(false);
         await CreateStartMenuShortcutAsync().ConfigureAwait(false);
+
+        await DeploymentReporter.StepAsync("DEPLOY DESKTOP", "Creating desktop shortcut with the app icon.", 88).ConfigureAwait(false);
+        await CreateDesktopShortcutAsync(invokingUserDesktop).ConfigureAwait(false);
 
         await DeploymentReporter.StepAsync("DEPLOY VERIFY", "Verifying install files and shortcut exist.", 92).ConfigureAwait(false);
         VerifyInstallArtifacts();
@@ -446,18 +551,43 @@ internal static class DeploymentLifecycle
         }
     }
 
-    private static async Task DeleteKnownShortcutsAsync()
+    /// <param name="invokingUserDesktop">
+    /// Extra folder to sweep — the launching user's real desktop, resolved before elevation. The
+    /// elevated worker cannot discover this itself (its own per-user probe may point at the
+    /// administrator's profile), and missing it leaves a dead icon behind after uninstall.
+    /// </param>
+    private static async Task DeleteKnownShortcutsAsync(string? invokingUserDesktop = null)
     {
-        foreach (string folder in DeploymentFootprint.GetShortcutSearchFolders())
+        var folders = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(invokingUserDesktop))
+        {
+            folders.Add(invokingUserDesktop!);
+        }
+
+        folders.AddRange(DeploymentFootprint.GetShortcutSearchFolders());
+
+        var swept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string folder in folders)
         {
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
             {
                 continue;
             }
 
+            string normalized;
+            try { normalized = Path.GetFullPath(folder).TrimEnd('\\', '/'); }
+            catch { continue; }
+
+            if (!swept.Add(normalized))
+            {
+                continue;
+            }
+
             foreach (string shortcutName in DeploymentFootprint.ShortcutFileNames)
             {
-                await DeleteFileWithRetryAsync(Path.Combine(folder, shortcutName)).ConfigureAwait(false);
+                await DeleteFileWithRetryAsync(Path.Combine(normalized, shortcutName)).ConfigureAwait(false);
             }
         }
     }
@@ -588,6 +718,110 @@ internal static class DeploymentLifecycle
             DeploymentFootprint.DisplayName).ConfigureAwait(false);
 
         await DeploymentReporter.StepAsync("SHORTCUT OK", shortcutPath, null).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Places the app shortcut on the user's desktop, in addition to the Start Menu entry.
+    ///
+    /// RESOLUTION ORDER, and why it is this way:
+    ///   1. <paramref name="invokingUserDesktop"/> — the real desktop of the person who ran the
+    ///      installer, probed BEFORE elevation via <c>SHGetKnownFolderPath</c>. This is the only
+    ///      value that survives OneDrive "Backup / Manage folders" redirection
+    ///      (<c>%USERPROFILE%\OneDrive\Desktop</c>, or a business variant such as
+    ///      <c>OneDrive - Contoso\Desktop</c>) and Group Policy redirection to a UNC share.
+    ///   2. The Public / All-Users desktop (<c>C:\Users\Public\Desktop</c>) — a machine location
+    ///      that is never redirected, so it resolves correctly even from the elevated worker.
+    ///      Windows merges it into every user's desktop view, so the icon still shows up.
+    ///
+    /// Deliberately NON-FATAL. A missing desktop shortcut is a cosmetic disappointment; aborting a
+    /// completed install over one — after the files, registry entry and Start Menu shortcut are all
+    /// in place — would be a far worse outcome. Failures are reported and the install continues.
+    /// </summary>
+    private static async Task CreateDesktopShortcutAsync(string? invokingUserDesktop)
+    {
+        var candidates = new List<(string Path, string Description)>();
+
+        if (!string.IsNullOrWhiteSpace(invokingUserDesktop))
+        {
+            candidates.Add((invokingUserDesktop!, "the invoking user's desktop (redirect-aware)"));
+        }
+        else
+        {
+            await DeploymentReporter.StepAsync("DESKTOP FALLBACK",
+                "No pre-elevation desktop path was supplied; falling back to the Public desktop.", null).ConfigureAwait(false);
+        }
+
+        string? publicDesktop = FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetPublicDesktop()
+                                ?? SafeGetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(publicDesktop))
+        {
+            candidates.Add((publicDesktop!, "the Public (All Users) desktop"));
+        }
+
+        if (candidates.Count == 0)
+        {
+            await DeploymentReporter.StepAsync("DESKTOP SKIP",
+                "No usable desktop folder could be resolved. The Start Menu shortcut is still installed.", null).ConfigureAwait(false);
+            RuntimeLog.Fail("DEPLOY DESKTOP", "No desktop folder could be resolved; skipping the desktop shortcut.");
+            return;
+        }
+
+        foreach ((string desktopFolder, string description) in candidates)
+        {
+            string shortcutPath = Path.Combine(desktopFolder, "Fortnite Video Software.lnk");
+            try
+            {
+                Directory.CreateDirectory(desktopFolder);
+
+                if (File.Exists(shortcutPath))
+                {
+                    try
+                    {
+                        File.SetAttributes(shortcutPath, FileAttributes.Normal);
+                        File.Delete(shortcutPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        RuntimeLog.Debug("DEPLOY DESKTOP", $"Could not remove the existing shortcut first: {ex.Message}");
+                    }
+                }
+
+                await ShellLinkWriter.CreateAsync(
+                    shortcutPath,
+                    DeploymentFootprint.InstallPath,
+                    DeploymentFootprint.InstallFolder,
+                    DeploymentFootprint.InstallPath + ",0",
+                    DeploymentFootprint.DisplayName).ConfigureAwait(false);
+
+                await DeploymentReporter.StepAsync("DESKTOP OK", $"{shortcutPath} ({description})", null).ConfigureAwait(false);
+                RuntimeLog.Info("DEPLOY DESKTOP", $"Desktop shortcut created on {description}.");
+                RuntimeLog.Debug("DEPLOY DESKTOP", $"Path: {shortcutPath}");
+                return;
+            }
+            catch (Exception ex)
+            {
+                await DeploymentReporter.StepAsync("DESKTOP RETRY",
+                    $"Could not write to {desktopFolder} ({ex.Message}). Trying the next location.", null).ConfigureAwait(false);
+                RuntimeLog.Fail("DEPLOY DESKTOP", $"Desktop shortcut failed on {description}: {ex.Message}");
+            }
+        }
+
+        await DeploymentReporter.StepAsync("DESKTOP SKIP",
+            "Every desktop location failed. The app is installed and the Start Menu shortcut works.", null).ConfigureAwait(false);
+        RuntimeLog.Fail("DEPLOY DESKTOP", "All desktop shortcut locations failed; continuing without one.");
+    }
+
+    private static string? SafeGetFolderPath(Environment.SpecialFolder folder)
+    {
+        try
+        {
+            string path = Environment.GetFolderPath(folder);
+            return string.IsNullOrWhiteSpace(path) ? null : path;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static async Task CopyFileAggressiveAsync(string source, string destination)
@@ -877,11 +1111,128 @@ internal static class DeploymentLifecycle
         }
     }
 
+    /// <summary>
+    /// Flag that carries the INVOKING user's real desktop folder across the UAC boundary.
+    /// See <see cref="ProbeInvokingUserDesktop"/> for why this cannot be resolved on the far side.
+    /// </summary>
+    private const string DesktopShortcutArgument = "--user-desktop";
+
     private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet)
     {
-        return "--install --install-worker" +
-               (noLaunch ? " --no-launch" : "") +
-               (quiet ? " --quiet" : "");
+        return BuildInstallWorkerArgs(noLaunch, quiet, ProbeInvokingUserDesktop());
+    }
+
+    private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet, string? userDesktop)
+    {
+        string args = "--install --install-worker" +
+                      (noLaunch ? " --no-launch" : "") +
+                      (quiet ? " --quiet" : "");
+
+        return AppendUserDesktopArgument(args, userDesktop);
+    }
+
+    /// <summary>
+    /// Appends <c>--user-desktop "path"</c> to an elevated-worker command line.
+    ///
+    /// Appended LAST so <c>args.FirstOrDefault()</c> in Program.cs still sees the real command
+    /// ("--install" / "--uninstall"), and so ParseParentPid still finds the PID first.
+    ///
+    /// QUOTING NOTE: these command lines go to <c>ProcessStartInfo.Arguments</c> with
+    /// <c>UseShellExecute = true</c> and <c>Verb = "runas"</c>, so ArgumentList is NOT available —
+    /// a correctly quoted single string is mandatory. A plain pair of double quotes is sufficient
+    /// and safe here specifically because Windows forbids the <c>"</c> character in file and folder
+    /// names outright, so the path cannot contain a quote to break out with. The value is still
+    /// checked for one, and trailing separators are trimmed because a trailing <c>\</c> would
+    /// escape the closing quote and swallow the rest of the command line. The receiving side
+    /// re-validates via <see cref="ReadUserDesktopArgument"/>.
+    /// </summary>
+    private static string AppendUserDesktopArgument(string args, string? userDesktop)
+    {
+        if (string.IsNullOrWhiteSpace(userDesktop))
+        {
+            return args;
+        }
+
+        string safe = userDesktop!.TrimEnd('\\', '/');
+        if (safe.Length == 0 || safe.Contains('"'))
+        {
+            return args;
+        }
+
+        return args + $" {DesktopShortcutArgument} \"{safe}\"";
+    }
+
+    /// <summary>
+    /// Resolves the desktop folder of the user who actually launched the installer.
+    ///
+    /// ⚠️ THIS MUST ONLY BE CALLED BEFORE ELEVATION. ⚠️
+    ///
+    /// The installer relaunches itself with <c>Verb = "runas"</c>. When the person running it is a
+    /// standard user, Windows starts the elevated worker under a DIFFERENT (administrator) account.
+    /// From inside that worker, every per-user API — <c>SHGetKnownFolderPath</c>,
+    /// <c>Environment.GetFolderPath(SpecialFolder.DesktopDirectory)</c>, <c>%USERPROFILE%</c>,
+    /// HKCU — describes the ADMINISTRATOR, not the user. A desktop shortcut written from there
+    /// lands in a profile the user never opens, and to them the installer simply "didn't create
+    /// the icon".
+    ///
+    /// So the launcher (which still runs as the real user) probes the path here and passes it over
+    /// the command line. <c>KnownFolders.GetDesktop()</c> is used rather than
+    /// <c>Environment.GetFolderPath</c> because the latter reads a cached value that goes stale
+    /// exactly when it matters — OneDrive "Backup / Manage folders" moving Desktop into
+    /// <c>%USERPROFILE%\OneDrive\Desktop</c> (or a business variant like
+    /// <c>OneDrive - Contoso\Desktop</c>), and Group Policy redirection pointing it at a UNC share.
+    /// </summary>
+    private static string? ProbeInvokingUserDesktop()
+    {
+        try
+        {
+            string? desktop = FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetDesktop();
+            if (!string.IsNullOrWhiteSpace(desktop))
+            {
+                RuntimeLog.Info("DESKTOP PROBE", "Resolved the invoking user's desktop folder.");
+                RuntimeLog.Debug("DESKTOP PROBE", $"Path: {desktop}");
+                return desktop;
+            }
+
+            RuntimeLog.Fail("DESKTOP PROBE",
+                "Could not resolve the invoking user's desktop folder; the installer will fall back to the Public desktop.");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("DESKTOP PROBE", $"Desktop probe threw: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the desktop path handed over by the pre-elevation launcher. Returns null when the
+    /// flag is absent (e.g. an already-elevated direct worker launch), in which case the install
+    /// falls back to the Public desktop.
+    /// </summary>
+    private static string? ReadUserDesktopArgument(string[] args)
+    {
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i].Equals(DesktopShortcutArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                string candidate = args[i + 1];
+                if (string.IsNullOrWhiteSpace(candidate)) return null;
+
+                try
+                {
+                    if (!Path.IsPathFullyQualified(candidate)) return null;
+                    string full = Path.GetFullPath(candidate);
+                    return Directory.Exists(full) ? full : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static bool IsElevated()
@@ -962,9 +1313,28 @@ internal static class DeploymentLifecycle
             process.Start();
             string command = exe + " " + args;
             await DeploymentReporter.StepAsync("PROCESS START", command, null).ConfigureAwait(false);
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMilliseconds(timeoutMilliseconds)).ConfigureAwait(false);
-            string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-            string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+
+            string output;
+            string error;
+            try
+            {
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMilliseconds(timeoutMilliseconds)).ConfigureAwait(false);
+                output = await outputTask.ConfigureAwait(false);
+                error = await errorTask.ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                output = outputTask.IsCompletedSuccessfully ? outputTask.Result : string.Empty;
+                error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
+                await DeploymentReporter.StepAsync("PROCESS TIMEOUT",
+                    $"{command}; killed after {timeoutMilliseconds} ms; output={output}; error={error}", null).ConfigureAwait(false);
+                return -1;
+            }
+
             await DeploymentReporter.StepAsync("PROCESS EXIT", $"{command}; exit={process.ExitCode}; output={output}; error={error}", null).ConfigureAwait(false);
             return process.ExitCode;
         }

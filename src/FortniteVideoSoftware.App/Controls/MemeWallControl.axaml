@@ -1,7 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="FortniteVideoSoftware.App.Controls.MemeWallControl"
-             IsHitTestVisible="True"
+             IsVisible="False"
+             IsHitTestVisible="False"
              Opacity="0"
              ZIndex="996">
     <UserControl.Styles>

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -68,6 +68,7 @@ public partial class RadialMenuControl : UserControl
 
         Canvas.SetLeft(this, position.X - 150);
         Canvas.SetTop(this, position.Y - 150);
+        IsVisible = true;
         IsHitTestVisible = true;
         Opacity = 1;
         _container.Classes.Remove("RadialMenuClosed");
@@ -124,6 +125,20 @@ public partial class RadialMenuControl : UserControl
             ItemSelected?.Invoke(_items[_selectedIndex].Id);
         }
         _selectedIndex = -1;
+        var timer = new Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!IsHitTestVisible)
+            {
+                Opacity = 0;
+                IsVisible = false;
+            }
+        };
+        timer.Start();
     }
 }
 

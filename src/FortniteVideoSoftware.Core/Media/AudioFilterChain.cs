@@ -1,4 +1,4 @@
-
+﻿
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -17,11 +17,36 @@ namespace FortniteVideoSoftware.Core.Media;
 /// </summary>
 public class AudioFilterChain
 {
+
+    /// <summary>Song-to-song: the OUTGOING song starts fading out this long before its end.</summary>
+    private const double CrossfadeOutSec = 7.0;
+
+    /// <summary>
+    /// Song-to-song: the INCOMING song starts this long before the outgoing song ends, and
+    /// fades in across exactly that overlap — so the two are audible together for 3 seconds
+    /// with the old one already 4 seconds into its 7-second decay.
+    /// </summary>
+    private const double CrossfadeInSec = 3.0;
+
+    /// <summary>Fade applied at the very start and the very end of the whole music bed.</summary>
+    private const double EdgeFadeSec = 1.5;
+
     /// <summary>
     /// Builds the complete audio filter chain.
     /// Returns (filterChains, finalLabel).
     /// Exact port of build_audio_chain().
     /// </summary>
+    /// <param name="musicLeadFadeIn">
+    /// ISSUE_04 — false when the user dragged the music-start note marker to the RIGHT of
+    /// MARK START. The music then begins partway into the video, which is a deliberate entrance,
+    /// so it hits at full level instead of fading up. True (music starts with the video) gives
+    /// the normal <see cref="EdgeFadeSec"/> lead-in.
+    /// </param>
+    /// <param name="musicTailFadeOut">
+    /// ISSUE_04 — false when the user dragged the music-end note marker to the RIGHT of
+    /// MARK END. The music is asking to outlast the video, so there is nothing left to fade
+    /// over: it is cut dead at MARK END. True gives the normal <see cref="EdgeFadeSec"/> tail.
+    /// </param>
     public static (List<string> chains, string finalLabel) Build(
         JsonObject? musicConfig,
         double videoStartTime,
@@ -35,11 +60,23 @@ public class AudioFilterChain
         int musicStartIndex = 1,
         double? totalProjectDuration = null,
         string mainAudioLabel = "[0:a]",
-        double volumeNormalizeDb = 0.0)
+        double volumeNormalizeDb = 0.0,
+        string? gameLoudnormFilter = null,
+        double musicFollowGainDb = 0.0,
+        bool musicLeadFadeIn = true,
+        bool musicTailFadeOut = true)
     {
         var chain = new List<string>();
+
+        bool useLoudnorm = !string.IsNullOrWhiteSpace(gameLoudnormFilter);
+        double appliedNormalizeDb = useLoudnorm ? 0.0 : volumeNormalizeDb;
+
         musicConfig ??= new JsonObject();
         int targetSampleRate = sampleRate > 0 ? sampleRate : 48000;
+
+        string gameNormalizePrefix = useLoudnorm
+            ? gameLoudnormFilter! + $",aresample={targetSampleRate},"
+            : string.Empty;
 
         var rawParts = new List<string>();
         if (audioFilterCmd != null) rawParts.AddRange(audioFilterCmd);
@@ -114,9 +151,9 @@ public class AudioFilterChain
         if (tracks.Count == 0)
         {
             double vVol = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
-            if (volumeNormalizeDb != 0)
-                vVol *= Math.Pow(10, volumeNormalizeDb / 20.0);
-            chain.Add($"[a_main_raw]volume={vVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
+            if (appliedNormalizeDb != 0)
+                vVol *= Math.Pow(10, appliedNormalizeDb / 20.0);
+            chain.Add($"[a_main_raw]{gameNormalizePrefix}volume={vVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
                       $"aresample={targetSampleRate}:async=1[a_main_prepared]");
             return (chain, "[a_main_prepared]");
         }
@@ -141,28 +178,60 @@ public class AudioFilterChain
             double fileStart = Math.Max(0, track.Offset);
             double extraDelay = track.Offset < 0 ? -track.Offset : 0;
 
+            bool isFirst = i == 0;
+            bool isLast = i == tracks.Count - 1;
+
+            double overlap = isFirst
+                ? 0.0
+                : Math.Max(0.0, Math.Min(CrossfadeInSec, Math.Min(track.Duration, tracks[i - 1].Duration) / 2.0));
+
+            double playDur = Math.Max(0.01, track.Duration + overlap);
+            double half = playDur / 2.0;
+
             var musicFilters = new List<string>
             {
-                $"atrim=start={fileStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:duration={track.Duration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
+                $"atrim=start={fileStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:duration={playDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
                 "asetpts=PTS-STARTPTS"
             };
 
-            if (!disableFades && track.Duration > 0.5)
+            if (!disableFades && playDur > 0.1)
             {
-                double fadeDur = Math.Min(1.5, track.Duration / 2.0);
-                musicFilters.Add($"afade=t=in:st=0:d={fadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
-                if (track.ApplyFadeOut)
+                double fadeInDur = isFirst
+                    ? (musicLeadFadeIn ? Math.Min(EdgeFadeSec, half) : 0.0)
+                    : Math.Min(overlap, half);
+
+                if (fadeInDur > 0.001)
                 {
-                    musicFilters.Add($"afade=t=out:st={Math.Max(0, track.Duration - fadeDur).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={fadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                    musicFilters.Add(
+                        $"afade=t=in:st=0:d={fadeInDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+
+                double fadeOutDur = isLast
+                    ? ((musicTailFadeOut && track.ApplyFadeOut) ? Math.Min(EdgeFadeSec, half) : 0.0)
+                    : Math.Min(CrossfadeOutSec, half);
+
+                if (fadeOutDur > 0.001)
+                {
+                    double fadeOutStart = Math.Max(0, playDur - fadeOutDur);
+                    musicFilters.Add(
+                        $"afade=t=out:st={fadeOutStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={fadeOutDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
                 }
             }
 
             double mVol = GetDouble(musicConfig, "music_vol", GetDouble(musicConfig, "volume", 0.8));
+
+            if (Math.Abs(musicFollowGainDb) > 0.01)
+            {
+                mVol *= Math.Pow(10, musicFollowGainDb / 20.0);
+            }
+
             musicFilters.Add($"volume={mVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}");
 
             chain.Add($"{inputLabel}{string.Join(",", musicFilters)}{preLabel}");
 
-            int delayMs = (int)((accumProjectSec + extraDelay + track.TimelineStartDelay) * 1000);
+            double startSec = Math.Max(0.0,
+                accumProjectSec - overlap + extraDelay + track.TimelineStartDelay);
+            int delayMs = (int)(startSec * 1000);
             if (delayMs > 0)
                 chain.Add($"{preLabel}adelay={delayMs}|{delayMs}{outLabel}");
             else
@@ -195,11 +264,11 @@ public class AudioFilterChain
         }
 
         double vVolGame = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
-        if (volumeNormalizeDb != 0)
-            vVolGame *= Math.Pow(10, volumeNormalizeDb / 20.0);
+        if (appliedNormalizeDb != 0)
+            vVolGame *= Math.Pow(10, appliedNormalizeDb / 20.0);
 
-        chain.Add("[a_main_raw]asplit=2[game_raw_pre][game_trig]");
-        chain.Add($"[game_raw_pre]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_out_pre]");
+        chain.Add($"[a_main_raw]{gameNormalizePrefix}volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_leveled]");
+        chain.Add("[game_leveled]asplit=2[game_out_pre][game_trig]");
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");

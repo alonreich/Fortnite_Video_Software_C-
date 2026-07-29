@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -427,6 +427,23 @@ public partial class MusicWizardWindow : Window
                 var check = this.FindControl<CheckBox>("DuckingCheckBox");
                 if (check != null)
                     check.IsChecked = !(check.IsChecked ?? true);
+            };
+        }
+
+        var downloadSongsBtn = this.FindControl<Button>("DownloadSongsBtn");
+        if (downloadSongsBtn != null)
+        {
+            downloadSongsBtn.Click += async (s, e) =>
+            {
+                downloadSongsBtn.IsEnabled = false;
+                try
+                {
+                    await RunSongDownloadAsync();
+                }
+                finally
+                {
+                    downloadSongsBtn.IsEnabled = true;
+                }
             };
         }
 
@@ -891,7 +908,6 @@ public partial class MusicWizardWindow : Window
         }
 
 
-
         UpdateFinalPlacementSummary();
         UpdateProblemFlags();
         UpdateDuckingCompareButton();
@@ -1096,15 +1112,22 @@ public partial class MusicWizardWindow : Window
         Process? process = null;
         try
         {
+            var peakArgs = new[]
+            {
+                "-nostdin", "-hide_banner", "-loglevel", "error",
+                "-i", audioPath,
+                "-vn", "-ac", "1", "-ar", "1000", "-f", "s16le", "pipe:1"
+            };
+
             var psi = new ProcessStartInfo
             {
                 FileName = ResolveFfmpegPath(),
-                Arguments = $"-nostdin -hide_banner -loglevel error -i \"{audioPath}\" -vn -ac 1 -ar 1000 -f s16le pipe:1",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            foreach (string arg in peakArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
             if (process == null) return null;
@@ -1939,26 +1962,44 @@ public partial class MusicWizardWindow : Window
             string fpsArg = fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
             string filter = $"fps=fps={fpsArg}:round=up,scale=-1:60,tpad=stop_mode=clone:stop_duration=1,tile={frames}x1:margin=0:padding=0";
 
+            var stripArgs = new[]
+            {
+                "-y", "-hide_banner", "-loglevel", "error",
+                "-ss", startArg,
+                "-t", durationArg,
+                "-i", videoPath,
+                "-vf", filter,
+                "-frames:v", "1",
+                tempPng
+            };
+
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error -ss {startArg} -t {durationArg} -i \"{videoPath}\" -vf \"{filter}\" -frames:v 1 \"{tempPng}\"",
-
                 UseShellExecute = false,
-
                 CreateNoWindow = true,
-
                 RedirectStandardOutput = true,
-
                 RedirectStandardError = true
-
             };
-
+            foreach (string arg in stripArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
             if (process == null) return null;
+
+            try { ChildProcessTracker.AddProcess(process); } catch { }
+
+            Task<string> stripOut = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> stripErr = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
+            _ = await stripOut;
+            string stripErrText = string.Empty;
+            try { stripErrText = await stripErr; } catch { }
+
             if (process.ExitCode == 0 && File.Exists(tempPng)) return tempPng;
+
+            RuntimeLog.Fail("MusicWizard", $"Filmstrip render failed (exit {process.ExitCode}).");
+            if (!string.IsNullOrWhiteSpace(stripErrText))
+                RuntimeLog.Debug("MusicWizard", $"FFmpeg stderr:\n{stripErrText.Trim()}");
         }
         catch (OperationCanceledException)
         {
@@ -1974,6 +2015,10 @@ public partial class MusicWizardWindow : Window
             throw;
         }
         catch { }
+        finally
+        {
+            try { process?.Dispose(); } catch { }
+        }
         return null;
     }
 
@@ -1999,7 +2044,6 @@ public partial class MusicWizardWindow : Window
 
             tempPng = Path.Combine(_paths.TempDirectory, $"fvs_wave_sequence_{Guid.NewGuid():N}.png");
 
-            string inputArgs = string.Join(" ", usableSegments.Select(segment => $"-i \"{segment.Path}\""));
             var filter = new System.Text.StringBuilder();
             for (int i = 0; i < usableSegments.Count; i++)
             {
@@ -2020,15 +2064,29 @@ public partial class MusicWizardWindow : Window
                 filter.Append($"[a0]volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full[v_wave]");
             }
 
+            var seqArgs = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
+            foreach (var segment in usableSegments)
+            {
+                seqArgs.Add("-i");
+                seqArgs.Add(segment.Path);
+            }
+            seqArgs.Add("-filter_complex");
+            seqArgs.Add(filter.ToString());
+            seqArgs.Add("-map");
+            seqArgs.Add("[v_wave]");
+            seqArgs.Add("-frames:v");
+            seqArgs.Add("1");
+            seqArgs.Add(tempPng);
+
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error {inputArgs} -filter_complex \"{filter}\" -map \"[v_wave]\" -frames:v 1 \"{tempPng}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            foreach (string arg in seqArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
             if (process == null) return null;
@@ -2160,8 +2218,24 @@ public partial class MusicWizardWindow : Window
             _phase3VideoDurationSec = GetPhase3VideoDurationSeconds();
             var thumbLaneGrid = this.FindControl<Avalonia.Controls.Grid>("ThumbnailLaneGrid");
             var waveLane = this.FindControl<Avalonia.Controls.Image>("WaveformLaneImage");
-            if (thumbLaneGrid != null) { thumbLaneGrid.Children.Clear(); thumbLaneGrid.ColumnDefinitions.Clear(); }
-            if (waveLane != null) waveLane.Source = null;
+            if (thumbLaneGrid != null)
+            {
+                foreach (var child in thumbLaneGrid.Children)
+                {
+                    if (child is Avalonia.Controls.Image oldFrame)
+                    {
+                        (oldFrame.Source as IDisposable)?.Dispose();
+                        oldFrame.Source = null;
+                    }
+                }
+                thumbLaneGrid.Children.Clear();
+                thumbLaneGrid.ColumnDefinitions.Clear();
+            }
+            if (waveLane != null)
+            {
+                (waveLane.Source as IDisposable)?.Dispose();
+                waveLane.Source = null;
+            }
             _phase3ClipDurationsSec.Clear();
 
             var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
@@ -2253,10 +2327,11 @@ public partial class MusicWizardWindow : Window
                     if (thumbPath != null)
                     {
                         try {
-                            var fs = File.OpenRead(thumbPath);
+                            using var fs = File.OpenRead(thumbPath);
                             img.Source = new Avalonia.Media.Imaging.Bitmap(fs);
-                            fs.Dispose();
-                        } catch { }
+                        } catch (Exception ex) {
+                            RuntimeLog.Fail("MUSIC_WIZARD", $"Could not load a filmstrip thumbnail: {ex.Message}");
+                        }
                     }
                     Avalonia.Controls.Grid.SetColumn(img, i);
                     thumbLaneGrid.Children.Add(img);
@@ -2290,6 +2365,7 @@ public partial class MusicWizardWindow : Window
                         try
                         {
                             using var fs = File.OpenRead(wavePath);
+                            (waveLane.Source as IDisposable)?.Dispose();
                             waveLane.Source = new Avalonia.Media.Imaging.Bitmap(fs);
                             DeleteTempFile(ref _lastPhase3WaveFile);
                             _lastPhase3WaveFile = wavePath;
@@ -3140,6 +3216,7 @@ public partial class MusicWizardWindow : Window
         loadingText.IsVisible = true;
         loadingText.Text = "Generating Waveform...";
 
+        (waveformImage.Source as IDisposable)?.Dispose();
         waveformImage.Source = null;
 
 
@@ -3781,6 +3858,67 @@ public partial class MusicWizardWindow : Window
 
     }
 
+
+    /// <summary>
+    /// ISSUE_10 + ISSUE_11 — downloads the shared song library into the folder the wizard is
+    /// currently browsing, with live progress and a working CANCEL, then rescans so the new
+    /// tracks appear immediately.
+    /// </summary>
+    private async Task RunSongDownloadAsync()
+    {
+        string targetDir = ResolveCurrentMusicDirectory();
+
+        var confirm = new Controls.ConfirmDialogWindow();
+        confirm.SetTitle("Download more songs?");
+        confirm.SetMessage(
+            "This will connect to the internet and download background music tracks from the " +
+            "official library." + Environment.NewLine + Environment.NewLine +
+            "Saving into: " + targetDir + Environment.NewLine + Environment.NewLine +
+            "Continue?");
+        confirm.SetButtonText("DOWNLOAD", "CANCEL");
+        await confirm.ShowDialog(this);
+        if (!confirm.Result) return;
+
+        var (count, error) = await Controls.CloudSyncProgressWindow.RunAsync(
+            this, "Downloading songs",
+            (progress, ct) => MemeCatalog.SyncSongsFromCloudAsync(targetDir, progress, ct));
+
+        _ = ScanDirectoryForMusicAsync(targetDir);
+
+        if (error != null)
+        {
+            await ErrorReporter.ShowAsync(this, "Song download problem", error,
+                "See the log entries tagged [Songs] for the per-file detail.");
+            return;
+        }
+
+        RuntimeLog.Info("Songs", $"Song download finished: {count} new track(s).");
+    }
+
+    /// <summary>
+    /// ISSUE_10 — the folder the wizard is currently browsing: the user's saved custom music
+    /// folder if set and present, otherwise the shell Music folder.
+    /// </summary>
+    private string ResolveCurrentMusicDirectory()
+    {
+        try
+        {
+            if (File.Exists(_paths.SessionStateFile))
+            {
+                var state = FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.ReadObject(_paths.SessionStateFile);
+                if (state != null && state.TryGetPropertyValue("CustomMusicDirectory", out var node) && node != null)
+                {
+                    string custom = node.ToString();
+                    if (Directory.Exists(custom)) return custom;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+    }
 
     private void LoadMusicDirectory()
 

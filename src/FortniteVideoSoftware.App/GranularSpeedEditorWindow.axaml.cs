@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -33,11 +33,6 @@ public partial class GranularSpeedEditorWindow : Window
 
     private bool _isSafeToClose = false;
 
-    // GPU-conditional LIVE zoom preview (project_structure.txt Section 8 item b):
-    // when the boot-time GPU probe reports hardware acceleration, the editor simulates
-    // the export crop-zoom 1:1 inside mpv via the `video-crop` property (instant snap or
-    // SLOW steal-up-to-1s ramp, mirroring GranularSpeedBuilder's ZoomPhase math).
-    // On CPU-only machines this stays OFF and the yellow-box-only behavior is kept.
     private bool _gpuLiveZoomPreview;
     private string _lastLiveCrop = "";
 
@@ -113,8 +108,6 @@ public partial class GranularSpeedEditorWindow : Window
         if (!string.IsNullOrWhiteSpace(originalResolution)) _originalResolution = originalResolution;
         _selectedFreezePresetS = -1.0;
 
-        // GPU probe decides the zoom-preview path (see field docs). Defensive: probe is
-        // initialized by AvaloniaApp at startup; fall back to CPU behavior if not.
         try { _gpuLiveZoomPreview = FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration; }
         catch { _gpuLiveZoomPreview = false; }
         RuntimeLog.Info("Granular", $"Live zoom preview path: {(_gpuLiveZoomPreview ? "GPU (mpv video-crop simulation)" : "CPU (yellow box overlay only)")}");
@@ -588,8 +581,6 @@ public partial class GranularSpeedEditorWindow : Window
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
                 UpdateDragReadout(newStart, newEnd);
                 UpdateDraggingVisuals(idx, newStart, newEnd);
-                // Playhead follows the edited edge LIVE while dragging (ResizeEnd -> end, else start).
-                // Seek coalesces via SeekInternal; the preview caret tracks the marker in real time.
                 double followRelSec = (_segDragMode == SegDragMode.ResizeEnd ? newEnd : newStart) / 1000.0;
                 _ = SeekInternal(followRelSec);
                 e.Handled = true;
@@ -1112,9 +1103,9 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void RefreshSegmentList()
     {
-        var panel = this.FindControl<StackPanel>("SegmentsPanel");
+        var panel = this.FindControl<ListBox>("SegmentsPanel");
         if (panel == null) return;
-        panel.Children.Clear();
+        panel.Items.Clear();
 
         var countLbl = this.FindControl<TextBlock>("SegmentCountLabel");
         if (countLbl != null)
@@ -1230,7 +1221,7 @@ public partial class GranularSpeedEditorWindow : Window
             grid.Children.Add(info);
             grid.Children.Add(delBtn);
             border.Child = grid;
-            panel.Children.Add(border);
+            panel.Items.Add(border);
         }
     }
 
@@ -1835,10 +1826,8 @@ public partial class GranularSpeedEditorWindow : Window
         if (busy != null) busy.IsVisible = true;
         try
         {
-            // Prime the simulated crop immediately so mpv starts presenting the new view.
             UpdateLiveZoomCrop();
 
-            // Round-trip: wait (max ~1s) until mpv reports a live crop when one was requested.
             string want = _lastLiveCrop;
             for (int i = 0; i < 20 && want.Length > 0; i++)
             {
@@ -1846,7 +1835,7 @@ public partial class GranularSpeedEditorWindow : Window
                 if (!string.IsNullOrEmpty(applied) && applied != "no") break;
                 await System.Threading.Tasks.Task.Delay(50);
             }
-            await System.Threading.Tasks.Task.Delay(150); // one settle frame for the reconfigure
+            await System.Threading.Tasks.Task.Delay(150);
             RuntimeLog.Info("Granular", "APPLY ZOOM-IN: GPU live zoom preview primed.");
         }
         catch (Exception ex)
@@ -1880,7 +1869,7 @@ public partial class GranularSpeedEditorWindow : Window
     private void UpdateLiveZoomCrop()
     {
         if (!_gpuLiveZoomPreview || _videoHost?.IpcClient == null) return;
-        if (_zoomModeActive) { ClearLiveZoomCrop(); return; } // always draw/edit on the uncropped frame
+        if (_zoomModeActive) { ClearLiveZoomCrop(); return; }
 
         var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
         if (sw <= 0 || sh <= 0) return;
@@ -1888,7 +1877,6 @@ public partial class GranularSpeedEditorWindow : Window
         double tSec = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs) / 1000.0;
         double durSec = Math.Max(0.1, ((_trimEndMs > 0 ? _trimEndMs : _videoHost.IpcClient.Duration * 1000.0) - _trimStartMs) / 1000.0);
 
-        // Zoom windows in clip-relative seconds (detached zoom start/end, block edges as fallback)
         var zooms = new List<(double zs, double ze, SpeedSegment seg)>();
         foreach (var s in _segments)
             if (s.ZoomW.HasValue && s.ZoomH.HasValue && s.ZoomX.HasValue && s.ZoomY.HasValue)
@@ -1940,7 +1928,6 @@ public partial class GranularSpeedEditorWindow : Window
         var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
         if (canvas == null) return;
 
-        // Drawing must happen on the uncropped frame — drop any simulated live crop first.
         ClearLiveZoomCrop();
 
         _zoomModeActive = true;
@@ -2221,26 +2208,13 @@ public partial class GranularSpeedEditorWindow : Window
         RedrawTimeline();
     }
 
-    private static string ZoomTutorialCounterPath()
-        => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FortniteVideoSoftware", "Settings", "zoom_tutorial.txt");
+    private const string ZoomTutorialCounterFile = "zoom_tutorial.txt";
 
     private static int ReadZoomTutorialCount()
-    {
-        try { return int.TryParse(System.IO.File.ReadAllText(ZoomTutorialCounterPath()).Trim(), out int n) ? n : 0; }
-        catch { return 0; }
-    }
+        => FortniteVideoSoftware.Core.Infrastructure.UiStateStore.ReadInt(ZoomTutorialCounterFile);
 
     private static void WriteZoomTutorialCount(int n)
-    {
-        try
-        {
-            string path = ZoomTutorialCounterPath();
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-            System.IO.File.WriteAllText(path, n.ToString());
-        }
-        catch { }
-    }
+        => FortniteVideoSoftware.Core.Infrastructure.UiStateStore.WriteInt(ZoomTutorialCounterFile, n);
 
     private static bool _zoomTutorialShownThisSession = false;
     private void MaybeShowZoomTutorial(Avalonia.Controls.Canvas canvas)
@@ -2302,8 +2276,6 @@ public partial class GranularSpeedEditorWindow : Window
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
         if (canvas == null || _videoHost?.IpcClient == null) return;
 
-        // GPU path: the zoom itself is simulated live in mpv (UpdateLiveZoomCrop), so the
-        // yellow guide box would be redundant and mis-positioned on the cropped frame.
         if (_gpuLiveZoomPreview)
         {
             if (canvas.IsVisible) canvas.IsVisible = false;

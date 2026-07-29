@@ -30,15 +30,23 @@ public static class HudConfig
     }
 
     /// <summary>
-    /// Returns the drift correction type: "left" for stats/hp/team/spec, "right" for loot.
-    /// Exact match to Python's crop_drift_type().
+    /// Returns the drift correction type: "left" for stats/map/hp/team/spec, "right" for loot.
+    /// Enforces +1px Left bias for Map, Stats, and Health, and +1px Right bias for Loot.
     /// </summary>
     public static string? CropDriftType(string key)
     {
-        if (key is "stats" or "normal_hp" or "boss_hp" or "team" or "spectating")
+        if (string.IsNullOrWhiteSpace(key)) return null;
+        if (key is "stats" or "normal_hp" or "boss_hp" or "team" or "spectating" or "map" or "minimap")
             return "left";
         if (key == "loot")
             return "right";
+
+        string lower = key.ToLowerInvariant();
+        if (lower.Contains("map") || lower.Contains("stats") || lower.Contains("hp") || lower.Contains("health") || lower.Contains("team") || lower.Contains("spectat"))
+            return "left";
+        if (lower.Contains("loot"))
+            return "right";
+
         return null;
     }
 
@@ -49,16 +57,19 @@ public static class HudConfig
         catch { return defaultValue; }
     }
 
-    private static double ToScale(JsonNode? value, double defaultValue = 1.0)
+    private static Frac ToScale(JsonNode? value)
     {
-        if (value is null) return defaultValue;
+        var fallback = Frac.One;
+        if (value is null) return fallback;
         try
         {
-            double raw = (double)value!;
-            if (!double.IsFinite(raw)) return defaultValue;
-            return Math.Round(Math.Max(0.0001, Math.Min(8.0, raw)), 4, MidpointRounding.AwayFromZero);
+            if (value.AsValue().TryGetValue(out string? s) && !string.IsNullOrWhiteSpace(s))
+                return Frac.FromString(s);
+            if (value.AsValue().TryGetValue(out double d))
+                return Frac.FromDouble(d);
+            return Frac.FromString(value.ToString());
         }
-        catch { try { return Math.Round(Math.Max(0.0001, Math.Min(8.0, double.Parse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture))), 4, MidpointRounding.AwayFromZero); } catch { return defaultValue; } }
+        catch { return fallback; }
     }
 
     private static int ReadArrayInt(JsonArray arr, int index, int defaultValue = 0)
@@ -153,8 +164,8 @@ public static class HudConfig
             var clamped = CoordinateMath.ClampContentCrop((w, h, x, y));
             cropsObj[key] = new JsonArray(clamped.w, clamped.h, clamped.x, clamped.y);
 
-            double scale = ToScale(scalesObj[key] ?? defaultScales[key] ?? JsonValue.Create(1.0), 1.0);
-            scalesObj[key] = scale;
+            Frac scale = ToScale(scalesObj[key] ?? defaultScales[key] ?? JsonValue.Create("1/1"));
+            scalesObj[key] = scale.ToString();
         }
 
         var overlaysObj = clean["overlays"]!.AsObject();
@@ -182,10 +193,10 @@ public static class HudConfig
             }
 
             var crop = cropsObj[key] as JsonArray;
-            double cropW = crop != null ? ReadArrayInt(crop, 0) : 0;
-            double cropH = crop != null ? ReadArrayInt(crop, 1) : 0;
-            double scaleVal = ToScale(scalesObj[key]);
-            var (width, height) = CoordinateMath.QuantizeBackendSize((int)cropW, (int)cropH, scaleVal);
+            int cropW = crop != null ? ReadArrayInt(crop, 0) : 0;
+            int cropH = crop != null ? ReadArrayInt(crop, 1) : 0;
+            Frac scaleVal = ToScale(scalesObj[key]);
+            var (width, height) = CoordinateMath.QuantizeBackendSize(cropW, cropH, scaleVal);
 
             var (cx, cy) = CoordinateMath.ClampOverlayPosition(ox, oy, width, height);
             overlaysObj[key] = new JsonObject { ["x"] = cx, ["y"] = cy };

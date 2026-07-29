@@ -58,7 +58,12 @@ public static class WindowBoundsHelper
                 debounce.Tick += (_, _) =>
                 {
                     debounce!.Stop();
-                    SaveBoundsSync(window, key);
+
+                    WindowSnapshot snapshot;
+                    try { snapshot = WindowSnapshot.Capture(window); }
+                    catch { return; }
+
+                    _ = Task.Run(() => SaveSnapshot(snapshot, key));
                 };
             }
             debounce.Stop();
@@ -156,7 +161,10 @@ public static class WindowBoundsHelper
 
             if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
             {
-                window.WindowState = (WindowState)(int)stateNode;
+                var savedState = (WindowState)(int)stateNode;
+                window.WindowState = savedState == WindowState.Maximized
+                    ? WindowState.Maximized
+                    : WindowState.Normal;
             }
         }
         else
@@ -188,18 +196,66 @@ public static class WindowBoundsHelper
     {
         try
         {
+            var timeout = Core.Ipc.StateTransferStore.InteractiveMutexTimeout;
+            var store = new Core.Ipc.StateTransferStore();
+            var state = store.LoadSync(default, timeout);
+            var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
+            store.UpdatePropertiesSync(updates, default, timeout);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// ISSUE_10 — a plain value copy of everything the persistence layer needs from a Window.
+    ///
+    /// Window properties may only be touched on the UI thread, so they are captured there and
+    /// this snapshot is what crosses onto the background thread that performs the file work. It
+    /// also means the values saved are the ones that were true when the debounce fired, not
+    /// whatever the window happens to be doing when the write finally reaches disk.
+    /// </summary>
+    private readonly struct WindowSnapshot
+    {
+        public readonly int X, Y;
+        public readonly double Width, Height;
+        public readonly WindowState State;
+
+        private WindowSnapshot(int x, int y, double w, double h, WindowState state)
+        {
+            X = x; Y = y; Width = w; Height = h; State = state;
+        }
+
+        public static WindowSnapshot Capture(Window window)
+        {
+            double w = double.IsNaN(window.Width) ? window.Bounds.Width : window.Width;
+            double h = double.IsNaN(window.Height) ? window.Bounds.Height : window.Height;
+            return new WindowSnapshot(window.Position.X, window.Position.Y, w, h, window.WindowState);
+        }
+    }
+
+    /// <summary>
+    /// ISSUE_10 — performs the read-modify-write for a captured snapshot. Safe to call from any
+    /// thread because it never touches the Window. Used by the debounced background save.
+    /// </summary>
+    private static void SaveSnapshot(WindowSnapshot snapshot, string key)
+    {
+        try
+        {
             var store = new Core.Ipc.StateTransferStore();
             var state = store.LoadSync();
-            var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
+            var updates = new JsonObject { [key] = BuildBoundsObj(snapshot, state, key) };
             store.UpdatePropertiesSync(updates);
         }
         catch { }
     }
 
-    private static JsonObject UpdateBoundsObj(Window window, JsonObject state, string key)
+    /// <summary>
+    /// ISSUE_08/ISSUE_10 — the single place that decides what a persisted bounds entry contains,
+    /// shared by the background debounce save and the synchronous close-time save.
+    /// </summary>
+    private static JsonObject BuildBoundsObj(WindowSnapshot snapshot, JsonObject state, string key)
     {
         JsonObject boundsObj = new JsonObject();
-        
+
         if (state.TryGetPropertyValue(key, out var existingNode) && existingNode is JsonObject existingObj)
         {
             if (existingObj.TryGetPropertyValue("X", out var x)) boundsObj["X"] = x?.DeepClone();
@@ -208,18 +264,28 @@ public static class WindowBoundsHelper
             if (existingObj.TryGetPropertyValue("Height", out var h)) boundsObj["Height"] = h?.DeepClone();
         }
 
-        boundsObj["WindowState"] = (int)window.WindowState;
+        WindowState persistedState = snapshot.State == WindowState.Minimized
+            ? WindowState.Normal
+            : snapshot.State;
+        boundsObj["WindowState"] = (int)persistedState;
 
-        if (window.WindowState == WindowState.Normal)
+        if (snapshot.State == WindowState.Normal)
         {
-            boundsObj["X"] = window.Position.X;
-            boundsObj["Y"] = window.Position.Y;
-            double w = double.IsNaN(window.Width) ? window.Bounds.Width : window.Width;
-            double h = double.IsNaN(window.Height) ? window.Bounds.Height : window.Height;
-            boundsObj["Width"] = w;
-            boundsObj["Height"] = h;
+            boundsObj["X"] = snapshot.X;
+            boundsObj["Y"] = snapshot.Y;
+            boundsObj["Width"] = snapshot.Width;
+            boundsObj["Height"] = snapshot.Height;
         }
 
         return boundsObj;
+    }
+
+    /// <summary>
+    /// UI-thread entry point: snapshots the window and defers to the single shared builder, so
+    /// the debounced background save and the close-time save can never diverge.
+    /// </summary>
+    private static JsonObject UpdateBoundsObj(Window window, JsonObject state, string key)
+    {
+        return BuildBoundsObj(WindowSnapshot.Capture(window), state, key);
     }
 }

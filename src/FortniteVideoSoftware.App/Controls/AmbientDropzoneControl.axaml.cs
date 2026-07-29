@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -29,6 +29,7 @@ public partial class AmbientDropzoneControl : UserControl
 
     public void Activate()
     {
+        IsVisible = true;
         IsHitTestVisible = true;
         Opacity = 1;
         if (_container != null)
@@ -48,7 +49,14 @@ public partial class AmbientDropzoneControl : UserControl
             _container.Classes.Add("DropzoneInactive");
         }
         _isPulsing = false;
-        Task.Delay(300).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() => Opacity = 0));
+        Task.Delay(300).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!IsHitTestVisible)
+            {
+                Opacity = 0;
+                IsVisible = false;
+            }
+        }));
     }
 
     private async void StartPulse()
@@ -82,7 +90,6 @@ public partial class AmbientDropzoneControl : UserControl
         {
             if (!_isPulsing) break;
             double progress = (double)i / steps;
-            // cubic ease out
             double ease = 1 - Math.Pow(1 - progress, 3);
             double val = from + (diff * ease);
             t.ScaleX = val;

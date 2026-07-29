@@ -18,17 +18,39 @@ public sealed class AmbientBubblesBackground : Control
     private const double PhysicsHz = 60.0;
     private const double FixedDeltaSeconds = 1.0 / PhysicsHz;
 
+    /// <summary>
+    /// Repaint ceiling. Physics still steps at a fixed 60Hz (motion stays smooth and
+    /// frame-rate independent), but there is no reason to REDRAW a near-subliminal decoration
+    /// more often than this. Previously `InvalidateVisual()` ran on every animation frame with
+    /// no throttle at all, so on a 144Hz display this layer repainted 144 times a second —
+    /// while the documentation claimed it was throttled to ~30fps.
+    /// </summary>
+    private const double RenderHz = 30.0;
+    private const double MinRenderIntervalSeconds = 1.0 / RenderHz;
+
+    /// <summary>
+    /// Set while a render/export overlay owns the screen. The ambient layer is decoration and
+    /// must not compete for the GPU during an encode — and it genuinely was competing, because
+    /// being COVERED does not make a control stop rendering (`IsEffectivelyVisible` stays true,
+    /// and the Phase overlay's backdrop is only 67% opaque anyway).
+    /// </summary>
+    public static bool GloballySuspended { get; set; }
+
     private readonly Bubble[] _bubbles = new Bubble[BubbleCount];
     private readonly Random _rng = new();
     private readonly Stopwatch _clock = new();
     private double _lastFrameSeconds;
+    private double _lastRenderSeconds;
     private double _accumulator;
     private bool _running;
-    
+
     private Point _mousePos = new Point(-1000, -1000);
     private Avalonia.PixelPoint _lastWindowPos;
     private double _gravityShearX;
     private double _gravityShearY;
+
+    private Color _bubbleColor = Colors.White;
+    private double _opacityScale = 1.0;
 
     private sealed class Bubble
     {
@@ -40,6 +62,10 @@ public sealed class AmbientBubblesBackground : Control
         public double WobbleAmount;
         public double Seed;
         public double Opacity;
+
+        public IBrush? Body;
+        public IBrush? Highlight;
+        public int FadeStep = -1;
     }
 
     public AmbientBubblesBackground()
@@ -61,8 +87,11 @@ public sealed class AmbientBubblesBackground : Control
         base.OnAttachedToVisualTree(e);
         _clock.Restart();
         _lastFrameSeconds = 0;
+        _lastRenderSeconds = 0;
         _accumulator = 0;
         _running = true;
+        ResolveThemeAppearance();
+        ActualThemeVariantChanged += OnThemeVariantChanged;
         var top = TopLevel.GetTopLevel(this);
         if (top != null)
         {
@@ -82,9 +111,40 @@ public sealed class AmbientBubblesBackground : Control
         {
             top.PointerMoved -= OnTopLevelPointerMoved;
         }
+        ActualThemeVariantChanged -= OnThemeVariantChanged;
         base.OnDetachedFromVisualTree(e);
         _running = false;
         _clock.Stop();
+    }
+
+    private void OnThemeVariantChanged(object? sender, EventArgs e)
+    {
+        ResolveThemeAppearance();
+        foreach (var b in _bubbles) b.FadeStep = -1;
+    }
+
+    /// <summary>
+    /// Pulls the bubble colour and opacity multiplier for the CURRENT ThemeVariant.
+    ///
+    /// This layer used to hardcode pure white, which meant it was invisible on the Light
+    /// theme's near-white surface (#f8fafc at 5-10% white is nothing) — the whole feature
+    /// silently did not exist for half the users. Light now gets a saturated blue with a
+    /// higher multiplier so it reads; Dark keeps the original white at the original strength,
+    /// so nothing about the existing look changes.
+    /// </summary>
+    private void ResolveThemeAppearance()
+    {
+        if (this.TryFindResource("AppAmbientBubbleColor", ActualThemeVariant, out object? colorObj)
+            && colorObj is Color c)
+        {
+            _bubbleColor = c;
+        }
+
+        if (this.TryFindResource("AppAmbientBubbleOpacityScale", ActualThemeVariant, out object? scaleObj)
+            && scaleObj is double d && d > 0)
+        {
+            _opacityScale = d;
+        }
     }
 
     private void OnTopLevelPointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)
@@ -95,6 +155,14 @@ public sealed class AmbientBubblesBackground : Control
     private void OnAnimationFrame(TimeSpan _)
     {
         if (!_running) return;
+
+        if (GloballySuspended)
+        {
+            _lastFrameSeconds = NowSeconds;
+            _accumulator = 0;
+            TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnAnimationFrame);
+            return;
+        }
 
         double now = NowSeconds;
         double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25);
@@ -107,8 +175,9 @@ public sealed class AmbientBubblesBackground : Control
             _accumulator -= FixedDeltaSeconds;
         }
 
-        if (IsEffectivelyVisible)
+        if (IsEffectivelyVisible && (now - _lastRenderSeconds) >= MinRenderIntervalSeconds)
         {
+            _lastRenderSeconds = now;
             InvalidateVisual();
         }
 
@@ -183,8 +252,12 @@ public sealed class AmbientBubblesBackground : Control
         b.WobbleSpeed = 0.2 + _rng.NextDouble() * 0.8;
         b.WobbleAmount = (0.2 + _rng.NextDouble() * 1.0) / 400.0;
         b.Seed = _rng.NextDouble() * Math.PI * 2;
-        
+
         b.Opacity = 0.05 + _rng.NextDouble() * 0.05;
+
+        b.FadeStep = -1;
+        b.Body = null;
+        b.Highlight = null;
     }
 
     public override void Render(DrawingContext context)
@@ -200,35 +273,43 @@ public sealed class AmbientBubblesBackground : Control
             if (b.Y > 1.25 || b.Y < -0.25) continue;
 
             double edgeFade = Math.Clamp((1.2 - b.Y) * 5.0, 0, 1);
-            double alpha = b.Opacity * edgeFade;
+            double alpha = b.Opacity * _opacityScale * edgeFade;
             if (alpha <= 0.001) continue;
+
+            const int FadeSteps = 12;
+            int step = (int)Math.Round(edgeFade * FadeSteps);
+            if (b.FadeStep != step || b.Body == null || b.Highlight == null)
+            {
+                b.FadeStep = step;
+                double a = b.Opacity * _opacityScale * (step / (double)FadeSteps);
+                byte r = _bubbleColor.R, g = _bubbleColor.G, bl = _bubbleColor.B;
+
+                b.Body = new ImmutableRadialGradientBrush(
+                    new[] {
+                        new ImmutableGradientStop(0.0, Color.FromArgb(0, r, g, bl)),
+                        new ImmutableGradientStop(0.7, Color.FromArgb((byte)Math.Clamp(a * 80, 0, 255), r, g, bl)),
+                        new ImmutableGradientStop(1.0, Color.FromArgb((byte)Math.Clamp(a * 255, 0, 255), r, g, bl))
+                    },
+                    center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                    gradientOrigin: new RelativePoint(0.3, 0.3, RelativeUnit.Relative),
+                    radius: 0.5);
+
+                double hiOpacity = Math.Min(1.0, a + 0.2);
+                b.Highlight = new ImmutableRadialGradientBrush(
+                    new[] {
+                        new ImmutableGradientStop(0.0, Color.FromArgb((byte)Math.Clamp(hiOpacity * 255, 0, 255), r, g, bl)),
+                        new ImmutableGradientStop(1.0, Color.FromArgb(0, r, g, bl))
+                    },
+                    center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                    gradientOrigin: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+                    radius: 0.5);
+            }
 
             double cx = b.X * w;
             double cy = b.Y * h;
 
-            var bubbleGradient = new ImmutableRadialGradientBrush(
-                new[] {
-                    new ImmutableGradientStop(0.0, Color.FromArgb(0, 255, 255, 255)),
-                    new ImmutableGradientStop(0.7, Color.FromArgb((byte)(alpha * 80), 255, 255, 255)),
-                    new ImmutableGradientStop(1.0, Color.FromArgb((byte)(alpha * 255), 255, 255, 255))
-                },
-                center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                gradientOrigin: new RelativePoint(0.3, 0.3, RelativeUnit.Relative),
-                radius: 0.5);
-
-            context.DrawEllipse(bubbleGradient, null, new Point(cx, cy), b.Size, b.Size);
-            
-            var hiOpacity = Math.Min(1.0, alpha + 0.2);
-            var hiBrush = new ImmutableRadialGradientBrush(
-                new[] {
-                    new ImmutableGradientStop(0.0, Color.FromArgb((byte)(hiOpacity * 255), 255, 255, 255)),
-                    new ImmutableGradientStop(1.0, Color.FromArgb(0, 255, 255, 255))
-                },
-                center: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                gradientOrigin: new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-                radius: 0.5);
-                
-            context.DrawEllipse(hiBrush, null, new Point(cx - b.Size * 0.35, cy - b.Size * 0.35), b.Size * 0.25, b.Size * 0.25);
+            context.DrawEllipse(b.Body, null, new Point(cx, cy), b.Size, b.Size);
+            context.DrawEllipse(b.Highlight, null, new Point(cx - b.Size * 0.35, cy - b.Size * 0.35), b.Size * 0.25, b.Size * 0.25);
         }
     }
 }

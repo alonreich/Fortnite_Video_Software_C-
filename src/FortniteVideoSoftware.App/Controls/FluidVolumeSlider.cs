@@ -94,8 +94,6 @@ public class FluidVolumeSlider : Slider
         },
         startPoint: new RelativePoint(0.5, 0, RelativeUnit.Relative),
         endPoint: new RelativePoint(0.5, 1, RelativeUnit.Relative));
-    private static readonly ImmutableSolidColorBrush s_specularLeft = new(Colors.White, 0.16);
-    private static readonly ImmutableSolidColorBrush s_specularRight = new(Colors.White, 0.07);
     private static readonly ImmutablePen s_markerDarkPen = new(new ImmutableSolidColorBrush(Color.Parse("#59000000")), 1);
     private static readonly ImmutablePen s_markerLightPen = new(new ImmutableSolidColorBrush(Color.Parse("#2effffff")), 1);
     private static readonly ImmutableSolidColorBrush s_markerTextBrush = new(Colors.White, 0.30);
@@ -103,6 +101,30 @@ public class FluidVolumeSlider : Slider
     private static readonly Typeface s_typeface = new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
     protected override Type StyleKeyOverride => typeof(FluidVolumeSlider);
+
+    /// <summary>
+    /// True while the user is hovering the tube OR dragging it.
+    ///
+    /// Exists so the numeric "72%" readout can appear exactly when it is useful and stay out of
+    /// the way otherwise. The fluid level communicates the rough amount beautifully, but it
+    /// cannot answer "is that 70 or 80?" — and the badge that was supposed to answer it shipped
+    /// `IsVisible="False"` and was never turned on, so the app was updating the text of an
+    /// invisible control. Windows bind their badge to this rather than duplicating hover
+    /// bookkeeping in two code-behinds.
+    /// </summary>
+    public static readonly StyledProperty<bool> IsInteractingProperty =
+        AvaloniaProperty.Register<FluidVolumeSlider, bool>(nameof(IsInteracting));
+
+    public bool IsInteracting
+    {
+        get => GetValue(IsInteractingProperty);
+        private set => SetValue(IsInteractingProperty, value);
+    }
+
+    /// <summary>Hover OR drag. Drag is included separately because a pointer captured during a
+    /// drag can travel outside the control, which clears IsPointerOver while the user is very
+    /// much still adjusting the volume.</summary>
+    private void RefreshInteracting() => IsInteracting = _isDragging || IsPointerOver;
 
     public FluidVolumeSlider()
     {
@@ -161,6 +183,9 @@ public class FluidVolumeSlider : Slider
         _clock.Stop();
     }
 
+    private double _lastRenderSeconds;
+    private bool _wasActive;
+
     private void OnAnimationFrame(TimeSpan _)
     {
         if (!_running) return;
@@ -176,10 +201,17 @@ public class FluidVolumeSlider : Slider
             _accumulator -= FixedDeltaSeconds;
         }
 
-        if (IsEffectivelyVisible)
+        bool isPhysicsActive = IsInteracting || Math.Abs(_targetVolume - _currentVolume) > 0.01 ||
+                               Math.Abs(_velocity) > 0.001 || Math.Abs(_sloshTilt) > 0.001 ||
+                               Math.Abs(_sloshWave) > 0.001 || _turbulence > 0.001 ||
+                               _waveDecay > 0.001 || _simulatedPeak > 0.001;
+
+        if (IsEffectivelyVisible && (isPhysicsActive || _wasActive) && (now - _lastRenderSeconds) >= 0.0333)
         {
+            _lastRenderSeconds = now;
             InvalidateVisual();
         }
+        _wasActive = isPhysicsActive;
 
         TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnAnimationFrame);
     }
@@ -287,11 +319,24 @@ public class FluidVolumeSlider : Slider
         b.Opacity = 0.25 + _rng.NextDouble() * 0.5;
     }
 
+    protected override void OnPointerEntered(PointerEventArgs e)
+    {
+        base.OnPointerEntered(e);
+        RefreshInteracting();
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        RefreshInteracting();
+    }
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         if (!IsEnabled) return;
         _isDragging = true;
+        RefreshInteracting();
         e.Pointer.Capture(this);
         UpdateVolumeFromPointer(e.GetPosition(this).Y);
         e.Handled = true;
@@ -314,6 +359,7 @@ public class FluidVolumeSlider : Slider
             _isDragging = false;
             _releaseTimeSeconds = NowSeconds;
             e.Pointer.Capture(null);
+            RefreshInteracting();
         }
         base.OnPointerReleased(e);
     }
@@ -325,6 +371,7 @@ public class FluidVolumeSlider : Slider
         {
             _isDragging = false;
             _releaseTimeSeconds = NowSeconds;
+            RefreshInteracting();
         }
     }
 
@@ -413,10 +460,11 @@ public class FluidVolumeSlider : Slider
             using (var gc = fluid.Open())
             {
                 gc.BeginFigure(new Point(tubeX, SurfaceY(tubeX)), true);
-                for (double x = tubeX + 1; x <= tubeX + tubeWidth; x += 1.0)
+                for (double x = tubeX + 3.0; x < tubeX + tubeWidth; x += 3.0)
                 {
                     gc.LineTo(new Point(x, SurfaceY(x)));
                 }
+                gc.LineTo(new Point(tubeX + tubeWidth, SurfaceY(tubeX + tubeWidth)));
                 gc.LineTo(new Point(tubeX + tubeWidth, tubeY + tubeHeight));
                 gc.LineTo(new Point(tubeX, tubeY + tubeHeight));
                 gc.EndFigure(true);

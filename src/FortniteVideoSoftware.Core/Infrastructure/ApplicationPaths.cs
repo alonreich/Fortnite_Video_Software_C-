@@ -1,4 +1,4 @@
-namespace FortniteVideoSoftware.Core.Infrastructure;
+﻿namespace FortniteVideoSoftware.Core.Infrastructure;
 
 public sealed class ApplicationPaths
 {
@@ -46,6 +46,28 @@ public sealed class ApplicationPaths
 
     public string InstallerReportFile => Path.Combine(TempDirectory, "Fortnite_Video_Software_Install_Report.txt");
 
+    /// <summary>
+    /// ISSUE_09 — the SINGLE home for small per-user UI state files (onboarding counters,
+    /// dismissed hints, and anything similar).
+    ///
+    /// WHY THIS EXISTS: these files used to be scattered in
+    /// <c>%APPDATA%\FortniteVideoSoftware\Settings</c> — a THIRD state root, separate from
+    /// ProgramData (settings.json, session_state.json, recovery) and %TMP% (logs, staging).
+    /// That fragmentation is exactly what made the "preserve my settings" upgrade option leaky:
+    /// the uninstaller/upgrader had to know about every root, and it did not.
+    ///
+    /// New small state files belong HERE. Do not create another root.
+    /// </summary>
+    public string UiStateDirectory => Path.Combine(ProgramDataRoot, "uistate");
+
+    /// <summary>
+    /// ISSUE_09 — the legacy %APPDATA% location, kept ONLY so existing installs can be migrated
+    /// once (see UiStateStore.Migrate). Never write here.
+    /// </summary>
+    public static string LegacyRoamingUiStateDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "FortniteVideoSoftware", "Settings");
+
     public static ApplicationPaths CreateDefault()
     {
         string? overrideRoot = Environment.GetEnvironmentVariable(ProgramDataRootOverrideEnvironmentVariable);
@@ -69,6 +91,7 @@ public sealed class ApplicationPaths
         Directory.CreateDirectory(ProgramDataRoot);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);
+        Directory.CreateDirectory(UiStateDirectory);
         
         if (createdRoot)
         {

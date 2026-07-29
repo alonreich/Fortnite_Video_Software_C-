@@ -27,6 +27,8 @@ public partial class SettingsWindow : Window
     private string _pendingMaskOverlay = "";
     private ThemeMode _pendingThemeMode = ThemeMode.FollowOS;
     private FontScale _pendingFontScale = FontScale.Normal;
+    private AudioFixPrompt _pendingLoudnessPrompt = AudioFixPrompt.Ask;
+    private AudioFixPrompt _pendingPeakPrompt = AudioFixPrompt.Ask;
 
     public SettingsWindow()
     {
@@ -57,6 +59,8 @@ public partial class SettingsWindow : Window
 
         _pendingThemeMode = SettingsManager.Instance.ThemeMode;
         _pendingFontScale = SettingsManager.Instance.FontScale;
+        _pendingLoudnessPrompt = SettingsManager.Instance.LoudnessNormalizationPrompt;
+        _pendingPeakPrompt = SettingsManager.Instance.PeakFlatteningPrompt;
 
         LoadCurrentKeybinds();
         BuildKeyBindsUi();
@@ -161,6 +165,52 @@ public partial class SettingsWindow : Window
             {
                 _pendingThemeMode = (ThemeMode)themeCombo.SelectedIndex;
                 ThemeManager.ApplyTheme(_pendingThemeMode);
+            };
+        }
+
+        BuildAudioWarningUi();
+    }
+
+    /// <summary>
+    /// Settings → Audio. Mirrors whatever the user chose in the upload warning dialogs, so a
+    /// "never ask me again" is never a one-way door — this is the screen the dialog points at.
+    ///
+    /// The option order matches <see cref="AudioFixPrompt"/> exactly (Ask / AlwaysApply /
+    /// NeverApply), so the combo index IS the enum value. Keep them in step if either changes.
+    /// </summary>
+    private void BuildAudioWarningUi()
+    {
+        var loudness = this.FindControl<ComboBox>("LoudnessPromptComboBox");
+        if (loudness != null)
+        {
+            loudness.ItemsSource = new List<string>
+            {
+                "Ask me each time",
+                "Always even out the volume (do not ask)",
+                "Never change my volume (do not ask)"
+            };
+            loudness.SelectedIndex = (int)_pendingLoudnessPrompt;
+            loudness.SelectionChanged += (_, _) =>
+            {
+                if (loudness.SelectedIndex >= 0)
+                    _pendingLoudnessPrompt = (AudioFixPrompt)loudness.SelectedIndex;
+            };
+        }
+
+        var peaks = this.FindControl<ComboBox>("PeakPromptComboBox");
+        if (peaks != null)
+        {
+            peaks.ItemsSource = new List<string>
+            {
+                "Ask me each time",
+                "Always soften sudden loud moments (do not ask)",
+                "Never soften them (do not ask)"
+            };
+            peaks.SelectedIndex = (int)_pendingPeakPrompt;
+            peaks.SelectionChanged += (_, _) =>
+            {
+                if (peaks.SelectedIndex >= 0)
+                    _pendingPeakPrompt = (AudioFixPrompt)peaks.SelectedIndex;
             };
         }
     }
@@ -514,6 +564,8 @@ public partial class SettingsWindow : Window
 
         SettingsManager.Instance.ThemeMode = _pendingThemeMode;
         SettingsManager.Instance.FontScale = _pendingFontScale;
+        SettingsManager.Instance.LoudnessNormalizationPrompt = _pendingLoudnessPrompt;
+        SettingsManager.Instance.PeakFlatteningPrompt = _pendingPeakPrompt;
         ThemeManager.ApplyTheme(_pendingThemeMode);
         ThemeManager.ApplyFontScale(_pendingFontScale);
 

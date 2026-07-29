@@ -12,7 +12,6 @@ public static partial class NativeDialog
     private const uint Topmost = 0x00040000;
     private const uint SetForeground = 0x00010000;
     private const int IdYes = 6;
-    private const int IdNo = 7;
 
     private static IntPtr GetOwnerHandle()
     {

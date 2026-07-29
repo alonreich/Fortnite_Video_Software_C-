@@ -39,10 +39,29 @@ public static class FontScaleExtensions
 
 public class AppSettings
 {
+    /// <summary>
+    /// Bumped whenever a field is renamed/removed or its meaning changes. <see cref="SettingsManager.Load"/>
+    /// uses it to migrate instead of silently reverting the user to defaults. A file with a
+    /// HIGHER version than this build understands is left untouched on disk and loaded
+    /// best-effort, so downgrading the app never destroys a newer config.
+    /// </summary>
+    public int SchemaVersion { get; set; } = SettingsManager.CurrentSchemaVersion;
+
     public KeyBinds KeyBinds { get; set; } = new();
     public DefaultValues Defaults { get; set; } = new();
     public int Volume { get; set; } = 100;
     public string ActiveMaskOverlay { get; set; } = "Fortnite";
+
+    /// <summary>
+    /// ISSUE_04 — Main App export destination. Empty means "resolve the real Downloads folder
+    /// at export time". Once the user is asked to pick a location (because Downloads is
+    /// missing/unwritable) the chosen folder is stored here and becomes the new default.
+    /// Each sub-application keeps its OWN destination — do not merge these two fields.
+    /// </summary>
+    public string MainOutputDirectory { get; set; } = "";
+
+    /// <summary>ISSUE_04 — Video Merger export destination. Independent of <see cref="MainOutputDirectory"/>.</summary>
+    public string MergerOutputDirectory { get; set; } = "";
 
     public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
     public FontScale FontScale { get; set; } = FontScale.Normal;
@@ -58,6 +77,37 @@ public class AppSettings
     /// Always resolve through <see cref="MemeDirectory.GetActive"/> — never read this raw.
     /// </summary>
     public string MemeDirectoryPath { get; set; } = "";
+
+    /// <summary>
+    /// What to do when an uploaded video's average loudness is outside the accepted band around
+    /// the -14 LUFS streaming standard. Set from the warning dialog's two "do not show again"
+    /// checkboxes, and reversible at any time from Settings → Audio.
+    /// </summary>
+    public AudioFixPrompt LoudnessNormalizationPrompt { get; set; } = AudioFixPrompt.Ask;
+
+    /// <summary>
+    /// What to do when an uploaded video hides sudden peaks far above its own average — the
+    /// "quiet gameplay, then an explosion takes the viewer's head off" case. Set from the warning
+    /// dialog, reversible from Settings → Audio.
+    /// </summary>
+    public AudioFixPrompt PeakFlatteningPrompt { get; set; } = AudioFixPrompt.Ask;
+}
+
+/// <summary>
+/// A remembered answer to a "shall I fix this?" warning dialog.
+///
+/// Deliberately THREE states, not a bool: "never ask me again" is genuinely two different
+/// wishes — "just do it from now on" and "leave my audio alone" — and collapsing them into one
+/// checkbox forces the user to keep answering the dialog to get the behaviour they already chose.
+/// </summary>
+public enum AudioFixPrompt
+{
+    /// <summary>Show the warning and let the user decide, every time. Default.</summary>
+    Ask,
+    /// <summary>Never show the warning; silently apply the fix.</summary>
+    AlwaysApply,
+    /// <summary>Never show the warning; never apply the fix.</summary>
+    NeverApply
 }
 
 /// <summary>
@@ -159,30 +209,153 @@ public class DefaultValues
 [JsonSerializable(typeof(DefaultValues))]
 [JsonSerializable(typeof(CheckboxDefaultBehavior))]
 [JsonSerializable(typeof(ValueDefaultBehavior))]
+[JsonSerializable(typeof(AudioFixPrompt))]
 [JsonSerializable(typeof(ThemeMode))]
 [JsonSerializable(typeof(FontScale))]
 public partial class SettingsJsonContext : JsonSerializerContext { }
 
 public static class SettingsManager
 {
+    /// <summary>
+    /// ISSUE_14 — schema version of the settings shape THIS build writes.
+    /// History:
+    ///   1 = original unversioned shape (no SchemaVersion field on disk).
+    ///   2 = added MainOutputDirectory / MergerOutputDirectory (ISSUE_04).
+    ///   3 = added LoudnessNormalizationPrompt / PeakFlatteningPrompt (audio warning dialogs).
+    /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
+    /// case to <see cref="Migrate"/>. NEVER reuse a number.
+    /// </summary>
+    public const int CurrentSchemaVersion = 3;
+
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
-    
+
     public static AppSettings Instance { get; private set; } = new AppSettings();
+
+    /// <summary>
+    /// True when the last <see cref="Load"/> found an unreadable settings file and quarantined
+    /// it. The UI surfaces this once at startup so a silent config reset is never invisible.
+    /// </summary>
+    public static string? LoadFailureMessage { get; private set; }
 
     public static void Load()
     {
-        if (File.Exists(SettingsPath))
+        LoadFailureMessage = null;
+
+        if (!File.Exists(SettingsPath))
         {
-            try
+            RuntimeLog.Info("Settings", "No settings file yet — starting from defaults.");
+            return;
+        }
+
+        string json;
+        try
+        {
+            json = File.ReadAllText(SettingsPath);
+        }
+        catch (Exception ex)
+        {
+            LoadFailureMessage = "Your saved settings could not be read, so this session is using defaults. " +
+                                 "Your settings file was left untouched.";
+            RuntimeLog.Fail("Settings", $"Failed to read settings file: {ex.Message}");
+            return;
+        }
+
+        try
+        {
+            var loaded = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings);
+            if (loaded == null)
             {
-                var json = File.ReadAllText(SettingsPath);
-                var loaded = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings);
-                if (loaded != null) Instance = loaded;
+                throw new InvalidDataException("Settings file deserialized to null.");
             }
-            catch (Exception ex)
+
+            Migrate(loaded);
+            Instance = loaded;
+            RuntimeLog.Info("Settings", $"Settings loaded (schema v{loaded.SchemaVersion}).");
+        }
+        catch (Exception ex)
+        {
+            string backupPath = QuarantineCorruptFile(json);
+            Instance = new AppSettings();
+
+            LoadFailureMessage =
+                "Your saved settings could not be understood and have been reset to defaults. " +
+                (backupPath.Length > 0
+                    ? "A copy of the old file was kept at: " + backupPath
+                    : "The old file could not be backed up.");
+
+            RuntimeLog.Fail("Settings", $"Failed to parse settings: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Forward-only migration. Each step upgrades ONE version and falls through to the next,
+    /// so a v1 file on a v5 build walks the whole chain.
+    /// </summary>
+    private static void Migrate(AppSettings loaded)
+    {
+        int from = loaded.SchemaVersion;
+
+        if (from > CurrentSchemaVersion)
+        {
+            RuntimeLog.Info("Settings",
+                $"Settings file is schema v{from} but this build understands v{CurrentSchemaVersion}. Loading best-effort.");
+            return;
+        }
+
+        if (from < 1) from = 1;
+
+        if (from < 2)
+        {
+            if (loaded.MainOutputDirectory is null) loaded.MainOutputDirectory = "";
+            if (loaded.MergerOutputDirectory is null) loaded.MergerOutputDirectory = "";
+            from = 2;
+        }
+
+        if (from < 3)
+        {
+            from = 3;
+        }
+
+        loaded.SchemaVersion = from;
+    }
+
+    private static string QuarantineCorruptFile(string originalContent)
+    {
+        try
+        {
+            string backupPath = SettingsPath + $".corrupt-{DateTime.Now:yyyyMMdd-HHmmss}.bak";
+            File.WriteAllText(backupPath, originalContent);
+            RuntimeLog.Info("Settings", $"Corrupt settings file backed up to {Path.GetFileName(backupPath)}.");
+            PruneOldBackups();
+            return backupPath;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Settings", $"Could not back up the corrupt settings file: {ex.Message}");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Keeps at most 5 quarantined copies so a repeated fault cannot fill the disk.</summary>
+    private static void PruneOldBackups()
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(SettingsPath);
+            if (string.IsNullOrEmpty(dir)) return;
+
+            var backups = new DirectoryInfo(dir)
+                .GetFiles("settings.json.corrupt-*.bak")
+                .OrderByDescending(f => f.CreationTimeUtc)
+                .Skip(5);
+
+            foreach (var f in backups)
             {
-                RuntimeLog.Fail("Settings", $"Failed to load settings: {ex.Message}");
+                try { f.Delete(); } catch { }
             }
+        }
+        catch
+        {
         }
     }
 
@@ -190,6 +363,8 @@ public static class SettingsManager
     {
         try
         {
+            Instance.SchemaVersion = CurrentSchemaVersion;
+
             var options = new JsonSerializerOptions { WriteIndented = true };
             options.TypeInfoResolver = SettingsJsonContext.Default;
             var json = JsonSerializer.Serialize(Instance, options);

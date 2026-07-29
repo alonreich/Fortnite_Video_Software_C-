@@ -2,6 +2,40 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="FortniteVideoSoftware.App.Controls.PhoneFrameMockup"
              IsHitTestVisible="False">
+    <!--
+    ================================================================================================
+    PORTRAIT PREVIEW GUIDE — COORDINATE SPACE IS *SOURCE* PIXELS (1920x1080), NOT OUTPUT PIXELS.
+    ================================================================================================
+    This control is an OVERLAY drawn on top of the live 16:9 video, so its unit space is the SOURCE
+    frame. The centre column (720 units) is the "portrait brick wall": the slice of the source that
+    survives the Portrait Canvas Trick (1280 internal width / (16/9) = 720 source px).
+
+    ⚠️ THE BUG THAT WAS FIXED HERE — READ BEFORE CHANGING ANY NUMBER BELOW ⚠️
+    The phone SCREEN used to be 720x1080 with 150-unit black bars drawn INSIDE it. Both numbers
+    were wrong, because 150 is a measurement in the 1080x1920 OUTPUT space and this grid is in
+    1080-tall SOURCE space. The consequences were:
+      * the "phone" was 720x1080 = 2:3, which is the aspect of the VIDEO CONTENT AREA, not of a
+        phone screen (a phone is 9:16);
+      * the bars painted solid black over source rows 0-150 and 930-1080 — 300 of the 1080
+        surviving rows, i.e. 27.8% of the picture — which are FULLY VISIBLE in the exported file.
+    That made the preview contradict both the export and the zoom rubberband: the rubberband
+    correctly let the user draw into those rows (they really are exported), while this overlay
+    insisted they were dead space. Verified against the real filter chain
+    (scale=3414:1920,crop=1280:1920:1066:0,scale=1080:1620,pad=1080:1920:0:150): source row Y maps
+    to output row 150 + Y*1.5, so source 0..1080 -> output 150..1770. NOTHING in the source is ever
+    hidden by the bars; they are pure added canvas.
+
+    CORRECT GEOMETRY (all in source units, 720 = the surviving slice width):
+      output px -> source units  =  720 / 1080  =  2/3
+      screen height  1920 output px * 2/3 = 1280 units   (720x1280 = 9:16 ✓)
+      bar height      150 output px * 2/3 =  100 units   (x2 = 200)
+      video area                          = 1080 units   (100 + 1080 + 100 = 1280 ✓)
+    The 1080-unit video band therefore aligns EXACTLY with the live video underneath, and the bars
+    sit OUTSIDE it — which is why the screen deliberately overflows the 1080-tall grid by 100 units
+    top and bottom (ClipToBounds="False" on both grids permits this). Everything inside a bar is
+    scaled by the same 2/3 so the status/home indicators stay proportional.
+    ================================================================================================
+    -->
     <Viewbox Stretch="Uniform">
         <Grid Width="1920" Height="1080" ClipToBounds="False">
             <Grid.ColumnDefinitions>
@@ -9,48 +43,48 @@
                 <ColumnDefinition Width="720" />
                 <ColumnDefinition Width="600" />
             </Grid.ColumnDefinitions>
-            <Border Grid.Column="0" Background="#99000000" />
-            <Border Grid.Column="2" Background="#99000000" />
-            <Grid Grid.Column="1" Width="720" Height="1080" VerticalAlignment="Center" ClipToBounds="False">
-                <Border BorderBrush="#1AFFFFFF" BorderThickness="4" CornerRadius="40" Margin="-4"/>
-                <Border BorderBrush="Black" BorderThickness="6" CornerRadius="38" Margin="-2"/>
+            <Border Grid.Column="0" Background="{DynamicResource AppPortraitMaskBrush}" />
+            <Border Grid.Column="2" Background="{DynamicResource AppPortraitMaskBrush}" />
+            <Grid Grid.Column="1" Width="720" Height="1280" VerticalAlignment="Center" ClipToBounds="False">
+                <Border BorderBrush="{DynamicResource AppPhoneBezelRimBrush}" BorderThickness="4" CornerRadius="40" Margin="-4"/>
+                <Border BorderBrush="{DynamicResource AppPhoneBezelBrush}" BorderThickness="6" CornerRadius="38" Margin="-2"/>
                 <Border CornerRadius="32" ClipToBounds="True">
                     <Grid>
-                        <Border Height="150" Background="Black" VerticalAlignment="Top" />
-                        <Border Height="150" Background="Black" VerticalAlignment="Bottom" />
-                        <Image Name="PortraitImage" Height="105" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,42,0,0" />
-                        <Grid Height="150" VerticalAlignment="Top" Margin="30,12,30,0">
-                            <TextBlock Text="9:41" Foreground="White" FontSize="{DynamicResource AppFontSize28}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                        <Border Height="100" Background="{DynamicResource AppPhoneBezelBrush}" VerticalAlignment="Top" />
+                        <Border Height="100" Background="{DynamicResource AppPhoneBezelBrush}" VerticalAlignment="Bottom" />
+                        <Image Name="PortraitImage" Height="70" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,28,0,0" />
+                        <Grid Height="100" VerticalAlignment="Top" Margin="20,8,20,0">
+                            <TextBlock Text="9:41" Foreground="{DynamicResource AppPhoneChromeBrush}" FontSize="{DynamicResource AppFontSize28}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="24" Margin="0,5,0,0">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
-                                    <Border Background="White" Width="3.5" Height="7" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                    <Border Background="White" Width="3.5" Height="10" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                    <Border Background="White" Width="3.5" Height="14" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                    <Border Background="#66FFFFFF" Width="3.5" Height="18" CornerRadius="1" VerticalAlignment="Bottom"/>
-                                    <TextBlock Text="5G" Foreground="White" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
+                                    <Border Background="{DynamicResource AppPhoneChromeBrush}" Width="3.5" Height="7" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                    <Border Background="{DynamicResource AppPhoneChromeBrush}" Width="3.5" Height="10" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                    <Border Background="{DynamicResource AppPhoneChromeBrush}" Width="3.5" Height="14" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                    <Border Background="{DynamicResource AppPhoneChromeDimBrush}" Width="3.5" Height="18" CornerRadius="1" VerticalAlignment="Bottom"/>
+                                    <TextBlock Text="5G" Foreground="{DynamicResource AppPhoneChromeBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" VerticalAlignment="Bottom" Margin="5,0,0,0" />
                                 </StackPanel>
                                 <Grid Width="22" Height="18" VerticalAlignment="Bottom" Margin="0,0,0,2">
-                                    <Path Data="M 1,4 C 7,-1 15,-1 21,4" Stroke="#66FFFFFF" StrokeThickness="3" StrokeLineCap="Round" />
-                                    <Path Data="M 5,8 C 9,5 13,5 17,8" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
-                                    <Path Data="M 9,12 C 10.5,10.5 11.5,10.5 13,12" Stroke="White" StrokeThickness="3" StrokeLineCap="Round" />
-                                    <Ellipse Fill="White" Width="4.5" Height="4.5" Margin="0,15,0,0" HorizontalAlignment="Center" VerticalAlignment="Top" />
+                                    <Path Data="M 1,4 C 7,-1 15,-1 21,4" Stroke="{DynamicResource AppPhoneChromeDimBrush}" StrokeThickness="3" StrokeLineCap="Round" />
+                                    <Path Data="M 5,8 C 9,5 13,5 17,8" Stroke="{DynamicResource AppPhoneChromeBrush}" StrokeThickness="3" StrokeLineCap="Round" />
+                                    <Path Data="M 9,12 C 10.5,10.5 11.5,10.5 13,12" Stroke="{DynamicResource AppPhoneChromeBrush}" StrokeThickness="3" StrokeLineCap="Round" />
+                                    <Ellipse Fill="{DynamicResource AppPhoneChromeBrush}" Width="4.5" Height="4.5" Margin="0,15,0,0" HorizontalAlignment="Center" VerticalAlignment="Top" />
                                 </Grid>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="1" Margin="0,0,0,2">
-                                    <Border BorderBrush="#99FFFFFF" BorderThickness="2" CornerRadius="6" Width="46" Height="22" Padding="2">
-                                        <Border Background="White" CornerRadius="2.5" Width="18" HorizontalAlignment="Left" />
+                                    <Border BorderBrush="{DynamicResource AppPhoneChromeMutedBrush}" BorderThickness="2" CornerRadius="6" Width="46" Height="22" Padding="2">
+                                        <Border Background="{DynamicResource AppPhoneChromeBrush}" CornerRadius="2.5" Width="18" HorizontalAlignment="Left" />
                                     </Border>
-                                    <Border Background="#99FFFFFF" Width="4" Height="9" CornerRadius="0,4,4,0" />
+                                    <Border Background="{DynamicResource AppPhoneChromeMutedBrush}" Width="4" Height="9" CornerRadius="0,4,4,0" />
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
-                        <Grid Height="150" VerticalAlignment="Bottom" Background="Black">
+                        <Grid Height="100" VerticalAlignment="Bottom" Background="{DynamicResource AppPhoneBezelBrush}">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="90">
-                                <Path Data="M 18,0 L 0,11 L 18,22 Z" Fill="White" Width="24" Height="22" Stretch="Uniform" />
+                                <Path Data="M 18,0 L 0,11 L 18,22 Z" Fill="{DynamicResource AppPhoneChromeBrush}" Width="24" Height="22" Stretch="Uniform" />
                                 <Grid Width="20" Height="20">
-                                    <Ellipse Stroke="White" StrokeThickness="2" Width="20" Height="20" />
-                                    <Ellipse Fill="White" Width="8" Height="8" />
+                                    <Ellipse Stroke="{DynamicResource AppPhoneChromeBrush}" StrokeThickness="2" Width="20" Height="20" />
+                                    <Ellipse Fill="{DynamicResource AppPhoneChromeBrush}" Width="8" Height="8" />
                                 </Grid>
-                                <Rectangle Fill="Transparent" Stroke="White" StrokeThickness="2" Width="20" Height="20" RadiusX="3" RadiusY="3" />
+                                <Rectangle Fill="Transparent" Stroke="{DynamicResource AppPhoneChromeBrush}" StrokeThickness="2" Width="20" Height="20" RadiusX="3" RadiusY="3" />
                             </StackPanel>
                         </Grid>
                     </Grid>

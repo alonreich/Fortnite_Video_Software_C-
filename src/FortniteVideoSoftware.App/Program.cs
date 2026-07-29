@@ -56,6 +56,7 @@ NativeHelpers.SetDllDirectory(Path.Combine(baseDir, "frontend"));
 
 
 int exitCode = await RunAsync(args);
+SingleInstanceGuard.Release();
 RuntimeLog.Info("PROCESS EXIT", $"exitCode={exitCode}");
 return exitCode;
 
@@ -68,7 +69,20 @@ static async Task<int> RunAsync(string[] args)
         OpenWithLaunch.PendingVideoPath = System.IO.Path.GetFullPath(command);
         RuntimeLog.Info("OPEN WITH", $"Launched with video file argument: {System.IO.Path.GetFileName(OpenWithLaunch.PendingVideoPath)}");
         RuntimeLog.Debug("OPEN WITH", $"Full launched video path: {OpenWithLaunch.PendingVideoPath}");
+
+        if (!SingleInstanceGuard.TryAcquire(args))
+        {
+            RuntimeLog.Info("OPEN WITH", "Video path handed to the already-running instance; this process is exiting.");
+            return 0;
+        }
+
         return await RunUiAsync(args);
+    }
+
+    if (command == "run-ui" && SingleInstanceGuard.AppliesTo(args) && !SingleInstanceGuard.TryAcquire(args))
+    {
+        RuntimeLog.Info("SingleInstance", "Focused the running instance; this process is exiting.");
+        return 0;
     }
 
     try
@@ -243,14 +257,10 @@ static async Task<int> RunUiAsync(string[] args)
     RuntimeLog.Info("RUN UI", "Running bootstrapper before UI.");
     await BootstrapAsync(showDialog: false);
 
-    // Make the app appear in Explorer's right-click "Open with" for video files (HKCU, no admin).
-    // Opening a file that way relaunches with the path as argv[1] -> loaded like a normal upload.
     if (OperatingSystem.IsWindows())
         ShellFileAssociation.EnsureRegistered();
     
     RuntimeLog.Info("RUN UI", "Starting Avalonia App.");
-    // UNCONDITIONAL build fingerprint — printed on EVERY launch so any run of this binary is
-    // instantly identifiable in the log (no more mistaking a stale/leftover log for a fresh run).
     RuntimeLog.Info("BUILDTAG", "FVS-SWPREVIEW-BUILDCHECK-2026A :: CPU software-preview + frame-gate build ACTIVE");
 
     var builder = Avalonia.AppBuilder.Configure<FortniteVideoSoftware.App.AvaloniaApp>()

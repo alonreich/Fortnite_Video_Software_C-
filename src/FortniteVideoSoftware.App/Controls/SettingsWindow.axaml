@@ -17,7 +17,7 @@
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
-                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
                 </Border>
                 <Grid Grid.Row="1" Margin="15" RowDefinitions="*, Auto">
                     <TabControl Grid.Row="0" Background="Transparent">
@@ -50,22 +50,57 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
-                        <TabItem Header="Music">
-                            <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" HorizontalAlignment="Left">
-                                <TextBlock Text="Music Settings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
-                                
-                                <CheckBox Name="RememberVolumesCheckbox" Content="Remember Music Wizard Volumes (Phase 3)" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,0,0,10" IsChecked="{Binding RememberMusicVolumes, Mode=TwoWay}" ToolTip.Tip="Save and recall the music/video volume levels you selected last time." />
-                                <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Enable Auto Voice Normalization" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,0,0,10" ToolTip.Tip="Match applied voiceover loudness to the game audio during export." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
-                                <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Enable Auto Spike Flattening (Limiter)" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,0,0,10" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Automatically compress sudden loud noises to protect viewers' ears." />
-                                
-                                <TextBlock Text="Music (mp3) Folder" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold"/>
-                                <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" MaxWidth="700">
-                                    <DataValidationErrors Grid.Column="0">
-                                        <TextBox Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" Text="{Binding DefaultMusicFolder, Mode=TwoWay}"/>
-                                    </DataValidationErrors>
-                                    <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand" ToolTip.Tip="Pick the folder containing your background music."/>
-                                </Grid>
-                            </StackPanel>
+                        <!-- Sound & Music — the single home for EVERY audio setting in the suite.
+                             Previously split across a "Music" tab and a separate audio-warnings tab,
+                             which meant the master limiter switch lived on one screen and the warning
+                             that offers to use it lived on another. -->
+                        <TabItem Header="Sound &amp; Music">
+                            <ScrollViewer>
+                                <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="660">
+
+                                    <!-- ===== 1. What happens to the video's own sound ===== -->
+                                    <TextBlock Text="Your Video's Sound" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
+                                               Text="When you upload a video the app listens to it and checks two things. Whatever you picked in those warning pop-ups is remembered here, and you can change your mind at any time." />
+
+                                    <TextBlock Text="Video volume is too quiet or too loud" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="Viewers expect videos at roughly the same volume. If your recording is much quieter or much louder than that, they have to reach for their volume control."/>
+                                    <ComboBox Name="LoudnessPromptComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Choose whether the app asks before evening out your video's volume."/>
+
+                                    <TextBlock Text="Sudden loud moments" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="An explosion or a shout that is far louder than the rest of the video can hurt somebody wearing headphones, because it arrives with no warning."/>
+                                    <ComboBox Name="PeakPromptComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Choose whether the app asks before softening sudden loud moments."/>
+
+                                    <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Master switch: allow softening of sudden loud moments" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Turn this off and sudden loud moments are never softened, even if you answer YES to the warning." />
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 2. Voice over ===== -->
+                                    <TextBlock Text="Voice Over" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Match my recorded voice to the game's volume" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="Keeps your voice sitting at the same level as the gameplay instead of being much louder or quieter than it." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 3. Background music ===== -->
+                                    <TextBlock Text="Background Music" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <CheckBox Name="RememberVolumesCheckbox" Content="Remember the music and video volumes I set last time" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding RememberMusicVolumes, Mode=TwoWay}" ToolTip.Tip="Save and recall the music/video volume levels you selected last time." />
+
+                                    <TextBlock Text="Music (mp3) Folder" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" MaxWidth="700">
+                                        <DataValidationErrors Grid.Column="0">
+                                            <TextBox Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" Text="{Binding DefaultMusicFolder, Mode=TwoWay}"/>
+                                        </DataValidationErrors>
+                                        <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand" ToolTip.Tip="Pick the folder containing your background music."/>
+                                    </Grid>
+
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap" Margin="0,12,0,0"
+                                               Text="Ducking, frequency carving and the music/voice balance you set in the Music Wizard all move together with these settings, so the mix keeps the same balance whatever your recording level was."/>
+                                </StackPanel>
+                            </ScrollViewer>
                         </TabItem>
                         <TabItem Header="Memes">
                             <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="700">

@@ -28,6 +28,12 @@ public class MergerWorker : IDisposable
     public int QualityPercent { get; set; } = 100;
     public bool AutoSpikeFlattening { get; set; } = true;
 
+    /// <summary>
+    /// ISSUE_06 — raw error text (FFmpeg stderr tail / exception) behind the last failure.
+    /// The UI hands this to ErrorReporter, which extracts the root-cause line for the dialog.
+    /// </summary>
+    public string? FailureDetail { get; private set; }
+
     public MergerWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
@@ -35,8 +41,20 @@ public class MergerWorker : IDisposable
         _ffprobePath = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries");
     }
 
+    /// <summary>
+    /// ISSUE_04 — the single message used for a user-initiated stop, so the UI can tell
+    /// "you cancelled" apart from "something broke" without string-guessing.
+    /// </summary>
+    public const string CancelledMessage = "Merge cancelled.";
+
+    private volatile bool _isCanceled;
+
+    /// <summary>True when this job ended because the user stopped it, not because it failed.</summary>
+    public bool WasCanceled => _isCanceled;
+
     public void Cancel()
     {
+        _isCanceled = true;
         CoreLogger.Info("Merger", "Merge cancelled by user.");
         if (_currentProcess != null)
         {
@@ -44,8 +62,46 @@ public class MergerWorker : IDisposable
         }
     }
 
+    /// <summary>
+    /// ISSUE_04 — reads a child process's exit code without ever throwing.
+    ///
+    /// Callers reach here after a CANCELLABLE wait whose OperationCanceledException is
+    /// deliberately swallowed, so the process may still be dying (Kill is asynchronous) and
+    /// `ExitCode` would throw InvalidOperationException. Give it a short grace period, then fall
+    /// back to a sentinel rather than letting that exception masquerade as a pipeline crash.
+    /// </summary>
+    private static int ReadExitCodeSafely(Process proc, string logTag, int graceMs = 5000)
+    {
+        try
+        {
+            if (!proc.HasExited)
+            {
+                if (!proc.WaitForExit(graceMs))
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    proc.WaitForExit(2000);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Debug(logTag, $"Could not confirm process exit: {ex.Message}");
+        }
+
+        try { return proc.HasExited ? proc.ExitCode : -1; }
+        catch (Exception ex)
+        {
+            CoreLogger.Debug(logTag, $"Exit code unavailable: {ex.Message}");
+            return -1;
+        }
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        using var cancelMirror = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(() => _isCanceled = true)
+            : default;
+
         try
         {
             if (InputFiles.Count == 0)
@@ -97,6 +153,25 @@ public class MergerWorker : IDisposable
 
                 double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
                 double outputDuration = totalDuration / speedFactor;
+
+                {
+                    long estimatedBytes = DiskSpaceGuard.EstimateOutputBytes(
+                        outputDuration,
+                        (int)Math.Round(Math.Max(averageSourceVideoBitrateKbps, peakSourceVideoBitrateKbps)),
+                        null);
+                    string plannedOutputDir = !string.IsNullOrEmpty(OutputDirectory)
+                        ? OutputDirectory!
+                        : (KnownFolders.GetDownloads() ?? _paths.TempDirectory);
+
+                    var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);
+                    if (!space.Ok)
+                    {
+                        FailureDetail = space.Message;
+                        EmitFinished(false, space.Message ?? "Not enough free disk space.");
+                        return;
+                    }
+                }
+
                 var filters = new List<string>();
                 var cmdArgs = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1" };
                 var effectiveMusicTracks = await BuildEffectiveMusicTracksAsync(outputDuration);
@@ -288,7 +363,8 @@ public class MergerWorker : IDisposable
                 {
                     string outputDir = !string.IsNullOrEmpty(OutputDirectory) && Directory.Exists(OutputDirectory)
                         ? OutputDirectory
-                        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                        : (FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetDownloads()
+                           ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
                     Directory.CreateDirectory(outputDir);
                     int idx = 1;
                     string finalOutput;
@@ -298,9 +374,46 @@ public class MergerWorker : IDisposable
                         if (!File.Exists(finalOutput)) break;
                         idx++;
                     }
-                    File.Move(successOutputPath, finalOutput);
-                    ProgressUpdate?.Invoke(100);
-                    EmitFinished(true, finalOutput);
+                    try
+                    {
+                        File.Move(successOutputPath, finalOutput);
+                        ProgressUpdate?.Invoke(100);
+                        EmitFinished(true, finalOutput);
+                    }
+                    catch (Exception moveEx)
+                    {
+                        string? rescued = TryRescueFinishedRender(successOutputPath);
+
+                        CoreLogger.Fail("Merger",
+                            $"The finished merge could not be moved to the destination: {moveEx.Message}");
+                        CoreLogger.Debug("Merger", $"Destination was: {finalOutput}");
+
+                        if (rescued != null)
+                        {
+                            CoreLogger.Info("Merger", $"Finished merge preserved at: {Path.GetFileName(rescued)}");
+                            CoreLogger.Debug("Merger", $"Preserved merge full path: {rescued}");
+                            FailureDetail =
+                                $"The merge finished but could not be written to the destination folder.{Environment.NewLine}" +
+                                $"Reason: {moveEx.Message}{Environment.NewLine}" +
+                                $"Your merged video has NOT been lost — it is here:{Environment.NewLine}{rescued}";
+                            EmitFinished(false,
+                                "Your merged video finished, but it could not be saved to the destination folder. " +
+                                "It has been kept safe — see the details for where to find it.");
+                        }
+                        else
+                        {
+                            FailureDetail =
+                                $"The merge finished but could not be written to the destination folder, and the " +
+                                $"temporary copy could not be preserved either.{Environment.NewLine}Reason: {moveEx.Message}";
+                            EmitFinished(false, "Your merged video finished, but it could not be saved to the destination folder.");
+                        }
+                    }
+                }
+                else if (_isCanceled || cancellationToken.IsCancellationRequested)
+                {
+                    FailureDetail = null;
+                    CoreLogger.Info("Merger", "Merge cancelled by the user.");
+                    EmitFinished(false, CancelledMessage);
                 }
                 else
                 {
@@ -314,13 +427,24 @@ public class MergerWorker : IDisposable
         }
         catch (OperationCanceledException)
         {
+            _isCanceled = true;
+            FailureDetail = null;
             CoreLogger.Info("Merger", "Merge pipeline canceled.");
-            EmitFinished(false, "Merge canceled.");
+            EmitFinished(false, CancelledMessage);
         }
         catch (Exception ex)
         {
+            if (_isCanceled || cancellationToken.IsCancellationRequested)
+            {
+                FailureDetail = null;
+                CoreLogger.Info("Merger", $"Merge cancelled by the user (during: {ex.Message}).");
+                EmitFinished(false, CancelledMessage);
+                return;
+            }
+
             CoreLogger.Fail("Merger", $"Merge pipeline failed with exception: {ex.Message}");
             CoreLogger.Debug("Merger", $"Merge pipeline failed with exception detail: {ex}");
+            FailureDetail = ex.ToString();
             EmitFinished(false, ex.Message);
         }
     }
@@ -410,23 +534,30 @@ public class MergerWorker : IDisposable
 
     private async Task<bool> ExecuteFFmpegAsync(List<string> cmdArgs, double totalDuration, CancellationToken cancellationToken)
     {
-        string cmdLine = string.Join(" ", cmdArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+        string cmdLine = string.Join(" ", cmdArgs.Select(a =>
+            a.Length == 0 || a.Contains(' ') || a.Contains('"') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
         CoreLogger.Debug("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
         var psi = new ProcessStartInfo
         {
             FileName = _ffmpegPath,
-            Arguments = cmdLine,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
+        foreach (string arg in cmdArgs)
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
         _currentProcess?.Dispose();
         _currentProcess = Process.Start(psi);
         if (_currentProcess == null)
             return false;
+
+        try { ChildProcessTracker.AddProcess(_currentProcess); } catch { }
 
         using var reg = cancellationToken.Register(() =>
         {
@@ -494,13 +625,25 @@ public class MergerWorker : IDisposable
             CoreLogger.Fail("Merger", $"Reader task error: {ex.Message}");
         }
 
-        int exitCode = _currentProcess.ExitCode;
+        int exitCode = ReadExitCodeSafely(_currentProcess, "FFmpeg MERGE");
         CoreLogger.Info("FFmpeg MERGE", $"Process exited with code {exitCode}.");
 
         string[] stderrLines;
         lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
+
+        if (_isCanceled || cancellationToken.IsCancellationRequested)
+        {
+            CoreLogger.Info("FFmpeg MERGE", "Merge stopped because the user cancelled.");
+            FailureDetail = null;
+            return false;
+        }
+
         if (exitCode != 0)
         {
+            FailureDetail = stderrLines.Length > 0
+                ? string.Join("\n", stderrLines)
+                : $"FFmpeg exited with code {exitCode}.";
+
             if (stderrLines.Length > 0)
                 CoreLogger.Fail("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
         }
@@ -519,8 +662,67 @@ public class MergerWorker : IDisposable
         Finished?.Invoke(success, message);
     }
 
+    /// <summary>
+    /// ISSUE_03 — moves a COMPLETED merge out of the per-job temp folder (which the pipeline's
+    /// <c>finally</c> deletes wholesale) into the temp ROOT, so a destination that cannot be
+    /// written never costs the user the work that was already done. Returns null only if there is
+    /// genuinely nothing left to save.
+    /// </summary>
+    private string? TryRescueFinishedRender(string sourcePath)
+    {
+        try
+        {
+            if (!File.Exists(sourcePath)) return null;
+
+            Directory.CreateDirectory(_paths.TempDirectory);
+
+            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            string rescued = Path.Combine(_paths.TempDirectory, $"Merged-Videos-RECOVERED-{stamp}.mp4");
+
+            int n = 1;
+            while (File.Exists(rescued))
+            {
+                rescued = Path.Combine(_paths.TempDirectory, $"Merged-Videos-RECOVERED-{stamp}-{n}.mp4");
+                n++;
+            }
+
+            File.Move(sourcePath, rescued);
+            return rescued;
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("Merger", $"Could not preserve the finished merge: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// ISSUE_11 — disposing the worker now also STOPS the encoder.
+    ///
+    /// WHAT WAS WRONG: this released the bookkeeping object and nothing else. Every caller is
+    /// expected to call <see cref="Cancel"/> first, but nothing enforced that, so any path that
+    /// disposed a worker without cancelling left FFmpeg grinding at full CPU on a merge whose
+    /// progress window had already gone — the machine stayed hot and loud for a file nobody would
+    /// ever receive. Killing the tree here makes the object's own teardown sufficient.
+    /// </summary>
     public void Dispose()
     {
-        _currentProcess?.Dispose();
+        var proc = _currentProcess;
+        if (proc != null)
+        {
+            try
+            {
+                if (!proc.HasExited)
+                {
+                    _isCanceled = true;
+                    CoreLogger.Info("Merger", "Worker disposed while the encoder was still running — terminating the FFmpeg process tree.");
+                    proc.Kill(entireProcessTree: true);
+                }
+            }
+            catch { }
+
+            try { proc.Dispose(); } catch { }
+            _currentProcess = null;
+        }
     }
 }

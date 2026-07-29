@@ -144,13 +144,22 @@ internal static class CrashLogDigest
     {
         try
         {
-            if (File.Exists(path))
+            using var mutex = new System.Threading.Mutex(false, "Global\\FortniteVideoSoftwareCrashDigestMutex");
+            bool acquired = false;
+            try
             {
-                string s = File.ReadAllText(path).Trim();
-                if (DateTime.TryParse(s, CultureInfo.InvariantCulture,
-                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime dt))
-                    return dt.ToUniversalTime();
+                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException) { acquired = true; }
+                if (File.Exists(path))
+                {
+                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var sr = new StreamReader(fs, Encoding.UTF8);
+                    string s = sr.ReadToEnd().Trim();
+                    if (DateTime.TryParse(s, CultureInfo.InvariantCulture,
+                            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime dt))
+                        return dt.ToUniversalTime();
+                }
             }
+            finally { if (acquired) mutex.ReleaseMutex(); }
         }
         catch { }
         return DateTime.UtcNow.AddDays(-3);
@@ -158,7 +167,20 @@ internal static class CrashLogDigest
 
     private static void WriteMarker(string path, DateTime utc)
     {
-        try { File.WriteAllText(path, utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture)); }
+        try
+        {
+            using var mutex = new System.Threading.Mutex(false, "Global\\FortniteVideoSoftwareCrashDigestMutex");
+            bool acquired = false;
+            try
+            {
+                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException) { acquired = true; }
+                using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+                using var sw = new StreamWriter(fs, new UTF8Encoding(false));
+                sw.Write(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
+                sw.Flush();
+            }
+            finally { if (acquired) mutex.ReleaseMutex(); }
+        }
         catch { }
     }
 }

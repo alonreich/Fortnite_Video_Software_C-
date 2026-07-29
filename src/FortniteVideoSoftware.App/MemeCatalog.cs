@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using FortniteVideoSoftware.App.Infrastructure;
 
@@ -39,9 +40,27 @@ public static class MemeCatalog
     private static readonly string[] VideoExts = { ".mp4", ".mkv", ".avi" };
     private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg" };
 
+    private static readonly string[] AudioExts = { ".mp3", ".wav", ".m4a", ".ogg", ".flac" };
+
     private const string CloudOwner = "alonreich";
     private const string CloudRepo = "Fortnite_Video_Software_C-";
-    private static readonly string[] CloudFolders = { "mp4", "jpeg" };
+
+    /// <summary>ISSUE_10 — repo folders holding meme assets (video + image).</summary>
+    private static readonly string[] MemeCloudFolders = { "mp4", "jpeg" };
+
+    /// <summary>
+    /// ISSUE_10 — repo folder holding the song library.
+    /// project_structure.txt documents mp3\ as an identically LFS-distributed asset folder, but
+    /// the sync only ever covered mp4 and jpeg, so there was no way for a user to get the songs
+    /// — the music library was bring-your-own with no in-app path to the shared collection.
+    /// </summary>
+    private static readonly string[] SongCloudFolders = { "mp3" };
+
+    /// <summary>ISSUE_11 — per-file progress for the sync UI.</summary>
+    /// <param name="FileName">The file currently being fetched.</param>
+    /// <param name="Completed">How many files have finished so far.</param>
+    /// <param name="Total">Total files this sync will fetch (0 until the listing completes).</param>
+    public readonly record struct SyncProgress(string FileName, int Completed, int Total);
 
     /// <summary>
     /// §1 File Ingestion: scans the ACTIVE meme directory for supported formats, skipping
@@ -88,9 +107,6 @@ public static class MemeCatalog
                     RuntimeLog.Info("Memes", $"Dimension probe failed for '{item.FileName}': {ex.Message}");
                 }
 
-                // A VIDEO meme that won't probe (0 dimensions) is unreadable/corrupt — exporting
-                // it hands FFmpeg an invalid input and kills the whole render. Exclude it so it
-                // can never be selected. (Images tolerate a failed probe and stay usable.)
                 if (isVideo && (item.Width <= 0 || item.Height <= 0))
                 {
                     RuntimeLog.Fail("Memes", $"Excluding unreadable video meme '{item.FileName}' (failed to probe; would crash export).");
@@ -115,7 +131,7 @@ public static class MemeCatalog
         try
         {
             var fi = new FileInfo(path);
-            if (fi.Length is <= 0 or > 1024) return false;   // real media is far larger than a pointer
+            if (fi.Length is <= 0 or > 1024) return false;
             using var r = new StreamReader(path);
             char[] buf = new char[64];
             int n = r.Read(buf, 0, buf.Length);
@@ -124,7 +140,43 @@ public static class MemeCatalog
         catch { return false; }
     }
 
-    public static async Task<(int downloaded, string? error)> SyncFromCloudAsync(string targetDirectory)
+    /// <summary>ISSUE_10 — downloads missing MEME assets (mp4 + jpeg folders).</summary>
+    public static Task<(int downloaded, string? error)> SyncFromCloudAsync(
+        string targetDirectory,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+        => SyncFoldersAsync(targetDirectory, MemeCloudFolders,
+                            VideoExts.Concat(ImageExts).ToArray(), "Memes", progress, cancellationToken);
+
+    /// <summary>
+    /// ISSUE_10 — downloads missing SONGS (mp3 folder) into the user's music directory.
+    /// Mirrors the meme sync exactly, including the Git-LFS pointer handling, because the mp3
+    /// files are LFS-tracked too and would otherwise land as unplayable 130-byte text files.
+    /// </summary>
+    public static Task<(int downloaded, string? error)> SyncSongsFromCloudAsync(
+        string targetDirectory,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+        => SyncFoldersAsync(targetDirectory, SongCloudFolders, AudioExts, "Songs", progress, cancellationToken);
+
+    /// <summary>
+    /// Shared delta-sync engine.
+    ///
+    /// ISSUE_11 — three things the original lacked:
+    ///   * <paramref name="progress"/>: the listing is enumerated FIRST so a real total is known,
+    ///     then each file reports as it completes. Previously the UI sat silent for minutes.
+    ///   * <paramref name="cancellationToken"/>: the user can abandon a slow sync. A cancelled
+    ///     transfer leaves no partial file behind (.part is deleted).
+    ///   * distinct error messages: rate-limit, offline, and per-file failures no longer all
+    ///     collapse into the single string "Sync temporarily unavailable".
+    /// </summary>
+    private static async Task<(int downloaded, string? error)> SyncFoldersAsync(
+        string targetDirectory,
+        string[] cloudFolders,
+        string[] acceptedExtensions,
+        string logTag,
+        IProgress<SyncProgress>? progress,
+        CancellationToken cancellationToken)
     {
         int downloaded = 0;
         try
@@ -135,27 +187,41 @@ public static class MemeCatalog
                 StringComparer.OrdinalIgnoreCase);
 
             using var http = new HttpClient();
-            http.Timeout = TimeSpan.FromSeconds(30);
+            http.Timeout = Timeout.InfiniteTimeSpan;
             http.DefaultRequestHeaders.UserAgent.ParseAdd("FortniteVideoSoftware");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
-            foreach (string folder in CloudFolders)
+            var pending = new List<(string Name, string Url)>();
+
+            foreach (string folder in cloudFolders)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 string url = $"https://api.github.com/repos/{CloudOwner}/{CloudRepo}/contents/{folder}";
-                using var resp = await http.GetAsync(url);
+
+                using var listingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                listingCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                using var resp = await http.GetAsync(url, listingCts.Token);
+
                 if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
-                    RuntimeLog.Fail("Memes", "Cloud sync halted: GitHub API rate limit (HTTP 403).");
-                    return (downloaded, "Sync temporarily unavailable");
+                    RuntimeLog.Fail(logTag, "Cloud sync halted: GitHub API rate limit (HTTP 403).");
+                    return (downloaded,
+                        "GitHub is rate-limiting this connection right now. Try again in an hour.");
+                }
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    RuntimeLog.Fail(logTag, $"Cloud sync: folder '{folder}' does not exist in the repository.");
+                    continue;
                 }
                 if (!resp.IsSuccessStatusCode)
                 {
-                    RuntimeLog.Fail("Memes", $"Cloud sync: listing '{folder}' failed with HTTP {(int)resp.StatusCode}.");
+                    RuntimeLog.Fail(logTag, $"Cloud sync: listing '{folder}' failed with HTTP {(int)resp.StatusCode}.");
                     continue;
                 }
 
-                var arr = JsonNode.Parse(await resp.Content.ReadAsStringAsync()) as JsonArray;
-                if (arr == null) continue;
+                if (JsonNode.Parse(await resp.Content.ReadAsStringAsync(cancellationToken)) is not JsonArray arr) continue;
 
                 foreach (var node in arr)
                 {
@@ -164,68 +230,106 @@ public static class MemeCatalog
                     string? type = node?["type"]?.ToString();
                     if (name == null || dl == null || type != "file") continue;
 
-                    string ext = Path.GetExtension(name).ToLowerInvariant();
-                    if (!VideoExts.Contains(ext) && !ImageExts.Contains(ext)) continue;
+                    if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) continue;
 
-                    // Skip only if we already have a VALID local copy. If a prior sync left a
-                    // corrupt LFS-pointer / zero-byte file (the old bug), fall through and re-fetch
-                    // it so existing broken installs self-heal.
+                    string ext = Path.GetExtension(name).ToLowerInvariant();
+                    if (!acceptedExtensions.Contains(ext)) continue;
+
                     string existing = Path.Combine(targetDirectory, name);
                     if (local.Contains(name) && File.Exists(existing)
                         && new FileInfo(existing).Length > 0 && !IsLfsPointer(existing))
                         continue;
 
-                    string dest = Path.Combine(targetDirectory, name);
-                    string tmp = dest + ".part";
-                    using (var s = await http.GetStreamAsync(dl))
+                    pending.Add((name, dl));
+                }
+            }
+
+            int total = pending.Count;
+            RuntimeLog.Info(logTag, $"Cloud sync: {total} file(s) to fetch.");
+            progress?.Report(new SyncProgress(string.Empty, 0, total));
+
+            if (total == 0) return (0, null);
+
+            int failures = 0;
+            foreach ((string name, string dl) in pending)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new SyncProgress(name, downloaded, total));
+
+                string dest = Path.Combine(targetDirectory, name);
+                string tmp = dest + ".part";
+
+                try
+                {
+                    using (var s = await http.GetStreamAsync(dl, cancellationToken))
                     using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
                     {
-                        await s.CopyToAsync(fs);
+                        await s.CopyToAsync(fs, cancellationToken);
                     }
 
-                    // Git-LFS gotcha: for LFS-tracked files (e.g. .mp4/.mp3) the contents-API
-                    // download_url (raw.githubusercontent.com) returns the tiny POINTER text, not
-                    // the binary — producing corrupt "moov atom not found" videos. Detect the
-                    // pointer and re-fetch the real blob from GitHub's LFS media host.
                     if (IsLfsPointer(tmp))
                     {
                         string mediaUrl = dl.Replace("raw.githubusercontent.com", "media.githubusercontent.com/media");
-                        try
+                        using (var s2 = await http.GetStreamAsync(mediaUrl, cancellationToken))
+                        using (var fs2 = new FileStream(tmp, FileMode.Create, FileAccess.Write))
                         {
-                            using (var s2 = await http.GetStreamAsync(mediaUrl))
-                            using (var fs2 = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-                            {
-                                await s2.CopyToAsync(fs2);
-                            }
-                        }
-                        catch (Exception exLfs)
-                        {
-                            RuntimeLog.Fail("Memes", $"Cloud sync: LFS media fetch failed for '{name}': {exLfs.Message}");
+                            await s2.CopyToAsync(fs2, cancellationToken);
                         }
                     }
 
-                    // Reject anything that's still a pointer or zero-byte (never let a corrupt file
-                    // reach the meme folder — it would crash FFmpeg at export with a cryptic code).
                     if (IsLfsPointer(tmp) || new FileInfo(tmp).Length == 0)
                     {
                         try { File.Delete(tmp); } catch { }
-                        RuntimeLog.Fail("Memes", $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
+                        failures++;
+                        RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
                         continue;
                     }
 
                     File.Move(tmp, dest, overwrite: true);
                     local.Add(name);
                     downloaded++;
-                    RuntimeLog.Info("Memes", $"Cloud sync: downloaded '{name}' ({new FileInfo(dest).Length} bytes).");
+                    RuntimeLog.Info(logTag, $"Cloud sync: downloaded '{name}' ({new FileInfo(dest).Length} bytes).");
+                    progress?.Report(new SyncProgress(name, downloaded, total));
+                }
+                catch (OperationCanceledException)
+                {
+                    try { File.Delete(tmp); } catch { }
+                    throw;
+                }
+                catch (Exception exFile)
+                {
+                    try { File.Delete(tmp); } catch { }
+                    failures++;
+                    RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' failed: {exFile.Message}");
                 }
             }
-            RuntimeLog.Info("Memes", $"Cloud sync complete: {downloaded} new meme(s).");
+
+            RuntimeLog.Info(logTag, $"Cloud sync complete: {downloaded} new file(s), {failures} failure(s).");
+
+            if (downloaded == 0 && failures > 0)
+            {
+                return (0, $"All {failures} download(s) failed. Check your internet connection and try again.");
+            }
+            if (failures > 0)
+            {
+                return (downloaded, $"{downloaded} downloaded, but {failures} file(s) could not be fetched.");
+            }
             return (downloaded, null);
+        }
+        catch (OperationCanceledException)
+        {
+            RuntimeLog.Info(logTag, $"Cloud sync cancelled by the user after {downloaded} file(s).");
+            return (downloaded, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            RuntimeLog.Fail(logTag, $"Cloud sync network failure: {ex.Message}");
+            return (downloaded, "Could not reach GitHub. Check your internet connection and try again.");
         }
         catch (Exception ex)
         {
-            RuntimeLog.Fail("Memes", $"Cloud sync failed: {ex.Message}");
-            return (downloaded, "Sync temporarily unavailable");
+            RuntimeLog.Fail(logTag, $"Cloud sync failed: {ex.Message}");
+            return (downloaded, $"The download could not be completed: {ex.Message}");
         }
     }
 }

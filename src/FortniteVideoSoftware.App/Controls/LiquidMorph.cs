@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -31,7 +31,6 @@ public static class LiquidMorph
             target.RenderTransform = transform;
             target.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
 
-            // Animate scale
             var scaleAnim = new Animation
             {
                 Duration = dur,
@@ -52,7 +51,6 @@ public static class LiquidMorph
             _ = scaleAnim.RunAsync(target);
         }
 
-        // Animate opacity
         var opacityAnim = new Animation
         {
             Duration = dur,
@@ -104,7 +102,6 @@ public static class LiquidMorph
     public static void AttachPortraitMorph(Control videoPanel)
     {
         videoPanel.Transitions ??= new Transitions();
-        // Ensure transitions don't duplicate
         for (int i = videoPanel.Transitions.Count - 1; i >= 0; i--)
         {
             if (videoPanel.Transitions[i] is BrushTransition)

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -6,6 +6,22 @@ namespace FortniteVideoSoftware.Core.Infrastructure;
 
 public sealed class RecoveryManager
 {
+    /// <summary>
+    /// Shape version of <c>recovery_v2.json</c>.
+    ///
+    /// ISSUE_06 — this did not exist, and THAT was the bug. <see cref="LoadState"/> threw
+    /// "Missing schema_version in recovery state" whenever the key was absent, but NOTHING ever
+    /// wrote the key: MainWindow.SaveRecoveryState builds the payload by hand and stamps 59 keys,
+    /// none of them <c>schema_version</c>. So the throw fired on every single restore, was
+    /// swallowed by the catch below, and LoadState returned null every time — meaning the
+    /// "restore your previous work?" prompt could never restore anything. The stamp is now applied
+    /// centrally in <see cref="SaveState"/> so every writer gets it automatically and no caller
+    /// has to remember.
+    ///
+    /// Bump ONLY when the payload shape changes incompatibly.
+    /// </summary>
+    public const int SchemaVersion = 1;
+
     private readonly ApplicationPaths _paths;
     private readonly TimeSpan _safeModeThreshold = TimeSpan.FromSeconds(120);
     private readonly object _saveLock = new();
@@ -219,6 +235,9 @@ public sealed class RecoveryManager
             try
             {
                 _paths.EnsureWritableDirectories();
+
+                state["schema_version"] = SchemaVersion;
+
                 AtomicJsonFile.WriteObject(_paths.RecoveryStateFile, state);
 
                 if (sequence.HasValue)
@@ -245,10 +264,34 @@ public sealed class RecoveryManager
             var state = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
             if (state != null)
             {
-                if (!state.ContainsKey("schema_version"))
+                int fileVersion = SchemaVersion;
+                if (state.TryGetPropertyValue("schema_version", out JsonNode? versionNode) && versionNode != null)
                 {
-                    throw new InvalidDataException("Missing schema_version in recovery state.");
+                    try { fileVersion = versionNode.GetValue<int>(); }
+                    catch
+                    {
+                        throw new InvalidDataException("Unreadable schema_version in recovery state.");
+                    }
+
+                    if (fileVersion < 1)
+                    {
+                        throw new InvalidDataException($"Invalid schema_version {fileVersion} in recovery state.");
+                    }
                 }
+                else
+                {
+                    CoreLogger.Info("Recovery",
+                        "Recovery state predates schema stamping; treating it as the current shape.");
+                }
+
+                if (fileVersion != SchemaVersion)
+                {
+                    CoreLogger.Info("Recovery",
+                        $"Recovery state was written by a different app version (found schema {fileVersion}, this build expects {SchemaVersion}). " +
+                        "Skipping the restore and starting fresh; the file has been left on disk.");
+                    return null;
+                }
+
                 CoreLogger.Info("Recovery", "Recovery state loaded for restore.");
             }
             return state;

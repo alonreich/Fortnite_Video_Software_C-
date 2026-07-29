@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -95,13 +95,22 @@ public class EncoderManager
             };
             using var proc = Process.Start(psi);
             if (proc == null) return [];
+
+            try { ChildProcessTracker.AddProcess(proc); } catch { }
+
             var readTask = proc.StandardOutput.ReadToEndAsync();
             if (!proc.WaitForExit(5000))
             {
-                try { proc.Kill(); } catch { }
+                try { proc.Kill(entireProcessTree: true); } catch { }
                 return [];
             }
-            string output = readTask.Result;
+
+            string output = readTask.Wait(TimeSpan.FromSeconds(5)) ? readTask.Result : string.Empty;
+            if (output.Length == 0)
+            {
+                CoreLogger.Info("GPU DETECT", "Encoder list could not be read; assuming no hardware encoders.");
+                return [];
+            }
             var found = new HashSet<string>();
             foreach (string line in output.Split('\n'))
             {

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -9,6 +9,17 @@ public sealed class StateTransferStore
     public const string MutexName = @"Global\FvsStateTransferMutex";
     public const int SchemaVersion = 1;
     public static readonly TimeSpan DefaultMutexTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// ISSUE_10 — the budget for saves that happen on the UI thread (window Closing handlers).
+    ///
+    /// The 15s default is right for a background write that must not lose data, but catastrophic
+    /// on the interface thread: three processes share this mutex, so closing a window could hang
+    /// the app for a quarter of a minute with a "Not Responding" title bar. Window bounds are a
+    /// convenience, not data worth freezing the app for — if the lock is genuinely contended for
+    /// two whole seconds, skip the save and let the position be slightly stale.
+    /// </summary>
+    public static readonly TimeSpan InteractiveMutexTimeout = TimeSpan.FromSeconds(2);
     private static readonly string[] BoundsKeys =
     [
         "MainWindowBounds",
@@ -64,14 +75,18 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public JsonObject LoadSync(CancellationToken cancellationToken = default)
+    /// <param name="mutexTimeout">
+    /// ISSUE_10 — how long to wait for the cross-process lock. Pass
+    /// <see cref="InteractiveMutexTimeout"/> when calling from the UI thread.
+    /// </param>
+    public JsonObject LoadSync(CancellationToken cancellationToken = default, TimeSpan? mutexTimeout = null)
     {
         try
         {
             Paths.EnsureWritableDirectories();
             using NamedSystemMutex guard = NamedSystemMutex.Acquire(
                 MutexName,
-                DefaultMutexTimeout,
+                mutexTimeout ?? DefaultMutexTimeout,
                 cancellationToken);
 
             return LoadUnlocked();
@@ -82,6 +97,19 @@ public sealed class StateTransferStore
         }
     }
 
+    /// <summary>
+    /// ISSUE_09 — writes the supplied state.
+    ///
+    /// WHAT WAS WRONG: this method only caught <c>LockException</c>. Validation throws
+    /// <c>InvalidDataException</c> for an unrecognised key, which escaped as a faulted Task — some
+    /// callers `await` it inside a broad `try {} catch {}` and some do not, so depending on the
+    /// call site the write was either swallowed or blew up somewhere unrelated. Either way the
+    /// user's change appeared to save and was gone at next launch.
+    ///
+    /// Now: unusable entries are DROPPED (and logged) and everything valid is still written, so a
+    /// single bad key can no longer cost the user the rest of their settings. A genuine I/O failure
+    /// is logged loudly instead of vanishing.
+    /// </summary>
     public async Task SaveAsync(JsonObject state, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
@@ -95,17 +123,27 @@ public sealed class StateTransferStore
                     DefaultMutexTimeout,
                     cancellationToken);
 
-                JsonObject payload = Clone(state);
-                ValidateKnownProperties(payload);
+                JsonObject payload = SanitizeObject(Clone(state), "save");
                 payload["schema_version"] = SchemaVersion;
                 AtomicJsonFile.WriteObject(Paths.SessionStateFile, payload);
             }
             catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
             {
             }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("SessionState", $"Could not save session state: {ex.Message}");
+            }
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// ISSUE_09 — merges the supplied properties into the stored state. See
+    /// <see cref="SaveAsync"/> for why unrecognised keys are dropped rather than thrown.
+    /// </summary>
     public async Task UpdatePropertiesAsync(JsonObject updates, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
@@ -120,17 +158,20 @@ public sealed class StateTransferStore
                     cancellationToken);
 
                 JsonObject current = LoadUnlocked();
-                foreach (KeyValuePair<string, JsonNode?> property in updates)
-                {
-                    ValidateKnownProperty(property.Key, property.Value);
-                    current[property.Key] = property.Value?.DeepClone();
-                }
+                ApplySanitizedUpdates(current, updates, "update");
 
                 current["schema_version"] = SchemaVersion;
                 AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
             }
             catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
             {
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("SessionState", $"Could not update session state: {ex.Message}");
             }
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -139,8 +180,18 @@ public sealed class StateTransferStore
     /// Synchronous update for use in Closing/Closed event handlers where
     /// async-over-sync would deadlock the UI thread. Performs I/O directly
     /// on the calling thread without Task.Run + GetAwaiter().GetResult().
+    ///
+    /// ISSUE_09 — the bare `catch { }` here meant a genuinely failed save looked exactly like a
+    /// successful one, and this is the variant used on window CLOSE, i.e. the one that persists
+    /// window bounds and folder preferences. A failure is now logged so it is at least
+    /// diagnosable, and bad keys are dropped rather than aborting the whole write.
     /// </summary>
-    public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default)
+    /// <param name="mutexTimeout">
+    /// ISSUE_10 — how long to wait for the cross-process lock before giving up. Callers on the UI
+    /// thread must pass <see cref="InteractiveMutexTimeout"/>; the 15s default would otherwise
+    /// freeze the window that is trying to close.
+    /// </param>
+    public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default, TimeSpan? mutexTimeout = null)
     {
         JsonObject clonedUpdates = Clone(updates);
         try
@@ -149,20 +200,23 @@ public sealed class StateTransferStore
 
             using NamedSystemMutex guard = NamedSystemMutex.Acquire(
                 MutexName,
-                DefaultMutexTimeout,
+                mutexTimeout ?? DefaultMutexTimeout,
                 cancellationToken);
 
             JsonObject current = LoadUnlocked();
-            foreach (KeyValuePair<string, JsonNode?> property in clonedUpdates)
-            {
-                ValidateKnownProperty(property.Key, property.Value);
-                current[property.Key] = property.Value?.DeepClone();
-            }
+            ApplySanitizedUpdates(current, clonedUpdates, "update (sync)");
 
             current["schema_version"] = SchemaVersion;
             AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
         }
-        catch { }
+        catch (FortniteVideoSoftware.Core.Infrastructure.LockException ex)
+        {
+            CoreLogger.Fail("SessionState", $"Could not update session state — the file was locked: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            CoreLogger.Fail("SessionState", $"Could not update session state: {ex.Message}");
+        }
     }
 
     public async Task ClearAsync(CancellationToken cancellationToken = default)
@@ -186,6 +240,21 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// ===== ISSUE_08 — one odd entry must not wipe every remembered setting =====================
+    ///
+    /// WHAT WAS WRONG: this method called <c>ValidateKnownProperties</c>, which THROWS
+    /// <c>InvalidDataException</c> for any key it does not recognise. That exception was caught
+    /// below as "the file is corrupt", the whole file was renamed to <c>.corrupted</c>, and an
+    /// empty object was returned. So a single unexpected entry — left by an older build, written
+    /// by a newer build, or a half-finished write — silently erased EVERY window position and size
+    /// plus every remembered upload/output/music folder. From the user's side the app had simply
+    /// forgotten everything, with no explanation and nothing they could do about it.
+    ///
+    /// NOW: unrecognised or malformed entries are DROPPED individually (and logged), and every
+    /// entry the app does understand is kept. Quarantine is reserved for what it was actually
+    /// meant for — a file that is not parseable JSON at all.
+    /// </summary>
     private JsonObject LoadUnlocked()
     {
         try
@@ -193,37 +262,126 @@ public sealed class StateTransferStore
             JsonObject state = AtomicJsonFile.ReadObject(Paths.SessionStateFile) ?? new JsonObject();
             if (state.Count == 0) return state;
 
-            if (state.TryGetPropertyValue("schema_version", out var versionNode) && 
-                versionNode is JsonValue versionVal && 
-                versionVal.TryGetValue<int>(out int version) && 
-                version == SchemaVersion)
+            bool versionOk =
+                state.TryGetPropertyValue("schema_version", out var versionNode) &&
+                versionNode is JsonValue versionVal &&
+                versionVal.TryGetValue<int>(out int version) &&
+                version == SchemaVersion;
+
+            if (!versionOk)
             {
-                ValidateKnownProperties(state);
-                return state;
+                CoreLogger.Info("SessionState",
+                    $"Session state has a different schema version; keeping only the entries this build understands (expected {SchemaVersion}).");
+                JsonObject migrated = SanitizeObject(state, "load (version mismatch)");
+                migrated["schema_version"] = SchemaVersion;
+                return migrated;
             }
-            
+
+            return SanitizeObject(state, "load");
+        }
+        catch (JsonException ex)
+        {
+            CoreLogger.Fail("SessionState", $"Session state file is not valid JSON and has been quarantined: {ex.Message}");
             QuarantineCorruptedSessionFile();
             return new JsonObject();
         }
-        catch (JsonException)
+        catch (InvalidDataException ex)
         {
-            QuarantineCorruptedSessionFile();
+            CoreLogger.Fail("SessionState", $"Session state could not be interpreted: {ex.Message}");
             return new JsonObject();
         }
-        catch (InvalidDataException)
+        catch (IOException ex)
         {
-            QuarantineCorruptedSessionFile();
-            return new JsonObject();
-        }
-        catch (IOException)
-        {
-            QuarantineCorruptedSessionFile();
+            CoreLogger.Fail("SessionState", $"Session state could not be read right now: {ex.Message}");
             return new JsonObject();
         }
         catch (UnauthorizedAccessException)
         {
             return new JsonObject();
         }
+    }
+
+    /// <summary>
+    /// ISSUE_08/ISSUE_09 — returns a copy of <paramref name="state"/> containing only the entries
+    /// that pass validation. Anything unrecognised or malformed is dropped and logged rather than
+    /// aborting the whole operation.
+    /// </summary>
+    private static JsonObject SanitizeObject(JsonObject state, string context)
+    {
+        var clean = new JsonObject();
+        List<string>? dropped = null;
+
+        foreach (KeyValuePair<string, JsonNode?> property in state)
+        {
+            if (TryAcceptProperty(property.Key, property.Value, out JsonNode? accepted))
+            {
+                clean[property.Key] = accepted;
+            }
+            else
+            {
+                (dropped ??= new List<string>()).Add(property.Key);
+            }
+        }
+
+        if (dropped != null)
+        {
+            CoreLogger.Info("SessionState",
+                $"Ignored {dropped.Count} unusable session_state entr{(dropped.Count == 1 ? "y" : "ies")} during {context}: {string.Join(", ", dropped)}.");
+        }
+
+        return clean;
+    }
+
+    /// <summary>
+    /// ISSUE_09 — merges <paramref name="updates"/> into <paramref name="current"/>, skipping any
+    /// entry that fails validation instead of throwing and losing the entire write.
+    /// </summary>
+    private static void ApplySanitizedUpdates(JsonObject current, JsonObject updates, string context)
+    {
+        List<string>? dropped = null;
+
+        foreach (KeyValuePair<string, JsonNode?> property in updates)
+        {
+            if (TryAcceptProperty(property.Key, property.Value, out JsonNode? accepted))
+            {
+                current[property.Key] = accepted;
+            }
+            else
+            {
+                (dropped ??= new List<string>()).Add(property.Key);
+            }
+        }
+
+        if (dropped != null)
+        {
+            CoreLogger.Fail("SessionState",
+                $"Refused {dropped.Count} unusable session_state entr{(dropped.Count == 1 ? "y" : "ies")} during {context}: {string.Join(", ", dropped)}. Everything else was saved.");
+        }
+    }
+
+    /// <summary>
+    /// Validates a single property without throwing. Returns false when the entry must be dropped.
+    /// The accepted value is a detached deep clone, so callers can never alias the caller's tree.
+    /// </summary>
+    private static bool TryAcceptProperty(string key, JsonNode? value, out JsonNode? accepted)
+    {
+        accepted = null;
+
+        try
+        {
+            ValidateKnownProperty(key, value);
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        accepted = value?.DeepClone();
+        return true;
     }
 
     private void QuarantineCorruptedSessionFile()
@@ -253,14 +411,11 @@ public sealed class StateTransferStore
         return source.DeepClone().AsObject();
     }
 
-    private static void ValidateKnownProperties(JsonObject state)
-    {
-        foreach (KeyValuePair<string, JsonNode?> property in state)
-        {
-            ValidateKnownProperty(property.Key, property.Value);
-        }
-    }
 
+    /// <summary>
+    /// Validates a single entry, throwing <see cref="InvalidDataException"/> when it is unusable.
+    /// Only ever called via <c>TryAcceptProperty</c>, which converts the throw into a drop.
+    /// </summary>
     private static void ValidateKnownProperty(string key, JsonNode? value)
     {
         if (value is null)

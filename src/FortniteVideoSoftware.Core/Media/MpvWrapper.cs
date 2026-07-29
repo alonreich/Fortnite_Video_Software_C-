@@ -203,10 +203,23 @@ public static partial class MpvWrapper
     /// Loads a file into mpv. The path is automatically escaped for the mpv
     /// command-string parser (backslashes doubled, entire path quoted).
     /// </summary>
+    /// <summary>
+    /// ISSUE_15 — loads a file into the player.
+    ///
+    /// WHAT WAS WRONG: the path was interpolated between hand-written quotes after doubling only
+    /// its backslashes. A double quote inside the filename therefore closed the string early and
+    /// handed mpv a malformed command, which it rejects without producing any diagnosable error —
+    /// the video simply never appeared. This is the code path EVERY video load goes through
+    /// (upload, drag &amp; drop, Explorer "Open with", crash recovery), so a single awkward
+    /// filename made the app look broken with nothing in the log to explain it.
+    ///
+    /// Both special characters inside an mpv double-quoted string are now escaped, backslashes
+    /// first so the escapes introduced for the quotes are not themselves doubled.
+    /// </summary>
     public static void LoadFile(nint handle, string path)
     {
         if (handle == nint.Zero) return;
-        string safePath = path.Replace("\\", "\\\\");
+        string safePath = path.Replace("\\", "\\\\").Replace("\"", "\\\"");
         mpv_command_string(handle, $"loadfile \"{safePath}\"");
     }
 

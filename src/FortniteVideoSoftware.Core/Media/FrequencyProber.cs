@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -37,24 +37,44 @@ public static class FrequencyProber
 
     public static DemographicResult Probe(string mp4Path, int maxSecondsToProbe = 15, CancellationToken cancellationToken = default, double startSeconds = 0)
     {
+        return ProbeAsync(mp4Path, maxSecondsToProbe, cancellationToken, startSeconds).GetAwaiter().GetResult();
+    }
+
+    public static async Task<DemographicResult> ProbeAsync(string mp4Path, int maxSecondsToProbe = 15, CancellationToken cancellationToken = default, double startSeconds = 0)
+    {
         var result = new DemographicResult();
         string tempWav = Path.Combine(ApplicationPaths.CreateDefault().TempDirectory, $"probe_{Guid.NewGuid():N}.wav");
 
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(tempWav)!);
-            using var proc = new Process();
-            proc.StartInfo.FileName = GetFFmpegPath();
-            string seekArg = startSeconds > 0
-                ? $"-ss {startSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
-                : "";
-            proc.StartInfo.Arguments = $"-y -hide_banner -loglevel error {seekArg}-i \"{mp4Path}\" -t {maxSecondsToProbe} -vn -acodec pcm_s16le -ar 22050 -ac 1 \"{tempWav}\"";
-            proc.StartInfo.CreateNoWindow = true;
-            proc.StartInfo.UseShellExecute = false;
-            proc.StartInfo.RedirectStandardError = true;
-            
-            CoreLogger.Debug("FrequencyProber", $"Command: {proc.StartInfo.FileName} {proc.StartInfo.Arguments}");
-            proc.Start();
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+
+            var extractArgs = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
+            if (startSeconds > 0) { extractArgs.Add("-ss"); extractArgs.Add(startSeconds.ToString(ci)); }
+            extractArgs.Add("-i");
+            extractArgs.Add(mp4Path);
+            extractArgs.Add("-t");
+            extractArgs.Add(maxSecondsToProbe.ToString(ci));
+            extractArgs.AddRange(["-vn", "-acodec", "pcm_s16le", "-ar", "22050", "-ac", "1"]);
+            extractArgs.Add(tempWav);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = GetFFmpegPath(),
+                RedirectStandardOutput = false,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            foreach (string arg in extractArgs) psi.ArgumentList.Add(arg);
+
+            CoreLogger.Debug("FrequencyProber", $"Command: {psi.FileName} {ProcessArgs.FormatForLog(extractArgs)}");
+
+            using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg.");
+
+            try { ChildProcessTracker.AddProcess(proc); } catch { }
+
             using var killRegistration = cancellationToken.Register(() =>
             {
                 try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
@@ -63,17 +83,39 @@ public static class FrequencyProber
             var errorTask = proc.StandardError.ReadToEndAsync(cancellationToken);
 
             int timeoutMs = Math.Max(12_000, (maxSecondsToProbe + 5) * 1500);
-            if (!proc.WaitForExit(timeoutMs))
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeoutMs);
+            try
+            {
+                await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
             {
                 try { proc.Kill(entireProcessTree: true); } catch { }
-                throw new TimeoutException("Voice frequency extraction timed out.");
+                if (!cancellationToken.IsCancellationRequested)
+                    throw new TimeoutException("Voice frequency extraction timed out.");
+                throw;
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            string stderr = errorTask.IsCompleted ? errorTask.Result : proc.StandardError.ReadToEnd();
-            if (proc.ExitCode != 0)
+
+            string stderr;
+            try
             {
-                CoreLogger.Fail("FrequencyProber", $"FFmpeg audio extraction failed with code {proc.ExitCode}. {stderr}");
+                stderr = await errorTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                CoreLogger.Debug("FrequencyProber", $"Could not read FFmpeg stderr: {ex.Message}");
+                stderr = string.Empty;
+            }
+
+            int exitCode;
+            try { exitCode = proc.HasExited ? proc.ExitCode : -1; } catch { exitCode = -1; }
+
+            if (exitCode != 0)
+            {
+                CoreLogger.Fail("FrequencyProber", $"FFmpeg audio extraction failed with code {exitCode}. {stderr}");
                 return result;
             }
 

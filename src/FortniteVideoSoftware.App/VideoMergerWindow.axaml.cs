@@ -28,6 +28,7 @@ internal sealed record VideoFileFingerprint(string Path, long SizeBytes, DateTim
 
 public partial class VideoMergerWindow : Window
 {
+    public double MergerVolume { get; set; } = 100;
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
     private double? _nextSeekTarget = null;
@@ -1257,11 +1258,27 @@ public partial class VideoMergerWindow : Window
         catch { }
     }
 
+    /// <summary>
+    /// ISSUE_04 — the Merger's default output folder.
+    /// Order: the folder saved in the Merger's OWN settings, then the shell-resolved Downloads
+    /// folder (correct when Downloads has been moved or OneDrive-redirected — the old
+    /// %USERPROFILE%\Downloads guess was not), then Videos, then Documents.
+    /// Returns empty when nothing is usable; callers then prompt via OutputFolderResolver
+    /// instead of writing to a folder that does not exist.
+    /// </summary>
     private static string GetDownloadsPath()
     {
-        string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        if (!Directory.Exists(downloads)) downloads = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        return downloads;
+        string configured = Infrastructure.SettingsManager.Instance.MergerOutputDirectory;
+        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured)) return configured;
+
+        string? downloads = FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetDownloads();
+        if (!string.IsNullOrWhiteSpace(downloads)) return downloads!;
+
+        string? videos = FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetVideos();
+        if (!string.IsNullOrWhiteSpace(videos)) return videos!;
+
+        string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        return Directory.Exists(documents) ? documents : string.Empty;
     }
 
     private async void OnChooseOutputFolder()
@@ -1278,8 +1295,22 @@ public partial class VideoMergerWindow : Window
         var result = await topLevel.StorageProvider.OpenFolderPickerAsync(options);
         if (result != null && result.Count > 0)
         {
-            _outputDirectory = result[0].Path.LocalPath;
+            string picked = result[0].Path.LocalPath;
+
+            if (!FortniteVideoSoftware.Core.Infrastructure.KnownFolders.IsWritableDirectory(picked))
+            {
+                await ErrorReporter.ShowAsync(this, "Folder not usable",
+                    "That folder cannot be written to, so it was not saved. Pick a different folder.",
+                    $"Selected merger output folder is not writable: {picked}");
+                return;
+            }
+
+            _outputDirectory = picked;
+
             try { await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerOutputDirectory"] = _outputDirectory }); } catch { }
+            Infrastructure.SettingsManager.Instance.MergerOutputDirectory = _outputDirectory;
+            Infrastructure.SettingsManager.Save();
+
             var btn = this.FindControl<MenuItem>("MenuOutputFolder");
             if (btn != null) btn.Header = $"Output Folder: {System.IO.Path.GetFileName(_outputDirectory)}";
             UpdateOutputPathDisplay();
@@ -1296,6 +1327,16 @@ public partial class VideoMergerWindow : Window
         }
 
         if (_musicIsStale) { SetQueueStatus("⚠ Music setup is stale. Re-run Add Music before merging.", true); return; }
+
+        string? resolvedOutputDir = await Infrastructure.OutputFolderResolver.ResolveAsync(
+            this, Infrastructure.OutputFolderResolver.AppScope.Merger);
+        if (resolvedOutputDir == null)
+        {
+            SetQueueStatus("Merge cancelled — no output folder was chosen.", true);
+            return;
+        }
+        _outputDirectory = resolvedOutputDir;
+        UpdateOutputPathDisplay();
 
         mergeBtn.IsEnabled = false;
         mergeBtn.Content = "MERGING...";
@@ -1413,11 +1454,29 @@ public partial class VideoMergerWindow : Window
                         await dlg.ShowDialog(this);
                         if (dlg.DialogResult == 1) Close();
                     }
-                    else SetQueueStatus("Merge failed: " + msg, true);
+                    else if (worker.WasCanceled)
+                    {
+                        SetQueueStatus("Merge cancelled.", false);
+                    }
+                    else
+                    {
+                        SetQueueStatus("Merge failed. See the error dialog for details.", true);
+                        await ErrorReporter.ShowAsync(this, "Merge failed",
+                            "The videos could not be merged, so no file was written.",
+                            worker.FailureDetail ?? msg);
+                    }
                 });
             };
 
             await Task.Run(() => worker.RunAsync(_mergeCts.Token), _mergeCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            mergeBtn.IsEnabled = true;
+            mergeBtn.Content = "MERGE VIDEOS";
+            UpdateQueueState();
+            SetQueueStatus("Merge cancelled.", false);
         }
         catch (Exception ex)
         {
@@ -1425,7 +1484,11 @@ public partial class VideoMergerWindow : Window
             mergeBtn.IsEnabled = true;
             mergeBtn.Content = "MERGE VIDEOS";
             UpdateQueueState();
-            SetQueueStatus("Merge error: " + ex.Message, true);
+            SetQueueStatus("Merge error. See the error dialog for details.", true);
+
+            await ErrorReporter.ShowAsync(this, "Merge could not start",
+                "Something went wrong while setting up the merge, so it never began.",
+                ex.ToString());
         }
         finally
         {

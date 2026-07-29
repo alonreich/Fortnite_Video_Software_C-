@@ -4,7 +4,6 @@
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.PreviewMonitorWindow"
         Title="Preview Monitor"
-        Width="1280" Height="750"
         MinWidth="480" MinHeight="300"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
@@ -17,7 +16,7 @@
             <Grid RowDefinitions="30, *">
                 <!-- Custom Title Bar -->
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
-                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 </Border>
 
                 <Grid Grid.Row="1" ClipToBounds="True">

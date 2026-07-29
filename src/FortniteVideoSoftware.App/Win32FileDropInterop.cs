@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -123,6 +123,11 @@ public static class Win32FileDropInterop
                         RemoveWindowSubclass(hwnd, proc, 1);
                         _keepAlive.Remove(proc);
                     };
+                }
+                else
+                {
+                    _keepAlive.Remove(proc);
+                    RuntimeLog.Fail("DND", $"Failed to attach WM_DROPFILES fallback to '{window.Title}'. Subclass registration failed.");
                 }
             }
             catch (Exception ex)

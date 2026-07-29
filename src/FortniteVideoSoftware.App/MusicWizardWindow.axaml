@@ -15,29 +15,29 @@
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, *">
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
-                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
                 </Border>
                 <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" Margin="20">
 
                     <!-- Step Progress Bar -->
-                    <!-- ISSUE_07: dots live in row 0 and labels in row 1; the connector lines sit in
-                         row 0 with VerticalAlignment="Center", so they stay aligned to the middle of the dots -->
                     <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
-                        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
-                        <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppPanelBrush}"/>
-                        <!-- ISSUE_05: Min sizes (not fixed) so the numbered dots grow with the Settings font scale -->
-                        <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" MinWidth="32" MinHeight="32" CornerRadius="16" Background="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center" ZIndex="1">
-                            <TextBlock Name="Step1Icon" Text="1" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>
+                        <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>
+                        <!-- Step 1 (Active) -->
+                        <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" Classes="WizDotActive" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                            <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Text="Select Music" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" FontWeight="Bold" Margin="0,4,0,0"/>
-                        <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" MinWidth="32" MinHeight="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
-                            <TextBlock Name="Step2Icon" Text="2" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Classes="WizLabelActive" Text="Select Music" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        <!-- Step 2 (Pending) -->
+                        <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                            <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Text="Mix and Preview" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                        <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" MinWidth="32" MinHeight="32" CornerRadius="16" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Center" ZIndex="1">
-                            <TextBlock Name="Step3Icon" Text="3" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Classes="WizLabelPending" Text="Mix and Preview" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        <!-- Step 3 (Pending) -->
+                        <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                            <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Text="Confirm" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Classes="WizLabelPending" Text="Confirm" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                     </Grid>
 
                     <!-- Step Container -->
@@ -48,7 +48,11 @@
                             <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,Auto,*">
                                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,10">
                                     <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="2" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
+                                    <!-- ISSUE_10: the shared song library (the repo's mp3 folder) is distributed exactly
+                                         like the memes, but until now only memes had a "download more" route, so users
+                                         had no in-app way to get the songs at all. -->
+                                    <Button Grid.Column="2" Name="DownloadSongsBtn" Content="⬇ Download More Songs" Classes="Success" VerticalAlignment="Center" Margin="0,0,8,0" Cursor="Hand" ToolTip.Tip="Download background music tracks from the official library into the current folder" AutomationProperties.Name="Download more songs"/>
+                                    <Button Grid.Column="3" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
                                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
                                     <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" Text="{Binding $parent[local:MusicWizardWindow].MusicSearchText, Mode=TwoWay}" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>

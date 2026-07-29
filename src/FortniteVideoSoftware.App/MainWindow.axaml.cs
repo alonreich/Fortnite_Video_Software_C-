@@ -41,6 +41,18 @@ public partial class MainWindow : Window
     private double _trimEndMs = 0;
     private bool _trimEndSet = false;
 
+    /// <summary>
+    /// ISSUE_10 — the loaded clip's full length in milliseconds, cached the moment it becomes known.
+    ///
+    /// WHY THIS EXISTS: the export used to take the duration straight off the live mpv player
+    /// (`ActiveVideoHost?.IpcClient?.Duration ?? 0.0`). If the player had been torn down or had not
+    /// reported yet when PROCESS was pressed, that produced 0 — and with no trim end set, the
+    /// exporter was told the clip ends at 0 ms. FFmpeg was then asked for a zero-length segment and
+    /// the user got a cryptic encoder failure instead of their video. This field survives the
+    /// player, so the export always has a real number to fall back on.
+    /// </summary>
+    private double _loadedVideoDurationMs = 0;
+
     private VoiceOverWindow.VoiceOverResult? _voiceOverResult;
     private NAudio.Wave.WaveOutEvent? _voiceOverPlayer;
     private NAudio.Wave.AudioFileReader? _voiceOverReader;
@@ -127,6 +139,19 @@ public partial class MainWindow : Window
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
 
     private bool _isMusicBlockFocused = false;
+
+    /// <summary>
+    /// Set by the music block's own PointerPressed to stop the window-level "click elsewhere =
+    /// deselect" handler from immediately undoing the selection it just made.
+    ///
+    /// Needed because that window handler now listens with handledEventsToo:true (so the trim
+    /// markers can mark their press Handled and keep their pointer capture). Without this guard
+    /// the sequence would be: musicRect sets focus TRUE -> event bubbles -> window handler sees a
+    /// focused block and sets it FALSE -> the block could never stay selected, and Delete would
+    /// stop working on it. Consumed by the very next bubble of the same gesture, which is
+    /// guaranteed to happen because the window is the root ancestor.
+    /// </summary>
+    private bool _suppressNextMusicDeselect = false;
     private Avalonia.Controls.Shapes.Rectangle? _musicBlockRectRef;
     private Avalonia.Controls.Control? _musicStartPopupRef;
     private Avalonia.Controls.Control? _musicEndPopupRef;
@@ -152,9 +177,7 @@ public partial class MainWindow : Window
     private bool _isMusicActive = false;
     private bool _isRestoring = false;
 
-    // IDEA_004: Kinetic Scrub — momentum & inertia for the timeline scrubber
     private KineticScrubController? _kineticScrub;
-    private double _lastScrubMs = 0;
 
     public static readonly StyledProperty<string> OverlayTextProperty =
         AvaloniaProperty.Register<MainWindow, string>(nameof(OverlayText), "");
@@ -229,6 +252,8 @@ public partial class MainWindow : Window
         set => SetValue(MainSpeedSliderValueProperty, value);
     }
 
+    public double MainVolume { get; set; } = 100;
+
     public MainWindow()
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
@@ -242,14 +267,26 @@ public partial class MainWindow : Window
         var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
         if (radialMenu != null)
         {
-            radialMenu.AddItem("crop", "Crop", Avalonia.Media.SolidColorBrush.Parse("#2094f3"));
-            radialMenu.AddItem("merge", "Merge", Avalonia.Media.SolidColorBrush.Parse("#8b5cf6"));
+            radialMenu.AddItem("meme", "Meme", Avalonia.Media.SolidColorBrush.Parse("#2094f3"));
+            radialMenu.AddItem("speed", "Speed", Avalonia.Media.SolidColorBrush.Parse("#8b5cf6"));
             radialMenu.AddItem("export", "Export", Avalonia.Media.SolidColorBrush.Parse("#10b981"));
             radialMenu.ItemSelected += (id) =>
             {
-                if (id == "crop") OpenCropTool(null, null);
-                else if (id == "merge") OpenVideoMerger(null, null);
-                else if (id == "export") StartProcessing();
+                if (id == "meme")
+                {
+                    var cb = this.FindControl<Avalonia.Controls.ToggleSwitch>("AddMemeCheckbox");
+                    if (cb != null) cb.IsChecked = !cb.IsChecked;
+                }
+                else if (id == "speed")
+                {
+                    var btn = this.FindControl<Avalonia.Controls.Button>("GranularButton");
+                    btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+                }
+                else if (id == "export")
+                {
+                    var btn = this.FindControl<Avalonia.Controls.Button>("ProcessButton");
+                    btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+                }
             };
         }
 
@@ -266,7 +303,9 @@ public partial class MainWindow : Window
             {
                 if (_processCts != null && !_processCts.IsCancellationRequested)
                 {
-                    _processCts.Cancel();
+                    try { _processCts.Cancel(); }
+                    catch (ObjectDisposedException) { }
+
                     overlay.StopOverlay();
                     if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
                     var btn = this.FindControl<Button>("ProcessButton");
@@ -376,7 +415,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-            if (p != null) _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
+            Environment.Exit(0);
         };
 
         var menuVideoMerger = this.FindControl<MenuItem>("MenuVideoMerger");
@@ -387,7 +426,7 @@ public partial class MainWindow : Window
             RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
             var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-            if (p != null) _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
+            Environment.Exit(0);
         };
 
         UpdateTooltips();
@@ -410,19 +449,29 @@ public partial class MainWindow : Window
             canvas.SizeChanged += (s, e) => UpdateTimelineMarkers();
         }
 
-        this.PointerPressed += (s, e) =>
+        this.AddHandler(InputElement.PointerPressedEvent, (s, e) =>
         {
+            bool markerDragActive = _draggingStartMarker || _draggingEndMarker ||
+                                    _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock;
+
             if (_isMusicBlockFocused)
             {
-                _isMusicBlockFocused = false;
-                UpdateTimelineMarkers();
+                if (_suppressNextMusicDeselect)
+                {
+                    _suppressNextMusicDeselect = false;
+                }
+                else
+                {
+                    _isMusicBlockFocused = false;
+                    if (!markerDragActive) UpdateTimelineMarkers();
+                }
             }
             if (_isThumbnailMarkerSelected && !_isDraggingThumbnailMarker)
             {
                 _isThumbnailMarkerSelected = false;
-                UpdateTimelineMarkers();
+                if (!markerDragActive) UpdateTimelineMarkers();
             }
-        };
+        }, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
 
         _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _marchingAntsTimer.Tick += (s, e) =>
@@ -582,18 +631,7 @@ public partial class MainWindow : Window
                 RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
                 var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-                if (p != null)
-                {
-                    Task.Run(async () =>
-                    {
-                        try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                        Environment.Exit(0);
-                    });
-                }
-                else
-                {
-                    Environment.Exit(0);
-                }
+                Environment.Exit(0);
             };
         }
 
@@ -607,18 +645,7 @@ public partial class MainWindow : Window
                 RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
                 var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-                if (p != null)
-                {
-                    Task.Run(async () =>
-                    {
-                        try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                        Environment.Exit(0);
-                    });
-                }
-                else
-                {
-                    Environment.Exit(0);
-                }
+                Environment.Exit(0);
             };
         }
 
@@ -752,10 +779,8 @@ public partial class MainWindow : Window
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
 
-                // IDEA_011: Action Pulse on marker drop
                 TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
                     Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
-                // IDEA_005: Update Butler suggestion after state change
                 UpdateButlerSuggestion();
             };
         }
@@ -777,9 +802,6 @@ public partial class MainWindow : Window
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
-                // Playhead-Follow Rule: marking while PLAYING must NEVER interrupt playback.
-                // (The legacy force-pause that lived here was removed per the documented rule;
-                // it had regressed back in and desynced the Play/Pause state.)
 
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
@@ -788,10 +810,8 @@ public partial class MainWindow : Window
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
 
-                // IDEA_011: Action Pulse on marker drop
                 TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
                     Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
-                // IDEA_005: Update Butler suggestion
                 UpdateButlerSuggestion();
             };
         }
@@ -1144,8 +1164,45 @@ public partial class MainWindow : Window
                 OpenWithLaunch.PendingVideoPath = null;
                 await LoadVideoIntoEditorAsync(pendingOpenWith, "opened-with");
             }
+
+            SingleInstanceGuard.VideoPathReceived += OnVideoHandedOffFromAnotherLaunch;
+
+            string? settingsFailure = Infrastructure.SettingsManager.LoadFailureMessage;
+            if (!string.IsNullOrEmpty(settingsFailure))
+            {
+                await ErrorReporter.ShowAsync(this, "Settings could not be loaded", settingsFailure,
+                    "SettingsManager.Load() failed — see the log entries tagged [Settings].");
+            }
         };
 
+    }
+
+    /// <summary>
+    /// ISSUE_03 — handles a file path pushed to us by another launch of the app. Arrives on a
+    /// background pipe thread, so everything is marshalled to the UI thread.
+    /// </summary>
+    private void OnVideoHandedOffFromAnotherLaunch(string path)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                Activate();
+                if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+
+                if (string.IsNullOrEmpty(path)) return;
+
+                RuntimeLog.Info("SingleInstance", $"Loading handed-off video: {Path.GetFileName(path)}");
+                await LoadVideoIntoEditorAsync(path, "opened-with-handoff");
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Fail("SingleInstance", ex);
+                await ErrorReporter.ShowAsync(this, "Could not open that video",
+                    "The app was asked to open a video from Windows Explorer, but it could not be loaded.",
+                    ex.ToString());
+            }
+        });
     }
 
     private List<MemeItem> _memeItems = new();
@@ -1251,15 +1308,22 @@ public partial class MainWindow : Window
         await dlg.ShowDialog(this);
         if (!dlg.Result) return;
 
-        ShowTacticalFeedback("Downloading memes…");
-        var (count, error) = await MemeCatalog.SyncFromCloudAsync(Infrastructure.MemeDirectory.GetActive());
+        string memeDir = Infrastructure.MemeDirectory.GetActive();
+        var (count, error) = await Controls.CloudSyncProgressWindow.RunAsync(
+            this, "Downloading memes",
+            (progress, ct) => MemeCatalog.SyncFromCloudAsync(memeDir, progress, ct));
+
+        PopulateMemeComboBox();
+
         if (error != null)
         {
-            ShowTacticalFeedback($"⚠ {error}");
+            ShowTacticalFeedback("⚠ Meme download problem");
+            await ErrorReporter.ShowAsync(this, "Meme download problem", error,
+                "See the log entries tagged [Memes] for the per-file detail.");
             return;
         }
+
         ShowTacticalFeedback(count > 0 ? $"✔ {count} new meme(s) added" : "✔ Meme library is up to date");
-        PopulateMemeComboBox();
     }
 
     private async Task PushAssetsAsync()
@@ -1442,7 +1506,6 @@ public partial class MainWindow : Window
             e.DragEffects = DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link;
             var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
             dropzone?.Activate();
-            // IDEA_04: one voice at a time — fade the hero card while the dropzone pulse speaks
             var uploadOverlay = this.FindControl<Border>("UploadOverlay");
             if (uploadOverlay != null && uploadOverlay.IsVisible)
             {
@@ -1687,8 +1750,101 @@ public partial class MainWindow : Window
         EnableEditingControls();
         SaveRecoveryState();
 
-        // IDEA_005: Suggest first editing step
         UpdateButlerSuggestion();
+
+        _ = RunAudioLoudnessCheckAsync(path);
+    }
+
+
+    /// <summary>The user's answer for THIS video. Null until the probe has finished, in which
+    /// case the export falls back to the stored preference.</summary>
+    private bool? _applyLoudnessNormalization;
+    private bool? _applyPeakFlattening;
+
+    /// <summary>The uploaded file's measured loudness, kept so the export can anchor the
+    /// voice-over to the game even when the user declined normalisation.</summary>
+    private double? _sourceMeasuredLufs;
+
+    /// <summary>Cancels an in-flight probe when a second video is loaded over the first.</summary>
+    private CancellationTokenSource? _loudnessProbeCts;
+
+    private async Task RunAudioLoudnessCheckAsync(string path)
+    {
+        try { _loudnessProbeCts?.Cancel(); } catch { }
+        try { _loudnessProbeCts?.Dispose(); } catch { }
+        var cts = new CancellationTokenSource();
+        _loudnessProbeCts = cts;
+
+        _applyLoudnessNormalization = null;
+        _applyPeakFlattening = null;
+        _sourceMeasuredLufs = null;
+
+        try
+        {
+            var settings = Infrastructure.SettingsManager.Instance;
+
+            bool nothingToAsk =
+                settings.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.Ask &&
+                settings.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.Ask;
+
+            if (nothingToAsk)
+            {
+                _applyLoudnessNormalization = settings.LoudnessNormalizationPrompt == Infrastructure.AudioFixPrompt.AlwaysApply;
+                _applyPeakFlattening = settings.PeakFlatteningPrompt == Infrastructure.AudioFixPrompt.AlwaysApply;
+
+                if (settings.LoudnessNormalizationPrompt == Infrastructure.AudioFixPrompt.AlwaysApply)
+                    return;
+            }
+
+            string ffmpeg = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
+            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
+                .MeasureAsync(ffmpeg, path, cts.Token).ConfigureAwait(true);
+
+            if (cts.IsCancellationRequested) return;
+
+            if (reading == null) return;
+
+            _sourceMeasuredLufs = reading.IntegratedLufs;
+
+            if (!string.Equals(_loadedVideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                if (reading.Verdict is FortniteVideoSoftware.Core.Media.LoudnessVerdict.TooQuiet
+                                    or FortniteVideoSoftware.Core.Media.LoudnessVerdict.TooLoud)
+                {
+                    _applyLoudnessNormalization = await Controls.AudioFixPromptWindow.ResolveAsync(
+                        this,
+                        settings.LoudnessNormalizationPrompt,
+                        () => Controls.AudioFixPromptWindow.ForLoudness(reading),
+                        pref =>
+                        {
+                            settings.LoudnessNormalizationPrompt = pref;
+                            Infrastructure.SettingsManager.Save();
+                        },
+                        "AudioLoudness");
+                }
+
+                if (reading.HasHarshPeaks)
+                {
+                    _applyPeakFlattening = await Controls.AudioFixPromptWindow.ResolveAsync(
+                        this,
+                        settings.PeakFlatteningPrompt,
+                        () => Controls.AudioFixPromptWindow.ForHarshPeaks(reading),
+                        pref =>
+                        {
+                            settings.PeakFlatteningPrompt = pref;
+                            Infrastructure.SettingsManager.Save();
+                        },
+                        "AudioPeaks");
+                }
+            });
+        }
+        catch (OperationCanceledException) { /* superseded by a newer upload */ }
+        catch (Exception ex)
+        {
+            RuntimeLog.Debug("AudioLoudness", $"Loudness check skipped: {ex.Message}");
+        }
     }
 
     private void SaveUploadDirectory(string path)
@@ -1723,7 +1879,6 @@ public partial class MainWindow : Window
         var uploadOverlay = this.FindControl<Border>("UploadOverlay");
         if (uploadOverlay != null) { uploadOverlay.IsVisible = true; uploadOverlay.Opacity = 0.95; }
 
-        // IDEA_02/06: back to the blank slate — hide the detach button, restore the unlock hint
         var detachBtnReset = this.FindControl<Button>("DetachOverlayButton");
         if (detachBtnReset != null) detachBtnReset.IsVisible = false;
         var unlockHintReset = this.FindControl<TextBlock>("TrimUnlockHint");
@@ -1731,6 +1886,12 @@ public partial class MainWindow : Window
 
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
         if (timelineOverlay != null) timelineOverlay.IsVisible = false;
+
+        var qualityPanel = this.FindControl<StackPanel>("QualityPanel");
+        if (qualityPanel != null) qualityPanel.IsVisible = false;
+
+        var speedPanel = this.FindControl<Grid>("SpeedPanel");
+        if (speedPanel != null) speedPanel.IsVisible = false;
 
         var process = this.FindControl<Button>("ProcessButton");
         if (process != null) process.IsEnabled = false;
@@ -1858,11 +2019,9 @@ public partial class MainWindow : Window
     /// </summary>
     private void EnableEditingControls()
     {
-        // IDEA_02: the Detach Monitor button only exists once there is a video to detach
         var detachBtn = this.FindControl<Button>("DetachOverlayButton");
         if (detachBtn != null) detachBtn.IsVisible = true;
 
-        // IDEA_06: editing is unlocked — the explanatory hint has done its job
         var unlockHint = this.FindControl<TextBlock>("TrimUnlockHint");
         if (unlockHint != null) unlockHint.IsVisible = false;
 
@@ -2505,8 +2664,6 @@ public partial class MainWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             canvas.Children.Clear();
-            // FIX: Clear() also rips out the XAML PlayheadBadge (a child of this canvas),
-            // permanently killing the floating time badge. Re-attach it after every rebuild.
             var playheadBadge = this.FindControl<Avalonia.Controls.Border>("PlayheadBadge");
             if (playheadBadge != null && !canvas.Children.Contains(playheadBadge))
                 canvas.Children.Add(playheadBadge);
@@ -2661,7 +2818,12 @@ public partial class MainWindow : Window
 
                 startHitBox.PointerEntered += (s,e) => { startHitBox.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(40, 46, 139, 87)); startRect.Fill = Avalonia.Media.Brushes.MediumSeaGreen; };
                 startHitBox.PointerExited += (s,e) => { startHitBox.Background = Avalonia.Media.Brushes.Transparent; startRect.Fill = Avalonia.Media.Brushes.SeaGreen; };
-                startHitBox.PointerPressed += (s,e) => { _draggingStartMarker = true; e.Pointer.Capture(startHitBox); e.Handled = true; };
+                startHitBox.PointerPressed += (s,e) => {
+                    if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) return;
+                    _draggingStartMarker = true;
+                    e.Pointer.Capture(startHitBox);
+                    e.Handled = true;
+                };
                 
                 canvas.Children.Add(startHitBox);
 
@@ -2674,6 +2836,13 @@ public partial class MainWindow : Window
                 }
 
                 startHitBox.PointerMoved += (s,e) => {
+                    if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
+                        if (_draggingStartMarker) {
+                            _draggingStartMarker = false;
+                            try { e.Pointer.Capture(null); } catch { }
+                        }
+                        return;
+                    }
                     if (_draggingStartMarker) {
                         var pt = e.GetPosition(canvas);
                         double newX = Math.Max(0, Math.Min(pt.X, canvasWidth));
@@ -2690,8 +2859,6 @@ public partial class MainWindow : Window
                         Avalonia.Controls.Canvas.SetLeft(startHitBox, newX - 12);
                         Avalonia.Controls.Canvas.SetLeft(startText, ClampLabelLeft(newX + 5, 36));
                         UpdateDraggingVisuals(canvasWidth, duration);
-                        // Playhead follows the marker LIVE while dragging (seek coalesces; no pause change,
-                        // so the caret tracks the marker whether the video is paused or playing).
                         _ = SeekInternal(newStartSec);
                     }
                 };
@@ -2743,6 +2910,8 @@ public partial class MainWindow : Window
                         _draggingEndMarker = true;
                         e.Pointer.Capture(endHitBox);
                         UpdateDraggingVisuals(canvasWidth, duration);
+
+                        e.Handled = true;
                     }
                 };
                 canvas.Children.Add(endHitBox);
@@ -2756,6 +2925,13 @@ public partial class MainWindow : Window
                 }
 
                 endHitBox.PointerMoved += (s,e) => {
+                    if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
+                        if (_draggingEndMarker) {
+                            _draggingEndMarker = false;
+                            try { e.Pointer.Capture(null); } catch { }
+                        }
+                        return;
+                    }
                     if (_draggingEndMarker) {
                         var pt = e.GetPosition(canvas);
                         double newX = Math.Max(0, Math.Min(pt.X, canvasWidth));
@@ -2772,7 +2948,6 @@ public partial class MainWindow : Window
                         Avalonia.Controls.Canvas.SetLeft(endHitBox, newX - 12);
                         if (scaleCanvas != null) Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(newX - 28, 28));
                         UpdateDraggingVisuals(canvasWidth, duration);
-                        // Playhead follows the END marker LIVE while dragging (see START marker note).
                         _ = SeekInternal(newEndSec);
                     }
                 };
@@ -3002,6 +3177,7 @@ public partial class MainWindow : Window
                     if (!_isMusicBlockFocused)
                     {
                         _isMusicBlockFocused = true;
+                        _suppressNextMusicDeselect = true;
                         musicRect.Stroke = Avalonia.Media.Brushes.Yellow;
                         musicRect.StrokeThickness = 1;
                         musicRect.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(2, 2);
@@ -3497,6 +3673,9 @@ public partial class MainWindow : Window
 
     private void EnsureTrimPointsSet()
     {
+        double reported = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
+        if (reported > 0) _loadedVideoDurationMs = reported * 1000.0;
+
         if (!_trimStartSet && ActiveVideoHost?.IpcClient != null)
         {
             double dur = ActiveVideoHost.IpcClient.Duration;
@@ -3520,9 +3699,6 @@ public partial class MainWindow : Window
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
-        // Defensive shell: a single faulting lookup inside the tick must never be able to
-        // permanently freeze the playhead/pause sync loop (root cause of the MARK START
-        // "stuck caret" report). Faults are logged once, and the next tick runs normally.
         try { PlaybackTimerTickCore(); }
         catch (Exception ex)
         {
@@ -3544,8 +3720,6 @@ public partial class MainWindow : Window
             UpdateTimelineMarkers();
         }
 
-        // FIX (playhead/pause desync): the icons are Path elements in XAML (geometry tokens);
-        // the old Polygon/StackPanel typed lookups broke this sync block after the conversion.
         var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
         var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         if (playIcon != null && pauseIcon != null)
@@ -3766,8 +3940,10 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private void RdpFixButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void RdpFixButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        var btn = this.FindControl<Avalonia.Controls.Button>("RdpFixButton");
+
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo
@@ -3777,22 +3953,47 @@ public partial class MainWindow : Window
                 UseShellExecute = true,
                 Verb = "runas"
             };
-            System.Diagnostics.Process.Start(psi)?.WaitForExit();
-            
-            var btn = this.FindControl<Avalonia.Controls.Button>("RdpFixButton");
+
+            if (btn != null)
+            {
+                btn.IsEnabled = false;
+                btn.Content = "Waiting for permission...";
+            }
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc != null)
+            {
+                await proc.WaitForExitAsync();
+            }
+
             if (btn != null)
             {
                 btn.Content = "Fix Applied! PLEASE RESTART YOUR COMPUTER.";
                 btn.IsEnabled = false;
             }
+            RuntimeLog.Info("RDP", "Registry fix applied. A reboot is required for it to take effect.");
         }
         catch (System.ComponentModel.Win32Exception)
         {
             RuntimeLog.Fail("RDP", "UAC prompt was denied by the user.");
+            if (btn != null)
+            {
+                btn.IsEnabled = true;
+                btn.Content = "Auto-Fix RDP GPU Block";
+            }
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("RDP", $"Failed to apply registry fix: {ex.Message}");
+            if (btn != null)
+            {
+                btn.IsEnabled = true;
+                btn.Content = "Auto-Fix RDP GPU Block";
+            }
+
+            await ErrorReporter.ShowAsync(this, "RDP fix failed",
+                "The graphics setting for Remote Desktop could not be changed.",
+                ex.ToString());
         }
     }
 
@@ -3977,10 +4178,35 @@ public partial class MainWindow : Window
             PlayUiSound();
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
+            await ErrorReporter.ShowAsync(this, "Nothing to export",
+                "There is no video loaded, or the file that was loaded has been moved or deleted. " +
+                "Load a video and try again.",
+                string.IsNullOrEmpty(_loadedVideoPath)
+                    ? "No video path is set on the editor."
+                    : $"Loaded video no longer exists on disk: {_loadedVideoPath}");
             return;
         }
 
+        string? outputDirectory = await Infrastructure.OutputFolderResolver.ResolveAsync(
+            this, Infrastructure.OutputFolderResolver.AppScope.Main);
+        if (outputDirectory == null)
+        {
+            ShowTacticalFeedback("Export cancelled — no output folder");
+            processButton.IsEnabled = true;
+            processButton.Content = "PROCESS";
+            return;
+        }
+
+        if (!await ConfirmHighSegmentCountAsync())
+        {
+            processButton.IsEnabled = true;
+            processButton.Content = "PROCESS";
+            return;
+        }
+
+        var previousCts = _processCts;
         _processCts = new System.Threading.CancellationTokenSource();
+        try { previousCts?.Dispose(); } catch { }
 
         await Task.Yield();
 
@@ -3991,6 +4217,7 @@ public partial class MainWindow : Window
 
             var paths = ApplicationPaths.CreateDefault();
             var worker = new ProcessWorker(paths);
+            worker.OutputDirectory = outputDirectory;
 
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
             this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
@@ -4025,9 +4252,16 @@ public partial class MainWindow : Window
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                 {
-                    if (_processCts != null && _processCts.IsCancellationRequested && !success)
+                    if (!success && (worker.WasCanceled
+                                     || (_processCts != null && _processCts.IsCancellationRequested)))
                     {
                         RuntimeLog.Info("Process", "Worker cleaned up after cancellation.");
+
+                        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+                        if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+                        processButton.IsEnabled = true;
+                        processButton.Content = "PROCESS";
+
                         worker.Dispose();
                         return;
                     }
@@ -4038,11 +4272,29 @@ public partial class MainWindow : Window
                     {
                         RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {Path.GetFileName(message)}");
                         RuntimeLog.Debug("Process", $"Video processing output path: {message}");
-                        ShowTacticalFeedback("Processing complete");
+
+                        string? completionWarning = worker.CompletionWarning;
+                        ShowTacticalFeedback(completionWarning == null
+                            ? "Processing complete"
+                            : "Complete — thumbnail failed");
                         PlayUiSound();
+
+                        if (completionWarning != null)
+                        {
+                            RuntimeLog.Fail("Process", completionWarning);
+                        }
+
                         var dlg = new FortniteVideoSoftware.App.Controls.FinishedDialogWindow();
                         dlg.SetOutputPath(message);
                         await dlg.ShowDialog(this);
+
+                        if (completionWarning != null && dlg.DialogResult != 1)
+                        {
+                            await ErrorReporter.ShowAsync(this, "Thumbnail not created",
+                                completionWarning + " The video file itself is fine and has been saved.",
+                                "See the log entries tagged [Thumbnail] for the FFmpeg error behind this.");
+                        }
+
                         if (dlg.DialogResult == 1)
                         {
                             Close();
@@ -4062,6 +4314,17 @@ public partial class MainWindow : Window
                         RuntimeLog.Debug("Process", $"Video processing failure detail: {message}");
                         ShowTacticalFeedback("Processing failed");
                         PlayUiSound();
+
+                        string failureDetail = worker.FailureDetail ?? message;
+
+                        processButton.IsEnabled = true;
+                        processButton.Content = "PROCESS";
+                        worker.Dispose();
+
+                        await ErrorReporter.ShowAsync(this, "Export failed",
+                            "The video could not be exported, so no file was written.",
+                            failureDetail);
+                        return;
                     }
                     processButton.IsEnabled = true;
                     processButton.Content = "PROCESS";
@@ -4074,10 +4337,55 @@ public partial class MainWindow : Window
             worker.InputPath = _loadedVideoPath;
             worker.StartTimeMs = _trimStartMs;
 
-            double duration = GetCurrentMpvTime();
-            duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
+            double durationMs = ActiveVideoHost?.IpcClient?.Duration > 0
+                ? ActiveVideoHost.IpcClient.Duration * 1000.0
+                : 0.0;
 
-            worker.EndTimeMs = _trimEndMs > 0 ? _trimEndMs : duration * 1000;
+            if (durationMs <= 0) durationMs = _loadedVideoDurationMs;
+
+            if (durationMs <= 0 && _trimEndMs > _trimStartMs) durationMs = _trimEndMs;
+
+            if (durationMs <= 0)
+            {
+                RuntimeLog.Info("Process", "Clip length unknown from the player — probing the file directly.");
+                try
+                {
+                    var durationProber = new MediaProber(
+                        FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries"),
+                        _loadedVideoPath);
+                    double probedSec = await durationProber.GetDurationAsync();
+                    if (probedSec > 0) durationMs = probedSec * 1000.0;
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Fail("Process", $"Duration probe failed: {ex.Message}");
+                }
+            }
+
+            if (durationMs > 0) _loadedVideoDurationMs = durationMs;
+
+            double effectiveEndMs = _trimEndMs > 0 ? _trimEndMs : durationMs;
+
+            if (effectiveEndMs <= _trimStartMs)
+            {
+                RuntimeLog.Fail("Process",
+                    $"Refusing to export: clip length could not be determined (start={_trimStartMs}ms, end={effectiveEndMs}ms).");
+
+                this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+                if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+                processButton.IsEnabled = true;
+                processButton.Content = "PROCESS";
+                worker.Dispose();
+
+                await ErrorReporter.ShowAsync(this, "Cannot export yet",
+                    "The app could not work out how long this video is, so there is nothing to export. "
+                    + "Try reloading the video, or set MARK START and MARK END manually.",
+                    $"Duration resolution failed. trimStartMs={_trimStartMs}, trimEndMs={_trimEndMs}, resolvedDurationMs={durationMs}.");
+                return;
+            }
+
+            worker.EndTimeMs = effectiveEndMs;
+            double duration = durationMs / 1000.0;
             var allSegments = BuildExportSpeedSegments();
             worker.SpeedSegments = allSegments;
             worker.SpeedFactor = _baseSpeed;
@@ -4110,6 +4418,19 @@ public partial class MainWindow : Window
             }
             
             worker.HardwareStrategy = hwMode;
+
+            var audioPrefs = Infrastructure.SettingsManager.Instance;
+            worker.SourceMeasuredLufs = _sourceMeasuredLufs;
+            worker.ApplyLoudnessNormalization =
+                _applyLoudnessNormalization ?? audioPrefs.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.NeverApply;
+
+            bool peakWanted =
+                _applyPeakFlattening ?? audioPrefs.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.NeverApply;
+            worker.AutoSpikeFlattening = audioPrefs.Defaults.AutoSpikeFlattening && peakWanted;
+            RuntimeLog.Info("Audio",
+                $"Export audio: loudness normalisation {(worker.ApplyLoudnessNormalization ? "ON" : "OFF")}, " +
+                $"peak flattening {(worker.AutoSpikeFlattening ? "ON" : "OFF")}.");
+
             worker.IsMobileFormat = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
             worker.IsBossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false;
             worker.EnableFades = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true;
@@ -4138,11 +4459,21 @@ public partial class MainWindow : Window
                 double musicEndMs = Math.Min(worker.EndTimeMs, _musicWizardResult.TimelineEndSeconds * 1000.0);
                 double startDelay = CalculateEffectiveDurationMs(worker.StartTimeMs, musicStartMs, _baseSpeed, allSegments) / 1000.0;
                 double outputEndSec = CalculateEffectiveDurationMs(worker.StartTimeMs, musicEndMs, _baseSpeed, allSegments) / 1000.0;
-                double totalOutputDurationSec = CalculateEffectiveDurationMs(worker.StartTimeMs, worker.EndTimeMs, _baseSpeed, allSegments) / 1000.0;
                 double dur = outputEndSec - startDelay;
                 if (dur <= 0) dur = 1.0;
 
-                bool applyFadeOut = Math.Abs(outputEndSec - totalOutputDurationSec) < 0.05;
+                const double MarkerToleranceMs = 50.0;
+                double rawMusicStartMs = _musicWizardResult.TimelineStartSeconds * 1000.0;
+                double rawMusicEndMs = _musicWizardResult.TimelineEndSeconds * 1000.0;
+
+                worker.MusicLeadFadeIn = rawMusicStartMs <= worker.StartTimeMs + MarkerToleranceMs;
+                worker.MusicTailFadeOut = rawMusicEndMs <= worker.EndTimeMs + MarkerToleranceMs;
+
+                RuntimeLog.Info("Audio",
+                    $"Music bed fades: lead-in {(worker.MusicLeadFadeIn ? "ON" : "OFF (starts after MARK START)")}, " +
+                    $"tail-out {(worker.MusicTailFadeOut ? "ON" : "OFF (runs past MARK END)")}.");
+
+                bool applyFadeOut = true;
 
                 worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>();
                 var musicPaths = (_musicWizardResult.MusicFilePaths.Count > 0
@@ -4209,7 +4540,52 @@ public partial class MainWindow : Window
             PlayUiSound();
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
+
+            await ErrorReporter.ShowAsync(this, "Export could not start",
+                "Something went wrong while setting up the export, so it never began.",
+                ex.ToString());
         }
+    }
+
+    /// <summary>
+    /// ISSUE_08 — the export graph gives every speed/freeze chunk its own parallel FFmpeg
+    /// branch, and FFmpeg holds frames in memory for every branch `concat` has not read yet.
+    /// Past a certain number of segments that becomes a lot of RAM, so ask before committing
+    /// rather than letting the machine discover it mid-encode.
+    /// Returns true if the export should proceed.
+    /// </summary>
+    private async Task<bool> ConfirmHighSegmentCountAsync()
+    {
+        var segments = BuildExportSpeedSegments();
+        int segmentCount = segments?.Count ?? 0;
+
+        int estimatedChunks = (segmentCount * 2) + 1;
+        if (estimatedChunks <= FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.HighChunkCountWarnThreshold)
+        {
+            return true;
+        }
+
+        RuntimeLog.Info("Process",
+            $"High segment count before export: {segmentCount} segment(s) -> ~{estimatedChunks} chunks. Asking the user to confirm.");
+
+        var dlg = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+        dlg.SetTitle("A lot of speed segments");
+        dlg.SetMessage(
+            $"This edit has {segmentCount} speed/freeze segments." + Environment.NewLine + Environment.NewLine +
+            "Each one becomes its own parallel stream inside the encoder, and the encoder holds " +
+            "frames in memory for every stream it has not reached yet. With this many segments the " +
+            "export can use a large amount of RAM and may be slow." + Environment.NewLine + Environment.NewLine +
+            "Export anyway?");
+        dlg.SetButtonText("EXPORT ANYWAY", "GO BACK");
+        await dlg.ShowDialog(this);
+
+        if (!dlg.Result)
+        {
+            RuntimeLog.Info("Process", "User backed out of a high-segment-count export.");
+            ShowTacticalFeedback("Export cancelled");
+        }
+
+        return dlg.Result;
     }
 
     private async void InitializeMpv()
@@ -4256,14 +4632,43 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// Coalescing seek. At most one seek is in flight; anything requested while one is running is
+    /// remembered and issued when <see cref="OnSeekCompleted"/> fires.
+    ///
+    /// ===== ISSUE_06 — the "in flight" flag must only be raised if a seek is REALLY in flight ====
+    /// WHAT WAS WRONG: `_isSeeking = true` was set BEFORE the player was checked for null. The
+    /// only thing that ever clears that flag is the SeekCompleted callback, which the player
+    /// raises. So whenever there was no player — preview failed to start, GPU-less/RDP machine
+    /// where the fallback also failed, libmpv missing, or simply a seek attempted during teardown
+    /// — the flag was raised and NOTHING could ever lower it again. From that instant the
+    /// timeline slider, arrow-key frame stepping and every marker drag stopped moving the
+    /// playhead, silently, for the rest of the session: the user dragged the scrubber and nothing
+    /// happened, with no message anywhere.
+    ///
+    /// The check now happens FIRST and the flag is only raised once the command has actually been
+    /// handed to the player. The try/catch is the matching guarantee for the other direction: if
+    /// the command throws, the flag comes back down instead of wedging the timeline.
+    /// </summary>
     private async Task SeekInternal(double time) {
         if (_isSeeking) {
             _nextSeekTarget = time;
             return;
         }
+
+        var ipc = ActiveVideoHost?.IpcClient;
+        if (ipc == null) {
+            _nextSeekTarget = null;
+            return;
+        }
+
         _isSeeking = true;
-        if (ActiveVideoHost?.IpcClient != null) {
-            await ActiveVideoHost.IpcClient.SendCommandAsync("seek", time, "absolute");
+        try {
+            await ipc.SendCommandAsync("seek", time, "absolute");
+        }
+        catch (Exception ex) {
+            _isSeeking = false;
+            RuntimeLog.Fail("UI", $"Seek command failed: {ex.Message}");
         }
     }
 
@@ -4301,9 +4706,32 @@ public partial class MainWindow : Window
         ForceReleaseDragStates(e.Pointer);
     }
 
+    /// <summary>
+    /// Safety net for a gesture that ended WITHOUT the hit box's own PointerReleased firing.
+    ///
+    /// THE BUG THIS FIXES ("MARK END leaves the caret stuck as if the button were still held"):
+    /// the trim START/END markers are throwaway controls rebuilt by UpdateTimelineMarkers(). When
+    /// that rebuild happens mid-gesture, the control currently holding pointer capture is removed
+    /// from the visual tree, Avalonia raises PointerCaptureLost, and the hit box's own
+    /// PointerReleased handler — the ONLY place that cleared `_draggingStartMarker` /
+    /// `_draggingEndMarker` — never runs. This method used to clear only the three MUSIC flags, so
+    /// the trim flags stayed true forever. From then on the freshly built hit box's PointerMoved
+    /// saw `_draggingEndMarker == true` and dragged the marker on plain hover, with no button held:
+    /// exactly "stuck as if held and not released".
+    ///
+    /// Every drag flag must be cleared here. If you add another, add it to this list too.
+    /// </summary>
     private void ForceReleaseDragStates(Avalonia.Input.IPointer pointer)
     {
         bool needsUpdate = false;
+
+        if (_draggingStartMarker || _draggingEndMarker)
+        {
+            _draggingStartMarker = false;
+            _draggingEndMarker = false;
+            needsUpdate = true;
+        }
+
         if (_draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock)
         {
             _draggingMusicStart = false;
@@ -4311,7 +4739,7 @@ public partial class MainWindow : Window
             _draggingMusicBlock = false;
             needsUpdate = true;
         }
-        
+
         if (needsUpdate)
         {
             try { pointer?.Capture(null); } catch { }
@@ -4349,7 +4777,8 @@ public partial class MainWindow : Window
         {
             if (_processCts != null && !_processCts.IsCancellationRequested)
             {
-                _processCts.Cancel();
+                try { _processCts.Cancel(); }
+                catch (ObjectDisposedException) { }
             }
             if (_activeExportTask != null)
             {
@@ -4383,6 +4812,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         base.OnClosed(e);
+        SingleInstanceGuard.VideoPathReceived -= OnVideoHandedOffFromAnotherLaunch;
+        SingleInstanceGuard.Release();
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
         DisposeVoiceOverPreviewTakes();
         _musicPreviewIpcClient?.Dispose();
@@ -4695,6 +5126,7 @@ public partial class MainWindow : Window
             var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
             var state = new System.Text.Json.Nodes.JsonObject
             {
+                ["schemaVersion"] = 1,
                 ["loadedVideoPath"] = _loadedVideoPath,
                 ["trimStartMs"] = _trimStartMs,
                 ["trimStartSet"] = _trimStartSet,
@@ -4829,6 +5261,14 @@ public partial class MainWindow : Window
                 return;
             }
 
+            int schemaVersion = state.TryGetPropertyValue("schemaVersion", out var svNode) && svNode != null ? svNode.GetValue<int>() : 0;
+            if (schemaVersion < 1)
+            {
+                RuntimeLog.Fail("RECOVERY", $"Recovery state schema version ({schemaVersion}) is outdated or missing. Discarding state to prevent corruption.");
+                _recovery.ClearState();
+                return;
+            }
+
             RuntimeLog.Info("RECOVERY", "Beginning state restoration...");
 
             _trimStartMs = state["trimStartMs"]?.GetValue<double>() ?? 0;
@@ -4854,7 +5294,14 @@ public partial class MainWindow : Window
             if (markEndBtn != null && _trimEndMs > 0)
                 markEndBtn.Content = $"END: {FormatTime(TimeSpan.FromMilliseconds(_trimEndMs))}";
 
-            _baseSpeed = state["baseSpeed"]?.GetValue<double>() ?? SpeedPresetButtons.NativeDefaultSpeed;
+            double restoredSpeed = state["baseSpeed"]?.GetValue<double>() ?? SpeedPresetButtons.NativeDefaultSpeed;
+            if (double.IsNaN(restoredSpeed) || double.IsInfinity(restoredSpeed) || restoredSpeed < 0.1 || restoredSpeed > 4.0)
+            {
+                RuntimeLog.Fail("RECOVERY",
+                    $"Recovered base speed {restoredSpeed} is outside the supported 0.1x-4.0x range — resetting to the default {SpeedPresetButtons.NativeDefaultSpeed}x.");
+                restoredSpeed = SpeedPresetButtons.NativeDefaultSpeed;
+            }
+            _baseSpeed = restoredSpeed;
             var speedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
             if (speedSlider != null) speedSlider.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
 
@@ -5186,18 +5633,7 @@ public partial class MainWindow : Window
         RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-        if (p != null)
-        {
-            Task.Run(async () =>
-            {
-                try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                Environment.Exit(0);
-            });
-        }
-        else
-        {
-            Environment.Exit(0);
-        }
+        Environment.Exit(0);
     }
 
     /// <summary>Launches the Video Merger process and exits the Main App.</summary>
@@ -5208,18 +5644,7 @@ public partial class MainWindow : Window
         RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-        if (p != null)
-        {
-            Task.Run(async () =>
-            {
-                try { p.WaitForInputIdle(5000); await Task.Delay(500); } catch { }
-                Environment.Exit(0);
-            });
-        }
-        else
-        {
-            Environment.Exit(0);
-        }
+        Environment.Exit(0);
     }
 
     /// <summary>Triggers the export process (alias for clicking the PROCESS button).</summary>
@@ -5240,10 +5665,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void InitializeUxInnovations()
     {
-        // IDEA_01 (opening-screen overhaul): BlankStateOverlay removed — its drop icon and
-        // feature hint chips now live inside the single UploadOverlay hero card in XAML.
 
-        // IDEA_005: Butler predictive ribbon — wire action invocations
         var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
         if (butler != null)
         {
@@ -5268,7 +5690,6 @@ public partial class MainWindow : Window
                         if (portrait != null && portrait.IsChecked != true)
                         {
                             portrait.IsChecked = true;
-                            // IDEA_009: Liquid Morph punch on toggle
                             _ = Controls.LiquidMorph.PunchAsync(portrait);
                         }
                         break;
@@ -5282,7 +5703,6 @@ public partial class MainWindow : Window
             };
         }
 
-        // IDEA_008: Meme Wall — wire selection to set the MemeComboBox
         var memeWall = this.FindControl<Controls.MemeWallControl>("MemeWall");
         if (memeWall != null)
         {
@@ -5299,7 +5719,6 @@ public partial class MainWindow : Window
                         cb.SelectedItem = match;
                         if (addMemeCb != null) addMemeCb.IsChecked = true;
                         SaveRecoveryState();
-                        // IDEA_011: Action pulse
                         TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height / 2),
                             Controls.ParticleBurstCanvas.BurstPreset.TogglePop);
                     }
@@ -5307,7 +5726,6 @@ public partial class MainWindow : Window
             };
         }
 
-        // IDEA_004: Kinetic Scrub controller
         _kineticScrub = new KineticScrubController();
         _kineticScrub.SeekRequested += (ms) =>
         {
@@ -5329,7 +5747,6 @@ public partial class MainWindow : Window
             }
         };
 
-        // IDEA_009: Attach Liquid Morph transition to Portrait dimming
         var portraitGrid = this.FindControl<Grid>("PortraitDimmingGrid");
         if (portraitGrid != null)
         {
@@ -5354,7 +5771,6 @@ public partial class MainWindow : Window
         }
         else
         {
-            // Fallback: emit at center of the particle layer
             particleLayer.Burst(new Point(particleLayer.Bounds.Width / 2, particleLayer.Bounds.Height / 2), preset);
         }
     }
@@ -5368,17 +5784,14 @@ public partial class MainWindow : Window
         var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
         if (butler == null) return;
 
-        // Don't suggest if no video loaded
         if (string.IsNullOrEmpty(_loadedVideoPath))
         {
             butler.Clear();
             return;
         }
 
-        // Heuristic priority chain — suggest the FIRST missing step
         if (_trimStartSet && _trimEndMs > _trimStartMs)
         {
-            // Trim is done — suggest speed or music
             if (!_isGranularSpeedActive && _speedSegments.Count == 0 &&
                 Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) < 0.01)
             {
@@ -5414,7 +5827,6 @@ public partial class MainWindow : Window
         }
         else
         {
-            // No trim yet — suggest trimming
             butler.Suggest(new ButlerAction
             {
                 Id = "trim",
@@ -5430,7 +5842,7 @@ public partial class MainWindow : Window
 
     private void OnWindowPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
-        if (e.GetCurrentPoint(this).Properties.IsMiddleButtonPressed)
+        if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
             var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
             if (radialMenu != null)
@@ -5458,7 +5870,7 @@ public partial class MainWindow : Window
 
     private void OnWindowPointerReleased(object? sender, Avalonia.Input.PointerReleasedEventArgs e)
     {
-        if (_isRadialOpen && e.InitialPressMouseButton == Avalonia.Input.MouseButton.Middle)
+        if (_isRadialOpen && e.InitialPressMouseButton == Avalonia.Input.MouseButton.Right)
         {
             var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
             radialMenu?.Close();

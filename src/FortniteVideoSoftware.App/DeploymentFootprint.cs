@@ -1,4 +1,4 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 
 namespace FortniteVideoSoftware.App;
 
@@ -71,23 +71,38 @@ internal static class DeploymentFootprint
         return args.Length == 0 && !IsRunningFromInstallPath();
     }
 
-    public static IEnumerable<string> GetDirectoryPurgeTargets(bool includeInstallFolder, bool includeProgramData)
+    /// <summary>
+    /// ISSUE_02 — directories wiped during an install/upgrade/uninstall.
+    ///
+    /// <paramref name="includeUserData"/> is THE "preserve my settings" switch. It must gate
+    /// EVERY location that holds user state, not just ProgramData.
+    ///
+    /// HISTORY (the bug this parameter fixes): the old signature only gated ProgramData, while
+    /// RoamingAppData, LocalAppData and %APPDATA%\FortniteVideoSoftware were purged
+    /// unconditionally. So a user who answered "Yes, preserve my settings" during an upgrade
+    /// still silently lost everything stored in those roots (butler-ribbon dismissals, the
+    /// zoom-tutorial counter, and anything else that lands there). If you add a new user-state
+    /// directory, it belongs INSIDE the includeUserData block — nowhere else.
+    ///
+    /// TempAppFolder is deliberately outside the switch: it is scratch space, never user state,
+    /// and stale staging files must always go.
+    /// </summary>
+    public static IEnumerable<string> GetDirectoryPurgeTargets(bool includeInstallFolder, bool includeUserData)
     {
         if (includeInstallFolder)
         {
             yield return InstallFolder;
         }
 
-        if (includeProgramData)
-        {
-            yield return ProgramDataFolder;
-        }
-
-        yield return RoamingAppDataFolder;
-        yield return LocalAppDataFolder;
         yield return TempAppFolder;
 
-        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FortniteVideoSoftware");
+        if (includeUserData)
+        {
+            yield return ProgramDataFolder;
+            yield return RoamingAppDataFolder;
+            yield return LocalAppDataFolder;
+            yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FortniteVideoSoftware");
+        }
     }
 
     public static IEnumerable<string> GetVerificationTargets()
@@ -98,12 +113,56 @@ internal static class DeploymentFootprint
         yield return LocalAppDataFolder;
     }
 
+    /// <summary>
+    /// Folders the uninstaller sweeps for our .lnk files.
+    ///
+    /// ⚠️ THE DESKTOP ENTRIES MATTER MORE THAN THEY LOOK. ⚠️
+    /// <c>Environment.GetFolderPath(SpecialFolder.DesktopDirectory)</c> reads a CACHED value that
+    /// goes stale in exactly the case the installer now handles: OneDrive "Backup / Manage folders"
+    /// redirecting Desktop into <c>%USERPROFILE%\OneDrive\Desktop</c> (or a business variant such
+    /// as <c>OneDrive - Contoso\Desktop</c>), and Group Policy redirection to a UNC share. On those
+    /// machines the install writes the icon to the REDIRECTED desktop while an
+    /// <c>Environment.GetFolderPath</c>-only sweep looks at the OLD one — so uninstalling left a
+    /// dead shortcut behind, pointing at a deleted executable.
+    ///
+    /// The shell-resolved paths from <see cref="KnownFolders"/> are therefore probed FIRST, with
+    /// the Environment values kept afterwards as a belt-and-braces fallback (they are also what a
+    /// pre-redirection install would have used, so both must be cleaned). Duplicates are filtered.
+    ///
+    /// NOTE ON ELEVATION: the cleanup worker runs elevated and may be a different account, so its
+    /// per-user probe can resolve to the ADMINISTRATOR's desktop. That is why the Public desktop is
+    /// always included, and why the uninstaller cannot be relied upon as the only cleanup path for
+    /// a redirected per-user icon. It is best-effort by nature.
+    /// </summary>
     public static IEnumerable<string> GetShortcutSearchFolders()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string? candidate in EnumerateShortcutFolderCandidates())
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+
+            string normalized;
+            try { normalized = Path.GetFullPath(candidate!).TrimEnd('\\', '/'); }
+            catch { continue; }
+
+            if (seen.Add(normalized))
+            {
+                yield return normalized;
+            }
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateShortcutFolderCandidates()
     {
         yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms);
         yield return Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+
+        yield return FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetPublicDesktop();
+        yield return FortniteVideoSoftware.Core.Infrastructure.KnownFolders.GetDesktop();
         yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
         yield return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+
         yield return Environment.GetFolderPath(Environment.SpecialFolder.Startup);
         yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup);
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"Microsoft\Windows\Start Menu\Programs\Startup");

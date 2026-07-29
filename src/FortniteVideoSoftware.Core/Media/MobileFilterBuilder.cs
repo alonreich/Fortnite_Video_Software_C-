@@ -1,4 +1,4 @@
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -155,16 +155,6 @@ public class MobileFilterBuilder
         (double x, double y) Pos,
         int Z);
 
-    public static (string filterChain, string outputLabel) BuildMobileFilter(
-        JsonObject mobileCoords,
-        string originalResolution,
-        bool isBossHp = false,
-        bool showTeammates = false,
-        bool showSpectating = false)
-    {
-        return Build("[0:v]", "[0:v]", mobileCoords, isBossHp, showTeammates, showSpectating,
-            null, false, originalResolution);
-    }
 }
 
 internal static class MobileFilterBuilderExtensions

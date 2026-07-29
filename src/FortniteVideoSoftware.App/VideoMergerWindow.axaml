@@ -58,8 +58,8 @@
     <Grid>
         <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
             <Grid RowDefinitions="30, Auto, *">
-                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
-                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" />
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" IsHitTestVisible="False">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
                 </Border>
 
                 <Menu Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Foreground="{DynamicResource AppTextMutedBrush}" Padding="10,0" FontSize="{DynamicResource AppFontSize12}">
@@ -133,19 +133,18 @@
                                 <!-- ISSUE_02 (audit round 4): icon Fill is AppTextPrimaryBrush (theme-aware), NOT
                                      AppOnAccentTextBrush — always-white icons vanish on the light Secondary
                                      background in the Light ThemeVariant. -->
-                                <Button Name="MoveUpButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
-                                    <Polygon Points="6,0 12,8 0,8" Fill="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
+                                <Button Name="MoveUpButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                    <Polygon Points="6,0 12,8 0,8" Fill="{Binding $parent[Button].Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
-                                <Button Name="MoveDownButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand">
-                                    <Polygon Points="0,0 12,0 6,8" Fill="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
+                                <Button Name="MoveDownButton" Classes="Secondary" Padding="12,12" CornerRadius="20" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                    <Polygon Points="0,0 12,0 6,8" Fill="{Binding $parent[Button].Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
                                 </Button>
                             </StackPanel>
 
                             <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Spacing="8" Margin="0,0,0,15">
-                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Browse your computer and add another video to your list."/>
-                                <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
+                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add video to queue" ToolTip.Tip="Browse your computer and add another video to your list."/>
+                                <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add background music" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
                                     <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <!-- ISSUE_06 (audit round 4): icon sized by AppFontSize14 token (was fixed 14px) so it scales with the label -->
                                         <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
                                         <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
                                         <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
@@ -153,7 +152,7 @@
                                 </Button>
                                 <Grid ColumnDefinitions="Auto, *">
                                     <TextBlock Grid.Column="0" Text="⚠️" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <Button Name="RemoveVideoButton" Grid.Column="1" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Delete the currently highlighted video from your list.">
+                                    <Button Name="RemoveVideoButton" Grid.Column="1" Classes="Danger" Content="REMOVE SELECTED" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Remove selected video" IsEnabled="False" ToolTip.Tip="Delete the currently highlighted video from your list.">
                                         <Button.Flyout>
                                             <Flyout Placement="Top">
                                                 <StackPanel Spacing="8" Margin="8">
@@ -176,8 +175,8 @@
                         <!-- Video Player Area + Volume Slider -->
                         <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,10,10,10" ClipToBounds="False">
 
-                            <Border Name="VideoAreaBorder" Grid.Column="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True" Padding="2" Focusable="True" KeyboardNavigation.TabNavigation="Cycle">
-                                <Grid ClipToBounds="True" Name="MainVideoGrid" Focusable="True" Cursor="Hand">
+                            <Border Name="VideoAreaBorder" Grid.Column="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True" Padding="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Cycle">
+                                <Grid ClipToBounds="False" Name="MainVideoGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Focusable="True" KeyboardNavigation.IsTabStop="True" Cursor="Hand">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />
@@ -203,8 +202,8 @@
                                                     <StackPanel Orientation="Vertical">
                                                         <Canvas Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" />
                                                         <Grid ClipToBounds="False">
-                                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
-                                                            <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" Cursor="Hand" />
+                                                            <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Video merger timeline scrub slider" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
+                                                            <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Video merger timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" Cursor="Hand" />
                                                         </Grid>
                                                     </StackPanel>
                                                 </Grid>
@@ -217,13 +216,21 @@
 
                             <Border Grid.Column="1" CornerRadius="4" Background="{DynamicResource AppVideoRailBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Padding="4,8" MinWidth="48" VerticalAlignment="Stretch" Margin="2,0,2,0" ClipToBounds="False" ZIndex="9999">
                                 <Grid RowDefinitions="Auto, *, Auto" ClipToBounds="False" HorizontalAlignment="Stretch" Margin="0">
-                                    <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="1" IsVisible="False" />
+                                    <!-- Numeric readout appears on hover/drag and fades out again (see MainWindow for the
+                                         full rationale). Bound to the slider's own IsInteracting flag. -->
+                                    <TextBlock Grid.Row="0" Name="VolumeBadgeText" Text="100%" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6" IsHitTestVisible="False" Opacity="{Binding #VolumeSlider.IsInteracting, Converter={x:Static local:BoolToOpacityConverter.Instance}}">
+                                        <TextBlock.Transitions>
+                                            <Transitions>
+                                                <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                                            </Transitions>
+                                        </TextBlock.Transitions>
+                                    </TextBlock>
                                     <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
                                          Rollback: swap for a standard vertical Slider with the same Name/bindings (rollback folder no longer exists). -->
-                                    <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="100" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
+                                    <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="{Binding $parent[local:VideoMergerWindow].MergerVolume, Mode=TwoWay}" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" MinHeight="140" Background="Transparent" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
                                     <!-- ISSUE_08: real Button (was a Border) so mute has identical semantics, focus visuals,
                                          pressed feedback and screen-reader role as the Main App's mute control. -->
-                                    <Button Grid.Row="2" Name="SpeakerHitBox" MinWidth="35" MinHeight="35" Background="Transparent" BorderThickness="0" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Cursor="Hand" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
+                                    <Button Grid.Row="2" Name="SpeakerHitBox" Classes="Secondary" MinWidth="44" MinHeight="44" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
                                         <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="{DynamicResource AppInfoBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="{DynamicResource AppFontSize20}" Height="{DynamicResource AppFontSize20}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Data="M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14" />
                                     </Button>
                                 </Grid>
@@ -246,18 +253,18 @@
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
                                         <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
                                         <!-- ISSUE_02 (audit round 4): theme-aware icon fill on Secondary buttons (see MoveUp/MoveDown) -->
-                                        <Button Name="FastBackwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
-                                            <Path Data="{DynamicResource AppFastBackwardIconGeometry}" Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
+                                        <Button Name="FastBackwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
+                                            <Path Data="{DynamicResource AppFastBackwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
                                         </Button>
-                                        <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Cursor="Hand" IsEnabled="False">
+                                        <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." IsEnabled="False">
                                             <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
                                                 <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
                                                 <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
                                             </Panel>
                                         </Button>
                                         <!-- Fast forward uses RIGHT-pointing triangles -->
-                                        <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
-                                            <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
+                                        <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
+                                            <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
                                         </Button>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -288,11 +295,11 @@
 
                                 <!-- RETURN + Output Info + Estimated Size -->
                                 <StackPanel Orientation="Vertical" Spacing="3" Margin="10" VerticalAlignment="Center">
-                                    <Button Name="ReturnToMainAppButton" Classes="Secondary" Content="← RETURN TO MAIN APP" FontSize="{DynamicResource AppFontSize9}" Cursor="Hand" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
+                                    <Button Name="ReturnToMainAppButton" Classes="Secondary" Content="← RETURN TO MAIN APP" FontSize="{DynamicResource AppFontSize9}" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
                                     <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
-                                    <TextBlock Name="EstimatedSizeText" Text="" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                    <TextBlock Name="EstimatedSizeText" Text="" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0" MaxWidth="380" TextWrapping="Wrap"/>
                                     <!-- ISSUE_005: Normalization info -->
-                                    <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                    <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0" MaxWidth="380" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </WrapPanel>
                         </Grid>
@@ -300,7 +307,7 @@
                 </Grid>
 
                 <!-- Processing Overlay -->
-                <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.Row="2" Grid.ColumnSpan="2" IsVisible="False" />
+                <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.RowSpan="3" Grid.ColumnSpan="2" IsVisible="False" />
             </Grid>
         </Border>
     </Grid>

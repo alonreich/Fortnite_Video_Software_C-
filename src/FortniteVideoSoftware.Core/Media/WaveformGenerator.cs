@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -17,21 +18,30 @@ public static class WaveformGenerator
         {
             tempPng = Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory, $"fvs_wave_{Guid.NewGuid():N}.png");
             
-            string timeArgs = "";
-            if (startSec.HasValue) timeArgs += $"-ss {startSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
-            if (durationSec.HasValue) timeArgs += $"-t {durationSec.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} ";
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+
+            var waveArgs = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
+            if (startSec.HasValue) { waveArgs.Add("-ss"); waveArgs.Add(startSec.Value.ToString(ci)); }
+            if (durationSec.HasValue) { waveArgs.Add("-t"); waveArgs.Add(durationSec.Value.ToString(ci)); }
+            waveArgs.Add("-i");
+            waveArgs.Add(audioFilePath);
+            waveArgs.Add("-frames:v");
+            waveArgs.Add("1");
+            waveArgs.Add("-filter_complex");
+            waveArgs.Add($"aformat=channel_layouts=mono,volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full");
+            waveArgs.Add(tempPng);
 
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = $"-y -hide_banner -loglevel error {timeArgs}-i \"{audioFilePath}\" -frames:v 1 -filter_complex \"aformat=channel_layouts=mono,volume=1.5,showwavespic=s={width}x{height}:colors=0x7DD3FC:draw=full\" \"{tempPng}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            foreach (string arg in waveArgs) psi.ArgumentList.Add(arg);
 
-            CoreLogger.Debug("WaveformGenerator", $"Command: {psi.FileName} {psi.Arguments}");
+            CoreLogger.Debug("WaveformGenerator", $"Command: {psi.FileName} {ProcessArgs.FormatForLog(waveArgs)}");
             process = Process.Start(psi);
             if (process == null) return null;
             ChildProcessTracker.AddProcess(process);
@@ -40,12 +50,18 @@ public static class WaveformGenerator
             Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
             _ = await outputTask;
-            _ = await errorTask;
+            string waveErr = string.Empty;
+            try { waveErr = await errorTask; } catch { }
 
-            if (process.ExitCode == 0 && File.Exists(tempPng))
+            if (process.ExitCode == 0 && File.Exists(tempPng) && new FileInfo(tempPng).Length > 0)
             {
                 return tempPng;
             }
+
+            CoreLogger.Fail("WaveformGenerator",
+                $"Waveform render failed (exit {process.ExitCode}) for '{Path.GetFileName(audioFilePath)}'.");
+            if (!string.IsNullOrWhiteSpace(waveErr))
+                CoreLogger.Fail("WaveformGenerator", $"FFmpeg stderr:\n{waveErr.Trim()}");
 
             if (File.Exists(tempPng)) File.Delete(tempPng);
         }
@@ -65,8 +81,13 @@ public static class WaveformGenerator
 
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            CoreLogger.Fail("WaveformGenerator", $"Waveform generation threw: {ex.Message}");
+            if (tempPng != null && File.Exists(tempPng))
+            {
+                try { File.Delete(tempPng); } catch { }
+            }
         }
         finally
         {

@@ -1,4 +1,4 @@
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -29,17 +29,25 @@ public class MediaProber
         {
             if (_probeData != null) return _probeData;
 
+            var probeArgs = new[]
+            {
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format", "-show_streams",
+                _videoPath
+            };
+
             var psi = new ProcessStartInfo
             {
                 FileName = _ffprobePath,
-                Arguments = $"-v quiet -print_format json -show_format -show_streams \"{_videoPath}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            foreach (string arg in probeArgs) psi.ArgumentList.Add(arg);
 
-            CoreLogger.Debug("FFprobe", $"Command: {_ffprobePath} {psi.Arguments}");
+            CoreLogger.Debug("FFprobe", $"Command: {_ffprobePath} {ProcessArgs.FormatForLog(probeArgs)}");
 
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffprobe.");
             ChildProcessTracker.AddProcess(proc);
@@ -212,27 +220,6 @@ public class MediaProber
         return 0;
     }
 
-    public async Task<string> GetVideoFpsExprAsync(string targetFps = "60")
-    {
-        var data = await ProbeAsync();
-        var streams = data["streams"]?.AsArray();
-        if (streams != null)
-        {
-            foreach (var stream in streams)
-            {
-                if (stream?["codec_type"]?.ToString() == "video")
-                {
-                    string? fps = stream["avg_frame_rate"]?.ToString();
-                    if (!string.IsNullOrEmpty(fps) && fps != "0/0")
-                        return fps;
-                    fps = stream["r_frame_rate"]?.ToString();
-                    if (!string.IsNullOrEmpty(fps) && fps != "0/0")
-                        return fps;
-                }
-            }
-        }
-        return targetFps;
-    }
 
     /// <summary>
     /// Calculate video bitrate to hit target file size.

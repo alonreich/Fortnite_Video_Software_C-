@@ -30,11 +30,37 @@ public static class Phase4Gate
             new List<MusicTrack> { new MusicTrack("music.mp3", 0, 10.0) },
             1, 10.0, "[0:a]", 0.0);
         string duckFilter = string.Join(";", duckChains);
-        if (!duckFilter.Contains("lowpass=f=150") ||
-            !duckFilter.Contains("sidechaincompress=threshold=0.15:ratio=2.5") ||
-            duckFinalLabel != "[a_music_prepared]")
+
+        var duckChecks = new (string Needle, string Why)[]
         {
-            Console.WriteLine("Audio Ducking Error: Missing required DSP filters in AudioFilterChain.");
+            ("acrossover=split=150",                              "150 Hz music split (AudioFilterChain.cs:227)"),
+            ("[mus_high][trig_final]sidechaincompress=",           "ducking applied to the HIGH band only (:232)"),
+            ("threshold=0.15:ratio=2.5",                           "default ducking threshold/ratio (:229-231)"),
+            ("[mus_low][mus_high_ducked]amix=",                    "low + ducked-high recombine (:234)"),
+            ("[game_trig]highpass=f=200,lowpass=f=3500",           "sidechain trigger band-pass"),
+            ("[game_leveled]asplit=2[game_out_pre][game_trig]",    "split happens AFTER levelling, so ducking is source-level independent"),
+        };
+        foreach (var (needle, why) in duckChecks)
+        {
+            if (!duckFilter.Contains(needle))
+            {
+                Console.WriteLine($"Audio Ducking Error: missing '{needle}' — {why}.");
+                Console.WriteLine($"Actual chain:\n{duckFilter}");
+                return Task.FromResult(1);
+            }
+        }
+
+        string tempoProbe = duckFilter.Replace("asetpts", "");
+        if (tempoProbe.Contains("atempo") || tempoProbe.Contains("setpts"))
+        {
+            Console.WriteLine("Audio Ducking Error: music chain contains atempo/setpts — background music must stay at 1.0x.");
+            Console.WriteLine($"Actual chain:\n{duckFilter}");
+            return Task.FromResult(1);
+        }
+
+        if (duckFinalLabel != "[a_music_prepared]")
+        {
+            Console.WriteLine($"Audio Ducking Error: final label was '{duckFinalLabel}', expected '[a_music_prepared]'.");
             return Task.FromResult(1);
         }
 

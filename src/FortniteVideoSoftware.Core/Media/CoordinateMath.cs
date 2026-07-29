@@ -58,35 +58,84 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
         return new Frac(neg ? -p1 : p1, q1 == 0 ? 1 : q1);
     }
 
+    /// <summary>
+    /// Parses "30", "30000/1001" or "29.97". Values arrive from ffprobe/ffmpeg output, so nothing
+    /// here may throw on malformed text — an unparseable or zero-denominator expression yields
+    /// <see cref="Zero"/> and lets the caller apply its own default.
+    /// </summary>
     public static Frac FromString(string s)
     {
+        if (string.IsNullOrWhiteSpace(s)) return Zero;
         s = s.Trim();
+
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+
         if (s.Contains('/'))
         {
             var parts = s.Split('/');
-            return new Frac(long.Parse(parts[0]), long.Parse(parts[1]));
+            if (parts.Length != 2) return Zero;
+            if (!long.TryParse(parts[0].Trim(), System.Globalization.NumberStyles.Integer, ci, out long n)) return Zero;
+            if (!long.TryParse(parts[1].Trim(), System.Globalization.NumberStyles.Integer, ci, out long d)) return Zero;
+            if (d == 0) return Zero;
+            return new Frac(n, d);
         }
+
         if (s.Contains('.') || s.Contains('e') || s.Contains('E'))
-            return FromDouble(double.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
-        return new Frac(long.Parse(s), 1);
+        {
+            return double.TryParse(s, System.Globalization.NumberStyles.Float, ci, out double dv)
+                ? FromDouble(dv)
+                : Zero;
+        }
+
+        return long.TryParse(s, System.Globalization.NumberStyles.Integer, ci, out long iv)
+            ? new Frac(iv, 1)
+            : Zero;
     }
 
-    public static Frac operator +(Frac a, Frac b) => new(a.Num * b.Den + b.Num * a.Den, a.Den * b.Den);
-    public static Frac operator -(Frac a, Frac b) => new(a.Num * b.Den - b.Num * a.Den, a.Den * b.Den);
-    public static Frac operator *(Frac a, Frac b) => new(a.Num * b.Num, a.Den * b.Den);
-    public static Frac operator /(Frac a, Frac b) => new(a.Num * b.Den, a.Den * b.Num);
+    private static Frac FromWide(Int128 num, Int128 den)
+    {
+        if (den == Int128.Zero) throw new DivideByZeroException("Denominator is zero.");
+        if (den < Int128.Zero) { num = -num; den = -den; }
+
+        Int128 g = Gcd128(num < Int128.Zero ? -num : num, den);
+        if (g > Int128.One) { num /= g; den /= g; }
+
+        if (num >= long.MinValue && num <= long.MaxValue && den <= long.MaxValue)
+            return new Frac((long)num, (long)den);
+
+        return FromDouble((double)num / (double)den);
+    }
+
+    private static Int128 Gcd128(Int128 a, Int128 b)
+    {
+        if (a < Int128.Zero) a = -a;
+        if (b < Int128.Zero) b = -b;
+        while (b != Int128.Zero) { Int128 t = a % b; a = b; b = t; }
+        return a == Int128.Zero ? Int128.One : a;
+    }
+
+    public static Frac operator +(Frac a, Frac b) => FromWide((Int128)a.Num * b.Den + (Int128)b.Num * a.Den, (Int128)a.Den * b.Den);
+    public static Frac operator -(Frac a, Frac b) => FromWide((Int128)a.Num * b.Den - (Int128)b.Num * a.Den, (Int128)a.Den * b.Den);
+    public static Frac operator *(Frac a, Frac b) => FromWide((Int128)a.Num * b.Num, (Int128)a.Den * b.Den);
+    public static Frac operator /(Frac a, Frac b) => FromWide((Int128)a.Num * b.Den, (Int128)a.Den * b.Num);
     public static Frac operator -(Frac a) => new(-a.Num, a.Den);
     public static bool operator ==(Frac a, Frac b) => a.Num == b.Num && a.Den == b.Den;
     public static bool operator !=(Frac a, Frac b) => !(a == b);
-    public static bool operator <(Frac a, Frac b) => a.Num * b.Den < b.Num * a.Den;
-    public static bool operator >(Frac a, Frac b) => a.Num * b.Den > b.Num * a.Den;
-    public static bool operator <=(Frac a, Frac b) => a.Num * b.Den <= b.Num * a.Den;
-    public static bool operator >=(Frac a, Frac b) => a.Num * b.Den >= b.Num * a.Den;
+
+    public static bool operator <(Frac a, Frac b) => (Int128)a.Num * b.Den < (Int128)b.Num * a.Den;
+    public static bool operator >(Frac a, Frac b) => (Int128)a.Num * b.Den > (Int128)b.Num * a.Den;
+    public static bool operator <=(Frac a, Frac b) => (Int128)a.Num * b.Den <= (Int128)b.Num * a.Den;
+    public static bool operator >=(Frac a, Frac b) => (Int128)a.Num * b.Den >= (Int128)b.Num * a.Den;
 
     public bool Equals(Frac other) => Num == other.Num && Den == other.Den;
     public override bool Equals(object? obj) => obj is Frac f && Equals(f);
     public override int GetHashCode() => HashCode.Combine(Num, Den);
-    public int CompareTo(Frac other) => (this - other).Num.CompareTo(0);
+    public int CompareTo(Frac other)
+    {
+        Int128 left = (Int128)Num * other.Den;
+        Int128 right = (Int128)other.Num * Den;
+        return left < right ? -1 : left > right ? 1 : 0;
+    }
     public double ToDouble() => (double)Num / Den;
     public override string ToString() => Den == 1 ? Num.ToString() : $"{Num}/{Den}";
 }
@@ -118,8 +167,21 @@ public static class CoordinateConstants
 public static class CoordinateMath
 {
 
-    public static int FracFloor(Frac v) => (int)(v.Num / v.Den);
-    public static int FracCeil(Frac v) => -((int)(-v.Num / v.Den));
+    public static int FracFloor(Frac v)
+    {
+        long q = v.Num / v.Den;
+        long r = v.Num % v.Den;
+        if (r != 0 && ((r < 0) != (v.Den < 0))) q--;
+        return (int)q;
+    }
+
+    public static int FracCeil(Frac v)
+    {
+        long q = v.Num / v.Den;
+        long r = v.Num % v.Den;
+        if (r != 0 && ((r < 0) == (v.Den < 0))) q++;
+        return (int)q;
+    }
 
     public static int EvenDown(int v) => v % 2 == 0 ? v : v - 1;
     public static int EvenUp(int v) => v % 2 == 0 ? v : v + 1;
@@ -175,12 +237,22 @@ public static class CoordinateMath
 
 
     public static (Frac x, Frac y, Frac w, Frac h) TransformToContentArea(
-        (double x, double y, double w, double h) rect, string originalResolution)
+        (double x, double y, double w, double h) rect, string originalResolution, string? driftType = null)
     {
         var fx = Frac.FromDouble(rect.x);
         var fy = Frac.FromDouble(rect.y);
         var fw = Frac.FromDouble(rect.w);
         var fh = Frac.FromDouble(rect.h);
+
+        if (driftType == "left")
+        {
+            fx += Frac.One;
+            fw -= Frac.One;
+        }
+        else if (driftType == "right")
+        {
+            fw -= Frac.One;
+        }
 
         var (_, _, cropX, cropY, scale) = ScalePlan(originalResolution);
 
@@ -257,9 +329,9 @@ public static class CoordinateMath
 
 
     public static (int x, int y, int w, int h) TransformToContentAreaInt(
-        (int x, int y, int w, int h) rect, string originalResolution)
+        (int x, int y, int w, int h) rect, string originalResolution, string? driftType = null)
     {
-        var (fx, fy, fw, fh) = TransformToContentArea(rect, originalResolution);
+        var (fx, fy, fw, fh) = TransformToContentArea((rect.x, rect.y, rect.w, rect.h), originalResolution, driftType);
         return OutwardRoundRect(fx, fy, fw, fh);
     }
 
@@ -310,9 +382,8 @@ public static class CoordinateMath
         return (ScaleRound(x), ScaleRound(y), Math.Max(1, FracCeil(w)), Math.Max(1, FracCeil(h)));
     }
 
-    public static (int width, int height) QuantizeBackendSize(int contentW, int contentH, double scale)
+    public static (int width, int height) QuantizeBackendSize(int contentW, int contentH, Frac scaleFrac)
     {
-        Frac scaleFrac = Frac.FromDouble(scale);
         Frac backendScale = CoordinateConstants.BackendScale;
         int rw = Math.Max(2, EvenUp(FracCeil(new Frac(contentW, 1) * scaleFrac * backendScale)));
         int rh = Math.Max(2, EvenUp(FracCeil(new Frac(contentH, 1) * scaleFrac * backendScale)));

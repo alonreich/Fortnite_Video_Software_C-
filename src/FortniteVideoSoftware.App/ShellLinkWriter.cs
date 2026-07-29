@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 
@@ -70,6 +70,9 @@ internal static class ShellLinkWriter
             throw new InvalidOperationException("Failed to start PowerShell for shortcut creation.");
         }
 
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
         try
         {
             await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
@@ -78,7 +81,7 @@ internal static class ShellLinkWriter
         {
             try
             {
-                process.Kill();
+                process.Kill(entireProcessTree: true);
             }
             catch
             {
@@ -87,10 +90,19 @@ internal static class ShellLinkWriter
             throw new TimeoutException("PowerShell shortcut creation timed out.");
         }
 
+        string stderrText = string.Empty;
+        try
+        {
+            _ = await stdoutTask.ConfigureAwait(false);
+            stderrText = await stderrTask.ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+
         if (process.ExitCode != 0)
         {
-            string error = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"PowerShell shortcut creation failed (ExitCode {process.ExitCode}): {error}");
+            throw new InvalidOperationException($"PowerShell shortcut creation failed (ExitCode {process.ExitCode}): {stderrText}");
         }
 
         if (!File.Exists(shortcutPath))

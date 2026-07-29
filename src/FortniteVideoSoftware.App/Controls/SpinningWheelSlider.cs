@@ -99,7 +99,10 @@ namespace FortniteVideoSoftware.App.Controls
             get => _rotation;
             set
             {
-                _rotation = ClampRotation(value);
+                double clamped = ClampRotation(value);
+                if (Math.Abs(_rotation - clamped) < 0.001) return;
+                
+                _rotation = clamped;
                 int newVal = (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
                 if (newVal != _value)
                 {

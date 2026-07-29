@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -8,6 +8,7 @@ using FortniteVideoSoftware.App.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace FortniteVideoSoftware.App.Controls;
 
@@ -54,7 +55,6 @@ public partial class MemeWallControl : UserControl
         {
             _backdrop.PointerPressed += (_, e) =>
             {
-                // Click on backdrop (not on a cell) closes the wall
                 if (e.Source == _backdrop)
                     CloseWall();
             };
@@ -88,6 +88,8 @@ public partial class MemeWallControl : UserControl
             _backdrop.Classes.Remove("MemeWallHidden");
             _backdrop.Classes.Add("MemeWallVisible");
         }
+        IsVisible = true;
+        Opacity = 1;
         IsHitTestVisible = true;
     }
 
@@ -100,6 +102,14 @@ public partial class MemeWallControl : UserControl
             _backdrop.Classes.Add("MemeWallHidden");
         }
         IsHitTestVisible = false;
+        Task.Delay(220).ContinueWith(_ => Dispatcher.UIThread.Post(() =>
+        {
+            if (!IsHitTestVisible)
+            {
+                Opacity = 0;
+                IsVisible = false;
+            }
+        }));
         Closed?.Invoke();
     }
 
@@ -122,7 +132,6 @@ public partial class MemeWallControl : UserControl
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         };
 
-        // Thumbnail or placeholder
         if (item.Thumbnail != null)
         {
             var img = new Image
@@ -136,7 +145,6 @@ public partial class MemeWallControl : UserControl
         }
         else
         {
-            // Placeholder for video memes (thumbnail extraction is off the export path)
             var placeholder = new Border
             {
                 MinWidth = 100,
@@ -146,7 +154,6 @@ public partial class MemeWallControl : UserControl
                 Child = new TextBlock
                 {
                     Text = item.IsVideo ? "🎬" : "🖼",
-                    // ISSUE_04 (audit round 4): follow the Settings font scale
                     FontSize = ThemeManager.ScaledFontSize(28),
                     HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
@@ -155,22 +162,17 @@ public partial class MemeWallControl : UserControl
             stack.Children.Add(placeholder);
         }
 
-        // Filename (truncated)
         var nameText = new TextBlock
         {
             Text = item.DisplayName,
-            // ISSUE_04 (audit round 4): follow the Settings font scale
             FontSize = ThemeManager.ScaledFontSize(10),
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 120,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            // ISSUE_01 (audit round 4): "AppTextSecondaryBrush" was a ghost key (never defined);
-            // AppTextMutedBrush is the real muted-text token.
             Foreground = (IBrush?)Application.Current?.FindResource("AppTextMutedBrush")
         };
         stack.Children.Add(nameText);
 
-        // Ratio warning if landscape meme in portrait mode
         if (ratioWarning)
         {
             var warn = new TextBlock
@@ -186,12 +188,10 @@ public partial class MemeWallControl : UserControl
 
         cellBorder.Child = stack;
 
-        // Click to select
         cellBorder.PointerPressed += (_, e) =>
         {
             cellBorder.Classes.Add("MemeCellSelected");
             MemeSelected?.Invoke(item.FilePath);
-            // Brief delay then close
             DispatcherTimer.RunOnce(() => CloseWall(), TimeSpan.FromMilliseconds(200));
             e.Handled = true;
         };

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
@@ -168,12 +168,12 @@ public sealed class ParticleBurstCanvas : Control
     {
         var colors = new[]
         {
-            Color.FromArgb(230, 34, 197, 94),   // green
-            Color.FromArgb(230, 59, 130, 246),  // blue
-            Color.FromArgb(230, 250, 204, 21),  // yellow
-            Color.FromArgb(230, 239, 68, 68),   // red
-            Color.FromArgb(230, 168, 85, 247),  // purple
-            Color.FromArgb(230, 236, 72, 153),  // pink
+            Color.FromArgb(230, 34, 197, 94),
+            Color.FromArgb(230, 59, 130, 246),
+            Color.FromArgb(230, 250, 204, 21),
+            Color.FromArgb(230, 239, 68, 68),
+            Color.FromArgb(230, 168, 85, 247),
+            Color.FromArgb(230, 236, 72, 153),
         };
 
         for (int i = 0; i < count; i++)
@@ -218,7 +218,6 @@ public sealed class ParticleBurstCanvas : Control
             InvalidateVisual();
         }
 
-        // Self-halt when all particles have expired
         if (_particles.Count == 0)
         {
             _animating = false;
@@ -246,19 +245,18 @@ public sealed class ParticleBurstCanvas : Control
                 case ParticleKind.Spark:
                     p.X += p.Vx * dt;
                     p.Y += p.Vy * dt;
-                    p.Vy += 200 * dt; // gravity
-                    p.Vx *= 0.96;     // air friction
+                    p.Vy += 200 * dt;
+                    p.Vx *= 0.96;
                     p.Rotation += p.RotSpeed * dt;
                     break;
                 case ParticleKind.Confetti:
                     p.X += p.Vx * dt;
                     p.Y += p.Vy * dt;
-                    p.Vy += 400 * dt; // heavier gravity for confetti
+                    p.Vy += 400 * dt;
                     p.Vx *= 0.99;
                     p.Rotation += p.RotSpeed * dt;
                     break;
                 case ParticleKind.Ring:
-                    // Rings expand outward; size grows, opacity fades
                     break;
             }
         }
@@ -270,7 +268,7 @@ public sealed class ParticleBurstCanvas : Control
 
         foreach (var p in _particles)
         {
-            double t = p.Life / p.MaxLife; // 0 → 1
+            double t = p.Life / p.MaxLife;
             double alpha = 1.0 - t;
 
             switch (p.Kind)

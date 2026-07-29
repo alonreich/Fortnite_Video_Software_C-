@@ -70,10 +70,9 @@
                     Content="Finish"
                     HorizontalAlignment="Center"
                     MinWidth="120"
-
                     IsVisible="False"
-                   
                     FontWeight="Bold"
+                    ToolTip.Tip="Complete setup and launch the application"
                     Click="OnFinishClick"/>
         </Grid>
     </Border>

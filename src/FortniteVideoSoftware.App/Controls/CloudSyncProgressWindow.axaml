@@ -1,0 +1,60 @@
+<!-- ISSUE_11 — progress + cancel for cloud asset downloads.
+     Transient modal, so WindowStartupLocation="CenterOwner" is correct here (same intentional
+     exception as ConfirmDialogWindow); it is NOT one of the 8 WindowBoundsHelper-tracked
+     windows. Previously a cloud sync gave the user a single toast and then silence for however
+     long the transfer took, with no way to stop it. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        x:Class="FortniteVideoSoftware.App.Controls.CloudSyncProgressWindow"
+        Title="Downloading"
+        MinWidth="480" MinHeight="230" SizeToContent="Height"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}"
+                BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, Auto, Auto">
+
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="DialogTitle" Text="Downloading"
+                               Classes="WindowTitleText"
+                               Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <Border Grid.Row="1" Padding="25,20,25,10">
+                    <StackPanel Spacing="12">
+                        <TextBlock Name="HeadlineText" Text="Contacting the library…"
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize13}"
+                                   TextWrapping="Wrap" />
+
+                        <ProgressBar Name="SyncProgressBar" MinHeight="10"
+                                     Minimum="0" Maximum="100" Value="0"
+                                     IsIndeterminate="True"
+                                     Foreground="{DynamicResource AppAccentBrush}" />
+
+                        <TextBlock Name="CurrentFileText" Text=""
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize11}"
+                                   TextTrimming="CharacterEllipsis" />
+
+                        <TextBlock Name="CountText" Text=""
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize11}" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center"
+                            Spacing="15" Margin="0,6,0,22">
+                    <Button Name="CancelSyncBtn" Classes="Danger" Content="CANCEL DOWNLOAD"
+                            MinWidth="180" MinHeight="34" Cursor="Hand"
+                            AutomationProperties.Name="Cancel the download" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

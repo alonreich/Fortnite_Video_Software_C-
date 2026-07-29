@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -168,33 +169,40 @@ public class MpvIpcClient : IDisposable
         var token = (CancellationToken)obj!;
         int widthCounter = 0;
 
-        while (!token.IsCancellationRequested && _mpvHandle != nint.Zero)
+        try
         {
-            try
+            while (!token.IsCancellationRequested && _mpvHandle != nint.Zero && !_disposed)
             {
-                MpvWrapper.MpvEvent ev = MpvWrapper.WaitEvent(_mpvHandle, 0.2);
-
-                if (token.IsCancellationRequested) break;
-
-                switch (ev.EventId)
+                try
                 {
-                    case MpvWrapper.MpvEventId.PropertyChange:
-                        HandlePropertyChange(ev);
-                        break;
+                    MpvWrapper.MpvEvent ev = MpvWrapper.WaitEvent(_mpvHandle, 0.2);
 
-                    case MpvWrapper.MpvEventId.Shutdown:
-                        return;
+                    if (token.IsCancellationRequested || _disposed) break;
+
+                    switch (ev.EventId)
+                    {
+                        case MpvWrapper.MpvEventId.PropertyChange:
+                            HandlePropertyChange(ev);
+                            break;
+
+                        case MpvWrapper.MpvEventId.Shutdown:
+                            return;
+                    }
+
+                    if (++widthCounter >= 20)
+                    {
+                        widthCounter = 0;
+                        PollDimensions();
+                    }
                 }
-
-                if (++widthCounter >= 20)
+                catch (Exception)
                 {
-                    widthCounter = 0;
-                    PollDimensions();
                 }
             }
-            catch (Exception)
-            {
-            }
+        }
+        finally
+        {
+            _eventLoopExited = true;
         }
     }
 
@@ -299,11 +307,9 @@ public class MpvIpcClient : IDisposable
                 _        => args[i].ToString() ?? string.Empty
             };
 
-            if (i > 0 && (str.Contains(' ') || str.Contains('\\')))
+            if (i > 0 && NeedsMpvQuoting(str))
             {
-                sb.Append('"')
-                  .Append(str.Replace("\\", "\\\\"))
-                  .Append('"');
+                sb.Append(QuoteForMpv(str));
             }
             else
             {
@@ -319,6 +325,41 @@ public class MpvIpcClient : IDisposable
         return Task.CompletedTask;
     }
 
+
+    /// <summary>
+    /// ISSUE_15 — true when an argument cannot be pasted into an mpv command string as-is.
+    ///
+    /// WHAT WAS WRONG: the old test was <c>str.Contains(' ') || str.Contains('\\')</c>, and the
+    /// escaping was a bare <c>Replace("\\", "\\\\")</c>. A DOUBLE QUOTE in a filename was
+    /// therefore neither a reason to quote nor something that got escaped, so a file such as
+    /// <c>My "best" clip.mp4</c> produced a command mpv could not parse. mpv reports nothing
+    /// useful for a malformed command string, so the preview (or the added audio track) simply
+    /// did nothing, with no error anywhere. Every FFmpeg call in the suite was hardened against
+    /// exactly this class of filename; the player commands were missed.
+    ///
+    /// A <c>#</c> starts a comment in mpv's parser and a leading/trailing space would be eaten,
+    /// so those are covered too. An empty argument must be quoted or it disappears entirely.
+    /// </summary>
+    private static bool NeedsMpvQuoting(string s)
+    {
+        if (s.Length == 0) return true;
+        foreach (char c in s)
+        {
+            if (c is ' ' or '\t' or '\\' or '"' or '\'' or '#' or '\r' or '\n') return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// ISSUE_15 — wraps an argument in mpv's double-quoted string syntax, escaping the two
+    /// characters that are special INSIDE such a string: the backslash and the double quote.
+    /// Order matters — backslashes must be doubled first, otherwise the backslashes introduced
+    /// while escaping the quotes would themselves be doubled.
+    /// </summary>
+    private static string QuoteForMpv(string s)
+    {
+        return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
 
     /// <summary>
     /// Sets an mpv string property via <c>mpv_set_property_string</c>.
@@ -376,8 +417,7 @@ public class MpvIpcClient : IDisposable
         if (_mpvHandle == nint.Zero)
             return Task.CompletedTask;
 
-        string safePath = path.Replace("\\", "\\\\");
-        MpvWrapper.mpv_command_string(_mpvHandle, $"audio-add \"{safePath}\" select");
+        MpvWrapper.mpv_command_string(_mpvHandle, $"audio-add {QuoteForMpv(path)} select");
         return Task.CompletedTask;
     }
 
@@ -394,21 +434,46 @@ public class MpvIpcClient : IDisposable
     }
 
 
+    /// <summary>
+    /// ISSUE_13 — set by <see cref="EventLoopWorker"/>'s finally block. This is the ONLY reliable
+    /// signal that the background thread has genuinely stopped touching <c>_mpvHandle</c>.
+    /// </summary>
+    private volatile bool _eventLoopExited;
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
+        bool loopStopped = true;
         if (_cts != null)
         {
-            _cts.Cancel();
+            try { _cts.Cancel(); } catch { }
 
             if (_mpvHandle != nint.Zero)
-                MpvWrapper.mpv_wakeup(_mpvHandle);
+            {
+                try { MpvWrapper.mpv_wakeup(_mpvHandle); } catch { }
+            }
 
-            _eventLoopThread?.Join(TimeSpan.FromMilliseconds(500));
-            _cts.Dispose();
+            if (_eventLoopThread != null)
+            {
+                try { loopStopped = _eventLoopThread.Join(TimeSpan.FromSeconds(3)); }
+                catch { loopStopped = false; }
+                _eventLoopThread = null;
+            }
+
+            try { _cts.Dispose(); } catch { }
             _cts = null;
+        }
+
+        bool loopAccountedFor = loopStopped || _eventLoopExited;
+
+        if (!loopAccountedFor)
+        {
+            CoreLogger.Fail("MPV",
+                "The mpv event loop did not stop in time — abandoning the player handle instead of destroying it underneath a live thread.");
+            _mpvHandle = nint.Zero;
+            return;
         }
 
         if (_mpvHandle != nint.Zero)

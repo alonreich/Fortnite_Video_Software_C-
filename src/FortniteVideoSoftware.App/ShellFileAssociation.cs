@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
@@ -18,12 +18,10 @@ namespace FortniteVideoSoftware.App;
 [SupportedOSPlatform("windows")]
 public static class ShellFileAssociation
 {
-    // ProgID: our own file "class" that owns the open command + icon.
     private const string ProgId = "FortniteVideoSoftware.Video";
     private const string AppExeKey = "FortniteVideoSoftware.exe";
     private static readonly string[] VideoExtensions = { ".mp4", ".mkv", ".avi", ".mov" };
 
-    // Bump when the registration shape changes so existing users get re-stamped.
     private const string StampVersion = "1";
 
     /// <summary>
@@ -44,14 +42,12 @@ public static class ShellFileAssociation
 
             using RegistryKey classes = Registry.CurrentUser.CreateSubKey(@"Software\Classes");
 
-            // Skip the full rewrite if nothing changed since last launch.
             using (RegistryKey? existing = classes.OpenSubKey(ProgId))
             {
                 if (existing?.GetValue("_fvs_stamp") as string == stamp)
                     return;
             }
 
-            // 1) ProgID: friendly name, icon, and the open command.
             using (RegistryKey prog = classes.CreateSubKey(ProgId))
             {
                 prog.SetValue("", "Fortnite Video");
@@ -63,8 +59,6 @@ public static class ShellFileAssociation
                     cmd.SetValue("", command);
             }
 
-            // 2) Applications\<exe> entry — this is what populates "Open with" and
-            //    "Choose another app", scoped to the supported video types.
             using (RegistryKey app = classes.CreateSubKey($@"Applications\{AppExeKey}"))
             {
                 app.SetValue("FriendlyAppName", "Fortnite Video Software");
@@ -75,9 +69,6 @@ public static class ShellFileAssociation
                         supported.SetValue(ext, "");
             }
 
-            // 3) Advertise the ProgID under each extension's OpenWithProgids so the app
-            //    surfaces in the right-click "Open with" submenu (without hijacking the
-            //    user's existing default handler).
             foreach (string ext in VideoExtensions)
             {
                 using RegistryKey extKey = classes.CreateSubKey($@"{ext}\OpenWithProgids");

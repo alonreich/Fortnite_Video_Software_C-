@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using System;
@@ -17,8 +17,8 @@ public sealed class KineticScrubController : IDisposable
     private const double PhysicsHz = 60.0;
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1.0 / PhysicsHz);
     private const double FrictionPerTick = 0.92;
-    private const double MinVelocityMs = 2.0;      // below this we stop
-    private const double VelocityThreshold = 30.0;  // below this, no fling
+    private const double MinVelocityMs = 2.0;
+    private const double VelocityThreshold = 30.0;
 
     private readonly DispatcherTimer _timer;
     private double _velocityMsPerTick;
@@ -54,7 +54,6 @@ public sealed class KineticScrubController : IDisposable
     /// <param name="deltaMs">Delta from last sample (ms).</param>
     public void FeedDragSample(double currentMs, double deltaMs)
     {
-        // Exponential moving average for smooth velocity estimation
         _velocityMsPerTick = _velocityMsPerTick * 0.6 + deltaMs * 0.4;
         _currentMs = currentMs;
     }
@@ -72,7 +71,6 @@ public sealed class KineticScrubController : IDisposable
         _minMs = minMs;
         _maxMs = maxMs;
 
-        // Playhead-Follow Rule: don't fling during playback
         if (isPlaying)
         {
             _velocityMsPerTick = 0;
@@ -103,7 +101,6 @@ public sealed class KineticScrubController : IDisposable
 
         _currentMs += _velocityMsPerTick;
 
-        // Boundary clamp
         if (_currentMs <= _minMs)
         {
             _currentMs = _minMs;
@@ -117,10 +114,8 @@ public sealed class KineticScrubController : IDisposable
 
         SeekRequested?.Invoke(_currentMs);
 
-        // Apply friction
         _velocityMsPerTick *= FrictionPerTick;
 
-        // Stop when velocity is negligible
         if (Math.Abs(_velocityMsPerTick) < MinVelocityMs)
         {
             _velocityMsPerTick = 0;

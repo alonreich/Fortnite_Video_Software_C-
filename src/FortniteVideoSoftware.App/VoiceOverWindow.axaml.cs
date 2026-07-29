@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -74,7 +74,6 @@ public partial class VoiceOverWindow : Window
     private double _currentFreezeDurationMs;
     private double _lastFreezeTriggerMs = -1;
     private DateTime _lastTimelineSeekUtc = DateTime.MinValue;
-    private const int TimelineDragSeekThrottleMs = 80;
     private double? _dragSeekTimeSec = null;
 
     private class VoiceOverSession
@@ -114,7 +113,6 @@ public partial class VoiceOverWindow : Window
     private Image? _waveformLaneImage;
     private Border? _thumbLoadingOverlay;
     private Border? _waveformLoadingOverlay;
-    // ISSUE_06 (audit round 4): icons converted to shared Path geometries in XAML
     private Avalonia.Controls.Shapes.Path? _playIcon;
     private Avalonia.Controls.Shapes.Path? _pauseIcon;
     private CheckBox? _muteMaleCb;
@@ -723,16 +721,33 @@ public partial class VoiceOverWindow : Window
                 tempPng = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"fvs_thumb_{Guid.NewGuid():N}.png");
                 double fps = 16.0 / (durationSec > 0 ? durationSec : 10);
 
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                var laneArgs = new[]
+                {
+                    "-y", "-hide_banner", "-loglevel", "error",
+                    "-hwaccel", "auto",
+                    "-ss", localTrimStart.ToString(ci),
+                    "-t", durationSec.ToString(ci),
+                    "-i", localVideoPath,
+                    "-vf", $"fps={fps.ToString("0.000", ci)},scale=-1:60,tile=15x1",
+                    "-frames:v", "1",
+                    tempPng
+                };
+
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = ffmpeg,
-                    Arguments = $"-y -hide_banner -loglevel error -hwaccel auto -ss {localTrimStart.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {durationSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i \"{localVideoPath}\" -vf \"fps={fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},scale=-1:60,tile=15x1\" -frames:v 1 \"{tempPng}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 };
+                foreach (string arg in laneArgs) psi.ArgumentList.Add(arg);
 
                 process = System.Diagnostics.Process.Start(psi);
-                if (process != null) await process.WaitForExitAsync(token);
+                if (process != null)
+                {
+                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch { }
+                    await process.WaitForExitAsync(token);
+                }
                 if (process?.ExitCode == 0 && System.IO.File.Exists(tempPng)) return tempPng;
             }
             catch (Exception ex)
@@ -777,6 +792,7 @@ public partial class VoiceOverWindow : Window
             try
             {
                 using var fs = System.IO.File.OpenRead(thumbPath);
+                (_thumbnailLaneImage.Source as IDisposable)?.Dispose();
                 _thumbnailLaneImage.Source = new Bitmap(fs);
                 _tempThumbPath = thumbPath;
                 thumbLoaded = true;
@@ -798,6 +814,7 @@ public partial class VoiceOverWindow : Window
             try
             {
                 using var fs = System.IO.File.OpenRead(wavePath);
+                (_waveformLaneImage.Source as IDisposable)?.Dispose();
                 _waveformLaneImage.Source = new Bitmap(fs);
                 _tempWavePath = wavePath;
                 waveformLoaded = true;
@@ -997,7 +1014,7 @@ public partial class VoiceOverWindow : Window
             {
                 probeSeconds = Math.Max(1, (int)Math.Ceiling(Math.Min(15, _trimEndSec - _trimStartSec)));
             }
-            result = await Task.Run(() => FrequencyProber.Probe(_videoPath, probeSeconds, token, _trimStartSec), token);
+            result = await FrequencyProber.ProbeAsync(_videoPath, probeSeconds, token, _trimStartSec);
         }
         catch (OperationCanceledException)
         {
@@ -1279,18 +1296,42 @@ public partial class VoiceOverWindow : Window
         UpdateApplyState($"{message} You can still use voice mute options if detection finds them.");
     }
 
+    /// <summary>
+    /// ISSUE_05 — deletes a temp take, tolerating a briefly-still-held file handle.
+    ///
+    /// The recorder now closes its WAV writer in an ordered shutdown, but Windows can hold a
+    /// handle open for a few more milliseconds after the last Dispose. A single attempt therefore
+    /// used to lose the race now and then and leave abandoned takes accumulating in the temp
+    /// folder forever, because every failure was swallowed by a bare `catch`.
+    /// </summary>
     private static void TryDeleteFile(string path)
     {
-        try
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        for (int attempt = 0; attempt < 4; attempt++)
         {
-            if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+            try
             {
+                if (!System.IO.File.Exists(path)) return;
                 System.IO.File.Delete(path);
+                return;
+            }
+            catch (System.IO.IOException) when (attempt < 3)
+            {
+                System.Threading.Thread.Sleep(60);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 3)
+            {
+                System.Threading.Thread.Sleep(60);
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Debug("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
+                return;
             }
         }
-        catch
-        {
-        }
+
+        RuntimeLog.Debug("VoiceOver", $"Temp take '{System.IO.Path.GetFileName(path)}' is still locked; leaving it for temp cleanup.");
     }
 
     private void StopRecordingAndPlayback()

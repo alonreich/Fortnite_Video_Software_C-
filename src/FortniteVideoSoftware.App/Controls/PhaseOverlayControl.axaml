@@ -114,7 +114,7 @@
         </Border>
 
         <!-- Graph Area -->
-        <Border Grid.Row="1" Height="240" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+        <Border Grid.Row="1" MinHeight="240" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
             <controls:HardwareGraphControl x:Name="GraphCanvas" />
         </Border>
         
@@ -132,7 +132,22 @@
                  TextWrapping="Wrap" />
 
         <!-- Cancel Button Area -->
-        <Button Grid.Row="3" x:Name="CancelProcessButton" Classes="Danger" Content="CANCEL" MinWidth="125" MinHeight="60" CornerRadius="10" HorizontalAlignment="Center" Margin="0,20,0,0" ToolTip.Tip="Cancel the current operation"/>
+        <!-- ISSUE_06: this is the ONLY cancel control on screen during an export and it used to
+             fire immediately, throwing away a long GPU encode on a single misplaced click. Every
+             other destructive action in the suite is flyout-guarded (MainWindow CANCEL, Merger
+             REMOVE SELECTED, CropTool RESET/DELETE, Granular DELETE/CLEAR ALL). Now matched. -->
+        <Button Grid.Row="3" x:Name="CancelProcessButton" Classes="Danger" Content="CANCEL" MinWidth="125" MinHeight="60" CornerRadius="10" HorizontalAlignment="Center" Margin="0,20,0,0" ToolTip.Tip="Cancel the current operation">
+            <Button.Flyout>
+                <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
+                    <StackPanel Spacing="8" Margin="8" MaxWidth="260">
+                        <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                        <TextBlock Text="All progress on this export is discarded and the partly-written file is removed. You will have to start the export again from the beginning."
+                                   Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" />
+                        <Button x:Name="ConfirmCancelProcessButton" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently stop the current operation." />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+        </Button>
         </Grid>
     </Grid>
 </UserControl>

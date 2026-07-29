@@ -74,6 +74,9 @@ public sealed class MpvVideoView : Control, IDisposable
     private readonly System.Threading.AutoResetEvent _renderSignal = new(false);
     private volatile bool _renderThreadRunning;
 
+    private volatile bool _renderThreadExited;
+    private volatile bool _disposing;
+
 
     private int _renderTextureW;
     private int _renderTextureH;
@@ -88,9 +91,6 @@ public sealed class MpvVideoView : Control, IDisposable
         _mpvHandle = MpvWrapper.mpv_create();
 
         MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", "0");
-        // vo=libmpv for BOTH paths: the GPU path drives it via the OpenGL render API, the
-        // CPU fallback drives it via the software (sw) render API — either way we need libmpv,
-        // not "null" (which produced no preview at all on GPU-less / RDP machines).
         MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "libmpv");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", useHardwareInterop ? "cuda,dxva2,auto-safe" : "no");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "background", "#FF000000");
@@ -100,7 +100,7 @@ public sealed class MpvVideoView : Control, IDisposable
 
         if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
         {
-            string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, "mpv_debug.log");
+            string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, $"mpv_debug_{Environment.ProcessId}_{RuntimeLog.SessionId}.log");
             MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "yes");
             MpvWrapper.mpv_set_option_string(_mpvHandle, "msg-level", "all=v");
             MpvWrapper.mpv_set_option_string(_mpvHandle, "log-file", mpvLogPath);
@@ -121,8 +121,6 @@ public sealed class MpvVideoView : Control, IDisposable
         {
             if (!useHardwareInterop)
             {
-                // GPU-less / RDP: no WGL bridge exists — use mpv's CPU software renderer so
-                // there is still a live preview (decoded on the CPU, blitted to a bitmap).
                 RuntimeLog.Info(InteropLogStep, $"Hardware video interop disabled ({renderMode.FailureReason}); using CPU software preview.");
                 IsSoftwareFallbackActive = !InitializeSoftwareRender();
                 return;
@@ -137,7 +135,6 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 RuntimeLog.Fail(InteropLogStep, $"Hardware video interop unavailable ({ex.Message}); falling back to CPU software preview.");
                 ReleaseHardwareInteropResources();
-                // Fall back to the CPU software renderer instead of showing nothing.
                 IsSoftwareFallbackActive = !InitializeSoftwareRender();
             }
         }
@@ -147,24 +144,24 @@ public sealed class MpvVideoView : Control, IDisposable
         }
     }
 
-    // ===== CPU software-render fallback (no GPU / RDP): decode on CPU, render frames into a
-    // WriteableBitmap and paint it in Render(). Fully isolated from the GPU interop path — any
-    // failure here just leaves IsSoftwareFallbackActive=true (the "Preview unavailable" overlay),
-    // so it can never be WORSE than before and never affects GPU machines. =====
     private bool _swMode;
     private WriteableBitmap? _swBitmap;
-    private byte[]? _swBuffer;
+
+    private byte[]? _swRenderBuffer;
+    private byte[]? _swPresentBuffer;
+    private int _swPresentW, _swPresentH;
     private int _swW, _swH;
-    private volatile int _swTargetW;   // software render target = the control's own pixel size
-    private volatile int _swTargetH;   //   (fed from UpdateCachedSize; see note there)
+    private volatile int _swTargetW;
+    private volatile int _swTargetH;
     private System.Threading.Thread? _swThread;
     private readonly object _swBufLock = new object();
-    private bool _swLoggedOk, _swPushLogged, _swPushErrLogged, _swPaintLogged;   // one-shot diagnostics
-    private int _swRenderFailLogged;   // counts logged render failures (first ~8)
+    private bool _swLoggedOk, _swPushLogged, _swPushErrLogged, _swPaintLogged;
+    private int _swRenderFailLogged;
 
-    // NOTE: the software render TARGET SIZE is maintained by the EXISTING UpdateCachedSize()
-    // (called from the one authoritative ArrangeOverride/OnSizeChanged) — we do NOT add a second
-    // ArrangeOverride, so the GPU composition-surface sizing (NorthStar keypoint #2) is untouched.
+    private readonly object _swRenderGate = new object();
+    private volatile bool _swDisposing;
+    private volatile bool _swThreadExited;
+
 
     private bool InitializeSoftwareRender()
     {
@@ -191,15 +188,11 @@ public sealed class MpvVideoView : Control, IDisposable
 
             RegisterRenderUpdateCallback();
             _swMode = true;
-            // ORDER MATTERS (race fix): _renderThreadRunning must be TRUE and the thread started
-            // BEFORE we seed the size/signal, otherwise UpdateCachedSize()'s seed signal is dropped
-            // (it only signals when _renderThreadRunning is true) and, if mpv never fires an early
-            // frame-ready callback, the loop waits forever -> frozen black + audio only.
             _renderThreadRunning = true;
             _swThread = new System.Threading.Thread(SoftwareRenderThreadLoop) { IsBackground = true, Name = "MpvSwRenderThread" };
             _swThread.Start();
-            UpdateCachedSize();          // seed _swTargetW/H (layout may have run before _swMode was set)
-            try { _renderSignal.Set(); } catch { }   // force an initial render pass
+            UpdateCachedSize();
+            try { _renderSignal.Set(); } catch { }
             RuntimeLog.Info(InteropLogStep, "Software preview active (CPU render). WGL interop not required.");
             return true;
         }
@@ -215,52 +208,58 @@ public sealed class MpvVideoView : Control, IDisposable
     private void SoftwareRenderThreadLoop()
     {
         RuntimeLog.Info(InteropLogStep, "SW render loop started (thread alive).");
-        while (_renderThreadRunning)
+        try
         {
-            // Timed wait (not infinite): wake on a frame-ready signal OR at least every ~66ms.
-            // This guarantees the preview keeps painting (~15fps floor) even if a frame-ready
-            // callback is ever missed/coalesced — immune to the suspected signal race. mpv just
-            // re-presents the current frame when nothing new is available.
-            _renderSignal.WaitOne(66);
-            if (!_renderThreadRunning) break;
-            try { SoftwareRenderOnce(); } catch (Exception ex) { if (!_swLoopLogged) { _swLoopLogged = true; RuntimeLog.Fail(InteropLogStep, $"SW render loop exception: {ex.Message}"); } }
+            while (_renderThreadRunning && !_swDisposing)
+            {
+                try { _renderSignal.WaitOne(66); }
+                catch (ObjectDisposedException) { break; }
+
+                if (!_renderThreadRunning || _swDisposing) break;
+
+                try { SoftwareRenderOnce(); }
+                catch (Exception ex) { if (!_swLoopLogged) { _swLoopLogged = true; RuntimeLog.Fail(InteropLogStep, $"SW render loop exception: {ex.Message}"); } }
+            }
         }
-        RuntimeLog.Info(InteropLogStep, "SW render loop exited.");
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail(InteropLogStep, $"SW render loop terminated unexpectedly: {ex.Message}");
+        }
+        finally
+        {
+            _swThreadExited = true;
+            RuntimeLog.Info(InteropLogStep, "SW render loop exited.");
+        }
     }
 
     private void SoftwareRenderOnce()
     {
-        // CRITICAL: clear the frame-ready gate every pass. OnRenderUpdate only re-signals the
-        // render thread when _isUpdateQueued transitions 0->1; the GPU path resets it inside
-        // UpdateSurface, so the SW path MUST do the same or it renders exactly ONE frame and then
-        // freezes (every later mpv frame-ready callback finds the gate still 1 and never signals).
         Interlocked.Exchange(ref _isUpdateQueued, 0);
 
-        if (_renderContext == nint.Zero) return;
-        // Render to the control's own size (mpv scales+letterboxes into it). Never gate on the
-        // decoded video size — see the ArrangeOverride note (avoids the audio-only deadlock).
+        if (_swDisposing || _renderContext == nint.Zero) return;
         int w = _swTargetW;
         int h = _swTargetH;
-        // Skip until the control has a REAL layout size. The 2x2 minimum means "not laid out yet"
-        // (control still IsVisible=False / zero Bounds); rendering there returns -4 and is noise.
         if (w < 8 || h < 8) return;
 
         int stride = w * 4;
         int size = stride * h;
 
-        lock (_swBufLock)
+        lock (_swRenderGate)
         {
-            if (_swBuffer == null || _swBuffer.Length != size) _swBuffer = new byte[size];
+            if (_swDisposing || _renderContext == nint.Zero) return;
+
+            if (_swRenderBuffer == null || _swRenderBuffer.Length != size) _swRenderBuffer = new byte[size];
+            byte[] target = _swRenderBuffer;
 
             int[] sz = { w, h };
             nint fmtPtr = Marshal.StringToHGlobalAnsi("bgr0");
             nint szPtr = Marshal.AllocHGlobal(sizeof(int) * 2);
             nint stridePtr = Marshal.AllocHGlobal(nint.Size);
-            var pin = GCHandle.Alloc(_swBuffer, GCHandleType.Pinned);
+            var pin = GCHandle.Alloc(target, GCHandleType.Pinned);
             try
             {
                 Marshal.Copy(sz, 0, szPtr, 2);
-                Marshal.WriteIntPtr(stridePtr, (nint)stride);   // size_t
+                Marshal.WriteIntPtr(stridePtr, (nint)stride);
                 var pars = new LibMpvInterop.mpv_render_param[]
                 {
                     new() { type = LibMpvInterop.MPV_RENDER_PARAM_SW_SIZE, data = szPtr },
@@ -272,14 +271,11 @@ public sealed class MpvVideoView : Control, IDisposable
                 int err = LibMpvInterop.mpv_render_context_render(_renderContext, pars);
                 if (err < 0)
                 {
-                    // Log the first ~8 failures WITH their size so we can see if REAL-size renders
-                    // (not just the initial 2x2) also fail — one-shot logging hid that before.
                     if (_swRenderFailLogged < 8) { _swRenderFailLogged++; RuntimeLog.Fail(InteropLogStep, $"SW render attempt #{_swRenderFailLogged}: {w}x{h} -> error {err}."); }
                     return;
                 }
                 if (!_swLoggedOk) { _swLoggedOk = true; RuntimeLog.Info(InteropLogStep, $"First software frame rendered ({w}x{h}) after {_swRenderFailLogged} failed attempt(s)."); }
-                // "bgr0" leaves the X byte 0; Bgra8888 treats that as fully transparent, so force opaque.
-                for (int i = 3; i < size; i += 4) _swBuffer[i] = 255;
+                for (int i = 3; i < size; i += 4) target[i] = 255;
             }
             finally
             {
@@ -288,8 +284,18 @@ public sealed class MpvVideoView : Control, IDisposable
                 Marshal.FreeHGlobal(szPtr);
                 Marshal.FreeHGlobal(stridePtr);
             }
+
+            lock (_swBufLock)
+            {
+                byte[]? previous = _swPresentBuffer;
+                _swPresentBuffer = target;
+                _swPresentW = w;
+                _swPresentH = h;
+                _swRenderBuffer = (previous != null && previous.Length == size) ? previous : null;
+            }
         }
 
+        if (_swDisposing) return;
         Dispatcher.UIThread.Post(() => PushSoftwareFrame(w, h));
     }
 
@@ -298,6 +304,7 @@ public sealed class MpvVideoView : Control, IDisposable
         try
         {
             if (w <= 1 || h <= 1) return;
+            if (_swDisposing || !_swMode) return;
             if (_swBitmap == null || _swW != w || _swH != h)
             {
                 _swBitmap?.Dispose();
@@ -308,8 +315,8 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 lock (_swBufLock)
                 {
-                    if (_swBuffer != null)
-                        Marshal.Copy(_swBuffer, 0, fb.Address, Math.Min(_swBuffer.Length, fb.RowBytes * h));
+                    if (_swPresentBuffer == null || _swPresentW != w || _swPresentH != h) return;
+                    Marshal.Copy(_swPresentBuffer, 0, fb.Address, Math.Min(_swPresentBuffer.Length, fb.RowBytes * h));
                 }
             }
             if (!_swPushLogged) { _swPushLogged = true; RuntimeLog.Info(InteropLogStep, $"First frame pushed to bitmap ({w}x{h}); invalidating visual."); }
@@ -327,8 +334,6 @@ public sealed class MpvVideoView : Control, IDisposable
             if (sw > 0 && sh > 0 && b.Width > 0 && b.Height > 0)
             {
                 if (!_swPaintLogged) { _swPaintLogged = true; RuntimeLog.Info(InteropLogStep, $"First software paint to screen (control {b.Width:0}x{b.Height:0}, bmp {sw:0}x{sh:0})."); }
-                // The buffer already matches the control's aspect (mpv letterboxed the video
-                // inside it), so fill the whole control 1:1 — no extra letterboxing here.
                 context.DrawImage(_swBitmap, new Rect(0, 0, sw, sh), new Rect(0, 0, b.Width, b.Height));
             }
             return;
@@ -643,14 +648,10 @@ public sealed class MpvVideoView : Control, IDisposable
             _surfaceVisual.Size = new Avalonia.Vector(Bounds.Width, Bounds.Height);
         }
 
-        // CPU software-preview ONLY: derive the render target from the control pixel size
-        // (mpv scales+letterboxes the video into it). Gated by _swMode so this is a complete
-        // no-op on the GPU path. See SoftwareRenderOnce for why we render to control size, not
-        // decoded video size (avoids the vo=libmpv audio-only deadlock).
         if (_swMode)
         {
             int pw = _cachedWidth, ph = _cachedHeight;
-            const double cap = 1600.0;   // keep CPU fill reasonable; aspect preserved
+            const double cap = 1600.0;
             if (pw > cap && pw > 0) { double f = cap / pw; pw = (int)(pw * f); ph = (int)(ph * f); }
             pw = Math.Max(2, pw & ~1);
             ph = Math.Max(2, ph & ~1);
@@ -699,11 +700,24 @@ public sealed class MpvVideoView : Control, IDisposable
     /// </summary>
     private void RenderThreadLoop()
     {
-        while (_renderThreadRunning)
+        try
         {
-            _renderSignal.WaitOne();
-            if (!_renderThreadRunning) break;
-            try { UpdateSurface(); } catch { }
+            while (_renderThreadRunning && !_disposing)
+            {
+                try { _renderSignal.WaitOne(_retryPending ? 66 : System.Threading.Timeout.Infinite); }
+                catch (ObjectDisposedException) { break; }
+
+                if (!_renderThreadRunning || _disposing) break;
+                try { UpdateSurface(); } catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch { }
+        }
+        finally
+        {
+            _renderThreadExited = true;
         }
     }
 
@@ -848,7 +862,12 @@ public sealed class MpvVideoView : Control, IDisposable
 
                 if (frameReady && imageForAvalonia != null && surfaceForAvalonia != null)
                 {
+                    _retryPending = false;
                     ImportAndPresentTexture(_currentBufferIndex, surfaceForAvalonia, imageForAvalonia);
+                }
+                else
+                {
+                    PumpEmptyRender();
                 }
             }
             catch (Exception ex)
@@ -863,8 +882,68 @@ public sealed class MpvVideoView : Control, IDisposable
         }
     }
 
+    private bool _pumpFailLogged;
+
+    /// <summary>
+    /// ISSUE_05 — set whenever a frame had to be declined, cleared as soon as one is presented.
+    /// Drives the render loop's short retry wait so the ONLY behavioural change on a healthy
+    /// GPU machine is: none. When frames are flowing this is always false and the loop blocks
+    /// indefinitely exactly as it always has.
+    /// </summary>
+    private volatile bool _retryPending;
+
+    /// <summary>
+    /// ISSUE_05 — this method used to have a COMPLETELY EMPTY BODY while its name promised the
+    /// opposite, and every "cannot draw this frame" branch in <see cref="UpdateSurface"/> called
+    /// it and returned.
+    ///
+    /// WHY THAT FROZE THE PREVIEW: with <c>vo=libmpv</c> mpv hands the client one frame and then
+    /// WAITS — it only decodes and announces the next frame once the current one has been
+    /// consumed by a call to <c>mpv_render_context_render</c>. So declining to render (surface
+    /// not created yet, control not laid out, or the 1-second keyed-mutex acquire timing out
+    /// under load) meant: no render -&gt; no new frame -&gt; no new frame-ready callback -&gt; the
+    /// picture stays frozen on one image for the rest of the session while the audio plays on.
+    /// Restarting the app was the only way out.
+    ///
+    /// THE FIX: consume the frame with <c>MPV_RENDER_PARAM_SKIP_RENDERING=1</c>. mpv does all the
+    /// timing/frame-advance bookkeeping and skips only the draw, so the clock keeps moving and
+    /// the very next frame is offered normally. It does not touch the graphics API, so this is
+    /// safe to call with no GL context current — which matters, because these branches are
+    /// reached precisely when the GL/D3D side is not usable.
+    ///
+    /// FAIL-SAFE: any failure is swallowed. The bounded 66ms wait in <see cref="RenderThreadLoop"/>
+    /// is the second, independent line of defence — even if this pump never works on some driver,
+    /// the loop still retries ~15x/sec, so the preview recovers either way.
+    /// </summary>
     private void PumpEmptyRender()
     {
+        _retryPending = true;
+
+        if (_renderContext == nint.Zero || _disposing) return;
+
+        try
+        {
+            int skip = 1;
+            unsafe
+            {
+                LibMpvInterop.mpv_render_param* pars = stackalloc LibMpvInterop.mpv_render_param[2];
+                pars[0].type = LibMpvInterop.MPV_RENDER_PARAM_SKIP_RENDERING;
+                pars[0].data = (nint)(&skip);
+                pars[1].type = 0;
+                pars[1].data = nint.Zero;
+
+                LibMpvInterop.mpv_render_context_render(_renderContext, (nint)pars);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!_pumpFailLogged)
+            {
+                _pumpFailLogged = true;
+                RuntimeLog.Fail(InteropLogStep,
+                    $"Skip-render pump unavailable ({ex.Message}); relying on the timed render-loop retry instead.");
+            }
+        }
     }
 
     private void EnsureRenderTexture(int width, int height)
@@ -1108,25 +1187,141 @@ public sealed class MpvVideoView : Control, IDisposable
 
     }
 
+    ~MpvVideoView()
+    {
+        Dispose(false);
+    }
+
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private bool _isDisposed;
+
+    private void Dispose(bool disposing)
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
+        if (!disposing)
+        {
+            try
+            {
+                if (_dxInteropDevice != nint.Zero && WglInterop.wglDXCloseDeviceNV != null)
+                {
+                    WglInterop.wglDXCloseDeviceNV(_dxInteropDevice);
+                    _dxInteropDevice = nint.Zero;
+                }
+                if (_hglrc != nint.Zero)
+                {
+                    WglInterop.wglDeleteContext(_hglrc);
+                    _hglrc = nint.Zero;
+                }
+                if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
+                {
+                    WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
+                    _dummyHdc = nint.Zero;
+                }
+                if (_dummyHwnd != nint.Zero)
+                {
+                    WglInterop.DestroyWindow(_dummyHwnd);
+                    _dummyHwnd = nint.Zero;
+                }
+                if (_mpvHandle != nint.Zero)
+                {
+                    MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+                    _mpvHandle = nint.Zero;
+                }
+                if (_openglLibrary != nint.Zero)
+                {
+                    NativeLibrary.Free(_openglLibrary);
+                    _openglLibrary = nint.Zero;
+                }
+                if (_gcHandle.IsAllocated)
+                {
+                    _gcHandle.Free();
+                }
+            }
+            catch { }
+            return;
+        }
+
+        _swDisposing = true;
+        _disposing = true;
         _renderThreadRunning = false;
         try { _renderSignal.Set(); } catch { }
 
-        // Stop the CPU software-render thread and release its bitmap (no-op on the GPU path).
+        bool swThreadStopped = true;
         if (_swThread != null)
         {
-            try { _swThread.Join(500); } catch { }
+            try { swThreadStopped = _swThread.Join(TimeSpan.FromSeconds(3)); } catch { swThreadStopped = false; }
+            if (!swThreadStopped)
+            {
+                RuntimeLog.Fail(InteropLogStep, "SW render thread did not stop within 3s.");
+            }
             _swThread = null;
         }
+
+        bool renderGateAcquired = false;
+        try
+        {
+            renderGateAcquired = System.Threading.Monitor.TryEnter(_swRenderGate, TimeSpan.FromSeconds(2));
+        }
+        catch { renderGateAcquired = false; }
+        finally
+        {
+            if (renderGateAcquired) System.Threading.Monitor.Exit(_swRenderGate);
+        }
+
+        bool gpuThreadStopped = true;
+        if (_renderThread != null)
+        {
+            try { gpuThreadStopped = _renderThread.Join(TimeSpan.FromSeconds(3)); }
+            catch { gpuThreadStopped = false; }
+            if (!gpuThreadStopped)
+            {
+                RuntimeLog.Fail(InteropLogStep, "GPU render thread did not stop within 3s.");
+            }
+            _renderThread = null;
+        }
+        bool gpuThreadAccountedFor = gpuThreadStopped || _renderThreadExited;
+
+        bool swPathOwnsContext = _swMode;
         _swMode = false;
         try { _swBitmap?.Dispose(); } catch { }
         _swBitmap = null;
-        _swBuffer = null;
+        _swRenderBuffer = null;
+        _swPresentBuffer = null;
+
+        bool swThreadAccountedFor = swThreadStopped || _swThreadExited;
+        bool skipRenderContextFree = swPathOwnsContext && !(swThreadAccountedFor && renderGateAcquired);
+
+        if (skipRenderContextFree)
+        {
+            RuntimeLog.Fail(InteropLogStep,
+                $"SW teardown could not be confirmed (threadStopped={swThreadStopped}, threadExited={_swThreadExited}, gateFree={renderGateAcquired}) — abandoning the render context instead of freeing it.");
+        }
+
+        if (!gpuThreadAccountedFor)
+        {
+            skipRenderContextFree = true;
+            RuntimeLog.Fail(InteropLogStep,
+                "GPU render thread is unaccounted for — abandoning the render context, the mpv handle and the interop GCHandle instead of freeing them.");
+        }
 
         lock (_renderLock)
         {
-            ReleaseRenderTexture();
+            if (skipRenderContextFree)
+            {
+                _renderContext = nint.Zero;
+            }
+
+            if (gpuThreadAccountedFor)
+            {
+                ReleaseRenderTexture();
+            }
 
             if (_renderContext != nint.Zero)
             {
@@ -1135,43 +1330,46 @@ public sealed class MpvVideoView : Control, IDisposable
                 _renderContext = nint.Zero;
             }
 
-            if (_glFramebuffers[0] != 0)
+            if (gpuThreadAccountedFor)
             {
-                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-                WglInterop.glDeleteFramebuffers!(SwapChainSize, _glFramebuffers);
-                Array.Clear(_glFramebuffers, 0, SwapChainSize);
-            }
-            
-            if (_glTextures[0] != 0 || _glTextures[1] != 0)
-            {
-                WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
-                WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
-                Array.Clear(_glTextures, 0, SwapChainSize);
-            }
+                if (_glFramebuffers[0] != 0)
+                {
+                    WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    WglInterop.glDeleteFramebuffers!(SwapChainSize, _glFramebuffers);
+                    Array.Clear(_glFramebuffers, 0, SwapChainSize);
+                }
 
-            if (_dxInteropDevice != nint.Zero)
-            {
-                WglInterop.wglDXCloseDeviceNV!(_dxInteropDevice);
-                _dxInteropDevice = nint.Zero;
-            }
+                if (_glTextures[0] != 0 || _glTextures[1] != 0)
+                {
+                    WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
+                    WglInterop.glDeleteTextures(SwapChainSize, _glTextures);
+                    Array.Clear(_glTextures, 0, SwapChainSize);
+                }
 
-            if (_hglrc != nint.Zero)
-            {
-                WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
-                WglInterop.wglDeleteContext(_hglrc);
-                _hglrc = nint.Zero;
-            }
+                if (_dxInteropDevice != nint.Zero)
+                {
+                    WglInterop.wglDXCloseDeviceNV!(_dxInteropDevice);
+                    _dxInteropDevice = nint.Zero;
+                }
 
-            if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
-            {
-                WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
-                _dummyHdc = nint.Zero;
-            }
+                if (_hglrc != nint.Zero)
+                {
+                    WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
+                    WglInterop.wglDeleteContext(_hglrc);
+                    _hglrc = nint.Zero;
+                }
 
-            if (_dummyHwnd != nint.Zero)
-            {
-                WglInterop.DestroyWindow(_dummyHwnd);
-                _dummyHwnd = nint.Zero;
+                if (_dummyHdc != nint.Zero && _dummyHwnd != nint.Zero)
+                {
+                    WglInterop.ReleaseDC(_dummyHwnd, _dummyHdc);
+                    _dummyHdc = nint.Zero;
+                }
+
+                if (_dummyHwnd != nint.Zero)
+                {
+                    WglInterop.DestroyWindow(_dummyHwnd);
+                    _dummyHwnd = nint.Zero;
+                }
             }
 
             IpcClient?.Dispose();
@@ -1179,30 +1377,52 @@ public sealed class MpvVideoView : Control, IDisposable
 
             if (_mpvHandle != nint.Zero)
             {
-                MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+                if (skipRenderContextFree)
+                {
+                    RuntimeLog.Fail(InteropLogStep,
+                        "Skipping mpv_terminate_destroy because a render thread is unaccounted for; the OS will reclaim it at process exit.");
+                }
+                else
+                {
+                    MpvWrapper.mpv_terminate_destroy(_mpvHandle);
+                }
                 _mpvHandle = nint.Zero;
             }
 
-            if (_openglLibrary != nint.Zero)
+            if (gpuThreadAccountedFor)
             {
-                NativeLibrary.Free(_openglLibrary);
-                _openglLibrary = nint.Zero;
+                if (_openglLibrary != nint.Zero)
+                {
+                    NativeLibrary.Free(_openglLibrary);
+                    _openglLibrary = nint.Zero;
+                }
+
+                _d3d11Context?.Dispose();
+                _d3d11Context = null;
+
+                _d3d11Device?.Dispose();
+                _d3d11Device = null;
             }
-
-            _d3d11Context?.Dispose();
-            _d3d11Context = null;
-
-            _d3d11Device?.Dispose();
-            _d3d11Device = null;
 
             _gpuInterop = null;
 
             if (_gcHandle.IsAllocated)
             {
-                _gcHandle.Free();
+                if (skipRenderContextFree)
+                {
+                    RuntimeLog.Fail(InteropLogStep,
+                        "Leaving the interop GCHandle allocated because a render thread is unaccounted for.");
+                }
+                else
+                {
+                    _gcHandle.Free();
+                }
             }
 
-            _renderSignal.Dispose();
+            if (!skipRenderContextFree)
+            {
+                try { _renderSignal.Dispose(); } catch { }
+            }
         }
     }
 }

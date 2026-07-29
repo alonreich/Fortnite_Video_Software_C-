@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -46,9 +46,6 @@ public static class GpuCapabilityProbe
 
     private const int SM_REMOTESESSION = 0x1000;
 
-    // Real consumer GPU PCI vendor IDs. Anything else (notably Microsoft 0x1414 = WARP /
-    // "Basic Render Driver" / "Hyper-V Video") is NOT a real GPU and cannot provide the
-    // WGL_NV_DX_interop bridge — so we must route it to the CPU software preview path.
     private const uint VENDOR_NVIDIA = 0x10DE;
     private const uint VENDOR_AMD_1 = 0x1002;
     private const uint VENDOR_AMD_2 = 0x1022;
@@ -67,12 +64,11 @@ public static class GpuCapabilityProbe
         IntPtr factory = IntPtr.Zero;
         try
         {
-            var iid = new Guid("770aae78-f26f-4dba-a829-253c83d1b387"); // IID_IDXGIFactory1
+            var iid = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
             if (CreateDXGIFactory1(ref iid, out factory) < 0 || factory == IntPtr.Zero)
                 return true;
 
             nint factoryVtbl = Marshal.ReadIntPtr(factory);
-            // IDXGIFactory1::EnumAdapters1 is vtable slot 12.
             var enumAdapters1 = (delegate* unmanaged[Stdcall]<nint, uint, out nint, int>)
                 Marshal.ReadIntPtr(factoryVtbl, 12 * IntPtr.Size);
 
@@ -82,16 +78,14 @@ public static class GpuCapabilityProbe
                 for (uint i = 0; i < 16; i++)
                 {
                     int hr = enumAdapters1(factory, i, out IntPtr adapter);
-                    if (hr < 0 || adapter == IntPtr.Zero) break;   // DXGI_ERROR_NOT_FOUND -> done
+                    if (hr < 0 || adapter == IntPtr.Zero) break;
                     try
                     {
                         nint adapterVtbl = Marshal.ReadIntPtr(adapter);
-                        // IDXGIAdapter1::GetDesc1 is vtable slot 10.
                         var getDesc1 = (delegate* unmanaged[Stdcall]<nint, nint, int>)
                             Marshal.ReadIntPtr(adapterVtbl, 10 * IntPtr.Size);
                         if (getDesc1(adapter, descBuf) >= 0)
                         {
-                            // DXGI_ADAPTER_DESC1 (x64): Description[128 WCHAR]=256B, then VendorId@256; Flags@304.
                             uint vendor = (uint)Marshal.ReadInt32(descBuf, 256);
                             uint flags = (uint)Marshal.ReadInt32(descBuf, 304);
                             bool isSoftware = (flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
@@ -108,7 +102,7 @@ public static class GpuCapabilityProbe
             }
             finally { Marshal.FreeHGlobal(descBuf); }
 
-            return false;   // only software / basic / Hyper-V adapters present -> no real GPU
+            return false;
         }
         catch (Exception ex)
         {
@@ -173,15 +167,8 @@ public static class GpuCapabilityProbe
                 return new Result(false, "N/A", "N/A", $"Feature level 0x{featureLevel:X4} below minimum (0xA000)");
             }
 
-            // A D3D11 device can be created on WARP / "Microsoft Basic Render Driver" / "Hyper-V
-            // Video" even with NO real GPU — those report FL11 but have no OpenGL WGL_NV_DX_interop
-            // bridge, so the zero-copy preview is impossible. Verify a REAL GPU vendor exists;
-            // otherwise route to the CPU software preview path (hwdec=no + sw render).
             if (!HasRealGpuAdapter())
             {
-                // ===== FRESH-BUILD DIAGNOSTIC MARKERS (token: FVS-SWPREVIEW-BUILDCHECK-2026A) =====
-                // These two lines are UNIQUE to this build. If you see one of them in the log, you
-                // are 100% running the new software-preview binary (not a stale/leftover log).
                 if (isRdpSession)
                     CoreLogger.Info("GPU", "### FVS-SWPREVIEW-BUILDCHECK-2026A :: RDP SESSION → CPU SOFTWARE PREVIEW ENGAGED ###");
                 else

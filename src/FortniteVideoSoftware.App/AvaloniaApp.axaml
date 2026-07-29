@@ -55,10 +55,10 @@
 
         <!-- Control sizing tokens scaled together with the font scale so buttons
              physically grow/shrink with the chosen font size. -->
-        <sys:Double x:Key="AppButtonMinHeight">32</sys:Double>
-        <sys:Double x:Key="AppSpeedPresetMinWidth">31</sys:Double>
-        <sys:Double x:Key="AppSpeedPresetMinHeight">25</sys:Double>
-        <sys:Double x:Key="AppCloseBtnSize">32</sys:Double>
+        <sys:Double x:Key="AppButtonMinHeight">44</sys:Double>
+        <sys:Double x:Key="AppSpeedPresetMinWidth">44</sys:Double>
+        <sys:Double x:Key="AppSpeedPresetMinHeight">44</sys:Double>
+        <sys:Double x:Key="AppCloseBtnSize">44</sys:Double>
 
         <!-- SpeedPreset hover/pressed tokens -->
         <SolidColorBrush x:Key="AppSpeedPresetHoverBackground" Color="#4a3714" />
@@ -146,6 +146,18 @@
         <SolidColorBrush x:Key="AppCloseBtnHoverForegroundBrush" Color="#bae6fd" />
         <SolidColorBrush x:Key="AppCloseBtnPressedBackgroundBrush" Color="#447DD3FC" />
 
+        <!-- ISSUE_13: PhoneFrameMockup device-chrome colours. Deliberately theme-agnostic (a
+             phone bezel / status bar is black-and-white in BOTH ThemeVariants, exactly like the
+             AppOnAccentTextBrush case above) but now named tokens, so no raw hex or named colour
+             literal survives anywhere in the suite's XAML. Do not move these into
+             ThemeDictionaries — the mockup must NOT recolour with the app theme. -->
+        <SolidColorBrush x:Key="AppPortraitMaskBrush" Color="#99000000" />
+        <SolidColorBrush x:Key="AppPhoneBezelBrush" Color="#000000" />
+        <SolidColorBrush x:Key="AppPhoneBezelRimBrush" Color="#1AFFFFFF" />
+        <SolidColorBrush x:Key="AppPhoneChromeBrush" Color="#ffffff" />
+        <SolidColorBrush x:Key="AppPhoneChromeMutedBrush" Color="#99FFFFFF" />
+        <SolidColorBrush x:Key="AppPhoneChromeDimBrush" Color="#66FFFFFF" />
+
         <!-- Interactive state overlay brushes (alpha-variant tokens) -->
         <SolidColorBrush x:Key="AppAccentAlpha10Brush" Color="#1a38bdf8" />
         <SolidColorBrush x:Key="AppAccentAlpha15Brush" Color="#2638bdf8" />
@@ -181,6 +193,13 @@
                 <SolidColorBrush x:Key="AppTextMutedBrush" Color="#b6c2d0" />
                 <SolidColorBrush x:Key="AppControlTrackBrush" Color="#222222" />
                 <SolidColorBrush x:Key="AppVideoRailBrush" Color="#15202b" />
+                <!-- Ambient bubble background. The layer used to hardcode pure white, which is
+                     effectively INVISIBLE on the light surface (#f8fafc) — the feature simply did
+                     not exist for Light-theme users. Colour and an opacity multiplier are now per
+                     ThemeVariant: Dark keeps the original white look at the original strength;
+                     Light uses a saturated blue lifted enough to actually read on near-white. -->
+                <Color x:Key="AppAmbientBubbleColor">#ffffff</Color>
+                <sys:Double x:Key="AppAmbientBubbleOpacityScale">1.0</sys:Double>
                 <SolidColorBrush x:Key="AppFocusOuterBrush" Color="#7dd3fc" />
                 <SolidColorBrush x:Key="AppFocusInnerBrush" Color="#38bdf8" />
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#b0c4de" />
@@ -208,6 +227,8 @@
                 <SolidColorBrush x:Key="AppTextMutedBrush" Color="#475569" />
                 <SolidColorBrush x:Key="AppControlTrackBrush" Color="#e2e8f0" />
                 <SolidColorBrush x:Key="AppVideoRailBrush" Color="#cbd5e1" />
+                <Color x:Key="AppAmbientBubbleColor">#0284c7</Color>
+                <sys:Double x:Key="AppAmbientBubbleOpacityScale">2.4</sys:Double>
                 <SolidColorBrush x:Key="AppFocusOuterBrush" Color="#0369a1" />
                 <SolidColorBrush x:Key="AppFocusInnerBrush" Color="#0284c7" />
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#64748b" />
@@ -288,13 +309,37 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
-        <Style Selector="ToggleSwitch:focus /template/ Border">
-            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
-            <Setter Property="BorderThickness" Value="2"/>
+        <Style Selector="ToggleSwitch">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="True"/>
         </Style>
-        <Style Selector="ToggleSwitch:focus-visible /template/ Border">
+
+        <!-- ISSUE_08: these were untargeted `/template/ Border` selectors. The Fluent 11.0.10
+             ToggleSwitch template contains EXACTLY two Borders — OuterBorder (visible when
+             unchecked) and SwitchKnobBounds (visible when checked) — and both are fixed 40x20
+             pills. Forcing BorderThickness=2 on them ate 4px of the 20px track height and added
+             a stroke to SwitchKnobBounds, which ships with ToggleSwitchOnStrokeThickness=0,
+             deforming the switch on every focus. Now scoped by name and COLOUR-ONLY (no layout
+             change), plus a tint on SwitchAreaGrid — the template's own
+             TemplatedControl.IsTemplateFocusTarget element — so focus is unmistakable in BOTH
+             the checked and unchecked states. -->
+        <Style Selector="ToggleSwitch:focus /template/ Border#OuterBorder">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus /template/ Border#SwitchKnobBounds">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus /template/ Grid#SwitchAreaGrid">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha15Brush}"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus-visible /template/ Border#OuterBorder">
             <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
-            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus-visible /template/ Border#SwitchKnobBounds">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}"/>
+        </Style>
+        <Style Selector="ToggleSwitch:focus-visible /template/ Grid#SwitchAreaGrid">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha20Brush}"/>
         </Style>
 
         <Style Selector="Border.InteractiveFocus:focus">
@@ -346,6 +391,7 @@
             <Setter Property="Focusable" Value="True"/>
             <Setter Property="Background" Value="{DynamicResource AppBaseSpeedPresetBackground}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppBaseSpeedPresetForeground}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.BaseSpeedPreset:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppBaseSpeedPresetHoverBackground}"/>
@@ -362,6 +408,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppPrimaryDeepBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource AppPrimaryButtonGradient}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppPrimaryButtonHoverGradient}"/>
@@ -372,6 +419,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppVoiceOverBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource AppVoiceOverButtonGradient}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.VoiceOverEntry:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppVoiceOverButtonHoverGradient}"/>
@@ -397,6 +445,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
             <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppBorderBrush}"/>
@@ -422,6 +471,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppSuccessDeepBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource AppSuccessButtonGradient}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppSuccessButtonHoverGradient}"/>
@@ -440,6 +490,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AppDangerDeepBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource AppDangerButtonGradient}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppDangerButtonHoverGradient}"/>
@@ -460,6 +511,7 @@
         <Style Selector="Button.WhatsApp">
             <Setter Property="Background" Value="{DynamicResource AppWhatsAppBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <!-- ISSUE_10: hover states now use dedicated brighter Hover brushes (previously the
              resting brand brush was re-applied, producing zero visible hover feedback). -->
@@ -469,6 +521,7 @@
         <Style Selector="Button.Instagram">
             <Setter Property="Background" Value="{DynamicResource AppInstagramBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Instagram:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppInstagramHoverBrush}"/>
@@ -476,6 +529,7 @@
         <Style Selector="Button.YouTube">
             <Setter Property="Background" Value="{DynamicResource AppYouTubeBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.YouTube:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppYouTubeHoverBrush}"/>
@@ -485,6 +539,7 @@
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppTikTokBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.TikTok:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppTikTokHoverBrush}"/>
@@ -624,6 +679,37 @@
             <Setter Property="BorderThickness" Value="2" />
         </Style>
 
+        <!-- ISSUE_09: RadioButton and TabItem were the only interactive control types with no
+             suite-wide Hand cursor (Button, Slider, ComboBox, CheckBox, ListBoxItem,
+             ToggleButton and MenuItem all have one), and RadioButton had none of the
+             hover/focus treatment its CheckBox sibling gets directly above. Template part is
+             Border#RootBorder in the Fluent 11.0.10 RadioButton theme.
+             NOTE: Expander needs no rule here — its header is a templated ToggleButton, which
+             already inherits Cursor=Hand from the global ToggleButton style below. -->
+        <Style Selector="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.1" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="RadioButton:pointerover /template/ Border#RootBorder">
+            <Setter Property="Background" Value="{DynamicResource AppHoverOverlayBrush}" />
+        </Style>
+        <Style Selector="RadioButton:focus /template/ Border#RootBorder">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusOuterBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="RadioButton:focus-visible /template/ Border#RootBorder">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+
+        <Style Selector="TabItem">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
         <Style Selector="Canvas.TimelineSeekSurface:pointerover">
             <Setter Property="Background" Value="{DynamicResource AppAccentAlpha10Brush}" />
         </Style>
@@ -731,6 +817,40 @@
 
         <Style Selector="MenuItem">
             <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <!-- Global Wizard Indicator Styles (ISSUE_01 & ISSUE_10 resolution) -->
+        <Style Selector="Border.WizDotPending">
+            <Setter Property="Background" Value="{DynamicResource AppBorderBrush}"/>
+        </Style>
+        <Style Selector="Border.WizDotActive">
+            <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+        </Style>
+        <Style Selector="Border.WizDotDone">
+            <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.WizIconPending">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.WizIconOn">
+            <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.WizLabelPending">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextMutedBrush}"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+        </Style>
+        <Style Selector="TextBlock.WizLabelActive">
+            <Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="TextBlock.WizLabelDone">
+            <Setter Property="Foreground" Value="{DynamicResource AppSuccessBrush}"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+        </Style>
+
+        <!-- High-Contrast & Assistive Mode Focus Overrides (ISSUE_10) -->
+        <Style Selector="TemplatedControl:focus-visible">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
         </Style>
 
         <Style Selector="FlyoutPresenter.CustomFlyout">
