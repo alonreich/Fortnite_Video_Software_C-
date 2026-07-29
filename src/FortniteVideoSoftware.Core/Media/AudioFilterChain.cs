@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -277,10 +277,18 @@ public class AudioFilterChain
 
         double dThresh = GetDouble(musicConfig, "ducking_threshold", 0.15);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", 2.5);
-        string duckParams = $"threshold={dThresh.ToString(System.Globalization.CultureInfo.InvariantCulture)}:ratio={dRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}:attack=1:release=400:detection=rms";
-        chain.Add($"[mus_high][trig_final]sidechaincompress={duckParams}[mus_high_ducked]");
 
-        chain.Add("[mus_low][mus_high_ducked]amix=inputs=2:weights='1 1':normalize=0[a_music_reconstructed]");
+        chain.Add(new FilterChain()
+            .WithInputs("mus_high", "trig_final")
+            .AddNode(new SidechainCompressNode { Threshold = dThresh, Ratio = dRatio, Attack = 1, Release = 400, Detection = "rms" })
+            .WithOutputs("mus_high_ducked")
+            .ToFFmpegString());
+
+        chain.Add(new FilterChain()
+            .WithInputs("mus_low", "mus_high_ducked")
+            .AddNode(new AmixNode { Inputs = 2, Weights = "1 1", Normalize = 0 })
+            .WithOutputs("a_music_reconstructed")
+            .ToFFmpegString());
 
         chain.Add($"[game_out_pre][a_music_reconstructed]amix=inputs=2:" +
                   $"duration=first:dropout_transition=3:weights='1 1':normalize=0," +

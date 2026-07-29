@@ -170,9 +170,7 @@ public partial class MainWindow : Window
     private string _loadedVideoPath = string.Empty;
     private string _hardwareMode = "CPU";
     private System.Threading.CancellationTokenSource? _processCts;
-    private Task? _activeExportTask;
-
-    private readonly RecoveryManager _recovery = new RecoveryManager();
+private readonly RecoveryManager _recovery = new RecoveryManager();
     private bool _isGranularSpeedActive = false;
     private bool _isMusicActive = false;
     private bool _isRestoring = false;
@@ -4172,18 +4170,15 @@ public partial class MainWindow : Window
             _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
         }
 
-        if (string.IsNullOrEmpty(_loadedVideoPath) || !File.Exists(_loadedVideoPath))
+        if (string.IsNullOrEmpty(_loadedVideoPath) || !System.IO.File.Exists(_loadedVideoPath))
         {
             ShowTacticalFeedback("No valid video loaded to process!");
             PlayUiSound();
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
             await ErrorReporter.ShowAsync(this, "Nothing to export",
-                "There is no video loaded, or the file that was loaded has been moved or deleted. " +
-                "Load a video and try again.",
-                string.IsNullOrEmpty(_loadedVideoPath)
-                    ? "No video path is set on the editor."
-                    : $"Loaded video no longer exists on disk: {_loadedVideoPath}");
+                "There is no video loaded, or the file that was loaded has been moved or deleted. Load a video and try again.",
+                "");
             return;
         }
 
@@ -4209,342 +4204,198 @@ public partial class MainWindow : Window
         try { previousCts?.Dispose(); } catch { }
 
         await Task.Yield();
+        
+        // --- DECOUPLED PIPELINE INJECTION ---
+        SetTimelinePopupsVisible(false);
+        if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
+        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
 
-        try
+        var addMemeCb = this.FindControl<Avalonia.Controls.ToggleSwitch>("AddMemeCheckbox");
+        string? memeFile = null;
+        if (addMemeCb != null && addMemeCb.IsChecked == true)
         {
-            RuntimeLog.Info("Process", "Starting video processing pipeline via ProcessWorker.");
-            SetTimelinePopupsVisible(false);
-
-            var paths = ApplicationPaths.CreateDefault();
-            var worker = new ProcessWorker(paths);
-            worker.OutputDirectory = outputDirectory;
-
-            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
-
-            var markersCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
-            if (markersCanvas != null)
+            var memeCb = this.FindControl<Avalonia.Controls.ComboBox>("MemeComboBox");
+            if (memeCb?.SelectedItem is MemeItem memeSel && !memeSel.IsDownloadAction && System.IO.File.Exists(memeSel.FullPath))
             {
-                foreach (var child in markersCanvas.Children)
-                {
-                    if (child is Avalonia.Controls.Primitives.Popup popup)
-                        popup.IsOpen = false;
-                }
+                memeFile = memeSel.FullPath;
             }
+        }
 
-            worker.ProgressUpdate += percent =>
+        
+        int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value ?? 7;
+        int resolvedQuality = qualityIdx;
+        double? resolvedTargetMb = qualityIdx >= 20 ? null : (double)(5 + qualityIdx * 5);
+
+        bool musicLeadIn = true;
+        bool musicTailOut = true;
+        System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.MusicTrack>? musicTracks = null;
+        System.Text.Json.Nodes.JsonObject? musicConfig = null;
+
+        var allSegments = BuildExportSpeedSegments();
+
+        if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath) && System.IO.File.Exists(_musicWizardResult.MusicFilePath))
+        {
+            double musicStartMs = Math.Max(_trimStartMs, _musicWizardResult.TimelineStartSeconds * 1000.0);
+            double musicEndMs = Math.Min(_trimEndMs > 0 ? _trimEndMs : _loadedVideoDurationMs, _musicWizardResult.TimelineEndSeconds * 1000.0);
+            double startDelay = CalculateEffectiveDurationMs(_trimStartMs, musicStartMs, _baseSpeed, allSegments) / 1000.0;
+            double outputEndSec = CalculateEffectiveDurationMs(_trimStartMs, musicEndMs, _baseSpeed, allSegments) / 1000.0;
+            double dur = outputEndSec - startDelay;
+            if (dur <= 0) dur = 1.0;
+            
+            const double MarkerToleranceMs = 50.0;
+            double rawMusicStartMs = _musicWizardResult.TimelineStartSeconds * 1000.0;
+            double rawMusicEndMs = _musicWizardResult.TimelineEndSeconds * 1000.0;
+
+            musicLeadIn = rawMusicStartMs <= _trimStartMs + MarkerToleranceMs;
+            musicTailOut = rawMusicEndMs <= (_trimEndMs > 0 ? _trimEndMs : _loadedVideoDurationMs) + MarkerToleranceMs;
+            
+            musicTracks = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.MusicTrack>();
+            var musicPaths = new System.Collections.Generic.List<string>();
+            if (_musicWizardResult.MusicFilePaths != null && _musicWizardResult.MusicFilePaths.Count > 0)
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    processButton.Content = $"PROCESSING... {percent}%";
-                });
-            };
-
-            worker.PhaseUpdate += (phase, title, progress) =>
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.UpdatePhase(phase, title, progress);
-                });
-            };
-
-            worker.Finished += async (success, message) =>
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-                {
-                    if (!success && (worker.WasCanceled
-                                     || (_processCts != null && _processCts.IsCancellationRequested)))
-                    {
-                        RuntimeLog.Info("Process", "Worker cleaned up after cancellation.");
-
-                        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
-                        if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
-                        processButton.IsEnabled = true;
-                        processButton.Content = "PROCESS";
-
-                        worker.Dispose();
-                        return;
-                    }
-
-                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
-                    if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
-                    if (success)
-                    {
-                        RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {Path.GetFileName(message)}");
-                        RuntimeLog.Debug("Process", $"Video processing output path: {message}");
-
-                        string? completionWarning = worker.CompletionWarning;
-                        ShowTacticalFeedback(completionWarning == null
-                            ? "Processing complete"
-                            : "Complete — thumbnail failed");
-                        PlayUiSound();
-
-                        if (completionWarning != null)
-                        {
-                            RuntimeLog.Fail("Process", completionWarning);
-                        }
-
-                        var dlg = new FortniteVideoSoftware.App.Controls.FinishedDialogWindow();
-                        dlg.SetOutputPath(message);
-                        await dlg.ShowDialog(this);
-
-                        if (completionWarning != null && dlg.DialogResult != 1)
-                        {
-                            await ErrorReporter.ShowAsync(this, "Thumbnail not created",
-                                completionWarning + " The video file itself is fine and has been saved.",
-                                "See the log entries tagged [Thumbnail] for the FFmpeg error behind this.");
-                        }
-
-                        if (dlg.DialogResult == 1)
-                        {
-                            Close();
-                        }
-                        else if (dlg.DialogResult == 2)
-                        {
-                            ResetProjectStateToUpload();
-                            OnUploadVideoClicked(null, new Avalonia.Interactivity.RoutedEventArgs());
-                        }
-                    }
-                    else
-                    {
-                        string safeMessage = message.Contains(@":\", StringComparison.Ordinal) || message.Contains(":/", StringComparison.Ordinal)
-                            ? "details are available in debug log"
-                            : message;
-                        RuntimeLog.Fail("Process", $"Video processing failed: {safeMessage}");
-                        RuntimeLog.Debug("Process", $"Video processing failure detail: {message}");
-                        ShowTacticalFeedback("Processing failed");
-                        PlayUiSound();
-
-                        string failureDetail = worker.FailureDetail ?? message;
-
-                        processButton.IsEnabled = true;
-                        processButton.Content = "PROCESS";
-                        worker.Dispose();
-
-                        await ErrorReporter.ShowAsync(this, "Export failed",
-                            "The video could not be exported, so no file was written.",
-                            failureDetail);
-                        return;
-                    }
-                    processButton.IsEnabled = true;
-                    processButton.Content = "PROCESS";
-                    worker.Dispose();
-                });
-            };
-
-            string hwMode = _hardwareMode;
-
-            worker.InputPath = _loadedVideoPath;
-            worker.StartTimeMs = _trimStartMs;
-
-            double durationMs = ActiveVideoHost?.IpcClient?.Duration > 0
-                ? ActiveVideoHost.IpcClient.Duration * 1000.0
-                : 0.0;
-
-            if (durationMs <= 0) durationMs = _loadedVideoDurationMs;
-
-            if (durationMs <= 0 && _trimEndMs > _trimStartMs) durationMs = _trimEndMs;
-
-            if (durationMs <= 0)
-            {
-                RuntimeLog.Info("Process", "Clip length unknown from the player — probing the file directly.");
-                try
-                {
-                    var durationProber = new MediaProber(
-                        FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffprobe.exe", "backend", "binaries"),
-                        _loadedVideoPath);
-                    double probedSec = await durationProber.GetDurationAsync();
-                    if (probedSec > 0) durationMs = probedSec * 1000.0;
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog.Fail("Process", $"Duration probe failed: {ex.Message}");
-                }
-            }
-
-            if (durationMs > 0) _loadedVideoDurationMs = durationMs;
-
-            double effectiveEndMs = _trimEndMs > 0 ? _trimEndMs : durationMs;
-
-            if (effectiveEndMs <= _trimStartMs)
-            {
-                RuntimeLog.Fail("Process",
-                    $"Refusing to export: clip length could not be determined (start={_trimStartMs}ms, end={effectiveEndMs}ms).");
-
-                this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
-                if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
-                processButton.IsEnabled = true;
-                processButton.Content = "PROCESS";
-                worker.Dispose();
-
-                await ErrorReporter.ShowAsync(this, "Cannot export yet",
-                    "The app could not work out how long this video is, so there is nothing to export. "
-                    + "Try reloading the video, or set MARK START and MARK END manually.",
-                    $"Duration resolution failed. trimStartMs={_trimStartMs}, trimEndMs={_trimEndMs}, resolvedDurationMs={durationMs}.");
-                return;
-            }
-
-            worker.EndTimeMs = effectiveEndMs;
-            double duration = durationMs / 1000.0;
-            var allSegments = BuildExportSpeedSegments();
-            worker.SpeedSegments = allSegments;
-            worker.SpeedFactor = _baseSpeed;
-            worker.ThumbnailPosMs = _thumbnailSet ? _thumbnailPosMs : 0;
-            worker.AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization;
-            worker.AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening;
-            if (_voiceOverResult != null)
-            {
-                worker.VoiceOverWavPath = _voiceOverResult.VoiceOverWavPath;
-                worker.VoiceOverStartSec = _voiceOverResult.VoiceOverStartTimestampSec;
-                worker.VoiceOverTakes = GetExistingVoiceOverTakes(_voiceOverResult);
-                worker.VoiceOverMuteMale = _voiceOverResult.MuteMale;
-                worker.VoiceOverMuteFemale = _voiceOverResult.MuteFemale;
-                worker.VoiceOverMuteChild = _voiceOverResult.MuteChild;
-                worker.VoiceOverMuteMaleHz = _voiceOverResult.MaleFrequencyHz;
-                worker.VoiceOverMuteFemaleHz = _voiceOverResult.FemaleFrequencyHz;
-                worker.VoiceOverMuteChildHz = _voiceOverResult.ChildFrequencyHz;
-            }
-            if (_thumbnailSet && _thumbnailPosMs > 0)
-            {
-                worker.IntroAbsTimeMs = _thumbnailPosMs;
-                worker.IntroStillSec = 0.1;
+                foreach(var p in _musicWizardResult.MusicFilePaths) if (!string.IsNullOrWhiteSpace(p) && System.IO.File.Exists(p)) musicPaths.Add(p);
             }
             else
             {
-                double tStart = _trimStartMs > 0 ? _trimStartMs : 0;
-                double tEnd = _trimEndMs > 0 ? _trimEndMs : duration * 1000.0;
-                worker.IntroAbsTimeMs = tStart + (tEnd - tStart) * (2.0 / 3.0);
-                worker.IntroStillSec = 0.1;
-            }
-            
-            worker.HardwareStrategy = hwMode;
-
-            var audioPrefs = Infrastructure.SettingsManager.Instance;
-            worker.SourceMeasuredLufs = _sourceMeasuredLufs;
-            worker.ApplyLoudnessNormalization =
-                _applyLoudnessNormalization ?? audioPrefs.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.NeverApply;
-
-            bool peakWanted =
-                _applyPeakFlattening ?? audioPrefs.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.NeverApply;
-            worker.AutoSpikeFlattening = audioPrefs.Defaults.AutoSpikeFlattening && peakWanted;
-            RuntimeLog.Info("Audio",
-                $"Export audio: loudness normalisation {(worker.ApplyLoudnessNormalization ? "ON" : "OFF")}, " +
-                $"peak flattening {(worker.AutoSpikeFlattening ? "ON" : "OFF")}.");
-
-            worker.IsMobileFormat = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true;
-            worker.IsBossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false;
-            worker.EnableFades = this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true;
-            worker.ShowTeammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false;
-            worker.ShowSpectating = this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false;
-
-            var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
-            if (addMemeCb != null && addMemeCb.IsChecked == true)
-            {
-                var memeCb = this.FindControl<ComboBox>("MemeComboBox");
-                if (memeCb?.SelectedItem is MemeItem memeSel && !memeSel.IsDownloadAction && File.Exists(memeSel.FullPath))
-                {
-                    worker.MemeFile = memeSel.FullPath;
-                }
+                musicPaths.Add(_musicWizardResult.MusicFilePath);
             }
 
-            worker.PortraitText = this.FindControl<TextBox>("PortraitTextInput")?.Text;
-
-            int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value ?? 7;
-            worker.QualityLevel = qualityIdx;
-            worker.TargetMbOverride = qualityIdx >= 20 ? null : (double)(5 + qualityIdx * 5);
-
-            if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath) && File.Exists(_musicWizardResult.MusicFilePath))
+            for (int i = 0; i < musicPaths.Count; i++)
             {
-                double musicStartMs = Math.Max(worker.StartTimeMs, _musicWizardResult.TimelineStartSeconds * 1000.0);
-                double musicEndMs = Math.Min(worker.EndTimeMs, _musicWizardResult.TimelineEndSeconds * 1000.0);
-                double startDelay = CalculateEffectiveDurationMs(worker.StartTimeMs, musicStartMs, _baseSpeed, allSegments) / 1000.0;
-                double outputEndSec = CalculateEffectiveDurationMs(worker.StartTimeMs, musicEndMs, _baseSpeed, allSegments) / 1000.0;
-                double dur = outputEndSec - startDelay;
-                if (dur <= 0) dur = 1.0;
-
-                const double MarkerToleranceMs = 50.0;
-                double rawMusicStartMs = _musicWizardResult.TimelineStartSeconds * 1000.0;
-                double rawMusicEndMs = _musicWizardResult.TimelineEndSeconds * 1000.0;
-
-                worker.MusicLeadFadeIn = rawMusicStartMs <= worker.StartTimeMs + MarkerToleranceMs;
-                worker.MusicTailFadeOut = rawMusicEndMs <= worker.EndTimeMs + MarkerToleranceMs;
-
-                RuntimeLog.Info("Audio",
-                    $"Music bed fades: lead-in {(worker.MusicLeadFadeIn ? "ON" : "OFF (starts after MARK START)")}, " +
-                    $"tail-out {(worker.MusicTailFadeOut ? "ON" : "OFF (runs past MARK END)")}.");
-
-                bool applyFadeOut = true;
-
-                worker.MusicTracks = new System.Collections.Generic.List<MusicTrack>();
-                var musicPaths = (_musicWizardResult.MusicFilePaths.Count > 0
-                    ? _musicWizardResult.MusicFilePaths
-                    : new System.Collections.Generic.List<string> { _musicWizardResult.MusicFilePath })
-                    .Where(p => !string.IsNullOrWhiteSpace(p) && System.IO.File.Exists(p)).ToList();
-
-                for (int i = 0; i < musicPaths.Count; i++)
+                double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
+                double knownDuration = 0;
+                if (_musicWizardResult.MusicDurationsSeconds != null && i < _musicWizardResult.MusicDurationsSeconds.Count)
+                    knownDuration = _musicWizardResult.MusicDurationsSeconds[i];
+                else if (i == 0)
+                    knownDuration = _musicWizardResult.MusicDurationSeconds;
+                
+                if (knownDuration <= 0)
                 {
-                    double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
-                    double knownDuration = i < _musicWizardResult.MusicDurationsSeconds.Count
-                        ? _musicWizardResult.MusicDurationsSeconds[i]
-                        : (i == 0 ? _musicWizardResult.MusicDurationSeconds : 0.0);
-                    if (knownDuration <= 0)
-                    {
-                        knownDuration = await ProbeMusicDurationSecondsAsync(musicPaths[i]);
-                    }
-
-                    double availableDuration = knownDuration > 0
-                        ? Math.Max(0.0, knownDuration - offset)
-                        : dur;
-                    double takeDuration = Math.Min(dur, availableDuration);
-                    if (takeDuration <= 0.01)
-                        continue;
-
-                    worker.MusicTracks.Add(new MusicTrack(musicPaths[i], offset, takeDuration, startDelay, applyFadeOut));
-                    dur -= takeDuration;
-                    if (dur <= 0.01)
-                        break;
+                    knownDuration = await ProbeMusicDurationSecondsAsync(musicPaths[i]);
                 }
 
-                worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
+                double availableDuration = knownDuration > 0 ? Math.Max(0.0, knownDuration - offset) : dur;
+                double takeDuration = Math.Min(dur, availableDuration);
+                if (takeDuration <= 0.01) continue;
+
+                musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(musicPaths[i], offset, takeDuration, startDelay, true));
+                dur -= takeDuration;
+                if (dur <= 0.01) break;
+            }
+
+            musicConfig = new System.Text.Json.Nodes.JsonObject
+            {
+                ["ducking_threshold"] = _musicWizardResult.EnableDucking ? 0.15 : 1.0,
+                ["ducking_ratio"] = _musicWizardResult.EnableDucking ? 2.5 : 1.0,
+                ["main_vol"] = _musicWizardResult.VideoVolume,
+                ["music_vol"] = _musicWizardResult.MusicVolume,
+                ["carving_enabled"] = _musicWizardResult.EnableCarving
+            };
+        }
+        else
+        {
+            var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
+            if (volSlider != null)
+            {
+                musicConfig = new System.Text.Json.Nodes.JsonObject
                 {
-                    ["ducking_threshold"] = _musicWizardResult.EnableDucking ? 0.15 : 1.0,
-                    ["ducking_ratio"] = _musicWizardResult.EnableDucking ? 2.5 : 1.0,
-                    ["main_vol"] = _musicWizardResult.VideoVolume,
-                    ["music_vol"] = _musicWizardResult.MusicVolume,
-                    ["carving_enabled"] = _musicWizardResult.EnableCarving
+                    ["main_vol"] = volSlider.Value / 100.0
                 };
             }
-            else
-            {
-                var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
-                if (volSlider != null)
-                {
-                    worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
-                    {
-                        ["main_vol"] = volSlider.Value / 100.0
-                    };
-                }
-            }
-
-            if (!string.IsNullOrEmpty(worker.MemeFile) && worker.MusicTracks != null && worker.MusicTracks.Count > 0 && _keepMusicDuringMeme.HasValue)
-            {
-                worker.KeepMusicDuringMeme = _keepMusicDuringMeme.Value;
-            }
-
-            _activeExportTask = worker.RunAsync(_processCts.Token);
         }
-        catch (Exception ex)
+        
+        var payload = new FortniteVideoSoftware.App.Models.ExportPayload
         {
-            RuntimeLog.Fail("Process", ex);
-            ShowTacticalFeedback("Error during process launch.");
-            PlayUiSound();
+            InputPath = _loadedVideoPath,
+            OutputDirectory = outputDirectory,
+            TrimStartMs = _trimStartMs,
+            TrimEndMs = _trimEndMs,
+            LoadedVideoDurationMs = _loadedVideoDurationMs,
+            BaseSpeed = _baseSpeed,
+            ThumbnailSet = _thumbnailSet,
+            ThumbnailPosMs = _thumbnailPosMs,
+            HardwareMode = _hardwareMode,
+            SourceMeasuredLufs = _sourceMeasuredLufs,
+            ApplyLoudnessNormalization = _applyLoudnessNormalization,
+            ApplyPeakFlattening = _applyPeakFlattening,
+            IsMobileFormat = this.FindControl<Avalonia.Controls.ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true,
+            IsBossHp = this.FindControl<Avalonia.Controls.ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false,
+            EnableFades = this.FindControl<Avalonia.Controls.ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
+            ShowTeammates = this.FindControl<Avalonia.Controls.ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
+            ShowSpectating = this.FindControl<Avalonia.Controls.ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
+            MemeFile = memeFile,
+            PortraitText = this.FindControl<Avalonia.Controls.TextBox>("PortraitTextInput")?.Text,
+            SpeedSegments = allSegments,
+            QualityLevel = resolvedQuality,
+            TargetMbOverride = resolvedTargetMb,
+            MusicLeadFadeIn = musicLeadIn,
+            MusicTailFadeOut = musicTailOut,
+            MusicTracks = musicTracks,
+            MusicConfig = musicConfig,
+            KeepMusicDuringMeme = _keepMusicDuringMeme ?? false,
+            VoiceOverWavPath = _voiceOverResult?.VoiceOverWavPath,
+            VoiceOverStartSec = _voiceOverResult?.VoiceOverStartTimestampSec ?? 0.0,
+            VoiceOverTakes = _voiceOverResult != null ? GetExistingVoiceOverTakes(_voiceOverResult) : null,
+            VoiceOverMuteMale = _voiceOverResult?.MuteMale ?? false,
+            VoiceOverMuteFemale = _voiceOverResult?.MuteFemale ?? false,
+            VoiceOverMuteChild = _voiceOverResult?.MuteChild ?? false,
+            VoiceOverMuteMaleHz = _voiceOverResult?.MaleFrequencyHz ?? 0.0,
+            VoiceOverMuteFemaleHz = _voiceOverResult?.FemaleFrequencyHz ?? 0.0,
+            VoiceOverMuteChildHz = _voiceOverResult?.ChildFrequencyHz ?? 0.0
+        };
+
+        var controller = new FortniteVideoSoftware.App.Services.MainMediaController();
+        
+        var result = await controller.ExecuteExportAsync(
+            payload, 
+            _processCts.Token,
+            (percent) => { Avalonia.Threading.Dispatcher.UIThread.Post(() => processButton.Content = $"PROCESSING... {percent}%"); },
+            (phase, title, progress) => { 
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.UpdatePhase(phase, title, progress));
+            }
+        );
+
+        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+        if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+
+        if (result.Canceled)
+        {
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
-
-            await ErrorReporter.ShowAsync(this, "Export could not start",
-                "Something went wrong while setting up the export, so it never began.",
-                ex.ToString());
+            return;
         }
+
+        if (result.Success)
+        {
+            ShowTacticalFeedback(result.Warning == null ? "Processing complete" : "Complete — thumbnail failed");
+            PlayUiSound();
+
+            var dlg = new FortniteVideoSoftware.App.Controls.FinishedDialogWindow();
+            dlg.SetOutputPath(result.OutputPath ?? string.Empty);
+            await dlg.ShowDialog(this);
+
+            if (result.Warning != null && dlg.DialogResult != 1)
+            {
+                await ErrorReporter.ShowAsync(this, "Thumbnail not created", result.Warning, "");
+            }
+
+            if (dlg.DialogResult == 1) Close();
+            else if (dlg.DialogResult == 2)
+            {
+                ResetProjectStateToUpload();
+                OnUploadVideoClicked(null, new Avalonia.Interactivity.RoutedEventArgs());
+            }
+        }
+        else
+        {
+            ShowTacticalFeedback("Processing failed");
+            PlayUiSound();
+            await ErrorReporter.ShowAsync(this, "Export failed", "The video could not be exported.", result.ErrorMessage);
+        }
+        
+        processButton.IsEnabled = true;
+        processButton.Content = "PROCESS";
     }
 
     /// <summary>
@@ -4780,10 +4631,7 @@ public partial class MainWindow : Window
                 try { _processCts.Cancel(); }
                 catch (ObjectDisposedException) { }
             }
-            if (_activeExportTask != null)
-            {
-                try { await _activeExportTask; } catch { }
-            }
+
 
             await WindowBoundsHelper.SaveBoundsAsync(this, "MainWindowBounds");
 

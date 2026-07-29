@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -169,7 +169,12 @@ internal static class MobileFilterBuilderExtensions
         double scale = 1.0;
         if (scalesObj != null && scalesObj.ContainsKey(confKey))
         {
-            try { scale = (double)scalesObj[confKey]!; } catch { try { scale = double.Parse(scalesObj[confKey]!.ToString()); } catch { } }
+            try { scale = (double)scalesObj[confKey]!; } 
+            catch 
+            { 
+                var parsedFrac = Frac.FromString(scalesObj[confKey]!.ToString());
+                if (parsedFrac != Frac.Zero) scale = parsedFrac.ToDouble();
+            }
         }
 
         var overlaysObj = coords["overlays"]?.AsObject();

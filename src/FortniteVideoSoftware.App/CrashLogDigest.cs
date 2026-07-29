@@ -64,7 +64,7 @@ internal static class CrashLogDigest
 
             if (!proc.WaitForExit(15000))
             {
-                try { proc.Kill(); } catch { }
+                try { proc.Kill(); } catch (Exception ex) { RuntimeLog.Info("EVENTLOG DIGEST", $"Failed to kill wevtutil process: {ex.Message}"); }
             }
 
             string output = await readOutput;
@@ -92,8 +92,9 @@ internal static class CrashLogDigest
 
             WriteMarker(markerPath, sweepStartedUtc);
         }
-        catch
+        catch (Exception ex)
         {
+            RuntimeLog.Fail("EVENTLOG DIGEST", $"Crash log digest failed completely: {ex.Message}");
         }
     }
 
@@ -161,7 +162,10 @@ internal static class CrashLogDigest
             }
             finally { if (acquired) mutex.ReleaseMutex(); }
         }
-        catch { }
+        catch (Exception ex) 
+        { 
+            RuntimeLog.Info("EVENTLOG DIGEST", $"ReadMarker failed, falling back to 3 days ago: {ex.Message}"); 
+        }
         return DateTime.UtcNow.AddDays(-3);
     }
 
@@ -181,6 +185,9 @@ internal static class CrashLogDigest
             }
             finally { if (acquired) mutex.ReleaseMutex(); }
         }
-        catch { }
+        catch (Exception ex) 
+        { 
+            RuntimeLog.Info("EVENTLOG DIGEST", $"WriteMarker failed: {ex.Message}"); 
+        }
     }
 }

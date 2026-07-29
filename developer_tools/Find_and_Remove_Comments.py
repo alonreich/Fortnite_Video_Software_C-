@@ -46,7 +46,7 @@ EXCLUDE_FOLDERS = ['.git', 'bin', 'obj', '.vs', 'packages', 'compile', 'compiled
 EXCLUDE_FILES = ['AssemblyInfo.cs']
 EXCLUDE_EXTS = ['.txt', '.log', '.json', '.resx', '.ico', '.png', '.gif', '.traineddata', '.dll', '.exe', '.config', '.manifest', '.xml', '.xsd', '.sln', '.DotSettings', '.props', '.targets']
 
-CS_REGEX = re.compile(r'^(\s*)(?:(?:public|private|protected|internal|static|virtual|override|async|sealed|partial|abstract)\s+)*(class|struct|interface|enum|delegate|void|int|string|bool|var|Task|auto)\s+([a-zA-Z0-9_<>]+)\s*[\(\{]?.*$')
+CS_REGEX = re.compile(r'^(\s*)(?:(?:public|private|protected|internal|static|virtual|override|async|sealed|partial|abstract|readonly|record|unsafe|new)\s+)*(class|struct|interface|enum|delegate|void|int|string|bool|var|Task|auto)\s+([a-zA-Z0-9_<>]+)\s*[\(\{:]?.*$')
 
 def get_target_files(root_dir):
     targets = []
@@ -108,7 +108,9 @@ def analyze_comments(filepath):
                 else:
                     parts = line.split('//', 1)
                     if parts[0].count('"') % 2 == 0:
-                        actions[i] = {'action': 'EDIT', 'type': 'INLINE COMMENT', 'line': i + 1, 'content': f"Rem: {parts[1].strip()}", 'new_content': parts[0].rstrip() + '\n'}
+                        nl = line[len(line.rstrip('\r\n')):]
+                        if not nl: nl = '\n'
+                        actions[i] = {'action': 'EDIT', 'type': 'INLINE COMMENT', 'line': i + 1, 'content': f"Rem: {parts[1].strip()}", 'new_content': parts[0].rstrip() + nl}
 
         empty_count = 0
         for i, line in enumerate(lines):

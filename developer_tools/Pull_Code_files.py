@@ -48,16 +48,25 @@ def run_aggregator():
     if not download_dir.exists():
         download_dir.mkdir(parents=True, exist_ok=True)
     
+    ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'old_code'}
+
     tree_file = download_dir / "00_file_structure.txt"
     with open(tree_file, "w", encoding="utf-8") as tf:
+        tf.write(f"Directory Tree of: {project_root}\n")
+        tf.write("=" * 80 + "\n")
         try:
-            res_cd = subprocess.run(["cmd", "/c", "cd"], capture_output=True, text=True, cwd=project_root)
-            res_dir = subprocess.run(["cmd", "/c", "dir", "/S", "/A"], capture_output=True, text=True, cwd=project_root)
-            tf.write(f"C:\\> cd\n{res_cd.stdout}\nC:\\> dir /S /A\n{res_dir.stdout}")
+            for root, dirs, files in os.walk(project_root):
+                dirs[:] = [d for d in dirs if d.lower() not in ignored_dirs]
+                rel = Path(root).relative_to(project_root)
+                level = len(rel.parts) if rel.name else 0
+                indent = ' ' * 4 * level
+                folder_name = rel.name if rel.name else project_root.name
+                tf.write(f"{indent}{folder_name}/\n")
+                subindent = ' ' * 4 * (level + 1)
+                for f in files:
+                    tf.write(f"{subindent}{f}\n")
         except Exception as e:
             tf.write(f"[ERROR GENERATING DIRECTORY TREE: {e}]")
-
-    ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'old_code'}
 
     source_whitelist = {
         '.cs', '.axaml', '.cmd', '.py', '.json', '.json5', '.xml', 

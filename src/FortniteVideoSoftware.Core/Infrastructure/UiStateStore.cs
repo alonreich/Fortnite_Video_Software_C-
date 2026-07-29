@@ -54,8 +54,9 @@ public static class UiStateStore
                         File.Copy(file, destination, overwrite: false);
                         moved++;
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        CoreLogger.Info("UiState", $"Failed to migrate '{file}': {ex.Message}");
                     }
                 }
 
@@ -76,7 +77,7 @@ public static class UiStateStore
     {
         MigrateLegacyFilesOnce();
         string dir = Directory_;
-        try { Directory.CreateDirectory(dir); } catch { }
+        try { Directory.CreateDirectory(dir); } catch (Exception ex) { CoreLogger.Debug("UiState", $"Failed to create directory '{dir}': {ex.Message}"); }
         return Path.Combine(dir, fileName);
     }
 
@@ -88,8 +89,9 @@ public static class UiStateStore
             string path = PathFor(fileName);
             return File.Exists(path) ? File.ReadAllText(path) : fallback;
         }
-        catch
+        catch (Exception ex)
         {
+            CoreLogger.Debug("UiState", $"Failed to read text from '{fileName}': {ex.Message}");
             return fallback;
         }
     }

@@ -422,7 +422,7 @@ public class GranularSpeedBuilder
                     }
                 }
 
-                string preScale = $"scale={resW}:{resH}:force_original_aspect_ratio=decrease,pad={resW}:{resH}:(ow-iw)/2:(oh-ih)/2,";
+                string preScale = $"scale={resW}:{resH}:force_original_aspect_ratio=decrease,pad={resW}:{resH}:(ow-iw)/2:(oh-ih)/2";
                 string p1Str = p1.ToString(CultureInfo.InvariantCulture);
                 
                 if (Math.Abs(chunk.Speed) < 0.001)
@@ -436,7 +436,13 @@ public class GranularSpeedBuilder
                         double cropH = resH / targetZ;
                         double cropX = resW + cxTarget - cropW / 2.0;
                         double cropY = resH + cyTarget - cropH / 2.0;
-                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
+                        zoomFilter = new FilterChain()
+                            .AddRaw(preScale)
+                            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+                            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
+                            .AddNode(new CasFilterNode { Strength = 0.5 })
+                            .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
+                            .ToFFmpegString() + ",";
                     }
                     else
                     {
@@ -454,7 +460,13 @@ public class GranularSpeedBuilder
                         double cropH = resH / targetZ;
                         double cropX = resW + cxTarget - cropW / 2.0;
                         double cropY = resH + cyTarget - cropH / 2.0;
-                        zoomFilter = $"{preScale}pad=iw+{resW * 2}:ih+{resH * 2}:{resW}:{resH}:color=black,crop=w='{cropW.ToString(CultureInfo.InvariantCulture)}':h='{cropH.ToString(CultureInfo.InvariantCulture)}':x='{cropX.ToString(CultureInfo.InvariantCulture)}':y='{cropY.ToString(CultureInfo.InvariantCulture)}',cas=0.5,scale={outW}:{outH},";
+                        zoomFilter = new FilterChain()
+                            .AddRaw(preScale)
+                            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+                            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
+                            .AddNode(new CasFilterNode { Strength = 0.5 })
+                            .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
+                            .ToFFmpegString() + ",";
                     }
                     else if (Math.Abs(p1 - p2) < 0.001)
                     {
@@ -500,7 +512,19 @@ public class GranularSpeedBuilder
 
                         string preDownscale = s < 0.999 ? $"scale={workW}:{workH}," : "";
 
-                        zoomFilter = $"{preScale}pad=iw+{resW.ToString(CultureInfo.InvariantCulture)}:ih+{resH.ToString(CultureInfo.InvariantCulture)}:{padX.ToString(CultureInfo.InvariantCulture)}:{padY.ToString(CultureInfo.InvariantCulture)}:color=black,{preDownscale}scale=w='iw*({zExpr})':h='ih*({zExpr})':eval=frame,crop=w={cropW}:h={cropH}:x='{cropX}':y='{cropY}',cas=0.5,scale={outW}:{outH},";
+                        var chain = new FilterChain()
+                            .AddRaw(preScale)
+                            .AddNode(new PadFilterNode { Width = resW.ToString(CultureInfo.InvariantCulture), Height = resH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" });
+                        if (!string.IsNullOrEmpty(preDownscale))
+                        {
+                            if (preDownscale.EndsWith(",")) preDownscale = preDownscale.Substring(0, preDownscale.Length - 1);
+                            chain.AddRaw(preDownscale);
+                        }
+                        chain.AddRaw($"scale=w='iw*({zExpr})':h='ih*({zExpr})':eval=frame")
+                             .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX, Y = cropY })
+                             .AddNode(new CasFilterNode { Strength = 0.5 })
+                             .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) });
+                        zoomFilter = chain.ToFFmpegString() + ",";
                     }
                 }
             }
@@ -648,9 +672,13 @@ public class GranularSpeedBuilder
         double cropY = resH + viewCy - cropH / 2.0;
 
         var ci = CultureInfo.InvariantCulture;
-        return $"{preScale}pad=iw+{(resW * 2).ToString(ci)}:ih+{(resH * 2).ToString(ci)}:{resW.ToString(ci)}:{resH.ToString(ci)}:color=black," +
-               $"crop=w='{cropW.ToString(ci)}':h='{cropH.ToString(ci)}':x='{cropX.ToString(ci)}':y='{cropY.ToString(ci)}'," +
-               $"cas=0.5,scale={outW}:{outH},";
+        return new FilterChain()
+            .AddRaw(preScale)
+            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
+            .AddNode(new CasFilterNode { Strength = 0.5 })
+            .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
+            .ToFFmpegString() + ",";
     }
 
     /// <summary>

@@ -1,48 +1,51 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace FortniteVideoSoftware.Core.Infrastructure;
 
-public static class ChildProcessTracker
+public interface IProcessJobTracker
 {
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
+    void AddProcess(Process process);
+}
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+public partial class WindowsJobObjectTracker : IProcessJobTracker
+{
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetInformationJobObject(IntPtr hJob, JobObjectInfoType infoType, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+    private static partial bool SetInformationJobObject(IntPtr hJob, JobObjectInfoType infoType, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    private static partial bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
-    private static IntPtr _jobHandle;
+    private readonly IntPtr _jobHandle;
 
-    static ChildProcessTracker()
+    public WindowsJobObjectTracker()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        _jobHandle = CreateJobObject(IntPtr.Zero, null);
+        var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
         {
-            _jobHandle = CreateJobObject(IntPtr.Zero, null);
-            var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
-            {
-                LimitFlags = 0x2000
-            };
-            var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-            {
-                BasicLimitInformation = info
-            };
+            LimitFlags = 0x2000
+        };
+        var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            BasicLimitInformation = info
+        };
 
-            int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
-            IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
-            Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
+        int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
+        IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
+        Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
 
-            SetInformationJobObject(_jobHandle, JobObjectInfoType.ExtendedLimitInformation, extendedInfoPtr, (uint)length);
-            Marshal.FreeHGlobal(extendedInfoPtr);
-        }
+        SetInformationJobObject(_jobHandle, JobObjectInfoType.ExtendedLimitInformation, extendedInfoPtr, (uint)length);
+        Marshal.FreeHGlobal(extendedInfoPtr);
     }
 
-    public static void AddProcess(Process process)
+    public void AddProcess(Process process)
     {
         if (_jobHandle != IntPtr.Zero && process != null && !process.HasExited)
         {
@@ -96,4 +99,21 @@ public static class ChildProcessTracker
         public UIntPtr PeakProcessMemoryUsed;
         public UIntPtr PeakJobMemoryUsed;
     }
+}
+
+public class NoOpJobTracker : IProcessJobTracker
+{
+    public void AddProcess(Process process)
+    {
+        // No-op for non-Windows platforms
+    }
+}
+
+public static class ChildProcessTracker
+{
+    private static readonly IProcessJobTracker _tracker = OperatingSystem.IsWindows()
+        ? new WindowsJobObjectTracker()
+        : new NoOpJobTracker();
+
+    public static void AddProcess(Process process) => _tracker.AddProcess(process);
 }

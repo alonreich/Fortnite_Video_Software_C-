@@ -49,31 +49,20 @@ public class MediaProber
 
             CoreLogger.Debug("FFprobe", $"Command: {_ffprobePath} {ProcessArgs.FormatForLog(probeArgs)}");
 
-            using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffprobe.");
-            ChildProcessTracker.AddProcess(proc);
-            
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             try
             {
-                var outputTask = proc.StandardOutput.ReadToEndAsync(cts.Token);
-                var stderrTask = proc.StandardError.ReadToEndAsync(cts.Token);
-                await proc.WaitForExitAsync(cts.Token);
-                
-                string output = await outputTask;
-                string stderr = await stderrTask;
-
-                if (proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                var result = await AsyncProcessRunner.RunAsync(psi, timeout: TimeSpan.FromSeconds(15));
+                if (result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput))
                 {
-                    _probeData = JsonNode.Parse(output)?.AsObject() ?? new JsonObject();
+                    _probeData = JsonNode.Parse(result.StandardOutput)?.AsObject() ?? new JsonObject();
                     return _probeData ?? new JsonObject();
                 }
                 
-                CoreLogger.Fail("FFprobe", $"Exit code {proc.ExitCode}. Stderr: {stderr}");
+                CoreLogger.Fail("FFprobe", $"Exit code {result.ExitCode}. Stderr: {result.StandardError}");
                 return new JsonObject();
             }
             catch (OperationCanceledException)
             {
-                try { proc.Kill(true); } catch { }
                 CoreLogger.Fail("FFprobe", "FFprobe timed out after 15 seconds.");
                 return new JsonObject();
             }

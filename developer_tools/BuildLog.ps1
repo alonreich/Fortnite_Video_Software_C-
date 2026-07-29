@@ -45,7 +45,7 @@ function Test-BuildWarningLine {
     if ([string]::IsNullOrWhiteSpace($Line)) { return $false }
     if ($Line -match '(?i)\b0 Warning\(s\)|\b0 warnings\b') { return $false }
     if ($Line -match 'ANSI colors in log') { return $false }
-    if ($Line -match '(?i): warning |warning CS\d+|\bwarning\b') { return $true }
+    if ($Line -match '(?i): warning |warning CS\d+|warning CA\d+|\bwarning\b') { return $true }
     return $false
 }
 

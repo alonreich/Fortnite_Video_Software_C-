@@ -895,8 +895,7 @@ public class ProcessWorker : IDisposable
                             }
                         }, cancellationToken);
 
-                        var stderrTail = new System.Collections.Generic.Queue<string>();
-                        const int stderrTailMax = 400;
+                        var stderrChannel = System.Threading.Channels.Channel.CreateBounded<string>(new System.Threading.Channels.BoundedChannelOptions(400) { SingleWriter = true, FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
                         var stderrTask = Task.Run(async () =>
                         {
                             using var reader = proc.StandardError;
@@ -906,11 +905,7 @@ public class ProcessWorker : IDisposable
                                 if (!string.IsNullOrWhiteSpace(line)
                                     && !line.StartsWith("frame=") && !line.StartsWith("size="))
                                 {
-                                    lock (stderrTail)
-                                    {
-                                        stderrTail.Enqueue(line);
-                                        if (stderrTail.Count > stderrTailMax) stderrTail.Dequeue();
-                                    }
+                                    stderrChannel.Writer.TryWrite(line);
                                 }
                             }
                         }, cancellationToken);
@@ -923,7 +918,9 @@ public class ProcessWorker : IDisposable
                         catch (Exception ex) { CoreLogger.Fail("FFmpeg", $"Reader task error: {ex.Message}"); }
 
                         string[] stderrLines;
-                        lock (stderrTail) { stderrLines = stderrTail.ToArray(); }
+                        var errList = new System.Collections.Generic.List<string>();
+                        while (stderrChannel.Reader.TryRead(out var errLine)) errList.Add(errLine);
+                        stderrLines = errList.ToArray();
 
                         int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
                         _currentProcess = null;
