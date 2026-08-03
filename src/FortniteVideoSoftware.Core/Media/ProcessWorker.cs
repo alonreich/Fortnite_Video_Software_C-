@@ -78,9 +78,6 @@ public class ProcessWorker : IDisposable
     public string? VoiceOverWavPath { get; set; }
     public double VoiceOverStartSec { get; set; } 
     public List<VoiceOverTake>? VoiceOverTakes { get; set; }
-    public double VoiceOverMuteMaleHz { get; set; }
-    public double VoiceOverMuteFemaleHz { get; set; }
-    public double VoiceOverMuteChildHz { get; set; }
     public bool AutoVoiceNormalization { get; set; } = true;
     public bool AutoSpikeFlattening { get; set; } = true;
 
@@ -106,9 +103,7 @@ public class ProcessWorker : IDisposable
     /// </summary>
     public double? SourceMeasuredLufs { get; set; }
 
-    public bool VoiceOverMuteMale { get; set; }
-    public bool VoiceOverMuteFemale { get; set; }
-    public bool VoiceOverMuteChild { get; set; }
+    public bool VoiceOverDuckAudio { get; set; }
 
     /// <summary>
     /// ISSUE_04 — destination folder for the finished file, resolved by the UI layer
@@ -164,7 +159,7 @@ public class ProcessWorker : IDisposable
         CoreLogger.Info("Process", "Cancellation requested by user. Terminating FFmpeg process tree.");
         if (_currentProcess != null)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch { }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
     }
 
@@ -183,7 +178,7 @@ public class ProcessWorker : IDisposable
             {
                 if (!proc.WaitForExit(graceMs))
                 {
-                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     proc.WaitForExit(2000);
                 }
             }
@@ -251,7 +246,20 @@ public class ProcessWorker : IDisposable
                 }
                 if (MusicConfig != null)
                 {
-                    CoreLogger.Info("Process", $"Music Ducking Enabled: {MusicConfig["ducking_threshold"]?.GetValue<double>() != 1.0}");
+                    // ISSUE_04: this was `MusicConfig["ducking_threshold"]?.GetValue<double>() != 1.0`.
+                    // When the key is ABSENT the null-conditional yields a null double?, and
+                    // `null != 1.0` is TRUE — so a config with no ducking entry logged
+                    // "Ducking Enabled: True" while the pipeline was actually falling back to
+                    // AudioFilterChain's default. Anyone reading the log to diagnose an audio
+                    // complaint was sent the wrong way. Now the three states are distinct.
+                    double? duckThreshold = MusicConfig["ducking_threshold"]?.GetValue<double>();
+                    string duckState = duckThreshold switch
+                    {
+                        null => "Default (no value in config)",
+                        1.0 => "Off",
+                        _ => "On"
+                    };
+                    CoreLogger.Info("Process", $"Music Ducking: {duckState}.");
                 }
             }
 
@@ -334,22 +342,6 @@ public class ProcessWorker : IDisposable
                 var coreFilters = new List<string>();
                 string baseAudioLabel = "[0:a]";
 
-                if (sourceHasAudio && (VoiceOverMuteMale || VoiceOverMuteFemale || VoiceOverMuteChild))
-                {
-                    var eqFilters = new List<string>();
-                    if (VoiceOverMuteMale && VoiceOverMuteMaleHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteMaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
-                    if (VoiceOverMuteFemale && VoiceOverMuteFemaleHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteFemaleHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
-                    if (VoiceOverMuteChild && VoiceOverMuteChildHz > 0)
-                        eqFilters.Add($"equalizer=f={VoiceOverMuteChildHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:t=o:w=1.5:g=-20");
-
-                    if (eqFilters.Count > 0)
-                    {
-                        coreFilters.Add($"[0:a]{string.Join(",", eqFilters)}[a_muted]");
-                        baseAudioLabel = "[a_muted]";
-                    }
-                }
 
                 string granularFilters = "";
                 string gV = "", gVHud = "", gA = "";
@@ -510,10 +502,50 @@ public class ProcessWorker : IDisposable
 
                 }
 
+                bool hasSecondPass = false;
                 var effectiveTakes = GetEffectiveVoiceOverTakes();
                 if (effectiveTakes.Count > 0)
                 {
+                    if (sourceHasAudio && VoiceOverDuckAudio)
+                    {
+                        var conditions = new List<string>();
+                        foreach (var take in effectiveTakes)
+                        {
+                            var p = new MediaProber(_ffprobePath, take.Path);
+                            double dur = await p.GetDurationAsync();
+                            
+                            double voStartOutSec = granularTimeMapper != null
+                                ? granularTimeMapper(take.StartSec)
+                                : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
+                            
+                            double relStart = voStartOutSec;
+                            double relEnd = relStart + dur;
+                            
+                            string sStr = relStart.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            string eStr = relEnd.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            
+                            string sRamp = $"(t-({sStr}-0.3))/0.3";
+                            string eRamp = $"(({eStr}+0.3)-t)/0.3";
+                            string pulse = $"clip({sRamp},0,1)*clip({eRamp},0,1)";
+                            conditions.Add(pulse);
+                        }
+                        if (conditions.Count > 0)
+                        {
+                            string combinedPulses = string.Join("+", conditions);
+                            coreFilters.Add($"{aPreparedPad}volume='1.0-0.85*clip({combinedPulses},0,1)':eval=frame[a_ducked]");
+                            aPreparedPad = "[a_ducked]";
+                        }
+                    }
+
                     int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
+
+                    var secondPassFilter = BuildLoudnormSecondPassFilter();
+                    hasSecondPass = !string.IsNullOrEmpty(secondPassFilter);
+                    if (sourceHasAudio && hasSecondPass)
+                    {
+                        coreFilters.Add($"{aPreparedPad}{secondPassFilter},aresample=48000[a_master_leveled]");
+                        aPreparedPad = "[a_master_leveled]";
+                    }
 
                     double gameLufsForVoice =
                         _loudnorm?.InputI
@@ -527,22 +559,52 @@ public class ProcessWorker : IDisposable
                         $"Voice-over target {gameLufsForVoice:F2} LUFS (matched to the game bus), " +
                         $"voice normalisation {(AutoVoiceNormalization ? "ON" : "OFF")}.");
 
-                    for (int t = 0; t < effectiveTakes.Count; t++)
+                    string? finalVoLabel = null;
+                    if (effectiveTakes.Count > 0)
                     {
-                        var take = effectiveTakes[t];
-                        int inputIdx = voBaseIndex + t;
-                        double voStartOutSec = granularTimeMapper != null
-                            ? granularTimeMapper(take.StartSec)
-                            : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
-                        int delayMs = Math.Max(0, (int)Math.Round(voStartOutSec * 1000.0));
-                        string delayLabel = $"[vo_delayed_{t}]";
-                        string mixedLabel = $"[a_mixed_vo_{t}]";
+                        var voMixedLabels = new List<string>();
+                        for (int t = 0; t < effectiveTakes.Count; t++)
+                        {
+                            var take = effectiveTakes[t];
+                            int inputIdx = voBaseIndex + t;
+                            double voStartOutSec = granularTimeMapper != null
+                                ? granularTimeMapper(take.StartSec)
+                                : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
+                            string trimFilter = "";
+                            if (voStartOutSec < 0)
+                            {
+                                trimFilter = $"atrim=start={(-voStartOutSec).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS,";
+                                voStartOutSec = 0;
+                            }
 
-                        coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},adelay={delayMs}|{delayMs}{delayLabel}");
-                        coreFilters.Add($"{aPreparedPad}{delayLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0{mixedLabel}");
-                        aPreparedPad = mixedLabel;
+                            int delayMs = Math.Max(0, (int)Math.Round(voStartOutSec * 1000.0));
+                            string delayLabel = $"[vo_delayed_{t}]";
+                            
+                            coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},{trimFilter}adelay={delayMs}|{delayMs}{delayLabel}");
+                            voMixedLabels.Add(delayLabel);
+                        }
+                        
+                        if (voMixedLabels.Count > 1)
+                        {
+                            string mixInputs = string.Join("", voMixedLabels);
+                            string weights = string.Join(" ", Enumerable.Repeat("1", voMixedLabels.Count));
+                            finalVoLabel = $"[vo_mixed_all]";
+                            coreFilters.Add($"{mixInputs}amix=inputs={voMixedLabels.Count}:duration=longest:dropout_transition=0:weights='{weights}':normalize=0{finalVoLabel}");
+                        }
+                        else
+                        {
+                            finalVoLabel = voMixedLabels[0];
+                        }
                     }
                 }
+                else
+                {
+                    // Calculate hasSecondPass even if effectiveTakes is empty, so we pass correct args to AudioFilterChain
+                    hasSecondPass = !string.IsNullOrEmpty(BuildLoudnormSecondPassFilter());
+                }
+
+                // If we didn't have effective takes but still need the variable
+                string? finalVoLabelScope = effectiveTakes.Count > 0 ? "[vo_mixed_all]" : null; // handled below in a clean way
 
                 string currentALabel = aPreparedPad;
                 if (!mixMusicAfterMeme)
@@ -560,11 +622,12 @@ public class ProcessWorker : IDisposable
                         1,
                         gDur,
                         aPreparedPad,
-                        VolumeNormalizeDb,
-                        BuildLoudnormSecondPassFilter(),
+                        hasSecondPass ? 0.0 : VolumeNormalizeDb,
+                        null,
                         musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
                         musicLeadFadeIn: MusicLeadFadeIn,
-                        musicTailFadeOut: MusicTailFadeOut);
+                        musicTailFadeOut: MusicTailFadeOut,
+                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null);
 
                     foreach (var part in built.chains)
                     {
@@ -610,10 +673,13 @@ public class ProcessWorker : IDisposable
 
                 if (introDurationSec > 0 && introInputIndex.HasValue)
                 {
+                    int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
+                    int loopFrames = Math.Max(0, introFrames - 1);
+
                     coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
                                    $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
-                                   $"tpad=stop_mode=clone:stop_duration={introDurationSec:F4}," +
-                                   $"fps={targetFps}:start_time=0:round=near," +
+                                   $"loop=loop={loopFrames}:size=1:start=0," +
+                                   $"fps={targetFps}:round=near," +
                                    $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_same_frame]");
                     coreFilters.Add($"{vStabilizedPad}setsar=1[v_main_after_intro]");
                     coreFilters.Add("[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro]");
@@ -623,8 +689,8 @@ public class ProcessWorker : IDisposable
                     {
                         coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
                                        $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
-                                       $"tpad=stop_mode=clone:stop_duration={introDurationSec:F4}," +
-                                       $"fps={targetFps}:start_time=0:round=near," +
+                                       $"loop=loop={loopFrames}:size=1:start=0," +
+                                       $"fps={targetFps}:round=near," +
                                        $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_hud_same_frame]");
                         coreFilters.Add($"{gVHud}setsar=1[gVHud_after_intro]");
                         coreFilters.Add("[v_intro_hud_same_frame][gVHud_after_intro]concat=n=2:v=1:a=0[gVHud_with_intro]");
@@ -731,11 +797,12 @@ public class ProcessWorker : IDisposable
                         1,
                         gDur + memeDuration,
                         aOutputFinal,
-                        VolumeNormalizeDb,
-                        BuildLoudnormSecondPassFilter(),
+                        hasSecondPass ? 0.0 : VolumeNormalizeDb,
+                        null,
                         musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
                         musicLeadFadeIn: MusicLeadFadeIn,
-                        musicTailFadeOut: MusicTailFadeOut);
+                        musicTailFadeOut: MusicTailFadeOut,
+                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null);
 
                     foreach (var part in built.chains)
                     {
@@ -752,6 +819,9 @@ public class ProcessWorker : IDisposable
                         aOutputFinal = "[a_final_music_faded]";
                     }
                 }
+
+                coreFilters.Add($"{aOutputFinal}loudnorm=I=-23:TP=-1.5:LRA=11[a_mastered]");
+                aOutputFinal = "[a_mastered]";
 
                 if (AutoSpikeFlattening)
                 {
@@ -770,12 +840,14 @@ public class ProcessWorker : IDisposable
                 string lastError = "Render failed.";
 
                 string? lastSuccessfulEncoder = null;
+                string? lastAttemptedEncoder = null;
                 async Task<bool> RunFfmpegOnce(bool useCuda, int? requestedBitrate, int attemptNum)
                 {
-                    string currentEncoder = lastSuccessfulEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
+                    string currentEncoder = lastSuccessfulEncoder ?? lastAttemptedEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
 
                     while (true)
                     {
+                        lastAttemptedEncoder = currentEncoder;
                         var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(
                             currentEncoder, requestedBitrate, gDur, targetFps, qualityLevel,
                             targetMb.HasValue);
@@ -866,11 +938,11 @@ public class ProcessWorker : IDisposable
                         try
                         {
 
-                        try { ChildProcessTracker.AddProcess(proc); } catch { }
+                        try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
                         using var reg = cancellationToken.Register(() =>
                         {
-                            try { proc.Kill(entireProcessTree: true); } catch { }
+                            try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                         });
 
                         var progressTask = Task.Run(async () =>
@@ -973,7 +1045,7 @@ public class ProcessWorker : IDisposable
                             if (!disposedByGuard)
                             {
                                 _currentProcess = null;
-                                try { proc.Dispose(); } catch { }
+                                try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                             }
                         }
                     }
@@ -1008,7 +1080,7 @@ public class ProcessWorker : IDisposable
                             {
                                 CoreLogger.Fail("FFmpeg",
                                     "Size-target retry failed — delivering the earlier successful render instead of failing the export.");
-                                if (File.Exists(corePath)) { try { File.Delete(corePath); } catch { } }
+                                if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
 
                                 try
                                 {
@@ -1049,7 +1121,7 @@ public class ProcessWorker : IDisposable
 
                                 try
                                 {
-                                    try { File.Delete(corePath); } catch { }
+                                    try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                                     File.Move(bestPath, corePath, overwrite: true);
                                     haveBest = false;
                                     finalActualSize = bestSize;
@@ -1103,7 +1175,7 @@ public class ProcessWorker : IDisposable
                 }
                 finally
                 {
-                    if (File.Exists(bestPath)) { try { File.Delete(bestPath); } catch { } }
+                    if (File.Exists(bestPath)) { try { File.Delete(bestPath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
                 }
 
                 if (!success)
@@ -1164,7 +1236,7 @@ public class ProcessWorker : IDisposable
                     return;
                 }
 
-                try { File.Delete(corePath); } catch { }
+                try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
                 if (ThumbnailPosMs > 0)
                 {
@@ -1229,7 +1301,7 @@ public class ProcessWorker : IDisposable
                             catch (OperationCanceledException) { }
 
                             string thumbErr = string.Empty;
-                            try { thumbErr = await thumbErrTask; } catch { }
+                            try { thumbErr = await thumbErrTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
                             int thumbExit = ReadExitCodeSafely(p, "Thumbnail", graceMs: 2000);
                             bool thumbWritten = File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length > 0;
@@ -1249,7 +1321,7 @@ public class ProcessWorker : IDisposable
 
                                 if (File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length == 0)
                                 {
-                                    try { File.Delete(thumbnailOutput); } catch { }
+                                    try { File.Delete(thumbnailOutput); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                                 }
                             }
                         }
@@ -1268,7 +1340,7 @@ public class ProcessWorker : IDisposable
             }
             finally
             {
-                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch { }
+                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
         catch (OperationCanceledException)
@@ -1396,7 +1468,7 @@ public class ProcessWorker : IDisposable
                 "-ss", (measureStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-t", ((measureEndMs - measureStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-i", InputPath,
-                "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+                "-af", "loudnorm=I=-23:TP=-1.5:LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",
                 "-f", "null", "-"
             };
@@ -1416,11 +1488,11 @@ public class ProcessWorker : IDisposable
             using var process = Process.Start(psi);
             if (process == null) return;
 
-            try { ChildProcessTracker.AddProcess(process); } catch { }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             using var loudnormKill = cancellationToken.Register(() =>
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             });
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
@@ -1531,7 +1603,7 @@ public class ProcessWorker : IDisposable
         if (_loudnorm is null) return null;
 
         var ci = CultureInfo.InvariantCulture;
-        return "loudnorm=I=-14:TP=-1.5:LRA=11:linear=true" +
+        return "loudnorm=I=-23:TP=-1.5:LRA=11:linear=true" +
                $":measured_I={_loudnorm.InputI.ToString("F2", ci)}" +
                $":measured_TP={_loudnorm.InputTp.ToString("F2", ci)}" +
                $":measured_LRA={_loudnorm.InputLra.ToString("F2", ci)}" +
@@ -1575,9 +1647,9 @@ public class ProcessWorker : IDisposable
                     proc.Kill(entireProcessTree: true);
                 }
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
-            try { proc.Dispose(); } catch { }
+            try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             _currentProcess = null;
         }
     }

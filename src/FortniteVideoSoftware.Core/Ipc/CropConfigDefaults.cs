@@ -4,8 +4,49 @@ namespace FortniteVideoSoftware.Core.Ipc;
 
 public static class CropConfigDefaults
 {
-    public const int SchemaVersion = 3;
+    /// <summary>
+    /// v4 (IDEA_1) added the optional "crops_source" section — see <see cref="SourceCropsSection"/>.
+    /// It is purely additive: a v3 file loads unchanged and the source rects are derived once.
+    /// </summary>
+    public const int SchemaVersion = 4;
+
+    /// <summary>
+    /// The OLDEST schema this build can still read and upgrade in place.
+    ///
+    /// CRITICAL — <see cref="CropConfigStore.IsUsableConfig"/> used to compare against
+    /// <see cref="SchemaVersion"/> itself, meaning any config written by an older build was
+    /// declared unusable and REPLACED with factory defaults. Bumping the version to 4 for IDEA_1
+    /// would therefore have destroyed every user's saved masks on first launch, and every future
+    /// bump would do the same.
+    ///
+    /// 3 is the first version that stored crops in content space, so anything from 3 upward can be
+    /// read as-is and upgraded by HudConfig.Sanitize. Only raise this if a change genuinely makes
+    /// older data unreadable — and if you do, migrate rather than discard.
+    /// </summary>
+    public const int MinimumUsableSchemaVersion = 3;
+
     public const string CoordinateSpace = "content_1080x1620";
+
+    /// <summary>
+    /// IDEA_1 — the AUTHORITATIVE crop rectangles, in SOURCE-video pixels, `[width, height, x, y]`
+    /// to match "crops_1080p".
+    ///
+    /// WHY THIS EXISTS. "crops_1080p" is content-space, and converting content -> source and back
+    /// again is LOSSY: CoordinateMath.TransformToContentAreaInt and
+    /// InverseTransformFromContentAreaInt both round strictly OUTWARD on purpose (the export crop
+    /// must COVER the selection or HUD pixels get clipped). Composing them therefore grows the rect
+    /// by up to 2px per axis. That was harmless while saved layers could not be reopened for
+    /// editing — nothing iterated the conversion. The moment the Crop Tool rehydrates a saved layer
+    /// into an editable box, every open/save cycle would compound that growth.
+    ///
+    /// Storing the source rect removes the round trip entirely: editing reads these numbers
+    /// directly and never converts backwards. "crops_1080p" stays the single input the exporter
+    /// reads, so nothing downstream changes.
+    ///
+    /// MISSING IS LEGAL. A v3 file has no such section; the Crop Tool derives it once via the
+    /// inverse transform (a single outward snap, exactly what happens today) and writes it back.
+    /// </summary>
+    public const string SourceCropsSection = "crops_source";
 
     public static readonly string[] RequiredSections =
     [
@@ -17,10 +58,27 @@ public static class CropConfigDefaults
 
     /// <summary>
     /// Creates the default crop configuration.
-    /// IMPORTANT: The crop rectangles (crops_1080p) use [width, height, x, y] format
-    /// in content-space (1080x1620) coordinates. These MUST be non-zero, otherwise
-    /// MobileFilterBuilder rejects all layers and no HUD overlays (HP, loot, minimap)
-    /// are rendered in the portrait output.
+    ///
+    /// The crop rectangles (crops_1080p) use [width, height, x, y] format in content-space
+    /// (1080x1620) coordinates. A layer is rendered only when width and height are both >= 1:
+    /// MobileFilterBuilder's RegisterLayer skips anything smaller, and the Crop Tools ghost
+    /// renderer skips w &lt;= 1 || h &lt;= 1. A zero-size rect is therefore the canonical way to
+    /// express "this layer is switched off" — see the deletion handling in
+    /// CropToolWindow.SaveConfig.
+    ///
+    /// Negative X is normal and load-bearing, not a bug. Content X = 0 corresponds to source
+    /// X ~= 599.6 for a 1920x1080 input, because the 1280-wide internal window is a centre crop of
+    /// the 3414-wide scaled frame (see CoordinateMath.ScalePlan). HUD elements near the left edge
+    /// of the source therefore land at negative content X, which is why
+    /// CoordinateMath.ClampContentCrop deliberately permits a wide negative range.
+    ///
+    /// ISSUE_6: this comment previously listed "minimap" among the overlays these defaults render.
+    /// It does not — the six keys below are the complete shipped set, and they match
+    /// HudConfig.HudKeys exactly. HudConfig.CropDriftType still recognises "map"/"minimap" because
+    /// the Crop Tool lets the user name a custom element freely and HudConfig.Sanitize admits
+    /// arbitrary keys, so a user-created minimap layer does receive the +1px LEFT bias. No default
+    /// minimap rectangle is shipped, and none has been invented here.
+    ///
     /// Values ported from the original Python crops_coordinations.conf.
     /// </summary>
     public static JsonObject Create()

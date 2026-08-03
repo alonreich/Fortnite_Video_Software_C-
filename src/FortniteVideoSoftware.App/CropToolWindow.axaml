@@ -11,7 +11,8 @@
         CanResize="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30"
-        WindowStartupLocation="Manual">
+        WindowStartupLocation="Manual"
+        DragDrop.AllowDrop="True">
 
     <Border Name="MainBorder"
             Background="{DynamicResource AppSurfaceBrush}"
@@ -20,8 +21,7 @@
         <Grid RowDefinitions="30,*">
             <Border Name="TitleBarBorder"
                     Grid.Row="0"
-                    Background="{DynamicResource TitleBarBackground}"
-                    IsHitTestVisible="False">
+                    Background="{DynamicResource TitleBarBackground}">
                 <TextBlock Classes="WindowTitleText"
                            Text="{Binding $parent[Window].Title}"
                            Foreground="{DynamicResource TitleBarForeground}" />
@@ -41,16 +41,21 @@
                                      header Border they sit on is AppPanelBrush, so the old value gave
                                      literally zero contrast in both Dark and Light. -->
                                 <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" Margin="40,0,40,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>
-                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" Classes="WizDotActive" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <!-- ISSUE_14 (audit round 5): the suite has TWO three-step wizards that share the
+                                     WizDot*/WizIcon*/WizLabel* classes but shipped different geometry — these dots
+                                     were 24px/CornerRadius 100/FontSize12 while MusicWizardWindow's are
+                                     32px/CornerRadius 16/FontSize14. Aligned to the MusicWizard values so the
+                                     "where am I in this flow" signal is identical in both tools. -->
+                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" Classes="WizDotActive" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Classes="WizLabelActive" Text="Upload" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Classes="WizLabelPending" Text="Crop" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="100" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
+                                    <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Classes="WizLabelPending" Text="Save" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                             </Grid>
@@ -126,8 +131,8 @@
                                          via FindControl("RoleTextBox") in the code-behind, so behaviour is
                                          unchanged — only the phantom binding is gone. -->
                                     <TextBox Name="RoleTextBox"
-                                             Text="{Binding $parent[local:CropToolWindow].RoleName, Mode=TwoWay}"
                                              Watermark="Element Name (e.g. Ammo)"
+                                             Text="{Binding $parent[local:CropToolWindow].RoleName, Mode=TwoWay}"
                                              HorizontalAlignment="Stretch"
                                              Foreground="{DynamicResource AppTextPrimaryBrush}"
                                              Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
@@ -139,9 +144,15 @@
                                            VerticalAlignment="Center"
                                            FontSize="{DynamicResource AppFontSize11}"
                                            Margin="12,0,12,0" />
+                                <!-- ISSUE_08 (audit round 5): was Classes="Success". Green Success is the
+                                     suite's TERMINAL-COMMIT colour, and this window already spends it on
+                                     "FINISH & SAVE" (SaveButton). Two identical greens meant nothing told
+                                     the user which click ends the session. ADD SELECTION is the repeatable,
+                                     undoable step action of the current sub-task, so it is Primary (blue);
+                                     Success is now reserved for the single button that writes the config. -->
                                 <Button Name="AddSelectionButton"
                                         Grid.Column="2"
-                                        Classes="Success"
+                                        Classes="Primary"
                                         Content="ADD SELECTION"
                                         ToolTip.Tip="Add the drawn bounding box as a new HUD crop layer."
                                         IsEnabled="False" />
@@ -204,10 +215,10 @@
                             Padding="16,5">
                         <Grid ColumnDefinitions="Auto, *, Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
-                                <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" MinWidth="120" ToolTip.Tip="Click here to pick a video from your computer." />
-                                <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" MinWidth="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" />
-                                <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" MinWidth="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" />
-                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" MinWidth="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" />
+                                <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" MinWidth="120" ToolTip.Tip="Click here to pick a video from your computer." Cursor="Hand" />
+                                <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" MinWidth="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" Cursor="Hand" />
+                                <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" MinWidth="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" Cursor="Hand" />
+                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" MinWidth="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" Cursor="Hand" />
                             </StackPanel>
                             
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
@@ -249,7 +260,7 @@
                                 <!-- ISSUE_04: dropped `x:CompileBindings="False" Text="{Binding
                                      NewMaskOverlayName, Mode=TwoWay}"` — same phantom-property/null-DataContext
                                      defect as RoleTextBox above. Read via FindControl("NewMaskOverlayTextBox"). -->
-                                <TextBox Name="NewMaskOverlayTextBox" Text="" Watermark="New profile name..." HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
+                                <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." Text="{Binding $parent[local:CropToolWindow].NewMaskOverlayName, Mode=TwoWay}" HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
                             </StackPanel>
                             <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="{DynamicResource AppFontSize10}" />
                         </Grid>
@@ -265,6 +276,7 @@
                                       Content="Show Existing Crops"
                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                       IsChecked="False"
+                                      MinHeight="44"
                                       ToolTip.Tip="Toggle the visibility of previously saved crops on the canvas."
                                       VerticalAlignment="Center" />
                             <Slider Name="PlaceholderOpacitySlider"
@@ -281,6 +293,7 @@
                                       Content="Snap"
                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
                                       IsChecked="True"
+                                      MinHeight="44"
                                       VerticalAlignment="Center"
                                       ToolTip.Tip="Turn the 'Magnetic Pull' on or off. Blue lines will always help you align things." />
                             <Button Name="SaveButton"
@@ -304,11 +317,22 @@
                                  exact 1:1 alignment at any window size or DPI. Pointer positions
                                  obtained via GetPosition(PortraitCanvas) are automatically
                                  transformed back into 1080x1920 space by Avalonia. -->
+                            <!-- IDEA_4: real device chrome around the composer.
+                                 The bezel is a SIBLING wrapper placed OUTSIDE the 1080x1920 grid, so the
+                                 composer keeps its exact coordinate space and GetPosition(PortraitCanvas)
+                                 still returns true 1080x1920 pixels — the Viewbox simply scales a slightly
+                                 larger box. Everything drawn on top of the canvas is IsHitTestVisible="False"
+                                 so it can never swallow a drag. Colours reuse the PhoneFrameMockup device
+                                 tokens (AppPhoneBezel*/AppPhoneChrome*), which are deliberately
+                                 theme-agnostic: a phone bezel is black in Light and Dark alike. -->
                             <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Grid Name="ComposerPhoneShell" Margin="26">
+                                <Border Width="1108" Height="1948" BorderBrush="{DynamicResource AppPhoneBezelRimBrush}" BorderThickness="7" CornerRadius="72" IsHitTestVisible="False"/>
+                                <Border Width="1094" Height="1934" BorderBrush="{DynamicResource AppPhoneBezelBrush}" BorderThickness="11" CornerRadius="66" IsHitTestVisible="False"/>
                             <Grid Width="1080" Height="1920">
                                 <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
                                 <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.22" />
-                                
+
                                 <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
 
                                 <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
@@ -340,6 +364,24 @@
                                     <Rectangle Grid.Row="0" Fill="{DynamicResource AppVideoSurfaceBrush}" />
                                     <Rectangle Grid.Row="2" Fill="{DynamicResource AppVideoSurfaceBrush}" />
                                 </Grid>
+
+                                <!-- IDEA_4: phone status bar and home indicator, drawn INSIDE the two
+                                     150px reserved bands so they never cover a single pixel of the
+                                     1620px content area. Purely decorative and non-hit-testable. -->
+                                <Grid Height="150" VerticalAlignment="Top" Margin="34,10,34,0" IsHitTestVisible="False">
+                                    <TextBlock Text="9:41" Foreground="{DynamicResource AppPhoneChromeBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,6,0,0"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="14" Margin="0,10,0,0">
+                                        <TextBlock Text="5G" Foreground="{DynamicResource AppPhoneChromeBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Border BorderBrush="{DynamicResource AppPhoneChromeMutedBrush}" BorderThickness="3" CornerRadius="8" Width="62" Height="30" Padding="3" VerticalAlignment="Center">
+                                            <Border Background="{DynamicResource AppPhoneChromeBrush}" CornerRadius="3" Width="30" HorizontalAlignment="Left"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                                <Border Height="9" Width="380" CornerRadius="5"
+                                        Background="{DynamicResource AppPhoneChromeMutedBrush}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                        Margin="0,0,0,46" IsHitTestVisible="False"/>
+                            </Grid>
                             </Grid>
                             </Viewbox>
                         </Border>
@@ -384,12 +426,14 @@
                                          FontSize="{DynamicResource AppFontSize11}" />
                                 <TextBlock Name="EmptyLayersText"
                                            Grid.Row="1"
-                                           Text="No layers added yet."
+                                           Text="Draw a box on the canvas to create a layer."
                                            Foreground="{DynamicResource AppTextMutedBrush}"
                                            FontSize="{DynamicResource AppFontSize11}"
                                            FontStyle="Italic"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis"
                                            IsHitTestVisible="False" />
                             </Grid>
                         </Border>

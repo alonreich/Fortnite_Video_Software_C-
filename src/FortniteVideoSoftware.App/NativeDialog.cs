@@ -23,7 +23,7 @@ public static partial class NativeDialog
                 if (handle != null) return handle.Handle;
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         return IntPtr.Zero;
     }
 

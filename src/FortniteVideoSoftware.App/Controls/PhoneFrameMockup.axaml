@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="FortniteVideoSoftware.App.Controls.PhoneFrameMockup"
              IsHitTestVisible="False">
@@ -36,23 +36,70 @@
     scaled by the same 2/3 so the status/home indicators stay proportional.
     ================================================================================================
     -->
-    <Viewbox Stretch="Uniform">
+    <!--
+    ================================================================================================
+    MASK OVERFLOW — why the two side masks carry huge negative margins.
+    ================================================================================================
+    This whole mock-up lives in a Viewbox with Stretch="Uniform", so the 1920x1080 grid below is
+    scaled to FIT its container and centred. Whenever the container is not exactly 16:9 — which is
+    the normal case for the Granular editor's video pane and the Main App preview — that leaves
+    pillarbox bars to the left and right (or letterbox bars above and below) of the scaled content.
+
+    The masks used to be plain 600-unit columns, so they covered only as far as the scaled grid
+    reached. The bars beyond it stayed BRIGHT: the centre dimmed correctly and the far left and
+    right edges suddenly did not, which is exactly the reported symptom. Those outer bars are just
+    as discarded by the portrait crop as everything else outside the 720-unit slice.
+
+    Negative margins let each mask paint far outside the grid without changing the grid's measured
+    size, so the Viewbox's uniform scale — and therefore every coordinate in this control — is
+    completely unaffected. The overflow is bounded by the HOST, which clips: the Granular video
+    Border and the Main App video Grid both set ClipToBounds="True". Do not "tidy" these margins
+    away, and do not turn clipping back on for the Viewbox.
+    ================================================================================================
+    -->
+    <Viewbox Stretch="Uniform" ClipToBounds="False">
         <Grid Width="1920" Height="1080" ClipToBounds="False">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="600" />
                 <ColumnDefinition Width="720" />
                 <ColumnDefinition Width="600" />
             </Grid.ColumnDefinitions>
-            <Border Grid.Column="0" Background="{DynamicResource AppPortraitMaskBrush}" />
-            <Border Grid.Column="2" Background="{DynamicResource AppPortraitMaskBrush}" />
-            <Grid Grid.Column="1" Width="720" Height="1280" VerticalAlignment="Center" ClipToBounds="False">
+            <Border Grid.Column="0" Background="{DynamicResource AppPortraitMaskBrush}" Margin="-4000,-4000,0,-4000" />
+            <Border Grid.Column="2" Background="{DynamicResource AppPortraitMaskBrush}" Margin="0,-4000,-4000,-4000" />
+            <Grid Grid.Column="1" Width="720" Height="1080" VerticalAlignment="Center" ClipToBounds="False">
                 <Border BorderBrush="{DynamicResource AppPhoneBezelRimBrush}" BorderThickness="4" CornerRadius="40" Margin="-4"/>
                 <Border BorderBrush="{DynamicResource AppPhoneBezelBrush}" BorderThickness="6" CornerRadius="38" Margin="-2"/>
                 <Border CornerRadius="32" ClipToBounds="True">
                     <Grid>
                         <Border Height="100" Background="{DynamicResource AppPhoneBezelBrush}" VerticalAlignment="Top" />
                         <Border Height="100" Background="{DynamicResource AppPhoneBezelBrush}" VerticalAlignment="Bottom" />
-                        <Image Name="PortraitImage" Height="70" VerticalAlignment="Top" HorizontalAlignment="Center" Stretch="Uniform" Margin="0,28,0,0" />
+                        <!--
+                        TEXT STRIP — MAPS 1:1 ONTO THE EXPORTED 150px BAND. DO NOT SHRINK IT.
+
+                        The exporter overlays the text picture at 0,0 on the 1080x1920 canvas
+                        (MobileFilterBuilder line 157), so it fills the whole 1080x150 top band edge
+                        to edge. TextOverlayGenerator.GeneratePng always produces exactly 1080x150 —
+                        both call sites use the defaults (MainWindow line 2137, ProcessWorker line
+                        290) — and 1080/150 is 7.2, precisely the same shape as this 720x100 bar
+                        (720/100 = 7.2). So filling the bar reproduces the export exactly, with no
+                        distortion. Stretch="Fill" states that intent; because the two shapes match,
+                        it behaves identically to Uniform while making a future size mismatch
+                        obvious instead of silently letterboxing.
+
+                        WHAT THIS REPLACED: Height="70" with Margin="0,28,0,0". Uniform then forced
+                        the width to 70 x 7.2 = 504 units inside a 720-unit screen, so the preview
+                        showed your text at 70% of its real width and pushed 28% down the band. That
+                        ratio dated back to the original 720x1080 mock-up and survived the later
+                        geometry fix unchanged, so it had never matched the export.
+
+                        ZIndex: the decorative status bar below is declared after this image and
+                        would otherwise paint over it. The real export has no status bar — the text
+                        is the only thing in that band — so when long text wraps upward and reaches
+                        the chrome, the text must win. That is what actually renders.
+                        -->
+                        <Image Name="PortraitImage" Width="720" Height="100" ZIndex="1"
+                               VerticalAlignment="Top" HorizontalAlignment="Center"
+                               Stretch="Fill" Margin="0" />
                         <Grid Height="100" VerticalAlignment="Top" Margin="20,8,20,0">
                             <TextBlock Text="9:41" Foreground="{DynamicResource AppPhoneChromeBrush}" FontSize="{DynamicResource AppFontSize28}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,4,0,0"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="24" Margin="0,5,0,0">

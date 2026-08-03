@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -276,7 +276,7 @@ public partial class MusicWizardWindow : Window
                 if (mSlider != null && state.TryGetPropertyValue("WizardMusicVolume", out var mvNode) && mvNode != null)
                     mSlider.Value = mvNode.GetValue<double>();
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
@@ -474,7 +474,7 @@ public partial class MusicWizardWindow : Window
                         }
                     }
                 }
-                catch { }
+                catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
                 Avalonia.Platform.Storage.IStorageFolder? musicFolder = null;
                 try
@@ -482,7 +482,7 @@ public partial class MusicWizardWindow : Window
                     var uri = new Uri(musicPath);
                     musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(uri);
                 }
-                catch { }
+                catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
 
@@ -516,7 +516,7 @@ public partial class MusicWizardWindow : Window
 
                     }
 
-                    catch { }
+                    catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
 
                     await ScanDirectoryForMusicAsync(selectedFolderPath);
@@ -763,18 +763,14 @@ public partial class MusicWizardWindow : Window
         };
 
 
-        var cancelBtn = this.FindControl<Button>("CancelBtn");
-
-        if (cancelBtn != null) cancelBtn.Click += (s, e) =>
-
+        var confirmCancelBtn = this.FindControl<Button>("ConfirmCancelBtn");
+        if (confirmCancelBtn != null) confirmCancelBtn.Click += (s, e) =>
         {
-
-            RuntimeLog.Info("UI", "User clicked Cancel in Music Wizard.");
-
+            var btn = this.FindControl<Button>("CancelBtn");
+            btn?.Flyout?.Hide();
+            RuntimeLog.Info("UI", "User confirmed Cancel in Music Wizard.");
             StopPreview();
-
             Close();
-
         };
 
 
@@ -1091,16 +1087,16 @@ public partial class MusicWizardWindow : Window
 
     private void CancelAudioAnalysis()
     {
-        try { _audioAnalysisCts?.Cancel(); } catch { }
-        try { _audioAnalysisCts?.Dispose(); } catch { }
+        try { _audioAnalysisCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _audioAnalysisCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         _audioAnalysisCts = null;
     }
 
     private void CancelMusicScan()
     {
         Interlocked.Increment(ref _musicScanVersion);
-        try { _musicScanCts?.Cancel(); } catch { }
-        try { _musicScanCts?.Dispose(); } catch { }
+        try { _musicScanCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _musicScanCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         _musicScanCts = null;
     }
 
@@ -1130,6 +1126,7 @@ public partial class MusicWizardWindow : Window
             foreach (string arg in peakArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
+            using var _processCleanup = process;
             if (process == null) return null;
             ChildProcessTracker.AddProcess(process);
 
@@ -1218,7 +1215,7 @@ public partial class MusicWizardWindow : Window
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             throw;
         }
         catch (Exception ex)
@@ -1228,7 +1225,7 @@ public partial class MusicWizardWindow : Window
         }
         finally
         {
-            try { process?.Dispose(); } catch { }
+            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
     }
 
@@ -1595,7 +1592,7 @@ public partial class MusicWizardWindow : Window
                 }
             }
         }
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
     }
 
     private void SaveRecentMusicPins(System.Collections.Generic.IEnumerable<string> selectedPaths)
@@ -1623,7 +1620,7 @@ public partial class MusicWizardWindow : Window
                     ["RecentMusicPaths"] = recentArray
                 });
         }
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
     }
 
     private void HandleSongOffsetKeyDown(KeyEventArgs e)
@@ -1984,16 +1981,17 @@ public partial class MusicWizardWindow : Window
             foreach (string arg in stripArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
+            using var _processCleanup = process;
             if (process == null) return null;
 
-            try { ChildProcessTracker.AddProcess(process); } catch { }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
             Task<string> stripOut = process.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> stripErr = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
             _ = await stripOut;
             string stripErrText = string.Empty;
-            try { stripErrText = await stripErr; } catch { }
+            try { stripErrText = await stripErr; } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
             if (process.ExitCode == 0 && File.Exists(tempPng)) return tempPng;
 
@@ -2007,17 +2005,17 @@ public partial class MusicWizardWindow : Window
             {
                 if (process != null && !process.HasExited) process.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch { }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
             throw;
         }
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         finally
         {
-            try { process?.Dispose(); } catch { }
+            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
         return null;
     }
@@ -2089,6 +2087,7 @@ public partial class MusicWizardWindow : Window
             foreach (string arg in seqArgs) psi.ArgumentList.Add(arg);
 
             process = Process.Start(psi);
+            using var _processCleanup = process;
             if (process == null) return null;
             ChildProcessTracker.AddProcess(process);
 
@@ -2111,11 +2110,11 @@ public partial class MusicWizardWindow : Window
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch { }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
 
             throw;
@@ -2125,12 +2124,12 @@ public partial class MusicWizardWindow : Window
             RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to generate sequence waveform: {ex.Message}");
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch { }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
         }
         finally
         {
-            try { process?.Dispose(); } catch { }
+            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
 
         return null;
@@ -2283,7 +2282,7 @@ public partial class MusicWizardWindow : Window
                 var videosToThumb = (_isMergerMode && _mergerVideos != null && _mergerVideos.Count > 0) 
                     ? _mergerVideos : new System.Collections.Generic.List<string> { _videoPath };
                 
-                foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch { } }
+                foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); } }
                 _lastPhase3ThumbFiles.Clear();
 
                 double totalDur = 0;
@@ -2371,7 +2370,7 @@ public partial class MusicWizardWindow : Window
                             _lastPhase3WaveFile = wavePath;
                             UpdatePhase3WaveformLaneWidth();
                         }
-                        catch { }
+                        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
                     }
                 }
             }
@@ -2415,8 +2414,8 @@ public partial class MusicWizardWindow : Window
     private void CancelPhase3Load()
     {
         _phase3LoadVersion++;
-        try { _phase3LoadCts?.Cancel(); } catch { }
-        try { _phase3LoadCts?.Dispose(); } catch { }
+        try { _phase3LoadCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _phase3LoadCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         _phase3LoadCts = null;
         _phase3Ready = false;
     }
@@ -2596,7 +2595,7 @@ public partial class MusicWizardWindow : Window
             if (musicVolSlider != null) updates["WizardMusicVolume"] = musicVolSlider.Value;
             new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(updates);
         }
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
     }
 
     private void UpdatePhase3WaveformLaneWidth()
@@ -2981,7 +2980,7 @@ public partial class MusicWizardWindow : Window
     {
         if (!string.IsNullOrEmpty(path) && File.Exists(path))
         {
-            try { File.Delete(path); } catch { }
+            try { File.Delete(path); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
         path = null;
     }
@@ -3230,7 +3229,7 @@ public partial class MusicWizardWindow : Window
         {
             if (pngFile != null && File.Exists(pngFile))
             {
-                try { File.Delete(pngFile); } catch { }
+                try { File.Delete(pngFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
             return;
         }
@@ -3257,7 +3256,7 @@ public partial class MusicWizardWindow : Window
 
                 {
 
-                    try { File.Delete(_lastWaveformFile); } catch { }
+                    try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
                 }
 
@@ -3834,9 +3833,9 @@ public partial class MusicWizardWindow : Window
         CancelMusicScan();
         if (_lastWaveformFile != null && File.Exists(_lastWaveformFile))
         {
-            try { File.Delete(_lastWaveformFile); } catch { }
+            try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
-        foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch { } }
+        foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); } }
         _lastPhase3ThumbFiles.Clear();
         DeleteTempFile(ref _lastPhase3WaveFile);
         StopPreview();
@@ -3847,7 +3846,7 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            try { _audioIpcClient.Dispose(); } catch { }
+            try { _audioIpcClient.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
             _audioIpcClient = null;
 
@@ -3913,9 +3912,7 @@ public partial class MusicWizardWindow : Window
                 }
             }
         }
-        catch
-        {
-        }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
         return Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
     }
@@ -3941,7 +3938,7 @@ public partial class MusicWizardWindow : Window
 
         }
 
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
 
         if (string.IsNullOrWhiteSpace(targetDir) || !Directory.Exists(targetDir))
@@ -4250,7 +4247,7 @@ public partial class MusicWizardWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
                 }
             };
         }

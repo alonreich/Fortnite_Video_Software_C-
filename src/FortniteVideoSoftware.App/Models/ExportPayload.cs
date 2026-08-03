@@ -15,17 +15,12 @@ public record ExportPayload
     public double BaseSpeed { get; init; }
     public bool ThumbnailSet { get; init; }
     public double ThumbnailPosMs { get; init; }
+    public double ThumbnailDurationSec { get; init; }
     
-    // Voice Over
     public string? VoiceOverWavPath { get; init; }
     public double VoiceOverStartSec { get; init; }
     public List<VoiceOverTake>? VoiceOverTakes { get; init; }
-    public bool VoiceOverMuteMale { get; init; }
-    public bool VoiceOverMuteFemale { get; init; }
-    public bool VoiceOverMuteChild { get; init; }
-    public double VoiceOverMuteMaleHz { get; init; }
-    public double VoiceOverMuteFemaleHz { get; init; }
-    public double VoiceOverMuteChildHz { get; init; }
+    public bool VoiceOverDuckAudio { get; init; }
     
     public string HardwareMode { get; init; } = "Auto";
     public double? SourceMeasuredLufs { get; init; }
@@ -40,7 +35,6 @@ public record ExportPayload
     public string? PortraitText { get; init; }
     public List<SpeedSegment>? SpeedSegments { get; init; }
     
-    // Missing wires
     public int QualityLevel { get; init; } = 7;
     public double? TargetMbOverride { get; init; }
     public bool MusicLeadFadeIn { get; init; } = true;

@@ -42,6 +42,20 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         } 
     }
 
+    private string _newMaskOverlayName = "";
+    public string NewMaskOverlayName
+    {
+        get => _newMaskOverlayName;
+        set
+        {
+            if (_newMaskOverlayName != value)
+            {
+                _newMaskOverlayName = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(NewMaskOverlayName)));
+            }
+        }
+    }
+
     public new event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     public event System.EventHandler<System.ComponentModel.DataErrorsChangedEventArgs>? ErrorsChanged;
 
@@ -152,6 +166,9 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         Loaded += async (_, _) =>
         {
             await InitializeMpvAsync();
+            // IDEA_1: rehydrate FIRST — LoadExistingPlaceholdersAsync skips any role that is now a
+            // real editable item, so the order here is what stops a box being drawn twice.
+            await RehydrateSavedLayersAsync();
             await LoadExistingPlaceholdersAsync();
 
             if (!string.IsNullOrWhiteSpace(_initialVideoPath) && File.Exists(_initialVideoPath))
@@ -220,6 +237,12 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
                 }
             };
         }
+
+        // IDEA_7: Crop Tools was the only app in the suite that could not accept a dropped file —
+        // the Main App and the Merger both do. Same handler shape as MainWindow.OnVideoDragOver /
+        // OnVideoDrop so the three windows behave identically.
+        this.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, OnVideoDragOver);
+        this.AddHandler(Avalonia.Input.DragDrop.DropEvent, OnVideoDrop);
 
         ButtonClick("OpenVideoButton", async (_, _) => await OpenVideoAsync());
         ButtonClick("SnapshotButton", async (_, _) => await TakeSnapshotAsync());
@@ -328,6 +351,11 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
 
         var timelinePanel = this.FindControl<Border>("TimelinePanel");
         var timelineCanvas = this.FindControl<Canvas>("CropTimelineMarkersCanvas");
+
+        // The seek canvas covers the slider and takes all pointer input, so it is the canvas that
+        // has to report hover/drag to the knob. See Controls/TimelineKnob.cs.
+        Controls.TimelineKnob.Attach(timelineCanvas, _timelineSlider);
+
         if (timelinePanel != null && timelineCanvas != null && _timelineSlider != null)
         {
             bool isScrubbingTimeline = false;
@@ -381,7 +409,12 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
 
                     FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(selected);
                     ResetWorkingState();
-                    _ = LoadExistingPlaceholdersAsync();
+                    // IDEA_1: same ordering rule as the Loaded handler — rehydrate, then ghosts.
+                    _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                    {
+                        await RehydrateSavedLayersAsync();
+                        await LoadExistingPlaceholdersAsync();
+                    });
                     SetStatus("Profile Loaded: " + selected);
                 }
             };
@@ -460,6 +493,51 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         await _videoHost.StartMpvProcessAsync(mpvPath);
     }
 
+    /// <summary>
+    /// IDEA_7 — extensions accepted by drag-and-drop. Deliberately the SAME list as the file
+    /// picker's FileTypeFilter in <see cref="OpenVideoAsync"/>; if one changes, change both.
+    /// </summary>
+    private static readonly string[] DroppableVideoExtensions =
+        [".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"];
+
+    private void OnVideoDragOver(object? sender, Avalonia.Input.DragEventArgs e)
+    {
+        bool hasFiles = e.Data.Contains(Avalonia.Input.DataFormats.Files)
+                        || e.Data.Contains(Avalonia.Input.DataFormats.FileNames)
+                        || e.Data.GetFiles()?.Any() == true;
+
+        e.DragEffects = hasFiles ? Avalonia.Input.DragDropEffects.Copy : Avalonia.Input.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnVideoDrop(object? sender, Avalonia.Input.DragEventArgs e)
+    {
+        try
+        {
+            var files = e.Data.GetFiles();
+            if (files == null) return;
+
+            foreach (var file in files)
+            {
+                string path = file.Path.LocalPath;
+                string ext = IOPath.GetExtension(path);
+                if (!DroppableVideoExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase)) continue;
+
+                RuntimeLog.Info("CROP", $"Video dropped onto Crop Tools: {IOPath.GetFileName(path)}");
+                await LoadVideoAsync(path, startPaused: true);
+                return;
+            }
+
+            SetStatus("Drop an MP4, MKV, AVI, MOV, WEBM or M4V file.");
+        }
+        catch (Exception ex)
+        {
+            // A drop must never take the window down — the payload comes from another process.
+            RuntimeLog.Fail("CROP", $"Dropped file could not be loaded: {ex.Message}");
+            SetStatus("That file could not be opened.");
+        }
+    }
+
     private async Task OpenVideoAsync()
     {
         var options = new FilePickerOpenOptions
@@ -517,7 +595,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
 
             if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
             {
-                try { Environment.CurrentDirectory = startPath; } catch { }
+                try { Environment.CurrentDirectory = startPath; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
             }
         }
@@ -667,6 +745,10 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             RuntimeLog.Debug("CROP", $"Snapshot path: {output}; source video path: {_videoPath}");
             await LoadSnapshotAsync(output);
             ShowSnapshotPanel();
+            // IDEA_1: a layer reopened for editing before any video was loaded has no picture yet.
+            // Now that a frame exists, fill them in. Fire-and-forget: a missing thumbnail is
+            // cosmetic and must never block entering the composer.
+            _ = RefreshRehydratedThumbnailsAsync();
         }
         catch (Exception ex)
         {
@@ -1047,6 +1129,9 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
 
             var item = CreateItem(new ItemSnapshot(role.Key, role.DisplayName, sourceRect, cropPath, x, y, width, height, z));
             _items.Add(item);
+            // ISSUE_2: re-drawing a role that was deleted earlier in this session cancels the
+            // pending deletion.
+            _deletedRoleKeys.Remove(role.Key);
             SelectItem(item);
             RefreshLayerList();
             MarkDirty();
@@ -1461,6 +1546,18 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             : new SolidColorBrush(Color.FromArgb(210, 0, 0, 0));
     }
 
+    /// <summary>
+    /// ISSUE_2 — role keys the user explicitly deleted this session.
+    ///
+    /// The editor is additive by design: _items only ever holds what the user drew in THIS session
+    /// (AddSelection) or what undo restored — LoadExistingPlaceholdersAsync draws previously saved
+    /// layers as read-only green ghosts and never turns them into editable items. SaveConfig
+    /// therefore merges into the config on disk rather than replacing it, which is correct and must
+    /// stay that way: pruning every key not in _items would wipe every layer the user did not
+    /// redraw. This set is the only signal that a removal was intentional.
+    /// </summary>
+    private readonly HashSet<string> _deletedRoleKeys = new(StringComparer.Ordinal);
+
     private void DeleteSelectedItem()
     {
         if (_selectedItem == null)
@@ -1468,6 +1565,10 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             return;
         }
 
+        // Recorded BEFORE RemoveItem, and only here: RemoveItem is also called by RestoreSnapshot
+        // (which clears every item before rebuilding) and by AddSelection (replacing a role), and
+        // neither of those is a user deletion.
+        _deletedRoleKeys.Add(_selectedItem.RoleKey);
         RemoveItem(_selectedItem);
         SelectItem(null);
         RefreshLayerList();
@@ -1487,7 +1588,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             (item.Image.Source as IDisposable)?.Dispose();
             item.Image.Source = null;
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         _items.Remove(item);
     }
@@ -1528,6 +1629,135 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         RefreshActionButtons();
     }
 
+    /// <summary>
+    /// IDEA_1 — turns previously saved layers back into REAL, draggable items.
+    ///
+    /// Before this existed the editor was write-only: saved layers appeared as read-only green
+    /// ghosts and the only way to change one was to delete it and redraw the whole box. _items was
+    /// filled solely by AddSelection and by undo restore.
+    ///
+    /// THE DRIFT TRAP THIS AVOIDS. The saved "crops_1080p" rect is content-space. Converting it
+    /// back to source pixels uses CoordinateMath.InverseTransformFromContentAreaInt, and saving
+    /// converts forward again with TransformToContentAreaInt — and BOTH round strictly outward by
+    /// design, so composing them grows the box up to 2px per axis, every single cycle. That is why
+    /// the source rect is now persisted separately (crops_source) and read back verbatim here.
+    /// The inverse transform is used ONLY as the one-time migration for a pre-v4 file, which costs
+    /// exactly the single outward snap that already happens today.
+    ///
+    /// Safe to call more than once: a role already present in _items is skipped.
+    /// </summary>
+    private async Task RehydrateSavedLayersAsync()
+    {
+        if (_portraitCanvas == null) return;
+
+        try
+        {
+            JsonObject config = await new CropConfigStore(_paths).LoadAsync();
+            JsonObject crops = EnsureObject(config, "crops_1080p");
+            JsonObject scales = EnsureObject(config, "scales");
+            JsonObject overlays = EnsureObject(config, "overlays");
+            JsonObject zOrders = EnsureObject(config, "z_orders");
+            JsonObject sourceCrops = EnsureObject(config, CropConfigDefaults.SourceCropsSection);
+
+            foreach (HudRole role in Roles)
+            {
+                if (_items.Any(i => string.Equals(i.RoleKey, role.Key, StringComparison.OrdinalIgnoreCase))) continue;
+                if (_deletedRoleKeys.Contains(role.Key)) continue;
+
+                if (crops[role.Key] is not JsonArray crop || crop.Count < 4) continue;
+
+                int cropW = ReadInt(crop[0], 0);
+                int cropH = ReadInt(crop[1], 0);
+                if (cropW <= 1 || cropH <= 1) continue;   // 0x0 marks a deleted layer
+
+                SourceRect sourceRect;
+                if (sourceCrops[role.Key] is JsonArray src && src.Count >= 4)
+                {
+                    sourceRect = new SourceRect(
+                        ReadInt(src[2], 0), ReadInt(src[3], 0),
+                        Math.Max(2, ReadInt(src[0], 2)), Math.Max(2, ReadInt(src[1], 2)));
+                }
+                else
+                {
+                    var derived = CoordinateMath.InverseTransformFromContentAreaInt(
+                        (ReadInt(crop[2], 0), ReadInt(crop[3], 0), cropW, cropH),
+                        _originalResolution,
+                        HudConfig.CropDriftType(role.Key));
+                    sourceRect = new SourceRect(derived.x, derived.y, derived.w, derived.h);
+                    RuntimeLog.Info("CROP", $"Migrated '{role.Key}' to a stored source rect (pre-v4 config).");
+                }
+
+                sourceRect = ClampSourceRect(sourceRect);
+
+                Frac scale = ReadFrac(scales[role.Key], Frac.One);
+                var (w, h) = CoordinateMath.QuantizeBackendSize(cropW, cropH, scale);
+
+                double ox = role.DefaultX, oy = role.DefaultY;
+                if (overlays[role.Key] is JsonObject ov)
+                {
+                    ox = ReadDouble(ov["x"], role.DefaultX);
+                    oy = ReadDouble(ov["y"], role.DefaultY);
+                }
+
+                int z = ReadInt(zOrders[role.Key], role.DefaultZ);
+
+                // The thumbnail needs a loaded frame. Without one the item is still fully editable —
+                // CreateItem tolerates a missing image and shows the outline and label — and
+                // RefreshRehydratedThumbnailsAsync fills the pictures in once a video is opened.
+                string cropImagePath = string.Empty;
+                if (_snapshotPath != null)
+                {
+                    try { cropImagePath = await CropSnapshotRegionAsync(_snapshotPath, sourceRect); }
+                    catch (Exception ex) { RuntimeLog.Info("CROP", $"Thumbnail for '{role.Key}' could not be built: {ex.Message}"); }
+                    if (!string.IsNullOrEmpty(cropImagePath)) _tempFiles.Add(cropImagePath);
+                }
+
+                var item = CreateItem(new ItemSnapshot(
+                    role.Key, role.DisplayName, sourceRect, cropImagePath,
+                    (int)Math.Round(ox), (int)Math.Round(oy), w, h, z));
+
+                _items.Add(item);
+            }
+
+            RefreshLayerList();
+            RefreshActionButtons();
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("CROP", $"Saved layers could not be reopened for editing: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// IDEA_1 — fills in the picture for any item rehydrated before a video was loaded.
+    /// Called after a snapshot is available. Items that already have an image are left alone.
+    /// </summary>
+    private async Task RefreshRehydratedThumbnailsAsync()
+    {
+        if (_snapshotPath == null) return;
+
+        foreach (CropEditorItem item in _items.ToList())
+        {
+            if (!string.IsNullOrEmpty(item.CropImagePath) && File.Exists(item.CropImagePath)) continue;
+
+            try
+            {
+                string path = await CropSnapshotRegionAsync(_snapshotPath, item.SourceRect);
+                if (string.IsNullOrEmpty(path)) continue;
+
+                _tempFiles.Add(path);
+                item.CropImagePath = path;
+
+                using var fs = File.OpenRead(path);
+                item.Image.Source = new Bitmap(fs);
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Info("CROP", $"Thumbnail refresh failed for '{item.RoleKey}': {ex.Message}");
+            }
+        }
+    }
+
     private async Task LoadExistingPlaceholdersAsync()
     {
         if (_portraitCanvas == null)
@@ -1555,6 +1785,14 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             {
                 if (crops[role.Key] is not JsonArray crop || crop.Count < 4 ||
                     overlays[role.Key] is not JsonObject overlay)
+                {
+                    continue;
+                }
+
+                // IDEA_1: a role that has been rehydrated into a real editable item must NOT also
+                // get a read-only ghost, or the user sees the same box twice and cannot tell which
+                // one responds to the mouse.
+                if (_items.Any(i => string.Equals(i.RoleKey, role.Key, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -1798,6 +2036,11 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             JsonObject overlays = EnsureObject(config, "overlays");
             JsonObject zOrders = EnsureObject(config, "z_orders");
 
+            // IDEA_1: the authoritative source-pixel rects. See CropConfigDefaults.SourceCropsSection
+            // for why these exist — without them, reopening a saved layer for editing would compose
+            // the two outward-rounding integer transforms and grow the box on every save.
+            JsonObject sourceCrops = EnsureObject(config, CropConfigDefaults.SourceCropsSection);
+
             foreach (CropEditorItem item in _items)
             {
                 var quantized = QuantizeItemSize(item.SourceRect, item.Width, item.RoleKey);
@@ -1817,6 +2060,10 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
                 (int ox, int oy) = ClampOverlay(item.X, item.Y, item.Width, item.Height);
 
                 crops[item.RoleKey] = new JsonArray(cropW, cropH, clampedCrop.x, clampedCrop.y);
+                // IDEA_1: same [w, h, x, y] order as crops_1080p, but in SOURCE pixels and written
+                // straight from the item — no transform, so nothing to round and nothing to drift.
+                sourceCrops[item.RoleKey] = new JsonArray(
+                    item.SourceRect.Width, item.SourceRect.Height, item.SourceRect.X, item.SourceRect.Y);
                 scales[item.RoleKey] = scale.ToString();
                 overlays[item.RoleKey] = new JsonObject
                 {
@@ -1827,10 +2074,43 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
                 RuntimeLog.Info("CROP", $"  Save item: {item.RoleKey} crop=[{cropW}x{cropH}+{clampedCrop.x}+{clampedCrop.y}] scale={scale} overlay=({ox},{oy}) z={item.Z}");
             }
 
+            // ISSUE_2: deleting a layer used to change nothing on disk — RemoveItem only touched
+            // _items and the preview canvas, and the merge loop above only ever OVERWRITES keys for
+            // surviving items. The deleted element stayed in the config and kept rendering in every
+            // export, while the preview showed it gone.
+            //
+            // The removal is expressed as a zero-size crop rather than by deleting the JSON keys.
+            // That is deliberate and required: HudConfig.Sanitize rebuilds its key set from
+            // HudConfig.HudKeys plus every key present, and falls back to CropConfigDefaults when a
+            // crop key is ABSENT — so deleting the key would resurrect the stock rectangle on the
+            // very next sanitize pass. A present-but-empty rect survives sanitizing intact
+            // (ClampContentCrop maps (0,0,x,y) to w=0,h=0) and is skipped by both consumers:
+            // MobileFilterBuilder requires rect[0] >= 1 && rect[1] >= 1, and
+            // LoadExistingPlaceholdersAsync skips w <= 1 || h <= 1.
+            foreach (string deletedKey in _deletedRoleKeys)
+            {
+                if (_items.Any(i => i.RoleKey == deletedKey)) continue;
+                if (crops[deletedKey] is null) continue;
+
+                crops[deletedKey] = new JsonArray(0, 0, 0, 0);
+                RuntimeLog.Info("CROP", $"  Save item: {deletedKey} removed (crop cleared to 0x0).");
+            }
+
             RuntimeLog.Info("CROP", $"Saving {_items.Count} item(s) to config (schema v{CropConfigDefaults.SchemaVersion}).");
             config["schema_version"] = CropConfigDefaults.SchemaVersion;
             config["coordinate_space"] = CropConfigDefaults.CoordinateSpace;
-            HudConfig.Sanitize(config);
+
+            // ISSUE_1: Sanitize is a PURE function — it deep-clones its input (HudConfig.cs) and
+            // returns the cleaned copy. This line used to discard that return value and then save
+            // the original, so the only write point in the Crop Tool wrote completely unsanitized
+            // data: no clamping, no scale normalisation, no overlay re-quantisation, no z-order
+            // defaults. The exporter sanitizes on read (VideoConfig.GetMobileCoordinatesAsync), so
+            // preview and export were being fed different numbers. Assigning the result is what
+            // makes the file on disk match what the exporter will actually use.
+            // Note the ordering: schema_version and coordinate_space are stamped BEFORE this call so
+            // Sanitize sees a current-space document and does not re-apply the legacy -150px Y
+            // migration to coordinates that are already in content space.
+            config = HudConfig.Sanitize(config);
             await store.SaveAsync(config);
 
             FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.SyncActiveProfileFromCurrentConfig();
@@ -1865,7 +2145,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             {
                 _ = Task.Run(async () =>
                 {
-                    try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { }
+                    try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
                 });
             }
@@ -1968,6 +2248,9 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             foreach (ItemSnapshot itemSnapshot in snapshot.Items)
             {
                 _items.Add(CreateItem(itemSnapshot));
+                // ISSUE_2: undoing a deletion brings the layer back, so it must no longer be
+                // scheduled for removal at save.
+                _deletedRoleKeys.Remove(itemSnapshot.RoleKey);
             }
 
             SelectItem(null);
@@ -2587,6 +2870,8 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
 
     protected override async void OnClosing(WindowClosingEventArgs e)
     {
+        try { _playheadBadgeTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _timelineTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         if (_isSafeToClose)
         {
             base.OnClosing(e);
@@ -2665,7 +2950,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             };
         }
@@ -2718,7 +3003,9 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         public required string RoleKey { get; init; }
         public required string DisplayName { get; init; }
         public required SourceRect SourceRect { get; set; }
-        public required string CropImagePath { get; init; }
+        /// <summary>IDEA_1: settable so RefreshRehydratedThumbnailsAsync can fill in the picture for
+        /// a layer that was reopened for editing before any video had been loaded.</summary>
+        public required string CropImagePath { get; set; }
         public required int X { get; set; }
         public required int Y { get; set; }
         public required int Width { get; set; }
@@ -2745,5 +3032,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
     {
         TopLeft,
         BottomRight
-    }
+    
+}
 }

@@ -103,7 +103,10 @@
 
                                     <TextBlock Grid.Row="1" Text="CHOOSE WHERE THE SONG BEGINS" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" Margin="0,0,0,5"/>
 
-                                    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" Height="120">
+                                    <!-- ISSUE_5: MinHeight (was a fixed Height="120") per the suite Font-Scale
+                                         Sizing Rule, so the waveform strip grows with the Settings font scale
+                                         instead of staying small while the labels around it get bigger. -->
+                                    <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" MinHeight="120">
                                         <Panel>
                                             <Image Name="WaveformImage" Stretch="Fill"/>
                                             <Canvas Name="WaveformCanvas" Classes="TimelineSeekSurface" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
@@ -127,8 +130,8 @@
                                         </Grid>
 
                                         <StackPanel Spacing="10" Margin="0,10,0,0">
-                                            <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
-                                            <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
+                                            <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
+                                            <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
                                         </StackPanel>
 
                                         <!-- MULTI SONG HELPER (Video Merger Mode) -->
@@ -155,11 +158,11 @@
                                                     </Border>
 
                                                     <!-- Loop Toggle -->
-                                                    <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" IsChecked="False" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
+                                                    <CheckBox Name="LoopMusicCheckBox" Content="Loop music until video ends" MinHeight="44" IsChecked="False" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Repeat the song from the beginning when it ends so music covers the entire video"/>
 
                                                     <Grid ColumnDefinitions="Auto,*">
                                                         <Button Grid.Column="0" Name="AutoFillSongsBtn" Classes="Primary" Content="Auto-Fill Remaining Time" HorizontalAlignment="Left" FontSize="{DynamicResource AppFontSize10}" ToolTip.Tip="Automatically add songs from your music folder to cover remaining silence in the video."/>
-                                                        <CheckBox Grid.Column="1" Name="AutoFillVisibleOnlyCheckBox" Content="Use visible search results for Auto-Fill" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" ToolTip.Tip="When enabled, Auto-Fill uses the current search and sort results."/>
+                                                        <CheckBox Grid.Column="1" Name="AutoFillVisibleOnlyCheckBox" Content="Use visible search results for Auto-Fill" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" ToolTip.Tip="When enabled, Auto-Fill uses the current search and sort results."/>
                                                     </Grid>
 
                                                     <Grid Name="AutoFillQueuePanel" RowDefinitions="Auto,Auto,Auto" IsVisible="False">
@@ -206,7 +209,9 @@
                                     </Border>
                                     <Border Name="Phase3VideoLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" IsHitTestVisible="False" IsVisible="False">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                                            <ProgressBar IsIndeterminate="True" Width="100" Height="4" Foreground="{DynamicResource AppAccentBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <!-- ISSUE_5: Min sizes (were fixed Width/Height) so the loading bar
+                                                 scales with the font setting like the text beside it. -->
+                                            <ProgressBar IsIndeterminate="True" MinWidth="100" MinHeight="4" Foreground="{DynamicResource AppAccentBrush}" Background="{DynamicResource AppPanelBrush}"/>
                                             <TextBlock Text="Initializing Video Preview..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center"/>
                                         </StackPanel>
                                     </Border>
@@ -215,27 +220,29 @@
                                 <Grid Grid.Row="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
                                     <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" Cursor="Hand" HorizontalAlignment="Stretch" ClipToBounds="False"/>
                                     <StackPanel Grid.Row="1" Spacing="0">
-                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60" Margin="0">
+                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" MinHeight="60" Margin="0">
                                             <Panel>
                                                 <Grid Name="ThumbnailLaneGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 <Border Name="Phase3ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                                        <!-- ISSUE_5: Min sizes, see the loading bar above. -->
+                                                        <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppPanelBrush}"/>
                                                         <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
                                             </Panel>
                                         </Border>
-                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" Height="60">
+                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" MinHeight="60">
                                             <Panel>
                                                 <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                                    <Image Name="WaveformLaneImage" Stretch="Fill" Height="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                    <Image Name="WaveformLaneImage" Stretch="Fill" MinHeight="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
                                                     <Canvas Name="WaveformOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
                                                 </Canvas>
                                                 <Border Name="Phase3WaveLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                                        <!-- ISSUE_5: Min sizes, see the loading bar above. -->
+                                                        <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppPanelBrush}"/>
                                                         <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
@@ -254,11 +261,17 @@
                                 <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="42" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
-                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
+                                        <!-- ISSUE_07 (audit round 5): Height="30" -> MinHeight="44". These were the
+                                             only two sliders in the suite pinned to a fixed height, and the global
+                                             Slider thumb (AvaloniaApp.axaml) is 44x44 — so the app's universal grab
+                                             handle was larger than the track it lived in. Fixed Height also violated
+                                             the Font-Scale Sizing Rule. -->
+                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
                                     </StackPanel>
                                     <StackPanel>
                                         <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
-                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" Height="30" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
+                                        <!-- ISSUE_07 (audit round 5): see VideoVolSlider above — fixed Height 30 -> MinHeight 44. -->
+                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
                                     </StackPanel>
                                     <StackPanel>
                                         <TextBlock Text="Export Ducking" Name="DuckingCompareLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
@@ -279,8 +292,30 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip nav button labels -->
-                        <!-- ISSUE_08 (audit round 4): CANCEL is Secondary suite-wide (red = destructive data loss only) -->
-                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Secondary" MinWidth="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving"/>
+                        <!-- ISSUE_03 (audit round 5): the previous comment here claimed "CANCEL is
+                             Secondary suite-wide" while the button below is Danger — a copy-paste of
+                             SettingsWindow's note that never matched this file. The suite actually has
+                             TWO cancel tiers and this button is correctly in the second one:
+                               TIER 1 — Secondary (grey): CANCEL closes a screen and destroys nothing.
+                                        SettingsWindow.axaml CancelBtn, VoiceOverWindow.axaml CancelButton.
+                                        No confirm flyout.
+                               TIER 2 — Danger (red) + confirm Flyout: CANCEL discards unsaved session
+                                        work. MainWindow CancelButton (kills a running export),
+                                        GranularSpeedEditorWindow CancelGranularBtn (discards segments),
+                                        and THIS button (discards the whole music selection/mix).
+                             Red therefore still means "data loss", which is the rule the old comment was
+                             reaching for. Do not demote this to Secondary without also removing the
+                             flyout — that would make it inconsistent with its real peer, Granular. -->
+                        <Button Grid.Column="0" Name="CancelBtn" Content="CANCEL" Classes="Danger" MinWidth="90" HorizontalContentAlignment="Center" ToolTip.Tip="Cancel and close the wizard without saving">
+                            <Button.Flyout>
+                                <Flyout Placement="Top">
+                                    <StackPanel Spacing="8" Margin="8">
+                                        <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                                        <Button Name="ConfirmCancelBtn" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently cancel and close the wizard." />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
                             <Button Name="SkipBackBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
                                 <TextBlock Text="-30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />

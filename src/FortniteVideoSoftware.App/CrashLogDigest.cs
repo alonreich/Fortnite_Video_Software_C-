@@ -62,13 +62,18 @@ internal static class CrashLogDigest
             var readOutput = proc.StandardOutput.ReadToEndAsync();
             var readError = proc.StandardError.ReadToEndAsync();
 
-            if (!proc.WaitForExit(15000))
+            using var cts = new System.Threading.CancellationTokenSource(15000);
+            try
             {
-                try { proc.Kill(); } catch (Exception ex) { RuntimeLog.Info("EVENTLOG DIGEST", $"Failed to kill wevtutil process: {ex.Message}"); }
+                await proc.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(true); } catch (Exception ex) { RuntimeLog.Info("EVENTLOG DIGEST", $"Failed to kill wevtutil process: {ex.Message}"); }
             }
 
-            string output = await readOutput;
-            _ = await readError;
+            string output = await readOutput.ConfigureAwait(false);
+            _ = await readError.ConfigureAwait(false);
 
             int ingested = 0;
             if (!string.IsNullOrWhiteSpace(output))

@@ -1,4 +1,4 @@
-﻿using FortniteVideoSoftware.Core.Media;
+using FortniteVideoSoftware.Core.Media;
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.App;
@@ -38,7 +38,7 @@ public static class Phase4Gate
             ("threshold=0.15:ratio=2.5",                           "default ducking threshold/ratio (:229-231)"),
             ("[mus_low][mus_high_ducked]amix=",                    "low + ducked-high recombine (:234)"),
             ("[game_trig]highpass=f=200,lowpass=f=3500",           "sidechain trigger band-pass"),
-            ("[game_leveled]asplit=2[game_out_pre][game_trig]",    "split happens AFTER levelling, so ducking is source-level independent"),
+            ("[game_leveled]asplit=2[game_out_pre_raw][game_trig]",    "split happens AFTER levelling, so ducking is source-level independent"),
         };
         foreach (var (needle, why) in duckChecks)
         {

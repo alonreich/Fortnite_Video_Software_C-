@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -279,7 +279,7 @@ public static class MemeCatalog
 
                     if (IsLfsPointer(tmp) || new FileInfo(tmp).Length == 0)
                     {
-                        try { File.Delete(tmp); } catch { }
+                        try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                         failures++;
                         RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
                         continue;
@@ -293,12 +293,12 @@ public static class MemeCatalog
                 }
                 catch (OperationCanceledException)
                 {
-                    try { File.Delete(tmp); } catch { }
+                    try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     throw;
                 }
                 catch (Exception exFile)
                 {
-                    try { File.Delete(tmp); } catch { }
+                    try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     failures++;
                     RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' failed: {exFile.Message}");
                 }

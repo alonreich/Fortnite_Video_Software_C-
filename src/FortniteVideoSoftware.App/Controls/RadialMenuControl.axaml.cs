@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -47,13 +47,17 @@ public partial class RadialMenuControl : UserControl
         
         for (int i = 0; i < _items.Count; i++)
         {
+            var textBlock = new TextBlock { Text = _items[i].Text, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, FontWeight = Avalonia.Media.FontWeight.Bold };
+            textBlock[!TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppTextPrimaryBrush");
+
             var border = new Border
             {
-                Width = 80, Height = 40, CornerRadius = new CornerRadius(20),
+                MinWidth = 80, MinHeight = 40, CornerRadius = new CornerRadius(20),
                 Background = _items[i].Background,
-                BorderBrush = SolidColorBrush.Parse("#40FFFFFF"), BorderThickness = new Thickness(1),
-                Child = new TextBlock { Text = _items[i].Text, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, FontWeight = Avalonia.Media.FontWeight.Bold, Foreground = SolidColorBrush.Parse("#FFF") }
+                BorderThickness = new Thickness(1),
+                Child = textBlock
             };
+            border[!Border.BorderBrushProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppBorderBrush");
             
             double angle = i * angleStep - Math.PI / 2;
             double x = _center.X + Math.Cos(angle) * radius - 40;

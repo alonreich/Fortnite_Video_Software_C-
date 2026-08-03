@@ -79,11 +79,21 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg.");
+        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
         CoreLogger.Debug("HardwareScanner", $"Command: {psi.FileName} {psi.Arguments}");
         ChildProcessTracker.AddProcess(process);
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            throw;
+        }
 
         string output = await outputTask;
         _ = await errorTask;
@@ -111,9 +121,19 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg for encoder test.");
+        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
         ChildProcessTracker.AddProcess(process);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            throw;
+        }
 
         string stderr = await errorTask;
         if (process.ExitCode == 0)

@@ -140,6 +140,7 @@ public partial class VideoMergerWindow : Window
                 }
                 UpdateQueueState();
                 UpdatePreviewAvailable();
+                UpdateTrimStatus();   // IDEA_8: readout follows the highlighted clip
             };
             videoList.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, VideoList_DragOver);
             videoList.AddHandler(Avalonia.Input.DragDrop.DragLeaveEvent, VideoList_DragLeave);
@@ -153,6 +154,11 @@ public partial class VideoMergerWindow : Window
         var timelineSlider = this.FindControl<Slider>("TimelineSlider");
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+
+        // The seek canvas covers the slider and takes all pointer input, so it is the canvas that
+        // has to report hover/drag to the knob. See Controls/TimelineKnob.cs.
+        Controls.TimelineKnob.Attach(canvas, timelineSlider);
+
         if (timelineSlider != null)
         {
             timelineSlider.ValueChanged += (s, e) =>
@@ -402,6 +408,14 @@ public partial class VideoMergerWindow : Window
         var mergeBtn = this.FindControl<Button>("MergeButton");
         if (mergeBtn != null) mergeBtn.Click += async (s, e) => await OnMergeClicked(mergeBtn);
 
+        // IDEA_8: per-clip in/out points.
+        var setInBtn = this.FindControl<Button>("SetClipInButton");
+        if (setInBtn != null) setInBtn.Click += (s, e) => SetClipIn();
+        var setOutBtn = this.FindControl<Button>("SetClipOutButton");
+        if (setOutBtn != null) setOutBtn.Click += (s, e) => SetClipOut();
+        var clearTrimBtn = this.FindControl<Button>("ClearClipTrimButton");
+        if (clearTrimBtn != null) clearTrimBtn.Click += (s, e) => ClearClipTrim();
+
         WireUpVolumeSlider();
         AttachTitleBarDrag();
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, MergerKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -520,8 +534,8 @@ public partial class VideoMergerWindow : Window
     private async void DebouncedQualityProbe()
     {
         int version = ++_probeVersion;
-        try { _probeCts?.Cancel(); } catch { }
-        try { _probeCts?.Dispose(); } catch { }
+        try { _probeCts?.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _probeCts?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         _probeCts = new System.Threading.CancellationTokenSource();
         var token = _probeCts.Token;
 
@@ -607,6 +621,14 @@ public partial class VideoMergerWindow : Window
         if (playBtn != null) playBtn.IsEnabled = hasVideo;
         if (ffBtn != null) ffBtn.IsEnabled = hasVideo;
         if (fbBtn != null) fbBtn.IsEnabled = hasVideo;
+
+        // IDEA_8: the trim buttons read the preview playhead, so they only make sense while a clip
+        // is actually loaded and playable.
+        foreach (string name in new[] { "SetClipInButton", "SetClipOutButton", "ClearClipTrimButton" })
+        {
+            var btn = this.FindControl<Button>(name);
+            if (btn != null) btn.IsEnabled = hasVideo;
+        }
     }
 
 
@@ -812,7 +834,7 @@ public partial class VideoMergerWindow : Window
                 }
                 if (vbitrate > 0 && vbitrate < lowestBitrate) lowestBitrate = vbitrate;
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         if (lowestBitrate == double.MaxValue || lowestBitrate <= 0) lowestBitrate = 5000;
@@ -868,7 +890,7 @@ public partial class VideoMergerWindow : Window
                     var musicFi = new FileInfo(musicPath);
                     estimatedMB += musicFi.Length / (1024.0 * 1024.0);
                 }
-                catch { }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
 
@@ -934,7 +956,7 @@ public partial class VideoMergerWindow : Window
 
             volumeSlider.PointerReleased += (s, e) =>
             {
-                try { new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject { ["MainVolume"] = volumeSlider.Value }); } catch { }
+                try { new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject { ["MainVolume"] = volumeSlider.Value }); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             };
         }
     }
@@ -985,14 +1007,14 @@ public partial class VideoMergerWindow : Window
                 if (System.IO.Directory.Exists(sp)) startPath = sp;
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         if (string.IsNullOrEmpty(startPath) || !System.IO.Directory.Exists(startPath))
             startPath = GetDownloadsPath();
 
         if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
         {
-            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath)); } catch { }
+            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath)); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(options);
@@ -1005,7 +1027,7 @@ public partial class VideoMergerWindow : Window
                 if (!string.IsNullOrWhiteSpace(directory))
                     await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerUploadDirectory"] = directory });
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         int addedCount = 0;
@@ -1207,7 +1229,7 @@ public partial class VideoMergerWindow : Window
                 return true;
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         sizeBytes = 0;
         lastWriteUtc = default;
@@ -1255,7 +1277,7 @@ public partial class VideoMergerWindow : Window
                 }
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>
@@ -1289,7 +1311,7 @@ public partial class VideoMergerWindow : Window
         var options = new FolderPickerOpenOptions { Title = "Choose Output Folder for Merged Videos", AllowMultiple = false };
         if (!string.IsNullOrEmpty(_outputDirectory))
         {
-            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(_outputDirectory)); } catch { }
+            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(_outputDirectory)); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         var result = await topLevel.StorageProvider.OpenFolderPickerAsync(options);
@@ -1307,7 +1329,7 @@ public partial class VideoMergerWindow : Window
 
             _outputDirectory = picked;
 
-            try { await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerOutputDirectory"] = _outputDirectory }); } catch { }
+            try { await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerOutputDirectory"] = _outputDirectory }); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             Infrastructure.SettingsManager.Instance.MergerOutputDirectory = _outputDirectory;
             Infrastructure.SettingsManager.Save();
 
@@ -1380,6 +1402,11 @@ public partial class VideoMergerWindow : Window
             }
 
             var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening };
+
+            // IDEA_8: build the trim list in the SAME order as InputFiles. The list is keyed by
+            // path rather than index because the queue can be drag-reordered, and it is rebuilt
+            // here — at merge time — so a reorder can never misalign a trim onto the wrong clip.
+            worker.ClipTrims = BuildClipTrimList();
             _activeMergerWorker = worker;
 
             var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
@@ -1592,7 +1619,7 @@ public partial class VideoMergerWindow : Window
             };
             titleBar.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2) { try { BeginMoveDrag(e); } catch { } }
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2) { try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
             };
         }
     }
@@ -1710,7 +1737,7 @@ public partial class VideoMergerWindow : Window
                         if (volSlider != null) volSlider.Value = volNode?.GetValue<double>() ?? 100.0;
                     }
                 }
-                catch { }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
     }
@@ -1729,7 +1756,7 @@ public partial class VideoMergerWindow : Window
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)
         {
-            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch { } Environment.Exit(0); });
+            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } Environment.Exit(0); });
         }
         else Environment.Exit(0);
     }
@@ -1743,9 +1770,10 @@ public partial class VideoMergerWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        try { _playbackTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         if (_isSafeToClose) { base.OnClosing(e); return; }
         e.Cancel = true;
-        try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch { }
+        try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         this.Hide();
         try
         {
@@ -1757,8 +1785,112 @@ public partial class VideoMergerWindow : Window
             }
             _videoHost?.Dispose();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         finally { _isSafeToClose = true; this.Close(); }
+    }
+
+    // =====================================================================================
+    // IDEA_8 — PER-CLIP TRIM
+    // =====================================================================================
+    // Keyed by file PATH, not by queue index: the queue supports drag-reordering and multi-select
+    // removal, either of which would silently move a trim onto the wrong clip if indices were the
+    // key. BuildClipTrimList() converts to the index-aligned list MergerWorker wants, at merge
+    // time, from the live queue order.
+    //
+    // The same path appearing twice in the queue deliberately shares one trim — the user picked
+    // that clip once and set one in/out for it.
+    // =====================================================================================
+
+    private readonly Dictionary<string, FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim> _clipTrims =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private List<FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim> BuildClipTrimList()
+    {
+        var list = new List<FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim>(VideoQueue.Count);
+        foreach (string path in VideoQueue)
+        {
+            list.Add(_clipTrims.TryGetValue(path, out var t)
+                ? t
+                : new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(0, 0));
+        }
+        return list;
+    }
+
+    private string? SelectedQueuePath()
+        => this.FindControl<ListBox>("VideoList")?.SelectedItem as string;
+
+    private void SetClipIn()
+    {
+        string? path = SelectedQueuePath();
+        var ipc = _videoHost?.IpcClient;
+        if (path == null || ipc == null) return;
+
+        double at = Math.Max(0, ipc.CurrentTime);
+        _clipTrims.TryGetValue(path, out var existing);
+        double end = existing.EndSec;
+
+        // An IN past the OUT is meaningless — clear the OUT rather than store an inverted window
+        // that MergerWorker would just reject.
+        if (end > 0 && at >= end) end = 0;
+
+        _clipTrims[path] = new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(at, end);
+        RuntimeLog.Info("Merger", $"Clip IN set to {at:F2}s for {System.IO.Path.GetFileName(path)}.");
+        UpdateTrimStatus();
+    }
+
+    private void SetClipOut()
+    {
+        string? path = SelectedQueuePath();
+        var ipc = _videoHost?.IpcClient;
+        if (path == null || ipc == null) return;
+
+        double at = Math.Max(0, ipc.CurrentTime);
+        _clipTrims.TryGetValue(path, out var existing);
+        double start = existing.StartSec;
+
+        if (at <= start)
+        {
+            SetTrimStatus("END must come after START.");
+            return;
+        }
+
+        _clipTrims[path] = new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(start, at);
+        RuntimeLog.Info("Merger", $"Clip OUT set to {at:F2}s for {System.IO.Path.GetFileName(path)}.");
+        UpdateTrimStatus();
+    }
+
+    private void ClearClipTrim()
+    {
+        string? path = SelectedQueuePath();
+        if (path == null) return;
+
+        if (_clipTrims.Remove(path))
+            RuntimeLog.Info("Merger", $"Clip trim cleared for {System.IO.Path.GetFileName(path)}.");
+
+        UpdateTrimStatus();
+    }
+
+    /// <summary>Refreshes the "IN 0:03 → OUT 0:12" readout for the selected clip.</summary>
+    private void UpdateTrimStatus()
+    {
+        string? path = SelectedQueuePath();
+        if (path == null) { SetTrimStatus(string.Empty); return; }
+
+        if (!_clipTrims.TryGetValue(path, out var t) || (t.StartSec <= 0 && t.EndSec <= 0))
+        {
+            SetTrimStatus("Full clip");
+            return;
+        }
+
+        string inLabel = TimeSpan.FromSeconds(t.StartSec).ToString(@"m\:ss");
+        string outLabel = t.EndSec > 0 ? TimeSpan.FromSeconds(t.EndSec).ToString(@"m\:ss") : "end";
+        SetTrimStatus($"IN {inLabel}  →  OUT {outLabel}");
+    }
+
+    private void SetTrimStatus(string text)
+    {
+        var tb = this.FindControl<TextBlock>("ClipTrimStatusText");
+        if (tb != null) tb.Text = text;
     }
 
     protected override void OnClosed(EventArgs e) { base.OnClosed(e); }
@@ -1958,5 +2090,6 @@ public partial class VideoMergerWindow : Window
         if (frame == null) return;
         frame.Background = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppPanelBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!;
         frame.BorderBrush = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppBorderBrush")!;
-    }
+    
+}
 }

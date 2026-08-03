@@ -46,11 +46,16 @@
                              in code-behind and added here. Background is near-transparent so the whole
                              area receives pointer events while zoom mode is active. -->
                         <Canvas Name="ZoomOverlayCanvas" ZIndex="40" IsVisible="False" Background="{DynamicResource AppHoverOverlayBrush}" Cursor="Cross" ClipToBounds="True"/>
-                        <Popup Name="FreezeValidationPopup" IsOpen="False" Placement="Center" IsHitTestVisible="False" ZIndex="11">
+                        <Grid Name="FreezeDimmer" Background="{DynamicResource AppOverlayBrush}" IsVisible="{Binding #FreezeValidationPopup.IsOpen}" ZIndex="10" />
+                        <Popup Name="FreezeValidationPopup" IsOpen="False" Placement="Center" IsHitTestVisible="False" ZIndex="11" IsLightDismissEnabled="False">
                             <Border Name="FreezeValidationBorder" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="2" CornerRadius="6" Padding="16,10">
                                 <TextBlock Name="FreezeValidationText" Text="SELECT FREEZE DURATION" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
+                        <!-- ISSUE_10 (audit round 5): IsHitTestVisible="False" — this dimmer backs a transient
+                             self-expiring FloatingFeedback toast and must not absorb clicks meant for the
+                             video/timeline. Matches MainWindow's FeedbackDimmer. -->
+                        <Grid Name="GranularFeedbackDimmer" Background="{DynamicResource AppOverlayBrush}" IsVisible="{Binding #GranularFeedbackPopup.IsOpen}" IsHitTestVisible="False" ZIndex="10" />
                         <Popup Name="GranularFeedbackPopup" IsOpen="False" Placement="Top"
                                IsLightDismissEnabled="False"
                                IsHitTestVisible="False" ZIndex="11">
@@ -85,12 +90,12 @@
                             <Border Width="1" Background="{DynamicResource AppBorderBrush}" Margin="2,4" Opacity="0.5" />
                             <TextBlock Text="DURATION" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" VerticalAlignment="Center" Margin="2,0"/>
                             <StackPanel Name="FreezePresetsPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze for 0.5s"/>
-                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze for 1.0s"/>
-                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze for 1.5s"/>
-                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze for 2.0s"/>
-                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze for 2.5s"/>
-                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s"/>
+                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze for 0.5s" Cursor="Hand"/>
+                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze for 1.0s" Cursor="Hand"/>
+                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze for 1.5s" Cursor="Hand"/>
+                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze for 2.0s" Cursor="Hand"/>
+                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze for 2.5s" Cursor="Hand"/>
+                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s" Cursor="Hand"/>
                             </StackPanel>
                         </StackPanel>
                         <!-- RIGHT: Zoom Controls -->
@@ -98,8 +103,11 @@
                             <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding #ZoomSegmentBtn.IsVisible}">
                                 <TextBlock Text="ANIMATION" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" VerticalAlignment="Center" Margin="0,0,2,0"/>
                                 <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,15,0,20">
-                                    <RadioButton Name="SlowZoomCheck" GroupName="ZoomRamp" Content="Slow" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Slow zoom-in/out: eases in over up to 1 second."/>
-                                    <RadioButton Name="InstantZoomCheck" GroupName="ZoomRamp" Content="Instant" IsChecked="True" FontSize="{DynamicResource AppFontSize9}" MinHeight="0" Padding="4,0,0,0" ToolTip.Tip="Instant zoom-in/out: snaps to the box immediately."/>
+                                    <!-- ISSUE_05 (audit round 5): both radios shipped MinHeight="0" with
+                                         the vertical padding stripped, collapsing them to a text-line-tall
+                                         hit target. Now on the 44px token with real vertical padding. -->
+                                    <RadioButton Name="SlowZoomCheck" GroupName="ZoomRamp" Content="Slow" FontSize="{DynamicResource AppFontSize9}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center" ToolTip.Tip="Slow zoom-in/out: eases in over up to 1 second."/>
+                                    <RadioButton Name="InstantZoomCheck" GroupName="ZoomRamp" Content="Instant" IsChecked="True" FontSize="{DynamicResource AppFontSize9}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center" ToolTip.Tip="Instant zoom-in/out: snaps to the box immediately."/>
                                 </WrapPanel>
                                 <Border Width="1" Background="{DynamicResource AppBorderBrush}" Margin="2,4" Opacity="0.5" />
                                 <Button Name="ZoomSegmentBtn" Classes="Primary" Content="ZOOM-IN" MinWidth="100" HorizontalAlignment="Right" IsVisible="False" ToolTip.Tip="Draw a zoom (punch-in) box on the selected speed segment"/>
@@ -176,7 +184,10 @@
                     <!-- Header: title + Help button (#8) -->
                     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,5">
                         <TextBlock Grid.Column="0" Text="SPEED SEGMENTS" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize13}" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Name="HelpButton" Content="?" MinWidth="24" MinHeight="24" Padding="0" FontWeight="Bold" Classes="Secondary" ToolTip.Tip="New here? Click for simple step-by-step help."/>
+                        <!-- ISSUE_05 (audit round 5): was MinWidth/MinHeight 24 — a quarter of the
+                             clickable area of every other button, on the one control aimed at a
+                             first-time user. Now on the suite 44px hit-target tokens. -->
+                        <Button Grid.Column="1" Name="HelpButton" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" Classes="Secondary" AutomationProperties.Name="Open speed editor help" ToolTip.Tip="New here? Click for simple step-by-step help."/>
                     </Grid>
                     <TextBlock Grid.Row="1" Name="SegmentCountLabel" Text="No segments" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" Margin="0,0,0,8"/>
                     <!-- #6 Colour legend: what the block colours mean (matches GetSegmentOverlayColor) -->
@@ -241,7 +252,16 @@
                            Text="Set speed, then press MARK END to create a segment. Start is auto-inferred."
                            Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <Button Name="CancelGranularBtn" Classes="Secondary" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close"/>
+                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close">
+                        <Button.Flyout>
+                            <Flyout Placement="Top">
+                                <StackPanel Spacing="8" Margin="8">
+                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                                    <Button Name="ConfirmCancelGranularBtn" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently discard changes and close." />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" MinWidth="90" ToolTip.Tip="Apply all speed segments and return"/>
                 </StackPanel>
             </Grid>

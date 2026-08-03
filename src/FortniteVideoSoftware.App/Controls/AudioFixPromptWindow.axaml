@@ -61,11 +61,13 @@
                 <!-- Yes / No. Tooltips spell out the consequence of each in one short sentence. -->
                 <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center"
                             Spacing="15" Margin="0,0,0,16">
+                    <!-- ISSUE_04 (audit round 5): MinHeight="38" removed — it overrode the global
+                         AppButtonMinHeight token (44) and blocked font-scale growth. -->
                     <Button Name="YesBtn" Classes="Success" Content="YES"
-                            MinWidth="150" MinHeight="38" Cursor="Hand" IsDefault="True"
+                            MinWidth="150" Cursor="Hand" IsDefault="True"
                             AutomationProperties.Name="Yes, fix the audio" />
                     <Button Name="NoBtn" Classes="Secondary" Content="NO"
-                            MinWidth="150" MinHeight="38" Cursor="Hand" IsCancel="True"
+                            MinWidth="150" Cursor="Hand" IsCancel="True"
                             AutomationProperties.Name="No, leave the audio alone" />
                 </StackPanel>
 

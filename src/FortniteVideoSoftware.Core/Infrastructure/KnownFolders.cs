@@ -144,7 +144,7 @@ public class FallbackShellFolderResolver : IShellFolderResolver
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (!string.IsNullOrEmpty(home)) return Path.Combine(home, "Downloads");
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         return null;
     }
 

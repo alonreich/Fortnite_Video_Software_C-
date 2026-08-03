@@ -18,11 +18,39 @@ public static class RuntimeLog
     private const int MaxOldLogs = 5;
     private const long MaxTotalOldBytes = 50L * 1024 * 1024;
     private static readonly TimeSpan MaxOldAge = TimeSpan.FromDays(14);
+
+    /// <summary>
+    /// ISSUE_1 — hard ceiling on ONE log entry.
+    ///
+    /// Without this the 10 MB file cap is not enforceable: a single caller can hand the queue an
+    /// arbitrarily large string (the biggest real one today is the 400-line FFmpeg stderr dump in
+    /// ProcessWorker, roughly 40 KB), and one entry larger than MaxLogSize would blow the cap the
+    /// instant it is written to a freshly rotated, empty file. Oversized entries are truncated
+    /// with an explicit marker rather than dropped, so evidence is never silently lost.
+    /// </summary>
+    private const int MaxSingleEntryBytes = 64 * 1024;
+
+    /// <summary>
+    /// ISSUE_1 — hard ceiling on ONE write batch.
+    ///
+    /// The drain loop used to empty the ENTIRE queue (up to 10,000 entries) into one StringBuilder
+    /// before the size check ran, so the batch itself was unbounded in both memory and bytes
+    /// written. Bounding the batch is what makes the "rotate before the cap is exceeded" check
+    /// meaningful: after a rotation the new file receives at most this much.
+    /// </summary>
+    private const long MaxBatchBytes = 1L * 1024 * 1024;
+
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
     private static readonly BlockingCollection<string> _logQueue = new(10000);
     private static long _estimatedSize = -1;
     private static long _droppedCount;
+
+    /// <summary>ISSUE_4 — batches lost to disk errors since the last successful write.</summary>
+    private static long _failedBatchCount;
+
+    /// <summary>ISSUE_3 — retention sweep runs once per process, on the writer thread.</summary>
+    private static bool _startupCleanupDone;
     private static readonly string _sessionId = Guid.NewGuid().ToString("N")[..8];
     public static string SessionId => _sessionId;
     private static Task? _processTask;
@@ -104,9 +132,9 @@ public static class RuntimeLog
                 AppDomain.CurrentDomain.ProcessExit += (s, e) => {
                     SafeWrite($"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] SHUTDOWN - Process exiting (PID: {Environment.ProcessId}, Session: {_sessionId})." + Environment.NewLine);
                     WriteExitSeparator();
-                    try { _logQueue.CompleteAdding(); } catch { }
+                    try { _logQueue.CompleteAdding(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     _processTask?.Wait(3000);
-                    try { _globalMutex?.Dispose(); } catch { }
+                    try { _globalMutex?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 };
                 _exitRegistered = true;
             }
@@ -156,7 +184,7 @@ public static class RuntimeLog
     public static void AppendRaw(string line)
     {
         SafeWrite(line + Environment.NewLine);
-        try { LogAppended?.Invoke(line); } catch { }
+        try { LogAppended?.Invoke(line); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>
@@ -178,7 +206,7 @@ public static class RuntimeLog
                 acquired = _globalMutex.WaitOne(500);
             }
             catch (AbandonedMutexException) { acquired = true; }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             string? path = _cachedLogPath;
             if (path == null)
@@ -197,12 +225,12 @@ public static class RuntimeLog
             fs.Write(bytes, 0, bytes.Length);
             fs.Flush(true);
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         finally
         {
             if (acquired && _globalMutex != null)
             {
-                try { _globalMutex.ReleaseMutex(); } catch { }
+                try { _globalMutex.ReleaseMutex(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
     }
@@ -222,20 +250,36 @@ public static class RuntimeLog
 
         string line = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
         SafeWrite(line);
-        try { LogAppended?.Invoke(line.TrimEnd()); } catch { }
+        try { LogAppended?.Invoke(line.TrimEnd()); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
+    /// <summary>
+    /// The ONE funnel every log line passes through. ISSUE_1: oversized entries are truncated here
+    /// rather than at each call site, so no future caller can bypass the file-size guarantee.
+    /// </summary>
     private static void SafeWrite(string text)
     {
-        if (!_logQueue.IsAddingCompleted)
+        if (_logQueue.IsAddingCompleted) return;
+
+        try
         {
-            try
+            if (text.Length > MaxSingleEntryBytes)
             {
-                if (!_logQueue.TryAdd(text))
-                    Interlocked.Increment(ref _droppedCount);
+                int originalBytes = Encoding.UTF8.GetByteCount(text);
+                if (originalBytes > MaxSingleEntryBytes)
+                {
+                    // Cut on characters, not bytes, so a multi-byte sequence is never split.
+                    int keep = Math.Min(text.Length, MaxSingleEntryBytes / 4);
+                    text = text[..keep] +
+                           $"... [truncated {originalBytes - Encoding.UTF8.GetByteCount(text[..keep])} bytes]" +
+                           Environment.NewLine;
+                }
             }
-            catch { }
+
+            if (!_logQueue.TryAdd(text))
+                Interlocked.Increment(ref _droppedCount);
         }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private static void ProcessLogQueue()
@@ -250,24 +294,49 @@ public static class RuntimeLog
             _globalMutex = new Mutex(false);
         }
         
+        // ISSUE_3: the retention sweep used to run ONLY from inside the rotation branch below, so a
+        // machine whose log never reached 10 MB never enforced the count / 50 MB / 14-day rules at
+        // all — stale .old and mpv_debug files simply lived forever. Sweeping once here runs it on
+        // every launch, on this background thread, so startup pays nothing.
+        if (!_startupCleanupDone)
+        {
+            _startupCleanupDone = true;
+            CleanupOldLogs();
+        }
+
         foreach (string firstText in _logQueue.GetConsumingEnumerable())
         {
             try
             {
+                // ISSUE_1: the drain is byte-bounded. It used to empty the whole 10,000-entry queue
+                // into this StringBuilder before anything checked the size, which made both the
+                // batch and the peak memory unbounded. Anything left over stays queued and is
+                // picked up by the next iteration, which re-runs the rotation check first.
                 var sb = new StringBuilder();
                 sb.Append(firstText);
-                
-                while (_logQueue.TryTake(out string? moreText))
+                long batchBytes = Encoding.UTF8.GetByteCount(firstText);
+
+                while (batchBytes < MaxBatchBytes && _logQueue.TryTake(out string? moreText))
                 {
                     sb.Append(moreText);
+                    batchBytes += Encoding.UTF8.GetByteCount(moreText);
                 }
-                
+
                 string combinedText = sb.ToString();
 
                 long dropped = Interlocked.Exchange(ref _droppedCount, 0);
                 if (dropped > 0)
                 {
                     combinedText = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {dropped} log line(s) dropped due to queue saturation.{Environment.NewLine}" + combinedText;
+                }
+
+                // ISSUE_4: a disk error used to discard the batch in total silence, so a log that
+                // simply stopped updating was indistinguishable from a clean run. Report the loss
+                // on the first write that succeeds afterwards.
+                long failed = Interlocked.Exchange(ref _failedBatchCount, 0);
+                if (failed > 0)
+                {
+                    combinedText = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {failed} log batch(es) were lost to a file write error; logging has recovered.{Environment.NewLine}" + combinedText;
                 }
 
                 bool written = false;
@@ -300,7 +369,7 @@ public static class RuntimeLog
                                     CleanupOldLogs();
                                 }
                             }
-                            catch { }
+                            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                         }
 
                         using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
@@ -308,8 +377,15 @@ public static class RuntimeLog
                         sw.Write(combinedText);
                         _estimatedSize += incomingBytes;
 
+                        // ISSUE_1: the burst used to append up to 500 further entries with NO size
+                        // re-check, so the file could sail past 10 MB straight after the check that
+                        // was supposed to prevent exactly that. It now stops the moment the cap is
+                        // reached; whatever is still queued stays queued, and the next iteration
+                        // re-enters the rotation branch above.
                         int burstCount = 0;
-                        while (burstCount < 500 && _logQueue.TryTake(out string? followUp))
+                        while (burstCount < 500
+                               && _estimatedSize < MaxLogSize
+                               && _logQueue.TryTake(out string? followUp))
                         {
                             sw.Write(followUp);
                             _estimatedSize += Encoding.UTF8.GetByteCount(followUp);
@@ -320,6 +396,7 @@ public static class RuntimeLog
                     }
                     catch (Exception)
                     {
+                        Interlocked.Increment(ref _failedBatchCount);
                         break;
                     }
                     finally
@@ -328,7 +405,7 @@ public static class RuntimeLog
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
     }
 
@@ -339,28 +416,56 @@ public static class RuntimeLog
             var dir = Path.GetDirectoryName(LogPath);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
 
+            // ISSUE_5: the filter used to recognise only ".old" rotations and "mpv_debug_" files,
+            // so the two per-process fallbacks written when the shared lock cannot be taken —
+            // "<log>.crash.<pid>.log" (EmergencyWrite) and "<log>.<pid>.local.log"
+            // (ProcessLogQueue) — matched nothing and accumulated for the life of the machine.
+            // They are small, but their COUNT only ever grew. Both are now swept.
+            bool IsRotatedLog(string f) =>
+                f.EndsWith(".old", StringComparison.OrdinalIgnoreCase) && f.Contains("Fortnite_Video_Software");
+
+            bool IsAuxiliaryLog(string f) =>
+                (f.EndsWith(".log", StringComparison.OrdinalIgnoreCase) && f.Contains("mpv_debug_")) ||
+                f.Contains(".crash.", StringComparison.OrdinalIgnoreCase) ||
+                f.EndsWith(".local.log", StringComparison.OrdinalIgnoreCase);
+
             var oldLogs = Directory.GetFiles(dir, "*.*")
-                                   .Where(f => (f.EndsWith(".old", StringComparison.OrdinalIgnoreCase) && f.Contains("Fortnite_Video_Software")) ||
-                                               (f.EndsWith(".log", StringComparison.OrdinalIgnoreCase) && f.Contains("mpv_debug_")))
+                                   .Where(f => IsRotatedLog(f) || IsAuxiliaryLog(f))
                                    .Select(f => new FileInfo(f))
                                    .OrderByDescending(f => f.CreationTimeUtc)
                                    .ToList();
 
             DateTime cutoff = DateTime.UtcNow - MaxOldAge;
             long runningTotal = 0;
+            int rotatedKept = 0;
+
             for (int i = 0; i < oldLogs.Count; i++)
             {
                 FileInfo f = oldLogs[i];
                 runningTotal += f.Length;
-                bool overCount = i >= MaxOldLogs * 2;
+
+                // ISSUE_6: the count rule was `i >= MaxOldLogs * 2`, keeping 10 rotations while the
+                // constant and project_structure.txt both say 5. The doubling was undocumented.
+                // The count now means what it says, and — because the sweep above deliberately
+                // includes auxiliary files — it is applied ONLY to rotated .old logs, so a handful
+                // of dev mpv_debug files can no longer evict real rotation history. Auxiliary files
+                // are still bounded by the total-size and age rules below.
+                bool rotated = IsRotatedLog(f.FullName);
+                bool overCount = false;
+                if (rotated)
+                {
+                    overCount = rotatedKept >= MaxOldLogs;
+                    if (!overCount) rotatedKept++;
+                }
+
                 bool overSize = runningTotal > MaxTotalOldBytes;
                 bool tooOld = f.CreationTimeUtc < cutoff;
                 if (overCount || overSize || tooOld)
                 {
-                    try { f.Delete(); } catch { }
+                    try { f.Delete(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 }

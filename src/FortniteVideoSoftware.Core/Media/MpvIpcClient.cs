@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -364,10 +364,16 @@ public class MpvIpcClient : IDisposable
     /// <summary>
     /// Sets an mpv string property via <c>mpv_set_property_string</c>.
     /// </summary>
-    public Task SetPropertyAsync(string name, string value)
+        public Task SetPropertyAsync(string name, string value)
     {
         if (_mpvHandle != nint.Zero)
         {
+            if (name == "pause" && value == "no" && Duration > 0 && Math.Abs(CurrentTime - Duration) < 0.2)
+            {
+                MpvWrapper.mpv_command_string(_mpvHandle, "seek 0 absolute");
+                CurrentTime = 0;
+            }
+
             MpvWrapper.mpv_set_property_string(_mpvHandle, name, value);
 
             if (name == "pause")
@@ -448,11 +454,11 @@ public class MpvIpcClient : IDisposable
         bool loopStopped = true;
         if (_cts != null)
         {
-            try { _cts.Cancel(); } catch { }
+            try { _cts.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             if (_mpvHandle != nint.Zero)
             {
-                try { MpvWrapper.mpv_wakeup(_mpvHandle); } catch { }
+                try { MpvWrapper.mpv_wakeup(_mpvHandle); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
 
             if (_eventLoopThread != null)
@@ -462,7 +468,7 @@ public class MpvIpcClient : IDisposable
                 _eventLoopThread = null;
             }
 
-            try { _cts.Dispose(); } catch { }
+            try { _cts.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             _cts = null;
         }
 

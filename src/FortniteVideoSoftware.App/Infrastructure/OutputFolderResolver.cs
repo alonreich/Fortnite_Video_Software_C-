@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -162,9 +162,7 @@ public static class OutputFolderResolver
                     start = await owner.StorageProvider.TryGetFolderFromPathAsync(candidate);
                     if (start != null) break;
                 }
-                catch
-                {
-                }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
 
             var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions

@@ -39,10 +39,20 @@ public partial class WindowsJobObjectTracker : IProcessJobTracker
 
         int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
-        Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
 
-        SetInformationJobObject(_jobHandle, JobObjectInfoType.ExtendedLimitInformation, extendedInfoPtr, (uint)length);
-        Marshal.FreeHGlobal(extendedInfoPtr);
+        // ISSUE_4: the free used to sit as a plain statement after the two calls below. If either
+        // StructureToPtr or SetInformationJobObject threw, the block was never returned. It is the
+        // only unmanaged allocation in the codebase without a guaranteed release — every other one
+        // (MpvVideoView, GpuCapabilityProbe, KnownFolders) already uses try/finally.
+        try
+        {
+            Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
+            SetInformationJobObject(_jobHandle, JobObjectInfoType.ExtendedLimitInformation, extendedInfoPtr, (uint)length);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(extendedInfoPtr);
+        }
     }
 
     public void AddProcess(Process process)
@@ -53,9 +63,7 @@ public partial class WindowsJobObjectTracker : IProcessJobTracker
             {
                 AssignProcessToJobObject(_jobHandle, process.Handle);
             }
-            catch
-            {
-            }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
     }
 
@@ -105,7 +113,6 @@ public class NoOpJobTracker : IProcessJobTracker
 {
     public void AddProcess(Process process)
     {
-        // No-op for non-Windows platforms
     }
 }
 

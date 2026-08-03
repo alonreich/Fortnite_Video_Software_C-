@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -421,6 +421,12 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void WireUpControls()
     {
+        // The seek canvas covers the slider and takes all pointer input, so it is the canvas that
+        // has to report hover/drag to the knob. See Controls/TimelineKnob.cs.
+        Controls.TimelineKnob.Attach(
+            this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas"),
+            this.FindControl<Slider>("GranularTimeline"));
+
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("GranularTimelineCanvas");
         if (canvas != null)
         {
@@ -695,6 +701,14 @@ public partial class GranularSpeedEditorWindow : Window
             if (_videoHost?.IpcClient != null)
             {
                 _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+                
+                var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+                var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
+                if (playIcon != null && pauseIcon != null)
+                {
+                    playIcon.IsVisible = true;
+                    pauseIcon.IsVisible = false;
+                }
             }
 
             ShowFeedback($"SEGMENT ADDED: {FormatMs(_pendingEndMs)}");
@@ -767,10 +781,12 @@ public partial class GranularSpeedEditorWindow : Window
             Close();
         };
 
-        var cancel = this.FindControl<Button>("CancelGranularBtn");
-        cancel?.AddHandler(Button.ClickEvent, (_, _) =>
+        var confirmCancel = this.FindControl<Button>("ConfirmCancelGranularBtn");
+        confirmCancel?.AddHandler(Button.ClickEvent, (_, _) =>
         {
-            RuntimeLog.Info("UI", "User clicked Cancel in Granular Speed Editor.");
+            var btn = this.FindControl<Button>("CancelGranularBtn");
+            btn?.Flyout?.Hide();
+            RuntimeLog.Info("UI", "User confirmed Cancel in Granular Speed Editor.");
             Close();
         });
 
@@ -2003,6 +2019,112 @@ public partial class GranularSpeedEditorWindow : Window
             };
             canvas.Children.Add(_zoomHandles[i]);
         }
+
+        // IDEA_6: the portrait "brick wall". In mobile format the export centre-crops the frame to
+        // a 2:3 slice (see CoordinateMath / the Portrait Canvas Trick) and everything outside it is
+        // discarded. The rubberband was already geometrically clamped to that slice — see the
+        // _isMobileFormat branch in ZoomCanvas_PointerMoved — but nothing DREW it, so the user had
+        // no way to know why the box refused to go further, and could not tell which parts of the
+        // picture survive. These two edge lines mark the surviving slice.
+        // The two discarded side columns, shaded so the user can SEE what portrait throws away.
+        // ZIndex -1 keeps them under the zoom dimmer, the box and the handles; the canvas's own
+        // Background sits behind everything, so nothing here can hide the picture's centre.
+        for (int i = 0; i < 2; i++)
+        {
+            var shade = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#99000000")),
+                IsHitTestVisible = false,
+                IsVisible = false,
+                ZIndex = -1
+            };
+            _portraitShade[i] = shade;
+            canvas.Children.Add(shade);
+        }
+
+        for (int i = 0; i < 2; i++)
+        {
+            var edge = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Width = 2,
+                Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8")),
+                IsHitTestVisible = false,
+                IsVisible = false,
+                ZIndex = 5
+            };
+            _portraitEdges[i] = edge;
+            canvas.Children.Add(edge);
+        }
+    }
+
+    /// <summary>IDEA_6 — left/right markers for the surviving portrait slice. Null until
+    /// <see cref="EnsureZoomVisuals"/> runs; only ever visible when _isMobileFormat is true.</summary>
+    private readonly Avalonia.Controls.Shapes.Rectangle?[] _portraitEdges = new Avalonia.Controls.Shapes.Rectangle?[2];
+
+    /// <summary>IDEA_6 — shading over the two columns portrait mode discards.</summary>
+    private readonly Avalonia.Controls.Shapes.Rectangle?[] _portraitShade = new Avalonia.Controls.Shapes.Rectangle?[2];
+
+    /// <summary>
+    /// IDEA_6 — positions the portrait boundary markers. Uses the SAME expression as the clamp in
+    /// ZoomCanvas_PointerMoved (vid.Height * 2/3, centred) so the line the user sees is exactly the
+    /// wall the drag hits. If those two ever disagree, the guide is lying — keep them together.
+    /// </summary>
+    private void RenderPortraitBoundary(Avalonia.Controls.Canvas canvas)
+    {
+        if (_portraitEdges[0] == null || _portraitEdges[1] == null
+            || _portraitShade[0] == null || _portraitShade[1] == null) return;
+
+        void HideAll()
+        {
+            _portraitEdges[0]!.IsVisible = false;
+            _portraitEdges[1]!.IsVisible = false;
+            _portraitShade[0]!.IsVisible = false;
+            _portraitShade[1]!.IsVisible = false;
+        }
+
+        if (!_isMobileFormat) { HideAll(); return; }
+
+        var vid = GetVideoDisplayRect(canvas);
+        if (vid.Width <= 0 || vid.Height <= 0) { HideAll(); return; }
+
+        double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
+        double portraitW = vid.Height * (2.0 / 3.0);
+        double left = vid.X + (vid.Width - portraitW) / 2.0;
+        double right = left + portraitW;
+
+        // The shading runs from the CANVAS edge to the boundary line, and over the CANVAS height —
+        // not the video rect.
+        //
+        // This is the fix for "the dimming stops before the extreme edges". Anchoring the shade to
+        // the video rect leaves the letterbox/pillarbox margins around the picture undimmed, so the
+        // far left and right of the panel stayed bright while the middle darkened correctly. Those
+        // margins are just as discarded as the rest, so covering the whole canvas is both correct
+        // and what the eye expects. Clamped so a canvas narrower than the video cannot produce a
+        // negative width.
+        void Shade(Avalonia.Controls.Shapes.Rectangle r, double x, double w)
+        {
+            r.IsVisible = true;
+            r.Width = Math.Max(0, w);
+            r.Height = Math.Max(0, ch);
+            Avalonia.Controls.Canvas.SetLeft(r, Math.Max(0, x));
+            Avalonia.Controls.Canvas.SetTop(r, 0);
+        }
+
+        Shade(_portraitShade[0]!, 0, left);
+        Shade(_portraitShade[1]!, right, cw - right);
+
+        // The boundary lines stay tied to the VIDEO height — they mark the edge of the surviving
+        // picture, so drawing them through the letterbox bars would be misleading.
+        void Place(Avalonia.Controls.Shapes.Rectangle edge, double x)
+        {
+            edge.IsVisible = true;
+            edge.Height = vid.Height;
+            Avalonia.Controls.Canvas.SetLeft(edge, x - 1);
+            Avalonia.Controls.Canvas.SetTop(edge, vid.Y);
+        }
+
+        Place(_portraitEdges[0]!, left);
+        Place(_portraitEdges[1]!, right);
     }
 
     private bool _isZoomRenderPending = false;
@@ -2016,6 +2138,11 @@ public partial class GranularSpeedEditorWindow : Window
             var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
             if (canvas == null || _zoomBoxRect == null) return;
             double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
+
+            // IDEA_6: drawn on every render pass — including the no-box branch below — so the
+            // surviving-slice guide is visible from the moment zoom mode opens, before the user
+            // has drawn anything.
+            RenderPortraitBoundary(canvas);
 
             if (!_hasZoomBox)
             {
@@ -2523,6 +2650,10 @@ public partial class GranularSpeedEditorWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        try { _marchingAntsTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _playbackTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _freezePulseTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _zoomTutorialTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         if (_isSafeToClose)
         {
             base.OnClosing(e);
@@ -2579,9 +2710,10 @@ public partial class GranularSpeedEditorWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             };
         }
-    }
+    
+}
 }

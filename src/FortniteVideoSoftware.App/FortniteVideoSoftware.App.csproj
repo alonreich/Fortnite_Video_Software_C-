@@ -12,9 +12,34 @@
     <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.0.10" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.0.10" />
     <PackageReference Include="NAudio" Version="2.3.0" />
-    <PackageReference Include="System.Windows.Extensions" Version="10.0.9" />
+    <!-- AUDIO_12: System.Windows.Extensions was referenced ONLY for System.Media.SoundPlayer in
+         UiSoundEffect.cs. UiSoundEffect now runs on NAudio (already a dependency, already used in
+         production by Core\Media\VoiceRecorder.cs), so this package and its
+         winmm PlaySound single-channel limitation are gone. Verified: no other `System.Media` or
+         `SoundPlayer` reference exists anywhere in src\. -->
+
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+  </ItemGroup>
+
+  <!-- AUDIO_08: the six UI sound effects used to live as base64 STRING LITERALS inside
+       UiSoundEffect.cs (663,680 base64 chars for 497,758 bytes of PCM). .NET stores string
+       literals as UTF-16 in the assembly's #US heap, so that cost ~1.27 MB of binary to carry
+       ~486 KB of audio, plus a second full copy decoded onto the managed heap at startup — in an
+       app whose #2 mandate is a single condensed .exe. They are now real .wav files embedded as
+       resources (raw bytes, no 2x encoding penalty, loaded lazily on first use).
+       LogicalName is set EXPLICITLY so the lookup can never break from a RootNamespace or folder
+       rename. These are deliberately NOT LFS-tracked (unlike *.mp3/*.mp4 in .gitattributes):
+       they are build-critical inputs, and an LFS pointer file in a clone without LFS would embed
+       130 bytes of text as a "sound" and fail silently. 486 KB of plain git blob is cheaper than
+       that failure mode. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Sounds\click.wav"   LogicalName="UiSound.click.wav" />
+    <EmbeddedResource Include="Assets\Sounds\mark.wav"    LogicalName="UiSound.mark.wav" />
+    <EmbeddedResource Include="Assets\Sounds\open.wav"    LogicalName="UiSound.open.wav" />
+    <EmbeddedResource Include="Assets\Sounds\close.wav"   LogicalName="UiSound.close.wav" />
+    <EmbeddedResource Include="Assets\Sounds\process.wav" LogicalName="UiSound.process.wav" />
+    <EmbeddedResource Include="Assets\Sounds\error.wav"   LogicalName="UiSound.error.wav" />
   </ItemGroup>
 
   <ItemGroup>

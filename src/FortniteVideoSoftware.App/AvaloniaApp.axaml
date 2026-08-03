@@ -1,6 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
+             xmlns:collections="using:System.Collections"
              x:Class="FortniteVideoSoftware.App.AvaloniaApp">
     <Application.Resources>
         <ResourceDictionary>
@@ -158,13 +159,15 @@
         <SolidColorBrush x:Key="AppPhoneChromeMutedBrush" Color="#99FFFFFF" />
         <SolidColorBrush x:Key="AppPhoneChromeDimBrush" Color="#66FFFFFF" />
 
+        <Color x:Key="AppAccentColor">#60a5fa</Color>
+        <Color x:Key="AppSuccessColor">#22c55e</Color>
         <!-- Interactive state overlay brushes (alpha-variant tokens) -->
-        <SolidColorBrush x:Key="AppAccentAlpha10Brush" Color="#1a38bdf8" />
-        <SolidColorBrush x:Key="AppAccentAlpha15Brush" Color="#2638bdf8" />
-        <SolidColorBrush x:Key="AppAccentAlpha20Brush" Color="#3338bdf8" />
-        <SolidColorBrush x:Key="AppSuccessAlpha10Brush" Color="#1A22C55E" />
-        <SolidColorBrush x:Key="AppListBoxSelectedBrush" Color="#2d4ea1ca" />
-        <SolidColorBrush x:Key="AppListBoxSelectedHoverBrush" Color="#3d63b5dd" />
+        <SolidColorBrush x:Key="AppAccentAlpha10Brush" Color="{DynamicResource AppAccentColor}" Opacity="0.10" />
+        <SolidColorBrush x:Key="AppAccentAlpha15Brush" Color="{DynamicResource AppAccentColor}" Opacity="0.15" />
+        <SolidColorBrush x:Key="AppAccentAlpha20Brush" Color="{DynamicResource AppAccentColor}" Opacity="0.20" />
+        <SolidColorBrush x:Key="AppSuccessAlpha10Brush" Color="{DynamicResource AppSuccessColor}" Opacity="0.10" />
+        <SolidColorBrush x:Key="AppListBoxSelectedBrush" Color="{DynamicResource AppAccentColor}" Opacity="0.17" />
+        <SolidColorBrush x:Key="AppListBoxSelectedHoverBrush" Color="{DynamicResource AppAccentColor}" Opacity="0.25" />
 
         <!-- ISSUE_04: Merger queue item glow shadows tokenized (previously raw hex inline in Merger's Styles block) -->
         <BoxShadows x:Key="AppItemGlowHoverShadow">0 0 4 0 #3338bdf8</BoxShadows>
@@ -549,10 +552,44 @@
              ISSUE_03: single authoritative thumb style (a second duplicate selector below was merged
              into this block; ZIndex keeps the previously-winning max value). -->
         <Style Selector="Slider /template/ Thumb">
-            <Setter Property="Width" Value="18" />
-            <Setter Property="Height" Value="18" />
-            <Setter Property="MinWidth" Value="18" />
-            <Setter Property="MinHeight" Value="18" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="MinWidth" Value="44" />
+            <Setter Property="MinHeight" Value="44" />
+            <!-- THE KNOB MUST BE A DOT — and this is the ONLY reliable way to guarantee it.
+                 Forcing the thumb to 44x44 above made it render as a SQUARE, because Fluent's stock
+                 Thumb template does not honour CornerRadius: setting CornerRadius on the Thumb had
+                 no effect at all (verified on a real run). Rather than keep guessing at the theme's
+                 internals, the template is replaced outright with a single Ellipse.
+                 The Ellipse has no Width/Height so it stretches to whatever size the Width/Height
+                 setters above give the thumb, which keeps the 44px hit target intact, and it is
+                 filled from the thumb's own Background so every hover/pressed Background override
+                 below still works untouched. Avalonia's default RenderTransformOrigin is the
+                 centre, so scale(1.3) on hover and scale(2.0) while held grow the dot from its
+                 middle and spring back through the existing 0.3s transform transition. -->
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <!-- The Panel keeps the FULL 44x44 hit target (Background must stay non-null or
+                         it stops hit-testing), while the visible dot is a fixed 21px centred inside
+                         it. Letting the Ellipse stretch made the knob 44px wide — correct as a
+                         touch target, far too fat as a knob. Hit area and visible size are two
+                         different things here and must stay separate.
+                         RenderTransform scale on the thumb scales this child with it, so the
+                         hover/press growth below still works off the 21px base. -->
+                    <Panel Background="Transparent">
+                        <Ellipse Width="26" Height="26"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Fill="{TemplateBinding Background}" />
+                    </Panel>
+                </ControlTemplate>
+            </Setter>
+            <!-- Explicit resting fill. The template above draws the dot from the thumb's OWN
+                 Background, so it must not be left to whatever Fluent happened to set: if the stock
+                 theme painted its fill on an inner element rather than on Background, the dot would
+                 come out invisible — worse than the square it replaces. Pinning it here also gives
+                 the BrushTransition below a real value to animate FROM into the hover glow.
+                 This is the resting knob colour; change this one token to restyle it. -->
+            <Setter Property="Background" Value="{DynamicResource AppInfoBrush}" />
             <Setter Property="ClipToBounds" Value="False" />
             <Setter Property="ZIndex" Value="2147483647" />
             <Setter Property="Transitions">
@@ -582,27 +619,49 @@
         <Style Selector="Slider /template/ Panel">
             <Setter Property="ClipToBounds" Value="False" />
         </Style>
-        <Style Selector="Slider:pointerover /template/ Thumb">
-            <Setter Property="RenderTransform" Value="scale(1.4)" />
-            <Setter Property="Background">
-                <RadialGradientBrush>
-                    <GradientStop Offset="0.0" Color="{DynamicResource AppFocusOuterColor}" />
-                    <GradientStop Offset="0.5" Color="{DynamicResource AppInfoColor}" />
-                    <GradientStop Offset="1.0" Color="{DynamicResource AppSliderGlowEdgeColor}" />
-                </RadialGradientBrush>
-            </Setter>
+        <!-- ================================================================================
+             KNOB HOVER / PRESS — the selectors target the THUMB's own pseudo-classes, not the
+             slider's. This is deliberate and fixes two real faults:
+
+             STUTTER: `Slider:pointerover` fires for the whole 44px-tall track row. On every
+             timeline the seek Canvas (TimelineMarkersCanvas et al) sits ON TOP of the slider and
+             is hit-testable, so dragging the mouse across the timeline handed hover back and forth
+             between the two — the knob grew and shrank repeatedly, which read as a flicker.
+             `Thumb:pointerover` only fires over the knob itself, so crossing the track cannot
+             retrigger it. It also matches the intended behaviour: the glow belongs to the dot.
+
+             NO GROWTH WHILE DRAGGING: `Slider:pressed` is not raised while the THUMB is being
+             dragged — the thumb captures the pointer, so the slider never enters its pressed state
+             and the knob stayed small for the whole drag. `Thumb:pressed` is set by the thumb for
+             exactly as long as the button is held, which is the "grows and stays large until
+             released" behaviour. The slider-level selector is kept underneath as a harmless
+             fallback for clicks that land on the track rather than the knob.
+
+             ORDER MATTERS: :pressed must come after :pointerover, or the hover scale would win
+             while dragging (the pointer is also over the thumb).
+             ================================================================================ -->
+        <Style Selector="Slider /template/ Thumb:pointerover">
+            <Setter Property="RenderTransform" Value="scale(1.3)" />
+            <Setter Property="Background" Value="{DynamicResource AppFocusOuterBrush}" />
         </Style>
         <Style Selector="Slider:pressed /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(2.0)" />
         </Style>
-        <!-- CompactSlider (timeline scrubber + vertical volume): resting dot 21px -->
-        <Style Selector="Slider.CompactSlider /template/ Thumb">
-            <Setter Property="Width" Value="21" />
-            <Setter Property="Height" Value="21" />
-            <Setter Property="MinWidth" Value="21" />
-            <Setter Property="MinHeight" Value="21" />
+        <Style Selector="Slider /template/ Thumb:pressed">
+            <Setter Property="RenderTransform" Value="scale(2.0)" />
+            <Setter Property="Background" Value="{DynamicResource AppFocusInnerBrush}" />
         </Style>
-        <Style Selector="Slider.CompactSlider:pointerover /template/ Thumb">
+
+        <!-- ================================================================================
+             TIMELINE KNOB — driven by CLASSES, not pseudo-classes. See Controls/TimelineKnob.cs.
+             On every timeline the seek Canvas covers the Slider and takes all pointer input, so
+             the Thumb never gets :pointerover or :pressed and the Slider only gets :pointerover
+             intermittently (in the thin band where it peeks past the canvas — that intermittency
+             WAS the flicker). TimelineKnob.Attach flips these two classes from the canvas instead,
+             which is the surface the user actually touches.
+             knobdrag comes last so a held drag always beats hover.
+             ================================================================================ -->
+        <Style Selector="Slider.knobhover /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(1.3)" />
             <Setter Property="Background">
                 <RadialGradientBrush>
@@ -612,6 +671,30 @@
                 </RadialGradientBrush>
             </Setter>
         </Style>
+        <Style Selector="Slider.knobdrag /template/ Thumb">
+            <Setter Property="RenderTransform" Value="scale(1.9)" />
+            <Setter Property="Background">
+                <RadialGradientBrush>
+                    <GradientStop Offset="0.0" Color="{DynamicResource AppFocusOuterColor}" />
+                    <GradientStop Offset="0.5" Color="{DynamicResource AppInfoColor}" />
+                    <GradientStop Offset="1.0" Color="{DynamicResource AppSliderGlowEdgeColor}" />
+                </RadialGradientBrush>
+            </Setter>
+        </Style>
+        <!-- CompactSlider (timeline scrubber + vertical volume): resting dot 21px -->
+        <Style Selector="Slider.CompactSlider /template/ Thumb">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="MinWidth" Value="44" />
+            <Setter Property="MinHeight" Value="44" />
+            <!-- Shape comes from the Ellipse template on the base Slider thumb style above; this
+                 selector only needs to agree on the size. -->
+        </Style>
+        <!-- CompactSlider inherits the knob shape, hover and press behaviour from the base Slider
+             thumb styles above. It previously repeated them via `Slider.CompactSlider:pointerover`,
+             which is the whole-track selector that caused the flicker — removed for that reason.
+             Keep this selector free of RenderTransform setters: anything here would land AFTER the
+             base :pressed rule and win, re-breaking grow-on-drag. -->
         <Style Selector="Slider.CompactSlider:pressed /template/ Thumb">
             <Setter Property="RenderTransform" Value="scale(2.0)" />
         </Style>
@@ -630,7 +713,14 @@
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
-        <Style Selector="TextBox.error /template/ Border#PART_BorderElement">
+        <!-- ISSUE_09 (audit round 5): this was `TextBox.error` — a manual STYLE CLASS that no XAML
+             element and no line of C# in the suite ever added, so the app's only red-border
+             invalid-input treatment was permanently unreachable. Switched to Avalonia's built-in
+             `:error` PSEUDO-CLASS, which DataValidationErrors raises automatically whenever a bound
+             TextBox's binding reports a validation error. It now fires suite-wide with zero
+             code — e.g. SettingsWindow's DefaultMusicFolderTextBox, which is already wrapped in a
+             DataValidationErrors host but previously had no border feedback at all. -->
+        <Style Selector="TextBox:error /template/ Border#PART_BorderElement">
             <Setter Property="BorderBrush" Value="{DynamicResource AppDangerBrush}"/>
             <Setter Property="BorderThickness" Value="2"/>
         </Style>
@@ -645,10 +735,10 @@
                 </ControlTemplate>
             </Setter>
             <Setter Property="ErrorTemplate">
-                <DataTemplate x:CompileBindings="False">
+                <DataTemplate x:DataType="collections:IEnumerable">
                     <ItemsControl ItemsSource="{Binding}" Foreground="{DynamicResource AppDangerBrush}" Margin="4,0,0,0">
                         <ItemsControl.ItemTemplate>
-                            <DataTemplate x:CompileBindings="False">
+                            <DataTemplate x:DataType="sys:Object">
                                 <TextBlock Text="{Binding}" TextWrapping="Wrap" />
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -817,6 +907,17 @@
 
         <Style Selector="MenuItem">
             <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <!-- ISSUE_06 (audit round 5): VideoMergerWindow's "Remove Selected" and "Clear All" menu
+             items both carry Classes="Danger", but the ONLY .Danger selectors in the suite were
+             Button.Danger / ToggleButton.Danger — so the class matched nothing and the two
+             destructive entries rendered identically to harmless ones. Their authors had to
+             hand-write "(WARNING: Cannot be undone)" into each header to compensate. This is
+             deliberately COLOUR-ONLY (no layout/padding change) so the Fluent MenuItem template
+             geometry is untouched; the red Foreground is inherited by the TextBlocks in each
+             custom MenuItem.Header. -->
+        <Style Selector="MenuItem.Danger">
+            <Setter Property="Foreground" Value="{DynamicResource AppDangerBrush}"/>
         </Style>
 
         <!-- Global Wizard Indicator Styles (ISSUE_01 & ISSUE_10 resolution) -->

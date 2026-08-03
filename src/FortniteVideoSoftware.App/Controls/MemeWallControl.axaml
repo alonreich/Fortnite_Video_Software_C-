@@ -65,9 +65,11 @@
                 <WrapPanel Name="MemeGridPanel" HorizontalAlignment="Center"/>
             </ScrollViewer>
 
+            <!-- ISSUE_04 (audit round 5): MinHeight="36" removed — it overrode the global
+                 AppButtonMinHeight token (44) and blocked font-scale growth. -->
             <Button Name="CloseButton" Grid.Row="2" Content="CLOSE"
                     Classes="Secondary" HorizontalAlignment="Center"
-                    Margin="0,12,0,0" MinWidth="100" MinHeight="36"/>
+                    Margin="0,12,0,0" MinWidth="100"/>
         </Grid>
     </Border>
 </UserControl>

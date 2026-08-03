@@ -22,32 +22,23 @@ public partial class VoiceOverWindow : Window
 {
     private const string BoundsKey = "VoiceOverWindowBounds";
 
-    public static readonly Avalonia.StyledProperty<bool> IsMuteMaleProperty =
-        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteMale), false);
-    public bool IsMuteMale
+    public static readonly Avalonia.StyledProperty<bool> IsDuckAudioProperty =
+        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsDuckAudio), false);
+    public bool IsDuckAudio
     {
-        get => GetValue(IsMuteMaleProperty);
-        set => SetValue(IsMuteMaleProperty, value);
-    }
-
-    public static readonly Avalonia.StyledProperty<bool> IsMuteFemaleProperty =
-        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteFemale), false);
-    public bool IsMuteFemale
-    {
-        get => GetValue(IsMuteFemaleProperty);
-        set => SetValue(IsMuteFemaleProperty, value);
-    }
-
-    public static readonly Avalonia.StyledProperty<bool> IsMuteChildProperty =
-        Avalonia.AvaloniaProperty.Register<VoiceOverWindow, bool>(nameof(IsMuteChild), false);
-    public bool IsMuteChild
-    {
-        get => GetValue(IsMuteChildProperty);
-        set => SetValue(IsMuteChildProperty, value);
+        get => GetValue(IsDuckAudioProperty);
+        set => SetValue(IsDuckAudioProperty, value);
     }
 
     private MpvVideoView? _videoHost;
     private VoiceRecorder? _recorder;
+
+    /// <summary>
+    /// AUDIO_01: live while the microphone is open. Disposing it re-enables UI sounds.
+    /// Held as a field rather than a `using` because recording spans two separate user actions
+    /// (press to start, press again to stop).
+    /// </summary>
+    private IDisposable? _uiSoundMute;
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
     private string _videoPath = "";
     private string _outputWavPath = "";
@@ -55,14 +46,18 @@ public partial class VoiceOverWindow : Window
     private bool _isRecording = false;
     private bool _isMpvReady = false;
     private bool _isClosing = false;
+    private bool _isSeeking = false;
+    private double? _nextSeekTarget = null;
     private DispatcherTimer _timer;
 
     private List<float> _waveformSamples = new();
+    private double _smoothedVolume = 0;
+    private double _peakVolume = 0;
 
     private string? _tempThumbPath;
     private string? _tempWavePath;
     private System.Threading.CancellationTokenSource? _generationCts;
-    private System.Threading.CancellationTokenSource? _probeCts;
+
 
     private double _trimStartSec = 0;
     private double _trimEndSec = 0;
@@ -75,15 +70,26 @@ public partial class VoiceOverWindow : Window
     private double _lastFreezeTriggerMs = -1;
     private DateTime _lastTimelineSeekUtc = DateTime.MinValue;
     private double? _dragSeekTimeSec = null;
+    private bool _isVKeyPressed = false;
+    private bool _isSpaceKeyPressed = false;
 
     private class VoiceOverSession
     {
         public string WavPath { get; set; } = "";
         public double StartSec { get; set; }
         public double EndSec { get; set; }
+        public double TrimLeftSec { get; set; } = 0;
+        public double TrimRightSec { get; set; } = 0;
+        public bool IsMuted { get; set; } = false;
+        public double RenderStartSec => StartSec + TrimLeftSec;
+        public double RenderEndSec => EndSec - TrimRightSec;
     }
     private List<VoiceOverSession> _sessions = new();
     private VoiceOverSession? _currentSession;
+    private VoiceOverSession? _selectedSession;
+    private VoiceOverSession? _draggingSession;
+    private bool _isDraggingStartEdge;
+    private bool _isDraggingEndEdge;
     private readonly List<Line> _waveformLinePool = new();
     private Rectangle? _currentSessionRegionRect;
     private Polygon? _playheadCaret;
@@ -92,6 +98,28 @@ public partial class VoiceOverWindow : Window
     private double _renderedRulerWidth = -1;
     private double _renderedRulerHeight = -1;
 
+    private sealed class PreviewPlayer : IDisposable
+    {
+        public NAudio.Wave.AudioFileReader Reader { get; }
+        public NAudio.Wave.WaveOutEvent Player { get; }
+        public VoiceOverSession Session { get; }
+
+        public PreviewPlayer(VoiceOverSession session)
+        {
+            Session = session;
+            Reader = new NAudio.Wave.AudioFileReader(session.WavPath);
+            Player = new NAudio.Wave.WaveOutEvent();
+            Player.Init(Reader);
+        }
+
+        public void Dispose()
+        {
+            try { Player.Stop(); Player.Dispose(); } catch {}
+            try { Reader.Dispose(); } catch {}
+        }
+    }
+    private List<PreviewPlayer> _previewPlayers = new();
+
     private Button? _micRecordButton;
     private Button? _playPauseButton;
     private Button? _applyButton;
@@ -99,13 +127,13 @@ public partial class VoiceOverWindow : Window
     private ComboBox? _micDeviceComboBox;
     private TextBlock? _recordingStatusText;
     private TextBlock? _voiceOverHintText;
-    private TextBlock? _probingStatusText;
     private TextBlock? _thumbFallbackText;
     private TextBlock? _waveformFallbackText;
     private Ellipse? _recordingLight;
     private Rectangle? _eqMeter;
     private Border? _eqMeterTrack;
     private Canvas? _timelineRulerCanvas;
+    private Canvas? _liveWaveformMonitor;
     private Canvas? _waveformCanvas;
     private Grid? _thumbnailLaneGrid;
     private Grid? _waveformLaneGrid;
@@ -115,14 +143,9 @@ public partial class VoiceOverWindow : Window
     private Border? _waveformLoadingOverlay;
     private Avalonia.Controls.Shapes.Path? _playIcon;
     private Avalonia.Controls.Shapes.Path? _pauseIcon;
-    private CheckBox? _muteMaleCb;
-    private CheckBox? _muteFemaleCb;
-    private CheckBox? _muteChildCb;
+    private CheckBox? _duckAudioCb;
     private Border? _thumbPlayheadLine;
     private Border? _wavePlayheadLine;
-    private double _detectedMaleHz;
-    private double _detectedFemaleHz;
-    private double _detectedChildHz;
 
     public VoiceOverResult? Result { get; private set; }
 
@@ -131,12 +154,7 @@ public partial class VoiceOverWindow : Window
         public string? VoiceOverWavPath { get; set; }
         public double VoiceOverStartTimestampSec { get; set; }
         public List<VoiceOverTake> VoiceOverTakes { get; set; } = new();
-        public bool MuteMale { get; set; }
-        public bool MuteFemale { get; set; }
-        public bool MuteChild { get; set; }
-        public double MaleFrequencyHz { get; set; }
-        public double FemaleFrequencyHz { get; set; }
-        public double ChildFrequencyHz { get; set; }
+        public bool DuckAudio { get; set; }
     }
 
     public VoiceOverWindow()
@@ -154,8 +172,32 @@ public partial class VoiceOverWindow : Window
         UpdateApplyState();
     }
 
-    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private bool _isSafeToClose = false;
+
+    private async void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        if (_isSafeToClose) return;
+
+        if (_isRecording || HasSavedVoiceOverSession())
+        {
+            e.Cancel = true;
+            var dialog = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+            dialog.SetTitle("DISCARD RECORDINGS?");
+            dialog.SetMessage("You have unsaved voiceover takes. Are you sure you want to discard them and close?");
+            dialog.SetButtonText("DISCARD", "KEEP EDITING");
+            var top = Avalonia.Controls.TopLevel.GetTopLevel(this) as Window;
+            if (top != null)
+            {
+                await dialog.ShowDialog(top);
+                if (dialog.Result)
+                {
+                    _isSafeToClose = true;
+                    Close();
+                }
+            }
+            return;
+        }
+
         if (_isClosing) return;
         WindowBoundsHelper.SaveBoundsSync(this, BoundsKey);
     }
@@ -191,7 +233,8 @@ public partial class VoiceOverWindow : Window
         if (_cancelButton != null) _cancelButton.Click += (s, e) => Close();
 
         _timer.Tick += Timer_Tick;
-        _timer.Start();
+        // ISSUE_05: this line was duplicated. Starting an already-running DispatcherTimer is a
+        // no-op, so it never misbehaved — it just read like a bug and invited a wrong "fix".
         _timer.Start();
 
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, OnKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -225,6 +268,9 @@ public partial class VoiceOverWindow : Window
 
                     if (_videoHost.IpcClient != null)
                     {
+                        _videoHost.IpcClient.SeekCompleted -= OnSeekCompleted;
+                        _videoHost.IpcClient.SeekCompleted += OnSeekCompleted;
+                        
                         double initialPos = NormalizePreviewPlaybackPosition(startPosSec);
                         await _videoHost.IpcClient.LoadFileAsync(_videoPath, initialPos);
                         await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
@@ -248,21 +294,19 @@ public partial class VoiceOverWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    RuntimeLog.Fail("VoiceOver", $"Preview startup failed. Recording disabled, voice detection remains available. {ex.Message}");
+                    RuntimeLog.Fail("VoiceOver", $"Preview startup failed. Recording disabled, auto-ducking remains available. {ex.Message}");
                     _videoHost.Dispose();
                     if (_recordingStatusText != null)
                     {
                         _recordingStatusText.Text = "PREVIEW OFF";
                         _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
                     }
-                    UpdateApplyState("Preview could not start on this graphics session. Voice detection still works.");
+                    UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session. Game audio ducking still works.");
                 }
 
-                _isMpvReady = previewReady;
                 UpdateTransportState();
-                UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session. Voice detection still works.");
+                UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session.");
 
-                _ = RunFrequencyProber();
                 if (previewReady)
                 {
                     _ = GenerateLanesAsync();
@@ -270,11 +314,80 @@ public partial class VoiceOverWindow : Window
             }
         };
     }
+
+    private void StopPreviewPlayers()
+    {
+        foreach (var player in _previewPlayers)
+        {
+            player.Dispose();
+        }
+        _previewPlayers.Clear();
+    }
+
+    private void UpdatePreviewPlayers()
+    {
+        if (_videoHost?.IpcClient == null) return;
+        
+        bool shouldPlay = !_videoHost.IpcClient.IsPaused && !_isRecording;
+        double time = _videoHost.IpcClient.CurrentTime;
+
+        if (_sessions.Count != _previewPlayers.Count)
+        {
+            StopPreviewPlayers();
+            foreach (var session in _sessions)
+            {
+                if (System.IO.File.Exists(session.WavPath))
+                {
+                    try { _previewPlayers.Add(new PreviewPlayer(session)); } catch {}
+                }
+            }
+        }
+
+        foreach (var player in _previewPlayers)
+        {
+            var take = player.Session;
+            if (take.IsMuted)
+            {
+                if (player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                    player.Player.Pause();
+                continue;
+            }
+
+            bool shouldPlayVoice = shouldPlay && time >= take.RenderStartSec && time <= take.RenderEndSec;
+            if (shouldPlayVoice && player.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
+            {
+                double playOffset = time - take.StartSec;
+                if (playOffset >= 0 && playOffset < player.Reader.TotalTime.TotalSeconds)
+                {
+                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(playOffset); } catch {}
+                }
+                player.Player.Play();
+            }
+            else if (!shouldPlayVoice && player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+            {
+                player.Player.Pause();
+            }
+            else if (shouldPlayVoice && player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+            {
+                double expectedPos = time - take.StartSec;
+                double actualPos = player.Reader.CurrentTime.TotalSeconds;
+                if (Math.Abs(expectedPos - actualPos) > 0.15)
+                {
+                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, expectedPos)); } catch {}
+                }
+            }
+        }
+    }
+
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        // Must run FIRST: it is what converts an armed take into a live, correctly anchored one.
+        PumpRecordArming();
         UpdateWaveformUI();
         UpdatePlayPauseIconUI();
         UpdatePlayheadUI();
+        UpdatePreviewPlayers();
+        UpdateSmoothEqMeter();
     }
 
 
@@ -328,7 +441,7 @@ public partial class VoiceOverWindow : Window
         {
             if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
             {
-                try { BeginMoveDrag(e); } catch { }
+                try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         };
     }
@@ -337,19 +450,21 @@ public partial class VoiceOverWindow : Window
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
         _micRecordButton = this.FindControl<Button>("MicRecordButton");
+        _pauseResumeButton = this.FindControl<Button>("RecordPauseButton");
+        if (_pauseResumeButton != null) _pauseResumeButton.Click += ToggleRecordPause;
         _playPauseButton = this.FindControl<Button>("PlayPauseButton");
         _applyButton = this.FindControl<Button>("ApplyButton");
         _cancelButton = this.FindControl<Button>("CancelButton");
         _micDeviceComboBox = this.FindControl<ComboBox>("MicDeviceComboBox");
         _recordingStatusText = this.FindControl<TextBlock>("RecordingStatusText");
         _voiceOverHintText = this.FindControl<TextBlock>("VoiceOverHintText");
-        _probingStatusText = this.FindControl<TextBlock>("ProbingStatusText");
         _thumbFallbackText = this.FindControl<TextBlock>("ThumbFallbackText");
         _waveformFallbackText = this.FindControl<TextBlock>("WaveformFallbackText");
         _recordingLight = this.FindControl<Ellipse>("RecordingLight");
         _eqMeter = this.FindControl<Rectangle>("EqMeter");
         _eqMeterTrack = this.FindControl<Border>("EqMeterTrack");
         _timelineRulerCanvas = this.FindControl<Canvas>("TimelineRulerCanvas");
+        _liveWaveformMonitor = this.FindControl<Canvas>("LiveWaveformMonitor");
         _waveformCanvas = this.FindControl<Canvas>("WaveformCanvas");
         _thumbnailLaneGrid = this.FindControl<Grid>("ThumbnailLaneGrid");
         _waveformLaneGrid = this.FindControl<Grid>("WaveformLaneGrid");
@@ -359,11 +474,47 @@ public partial class VoiceOverWindow : Window
         _waveformLoadingOverlay = this.FindControl<Border>("WaveformLoadingOverlay");
         _playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
         _pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
-        _muteMaleCb = this.FindControl<CheckBox>("MuteMaleCb");
-        _muteFemaleCb = this.FindControl<CheckBox>("MuteFemaleCb");
-        _muteChildCb = this.FindControl<CheckBox>("MuteChildCb");
+        _duckAudioCb = this.FindControl<CheckBox>("DuckAudioCb");
         _thumbPlayheadLine = this.FindControl<Border>("ThumbPlayheadLine");
         _wavePlayheadLine = this.FindControl<Border>("WavePlayheadLine");
+        
+        var selectedTakeToolbar = this.FindControl<Border>("SelectedTakeToolbar");
+        var muteTakeBtn = this.FindControl<Button>("MuteTakeButton");
+        var deleteTakeBtn = this.FindControl<Button>("DeleteTakeButton");
+
+        if (muteTakeBtn != null)
+        {
+            muteTakeBtn.Click += (s, e) =>
+            {
+                if (_selectedSession != null)
+                {
+                    _selectedSession.IsMuted = !_selectedSession.IsMuted;
+                    muteTakeBtn.Content = _selectedSession.IsMuted ? "UNMUTE" : "MUTE";
+                    muteTakeBtn.Classes.Remove("Secondary");
+                    muteTakeBtn.Classes.Remove("Primary");
+                    muteTakeBtn.Classes.Add(_selectedSession.IsMuted ? "Primary" : "Secondary");
+                    _renderedSessionCount = -1;
+                    UpdatePlayheadUI();
+                    UpdateApplyState();
+                }
+            };
+        }
+
+        if (deleteTakeBtn != null)
+        {
+            deleteTakeBtn.Click += (s, e) =>
+            {
+                if (_selectedSession != null)
+                {
+                    _sessions.Remove(_selectedSession);
+                    _selectedSession = null;
+                    if (selectedTakeToolbar != null) selectedTakeToolbar.IsVisible = false;
+                    _renderedSessionCount = -1;
+                    UpdatePlayheadUI();
+                    UpdateApplyState();
+                }
+            };
+        }
     }
 
     private void PopulateMicrophoneDevices()
@@ -433,7 +584,7 @@ public partial class VoiceOverWindow : Window
                 BeginResizeDrag(WindowEdge.SouthEast, e);
                 e.Handled = true;
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         };
     }
 
@@ -441,6 +592,7 @@ public partial class VoiceOverWindow : Window
     {
         surface.PointerPressed += (s, e) =>
         {
+            surface.Focus();
             e.Pointer.Capture(surface);
             SeekTimelineFromPointer(e, surface, force: true);
         };
@@ -461,7 +613,21 @@ public partial class VoiceOverWindow : Window
 
     private void TimelineSurface_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (_isRecording || _videoHost?.IpcClient == null) return;
+        if (e.Key == Key.Delete || e.Key == Key.Back)
+        {
+            if (_selectedSession != null)
+            {
+                _sessions.Remove(_selectedSession);
+                _selectedSession = null;
+                _renderedSessionCount = -1;
+                UpdatePlayheadUI();
+                UpdateApplyState();
+                e.Handled = true;
+                return;
+            }
+        }
+
+        if ((_isRecording && !_recordPaused) || _videoHost?.IpcClient == null) return;
 
         switch (e.Key)
         {
@@ -497,7 +663,36 @@ public partial class VoiceOverWindow : Window
         _isCurrentlyFrozen = false;
         _lastFreezeTriggerMs = -1;
         ApplyPreviewSpeedForPosition(seconds * 1000.0);
-        _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        
+        if (_isSeeking)
+        {
+            _nextSeekTarget = seconds;
+            return;
+        }
+
+        _isSeeking = true;
+        try
+        {
+            _ = _videoHost.IpcClient.SendCommandAsync("seek", seconds, "absolute");
+        }
+        catch
+        {
+            _isSeeking = false;
+        }
+    }
+
+    private void OnSeekCompleted()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _isSeeking = false;
+            if (_nextSeekTarget.HasValue)
+            {
+                double target = _nextSeekTarget.Value;
+                _nextSeekTarget = null;
+                SeekToAbsolute(target);
+            }
+        });
     }
 
     private double GetEffectiveTimelineEnd()
@@ -602,12 +797,9 @@ public partial class VoiceOverWindow : Window
 
     private void WireEffectStateControls()
     {
-        foreach (var checkBox in new[] { _muteMaleCb, _muteFemaleCb, _muteChildCb })
+        if (_duckAudioCb != null)
         {
-            if (checkBox != null)
-            {
-                checkBox.IsCheckedChanged += (_, _) => UpdateApplyState();
-            }
+            _duckAudioCb.IsCheckedChanged += (_, _) => UpdateApplyState();
         }
     }
 
@@ -624,6 +816,18 @@ public partial class VoiceOverWindow : Window
         if (_playPauseButton != null) _playPauseButton.IsEnabled = _isMpvReady && !_isRecording;
         if (_micDeviceComboBox != null) _micDeviceComboBox.IsEnabled = hasInputDevice && !_isRecording;
 
+        // Pause/Resume only exists while a recording session is open. It is disabled during the
+        // brief ARMING window so the user cannot pause a take that has not started yet.
+        if (_pauseResumeButton != null)
+        {
+            _pauseResumeButton.IsVisible = _isRecording;
+            _pauseResumeButton.IsEnabled = _isRecording && !_recordArming;
+            var rpi = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordPauseIcon");
+            var rri = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordResumeIcon");
+            if (rpi != null) rpi.IsVisible = !_recordPaused;
+            if (rri != null) rri.IsVisible = _recordPaused;
+        }
+
         if (!hasInputDevice && !_isRecording && _recordingStatusText != null)
         {
             _recordingStatusText.Text = "NO MIC";
@@ -635,7 +839,8 @@ public partial class VoiceOverWindow : Window
     {
         foreach (var session in _sessions)
         {
-            if (session.EndSec > session.StartSec &&
+            if (!session.IsMuted &&
+                session.EndSec > session.StartSec &&
                 !string.IsNullOrWhiteSpace(session.WavPath) &&
                 System.IO.File.Exists(session.WavPath))
             {
@@ -647,14 +852,12 @@ public partial class VoiceOverWindow : Window
 
     private bool HasMuteSelection()
     {
-        return _muteMaleCb?.IsChecked == true ||
-               _muteFemaleCb?.IsChecked == true ||
-               _muteChildCb?.IsChecked == true;
+        return _duckAudioCb?.IsChecked == true;
     }
 
     private bool HasApplicableVoiceEffect()
     {
-        return _isRecording || HasSavedVoiceOverSession() || HasMuteSelection();
+        return _isRecording || HasSavedVoiceOverSession();
     }
 
     private void UpdateApplyState(string? message = null)
@@ -663,22 +866,22 @@ public partial class VoiceOverWindow : Window
         string? effectiveMessage = message;
         if (effectiveMessage == null && !canApply && !VoiceRecorder.HasInputDevice)
         {
-            effectiveMessage = "No microphone input detected. You can still choose a detected voice mute option.";
+            effectiveMessage = "No microphone input detected. You can still choose to duck game audio.";
         }
 
         if (_applyButton != null)
         {
             _applyButton.IsEnabled = canApply;
             ToolTip.SetTip(_applyButton, canApply
-                ? "Apply recorded voiceover and selected voice muting"
-                : "Record a take or choose a mute option before applying");
+                ? "Apply recorded voiceover"
+                : "Record a take before applying");
         }
 
         if (_voiceOverHintText != null)
         {
             _voiceOverHintText.Text = effectiveMessage ?? (canApply
                 ? "Ready to apply the current voiceover changes. Cancel discards unapplied takes."
-                : "Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes.");
+                : "Record a take before applying. Cancel discards unapplied takes.");
             _voiceOverHintText.Foreground = canApply
                 ? GetAppBrush("AppTextPrimaryBrush", Brushes.White)
                 : GetAppBrush("AppTextMutedBrush", Brushes.Gray);
@@ -745,7 +948,7 @@ public partial class VoiceOverWindow : Window
                 process = System.Diagnostics.Process.Start(psi);
                 if (process != null)
                 {
-                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch { }
+                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     await process.WaitForExitAsync(token);
                 }
                 if (process?.ExitCode == 0 && System.IO.File.Exists(tempPng)) return tempPng;
@@ -758,7 +961,7 @@ public partial class VoiceOverWindow : Window
             {
                 if (process != null)
                 {
-                    try { if (!process.HasExited) process.Kill(); } catch { }
+                    try { if (!process.HasExited) process.Kill(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     process.Dispose();
                 }
             }
@@ -884,6 +1087,17 @@ public partial class VoiceOverWindow : Window
             }
         }
 
+        var toolbar = this.FindControl<Border>("SelectedTakeToolbar");
+        if (toolbar != null) toolbar.IsVisible = _selectedSession != null;
+        var muteBtn = this.FindControl<Button>("MuteTakeButton");
+        if (muteBtn != null && _selectedSession != null)
+        {
+            muteBtn.Content = _selectedSession.IsMuted ? "UNMUTE" : "MUTE";
+            muteBtn.Classes.Remove("Secondary");
+            muteBtn.Classes.Remove("Primary");
+            muteBtn.Classes.Add(_selectedSession.IsMuted ? "Primary" : "Secondary");
+        }
+
         if (_thumbnailLaneGrid != null && _thumbnailLaneGrid.Bounds.Width > 0)
         {
             if (_thumbPlayheadLine != null)
@@ -912,23 +1126,84 @@ public partial class VoiceOverWindow : Window
 
         foreach (var session in _sessions)
         {
-            double startFrac = (session.StartSec - _trimStartSec) / effectiveDuration;
-            double endFrac = (session.EndSec - _trimStartSec) / effectiveDuration;
+            double startFrac = (session.RenderStartSec - _trimStartSec) / effectiveDuration;
+            double endFrac = (session.RenderEndSec - _trimStartSec) / effectiveDuration;
             double x1 = Math.Clamp(startFrac * width, 0, width);
             double x2 = Math.Clamp(endFrac * width, 0, width);
             if (x2 <= x1) continue;
 
+            bool isSelected = session == _selectedSession;
+
             var region = new Rectangle
             {
-                Opacity = 0.4,
+                Opacity = isSelected ? 0.8 : (session.IsMuted ? 0.2 : 0.4),
                 Width = x2 - x1,
                 Height = height,
-                IsHitTestVisible = false
+                IsHitTestVisible = true,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
             };
-            region[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
+            region[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(session.IsMuted ? "AppBorderBrush" : "AppDangerBrush");
+            
+            region.PointerPressed += (s, e) =>
+            {
+                if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                {
+                    ruler.Focus();
+                    _selectedSession = session;
+                    _renderedSessionCount = -1;
+                    UpdatePlayheadUI();
+                    e.Handled = true;
+                }
+            };
+            
             Canvas.SetLeft(region, x1);
             Canvas.SetTop(region, 0);
             ruler.Children.Add(region);
+
+            if (isSelected)
+            {
+                var leftHandle = new Rectangle
+                {
+                    Width = 10,
+                    Height = height,
+                    Fill = Avalonia.Media.Brushes.LimeGreen,
+                    IsHitTestVisible = true,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
+                };
+                leftHandle.PointerPressed += (s, e) =>
+                {
+                    if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                    {
+                        _draggingSession = session;
+                        _isDraggingStartEdge = true;
+                        e.Handled = true;
+                    }
+                };
+                Canvas.SetLeft(leftHandle, Math.Max(0, x1 - 5));
+                Canvas.SetTop(leftHandle, 0);
+                ruler.Children.Add(leftHandle);
+
+                var rightHandle = new Rectangle
+                {
+                    Width = 10,
+                    Height = height,
+                    Fill = Avalonia.Media.Brushes.LimeGreen,
+                    IsHitTestVisible = true,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
+                };
+                rightHandle.PointerPressed += (s, e) =>
+                {
+                    if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                    {
+                        _draggingSession = session;
+                        _isDraggingEndEdge = true;
+                        e.Handled = true;
+                    }
+                };
+                Canvas.SetLeft(rightHandle, Math.Min(width - 10, x2 - 5));
+                Canvas.SetTop(rightHandle, 0);
+                ruler.Children.Add(rightHandle);
+            }
         }
 
         _renderedSessionCount = _sessions.Count;
@@ -1000,100 +1275,50 @@ public partial class VoiceOverWindow : Window
         Canvas.SetTop(_currentSessionRegionRect, 0);
     }
 
-    private async Task RunFrequencyProber()
-    {
-        _probeCts?.Cancel();
-        _probeCts?.Dispose();
-        _probeCts = new CancellationTokenSource();
-        var token = _probeCts.Token;
-        FrequencyProber.DemographicResult result;
-        try
-        {
-            int probeSeconds = 15;
-            if (_trimEndSec > _trimStartSec)
-            {
-                probeSeconds = Math.Max(1, (int)Math.Ceiling(Math.Min(15, _trimEndSec - _trimStartSec)));
-            }
-            result = await FrequencyProber.ProbeAsync(_videoPath, probeSeconds, token, _trimStartSec);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Fail("VoiceOver", $"Voice frequency probe failed: {ex.Message}");
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_isClosing) return;
-                if (_probingStatusText != null)
-                {
-                    _probingStatusText.Text = "Voice detection unavailable. Recording still works.";
-                    _probingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
-                }
-
-                if (_muteMaleCb != null) _muteMaleCb.IsVisible = false;
-                if (_muteFemaleCb != null) _muteFemaleCb.IsVisible = false;
-                if (_muteChildCb != null) _muteChildCb.IsVisible = false;
-                UpdateApplyState("Voice detection could not run. You can still record a voiceover take.");
-            });
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_isClosing) return;
-            var found = new List<string>();
-            _detectedMaleHz = result.AdultMaleFrequencyHz;
-            _detectedFemaleHz = result.AdultFemaleFrequencyHz;
-            _detectedChildHz = result.ChildFrequencyHz;
-
-            if (result.HasAdultMale) found.Add($"Male {result.AdultMaleConfidence:P0} @ {result.AdultMaleFrequencyHz:0}Hz");
-            if (result.HasAdultFemale) found.Add($"Female {result.AdultFemaleConfidence:P0} @ {result.AdultFemaleFrequencyHz:0}Hz");
-            if (result.HasChild) found.Add($"Child {result.ChildConfidence:P0} @ {result.ChildFrequencyHz:0}Hz");
-
-            if (_probingStatusText != null)
-            {
-                _probingStatusText.Text = found.Count > 0
-                    ? $"Candidate voice ranges: {string.Join(", ", found)}"
-                    : "No strong voice-frequency candidates detected.";
-                _probingStatusText.Foreground = found.Count > 0
-                    ? GetAppBrush("AppTextPrimaryBrush", Brushes.White)
-                    : GetAppBrush("AppTextMutedBrush", Brushes.Gray);
-            }
-
-            if (_muteMaleCb != null)
-            {
-                _muteMaleCb.IsVisible = result.HasAdultMale;
-                _muteMaleCb.Content = result.HasAdultMale
-                    ? $"Reduce Adult Male Range ({result.AdultMaleFrequencyHz:0}Hz)"
-                    : "Reduce Adult Male Range";
-                _muteMaleCb.IsChecked = false;
-            }
-            if (_muteFemaleCb != null)
-            {
-                _muteFemaleCb.IsVisible = result.HasAdultFemale;
-                _muteFemaleCb.Content = result.HasAdultFemale
-                    ? $"Reduce Female Range ({result.AdultFemaleFrequencyHz:0}Hz)"
-                    : "Reduce Female Range";
-                _muteFemaleCb.IsChecked = false;
-            }
-            if (_muteChildCb != null)
-            {
-                _muteChildCb.IsVisible = result.HasChild;
-                _muteChildCb.Content = result.HasChild
-                    ? $"Reduce Child Range ({result.ChildFrequencyHz:0}Hz)"
-                    : "Reduce Child Range";
-                _muteChildCb.IsChecked = false;
-            }
-            UpdateApplyState();
-        });
-    }
 
     private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Control timelineCanvas, bool force)
     {
         if (e.Handled) return;
-        if (_isRecording) return;
+
+        if (_draggingSession != null)
+        {
+            if (force && e.RoutedEvent == Avalonia.Input.InputElement.PointerReleasedEvent)
+            {
+                _draggingSession = null;
+                _isDraggingStartEdge = false;
+                _isDraggingEndEdge = false;
+                e.Handled = true;
+                return;
+            }
+
+            if (_videoHost?.IpcClient == null) return;
+            double vDur = _videoHost.IpcClient.Duration;
+            double eDur = (_trimEndSec > 0 ? _trimEndSec : vDur) - _trimStartSec;
+            double w = timelineCanvas.Bounds.Width;
+            double pointX = e.GetCurrentPoint(timelineCanvas).Position.X;
+            
+            double dragTargetTime = _trimStartSec + (pointX / w) * eDur;
+
+            if (_isDraggingStartEdge)
+            {
+                double maxStart = _draggingSession.RenderEndSec - 0.1;
+                double newStart = Math.Clamp(dragTargetTime, _draggingSession.StartSec, maxStart);
+                _draggingSession.TrimLeftSec = newStart - _draggingSession.StartSec;
+            }
+            else if (_isDraggingEndEdge)
+            {
+                double minEnd = _draggingSession.RenderStartSec + 0.1;
+                double newEnd = Math.Clamp(dragTargetTime, minEnd, _draggingSession.EndSec);
+                _draggingSession.TrimRightSec = _draggingSession.EndSec - newEnd;
+            }
+
+            _renderedSessionCount = -1;
+            UpdatePlayheadUI();
+            e.Handled = true;
+            return;
+        }
+
+        if (_isRecording && !_recordPaused) return;
         if (_videoHost?.IpcClient == null) return;
         double videoDuration = _videoHost.IpcClient.Duration;
         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
@@ -1107,14 +1332,27 @@ public partial class VoiceOverWindow : Window
         if (!force)
         {
             _dragSeekTimeSec = targetTime;
+            // ISSUE_02 fix: enable live scrubbing
+            _lastTimelineSeekUtc = DateTime.UtcNow;
+            SeekToAbsolute(targetTime);
             e.Handled = true;
             return;
         }
 
-        _dragSeekTimeSec = null;
-            _lastTimelineSeekUtc = DateTime.UtcNow;
+        _dragSeekTimeSec = targetTime;
+        _lastTimelineSeekUtc = DateTime.UtcNow;
         SeekToAbsolute(targetTime);
         e.Handled = true;
+        
+        // Hold the visual override for a short time so the playhead doesn't rubber-band 
+        // back to the old video time while the player processes the seek.
+        _ = Task.Delay(300).ContinueWith(_ => Dispatcher.UIThread.Post(() => 
+        {
+            if (Math.Abs((_dragSeekTimeSec ?? 0) - targetTime) < 0.001) 
+            {
+                _dragSeekTimeSec = null;
+            }
+        }));
     }
 
     private void OnKeyUpHandler(object? sender, Avalonia.Input.KeyEventArgs e)
@@ -1122,11 +1360,20 @@ public partial class VoiceOverWindow : Window
         if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
             return;
 
+        if (e.Key == Avalonia.Input.Key.V)
+        {
+            _isVKeyPressed = false;
+        }
+
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
         var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
         
         if (playPause.Matches(e) || e.Key is Avalonia.Input.Key.Space or Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
         {
+            if (playPause.Matches(e) || e.Key == Avalonia.Input.Key.Space)
+            {
+                _isSpaceKeyPressed = false;
+            }
             e.Handled = true;
         }
     }
@@ -1138,7 +1385,11 @@ public partial class VoiceOverWindow : Window
 
         if (e.Key == Avalonia.Input.Key.V)
         {
-            ToggleRecord(null, null);
+            if (!_isVKeyPressed)
+            {
+                _isVKeyPressed = true;
+                ToggleRecord(null, null);
+            }
             e.Handled = true;
             return;
         }
@@ -1154,26 +1405,35 @@ public partial class VoiceOverWindow : Window
 
         if (playPause.Matches(e))
         {
-            TogglePreviewPlayback(null, null);
+            if (!_isSpaceKeyPressed)
+            {
+                _isSpaceKeyPressed = true;
+                if (_isRecording) ToggleRecordPause(null, null);
+                else TogglePreviewPlayback(null, null);
+            }
             e.Handled = true;
         }
         else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
         {
+            if (_isRecording && !_recordPaused) return;
             _ = _videoHost?.IpcClient?.SendCommandAsync("frame-step");
             e.Handled = true;
         }
         else if (fineSeekBackCtrl.Matches(e) || fineSeekBackShift.Matches(e))
         {
+            if (_isRecording && !_recordPaused) return;
             _ = _videoHost?.IpcClient?.SendCommandAsync("frame-back-step");
             e.Handled = true;
         }
         else if (seekFwd.Matches(e))
         {
+            if (_isRecording && !_recordPaused) return;
             _ = _videoHost?.IpcClient?.SendCommandAsync("seek", "5", "relative");
             e.Handled = true;
         }
         else if (seekBack.Matches(e))
         {
+            if (_isRecording && !_recordPaused) return;
             _ = _videoHost?.IpcClient?.SendCommandAsync("seek", "-5", "relative");
             e.Handled = true;
         }
@@ -1216,6 +1476,58 @@ public partial class VoiceOverWindow : Window
         UpdatePlayPauseIconUI();
     }
 
+    // =====================================================================================
+    // VOICE-OVER SYNC MODEL — read this before changing anything below.
+    // =====================================================================================
+    // A take is anchored to the video by ONE number: VoiceOverSession.StartSec, in SOURCE
+    // seconds. The exporter maps it to output time with
+    // ProcessWorker.cs -> granularTimeMapper(take.StartSec) and places the WAV with `adelay`.
+    // Nothing stretches the WAV. That is correct ONLY because this preview plays at exactly
+    // the same rate the export will render:
+    //   * speed segments  -> ApplyPreviewSpeedForPosition sets mpv `speed`, so N seconds of
+    //                        wall clock here == N seconds of output there;
+    //   * freeze segments -> the preview genuinely pauses for the freeze duration, and the
+    //                        export holds a still frame for the same duration.
+    // So the microphone, which records in wall clock, is already in OUTPUT time. Only the
+    // START needs anchoring — and that is exactly what used to be wrong:
+    //
+    // THE BUG (audit round 6): StartSec was stamped from IpcClient.CurrentTime BEFORE either
+    // the microphone or the video had actually started. Both are fire-and-forget:
+    // SetPropertyAsync("pause","no") is an un-awaited IPC round trip to mpv, and
+    // WaveInEvent.StartRecording() has its own device spin-up. Whatever time elapsed between
+    // "we stamped the clock" and "the video actually rolled" became dead air at the head of
+    // the WAV that the exporter believed was speech. Every take drifted EARLY by an unbounded,
+    // machine-dependent amount, and there was no way for the user to correct it.
+    //
+    // THE FIX — ARMING. Starting (or resuming) a take no longer opens the microphone. It
+    // unpauses the video and arms; PumpRecordArming() then watches the real video clock on the
+    // 50 ms timer, and only when the clock has actually ADVANCED does it open the microphone
+    // and stamp StartSec from that same observed position. Mic-open and clock-read are now
+    // adjacent, so the residual error is one audio buffer instead of an IPC round trip.
+    //
+    // PAUSE/RESUME is built on the same primitive: pause CLOSES the current take, resume opens
+    // a BRAND NEW one that re-arms and re-anchors from scratch. Each segment carries its own
+    // independently measured StartSec, so error cannot accumulate across pauses no matter how
+    // many times the user pauses or how long they wait. This is why VoiceRecorder's old
+    // PauseRecording/ResumeRecording pair was deleted rather than wired up: resuming one
+    // continuous WAV would have folded every resume latency into a single un-correctable
+    // offset, which is precisely the drift this design removes.
+    // =====================================================================================
+
+    /// <summary>True between "user pressed record" and "the video clock actually moved".</summary>
+    private bool _recordArming;
+
+    /// <summary>Video position observed on the previous arming tick, to detect real movement.</summary>
+    private double _armPrevTime;
+
+    /// <summary>Give up arming if the clock never moves (end of clip, stuck decoder).</summary>
+    private DateTime _armDeadlineUtc;
+
+    /// <summary>True while the user has paused an in-progress recording session.</summary>
+    private bool _recordPaused;
+
+    private Button? _pauseResumeButton;
+
     private void StartRecordingAndPlayback()
     {
         if (!VoiceRecorder.HasInputDevice)
@@ -1223,13 +1535,6 @@ public partial class VoiceOverWindow : Window
             ShowMicrophoneUnavailable("No microphone input device is available.");
             return;
         }
-
-        if (_recorder != null)
-        {
-            _recorder.VolumeChanged -= OnVolumeChanged;
-            _recorder.Dispose();
-        }
-        _outputWavPath = CreateTempVoiceOverPath();
 
         double currentPreviewTime = _videoHost?.IpcClient?.CurrentTime ?? _trimStartSec;
         double recordingStart = NormalizePreviewPlaybackPosition(currentPreviewTime);
@@ -1241,45 +1546,231 @@ public partial class VoiceOverWindow : Window
         _lastFreezeTriggerMs = -1;
         ApplyPreviewSpeedForPosition(recordingStart * 1000.0);
 
-        _currentSession = new VoiceOverSession {
+        _waveformSamples.Clear();
+        _recordPaused = false;
+        _isRecording = true;
+
+        if (!ArmTakeSegment(recordingStart)) return;
+
+        UpdateRecordingUi("ARMING", "AppWarningBrush");
+        UpdateApplyState("Recording starts the moment the video rolls. Apply will save the take and close.");
+    }
+
+    /// <summary>
+    /// Opens a NEW take: fresh WAV file, fresh session, and arms the anchor. Called both when
+    /// recording starts and on every resume, which is what keeps segments independent.
+    /// Returns false if the take could not be prepared (caller has already been told why).
+    /// </summary>
+    private bool ArmTakeSegment(double provisionalStartSec)
+    {
+        ReleaseRecorder();
+
+        _outputWavPath = CreateTempVoiceOverPath();
+        _currentSession = new VoiceOverSession
+        {
             WavPath = _outputWavPath,
-            StartSec = recordingStart
+            // Provisional only. PumpRecordArming overwrites this with the position observed at
+            // the instant capture truly begins — that value is the one the exporter uses.
+            StartSec = provisionalStartSec
         };
 
-        _recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
-        _recorder.VolumeChanged += OnVolumeChanged;
+        // AUDIO_01: hard-mute every UI sound for as long as a take is open. Armed counts:
+        // the microphone is about to open and the user may click something in the meantime.
+        _uiSoundMute?.Dispose();
+        _uiSoundMute = UiSoundEffect.Suppress();
 
+        _recordArming = true;
+        _armPrevTime = _videoHost?.IpcClient?.CurrentTime ?? provisionalStartSec;
+        _armDeadlineUtc = DateTime.UtcNow.AddSeconds(3);
+
+        _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
+
+        if (_recordingLight != null) _recordingLight.Opacity = 0.6;
+        if (_micRecordButton != null && !_micRecordButton.Classes.Contains("recording")) _micRecordButton.Classes.Add("recording");
+        UpdateTransportState();
+        return true;
+    }
+
+    /// <summary>
+    /// Runs on the 50 ms UI timer while armed. Opens the microphone on the first tick where the
+    /// video clock has genuinely moved, and stamps the take's anchor from that same reading.
+    /// </summary>
+    private void PumpRecordArming()
+    {
+        if (!_recordArming) return;
+
+        var ipc = _videoHost?.IpcClient;
+        if (ipc == null) return;
+
+        // A freeze segment legitimately pauses the preview. Wait it out rather than anchoring to
+        // the frozen position, which would place the voice at the START of the freeze no matter
+        // how far into it the user actually began speaking.
+        if (_isCurrentlyFrozen || ipc.IsPaused)
+        {
+            _armPrevTime = ipc.CurrentTime;
+            return;
+        }
+
+        double now = ipc.CurrentTime;
+        if (now <= _armPrevTime + 1e-4)
+        {
+            if (DateTime.UtcNow > _armDeadlineUtc)
+            {
+                RuntimeLog.Fail("VoiceOver", "Recording could not start: the video clock never advanced.");
+                _recordArming = false;
+                AbortActiveTake();
+                ShowMicrophoneUnavailable("The video would not start playing, so recording was cancelled.");
+            }
+            _armPrevTime = now;
+            return;
+        }
+
+        // The video is genuinely rolling. Open the microphone and anchor to THIS reading.
+        var recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
+        recorder.VolumeChanged += OnVolumeChanged;
         try
         {
-            _recorder.StartRecording();
+            recorder.StartRecording();
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {ex.Message}");
-            _recorder.VolumeChanged -= OnVolumeChanged;
-            _recorder.Dispose();
-            _recorder = null;
-            _currentSession = null;
-            _isRecording = false;
-            TryDeleteFile(_outputWavPath);
+            recorder.VolumeChanged -= OnVolumeChanged;
+            recorder.Dispose();
+            _recordArming = false;
+            AbortActiveTake();
             ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
             return;
         }
 
-        _isRecording = true;
-        _waveformSamples.Clear();
-        _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
+        _recorder = recorder;
+        _recordArming = false;
 
-        if (_recordingLight != null) _recordingLight.Opacity = 1.0;
+        if (_currentSession != null) _currentSession.StartSec = now;
+        RuntimeLog.Info("VoiceOver", $"Take armed and anchored at {now:0.###}s (source time).");
+
+        UpdateRecordingUi("RECORDING", "AppDangerBrush");
+        UpdateApplyState("Recording in progress. Apply will save the current take and close.");
+    }
+
+    /// <summary>Pause: close the current take cleanly and stop the video. Resume opens a new one.</summary>
+    private void PauseRecordingSegment()
+    {
+        if (!_isRecording || _recordPaused) return;
+
+        _recordArming = false;
+        FinalizeCurrentTake();
+        _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+
+        _recordPaused = true;
+        UpdateRecordingUi("PAUSED", "AppWarningBrush");
+        UpdateTransportState();
+        UpdateApplyState("Recording paused. Resume to add another part, or Apply to save what you have.");
+    }
+
+    /// <summary>Resume: a brand-new take, re-armed and re-anchored, so drift cannot accumulate.</summary>
+    private void ResumeRecordingSegment()
+    {
+        if (!_isRecording || !_recordPaused) return;
+        if (!VoiceRecorder.HasInputDevice)
+        {
+            ShowMicrophoneUnavailable("No microphone input device is available.");
+            return;
+        }
+
+        _recordPaused = false;
+        double resumeAt = _videoHost?.IpcClient?.CurrentTime ?? _trimStartSec;
+        if (!ArmTakeSegment(resumeAt)) return;
+
+        UpdateRecordingUi("ARMING", "AppWarningBrush");
+        UpdateApplyState("Recording resumes the moment the video rolls again.");
+    }
+
+    private void ToggleRecordPause(object? sender, Avalonia.Interactivity.RoutedEventArgs? e)
+    {
+        if (!_isRecording) return;
+        if (_recordPaused) ResumeRecordingSegment();
+        else PauseRecordingSegment();
+    }
+
+    /// <summary>
+    /// Closes the open take and keeps it only if the microphone actually captured something.
+    /// A take that was still ARMING never opened the mic, so its empty WAV is discarded — that
+    /// is what stops a stray arm/abort cycle from injecting a zero-length take into the export.
+    /// </summary>
+    private void FinalizeCurrentTake()
+    {
+        bool captured = _recorder != null;
+        ReleaseRecorder();
+
+        if (_currentSession == null) return;
+
+        _currentSession.EndSec = _videoHost?.IpcClient?.CurrentTime ?? _currentSession.StartSec;
+
+        if (captured &&
+            _currentSession.EndSec > _currentSession.StartSec + 0.05 &&
+            System.IO.File.Exists(_currentSession.WavPath))
+        {
+            _sessions.Add(_currentSession);
+            _renderedSessionCount = -1;
+            RuntimeLog.Info("VoiceOver",
+                $"Take saved: {_currentSession.StartSec:0.###}s -> {_currentSession.EndSec:0.###}s (source time).");
+        }
+        else
+        {
+            TryDeleteFile(_currentSession.WavPath);
+            _lastTakeWasRejected = true;
+        }
+
+        _currentSession = null;
+    }
+
+    /// <summary>Throws away the take being armed (never captured anything).</summary>
+    private void AbortActiveTake()
+    {
+        ReleaseRecorder();
+        if (_currentSession != null)
+        {
+            TryDeleteFile(_currentSession.WavPath);
+            _currentSession = null;
+        }
+        _isRecording = false;
+        _recordPaused = false;
+        _uiSoundMute?.Dispose();
+        _uiSoundMute = null;
+    }
+
+    private void ReleaseRecorder()
+    {
+        if (_recorder == null) return;
+        _recorder.VolumeChanged -= OnVolumeChanged;
+        try { _recorder.StopRecording(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        _recorder.Dispose();
+        _recorder = null;
+    }
+
+    /// <summary>Set by FinalizeCurrentTake when a take was discarded, so the UI can explain why.</summary>
+    private bool _lastTakeWasRejected;
+
+    private void UpdateRecordingUi(string status, string brushKey)
+    {
+        if (_recordingLight != null) _recordingLight.Opacity = status == "RECORDING" ? 1.0 : 0.6;
         if (_recordingStatusText != null)
         {
-            _recordingStatusText.Text = "RECORDING";
-            _recordingStatusText.Foreground = GetAppBrush("AppDangerBrush", Brushes.Red);
+            _recordingStatusText.Text = status;
+            _recordingStatusText.Foreground = GetAppBrush(brushKey, Brushes.White);
         }
-        
-        if (_micRecordButton != null && !_micRecordButton.Classes.Contains("recording")) _micRecordButton.Classes.Add("recording");
-        UpdateTransportState();
-        UpdateApplyState("Recording in progress. Apply will save the current take and close.");
+        if (_pauseResumeButton != null)
+        {
+            _pauseResumeButton.IsVisible = _isRecording;
+            var rpi = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordPauseIcon");
+            var rri = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordResumeIcon");
+            if (rpi != null) rpi.IsVisible = !_recordPaused;
+            if (rri != null) rri.IsVisible = _recordPaused;
+            ToolTip.SetTip(_pauseResumeButton, _recordPaused
+                ? "Carry on recording from here. The new part is anchored to the video on its own, so it stays in sync."
+                : "Stop recording and pause the video. You can resume and keep going.");
+        }
     }
 
     private void ShowMicrophoneUnavailable(string message)
@@ -1293,7 +1784,7 @@ public partial class VoiceOverWindow : Window
         }
         if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
         UpdateTransportState();
-        UpdateApplyState($"{message} You can still use voice mute options if detection finds them.");
+        UpdateApplyState($"{message} Game audio ducking still works.");
     }
 
     /// <summary>
@@ -1308,30 +1799,33 @@ public partial class VoiceOverWindow : Window
     {
         if (string.IsNullOrWhiteSpace(path)) return;
 
-        for (int attempt = 0; attempt < 4; attempt++)
+        Task.Run(() =>
         {
-            try
+            for (int attempt = 0; attempt < 4; attempt++)
             {
-                if (!System.IO.File.Exists(path)) return;
-                System.IO.File.Delete(path);
-                return;
+                try
+                {
+                    if (!System.IO.File.Exists(path)) return;
+                    System.IO.File.Delete(path);
+                    return;
+                }
+                catch (System.IO.IOException) when (attempt < 3)
+                {
+                    System.Threading.Thread.Sleep(60);
+                }
+                catch (UnauthorizedAccessException) when (attempt < 3)
+                {
+                    System.Threading.Thread.Sleep(60);
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Debug("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
+                    return;
+                }
             }
-            catch (System.IO.IOException) when (attempt < 3)
-            {
-                System.Threading.Thread.Sleep(60);
-            }
-            catch (UnauthorizedAccessException) when (attempt < 3)
-            {
-                System.Threading.Thread.Sleep(60);
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog.Debug("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
-                return;
-            }
-        }
 
-        RuntimeLog.Debug("VoiceOver", $"Temp take '{System.IO.Path.GetFileName(path)}' is still locked; leaving it for temp cleanup.");
+            RuntimeLog.Debug("VoiceOver", $"Temp take '{System.IO.Path.GetFileName(path)}' is still locked; leaving it for temp cleanup.");
+        });
     }
 
     private void StopRecordingAndPlayback()
@@ -1339,56 +1833,42 @@ public partial class VoiceOverWindow : Window
         if (!_isRecording) return;
 
         _isRecording = false;
+        _recordArming = false;
+        _recordPaused = false;
         _isCurrentlyFrozen = false;
-        _recorder?.StopRecording();
+
+        // Take-splitting means the take may ALREADY be closed (the user paused and never
+        // resumed). FinalizeCurrentTake is a no-op in that case; _lastTakeWasRejected carries
+        // the "too short to keep" outcome out of it.
+        _lastTakeWasRejected = false;
+        FinalizeCurrentTake();
+
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
-        bool rejectedShortRecording = false;
-        if (_currentSession != null)
-        {
-            _currentSession.EndSec = _videoHost?.IpcClient?.CurrentTime ?? _currentSession.StartSec;
-            if (_currentSession.EndSec > _currentSession.StartSec + 0.05 &&
-                System.IO.File.Exists(_currentSession.WavPath))
-            {
-                _sessions.Add(_currentSession);
-                _renderedSessionCount = -1;
-            }
-            else
-            {
-                rejectedShortRecording = true;
-            }
-            _currentSession = null;
-        }
+        // AUDIO_01: microphone is closed — UI sounds may resume.
+        _uiSoundMute?.Dispose();
+        _uiSoundMute = null;
 
         if (_recordingLight != null) _recordingLight.Opacity = 0.2;
         if (_recordingStatusText != null)
         {
-            _recordingStatusText.Text = "PAUSED";
+            _recordingStatusText.Text = "READY";
             _recordingStatusText.Foreground = GetAppBrush("AppTextPrimaryBrush", Brushes.White);
         }
-        
+        if (_pauseResumeButton != null) _pauseResumeButton.IsVisible = false;
+
         if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
         UpdateTransportState();
-        UpdateApplyState(rejectedShortRecording
+        UpdateApplyState(_lastTakeWasRejected && !HasSavedVoiceOverSession()
             ? "Recording was too short to apply. Record another take or choose a mute option."
             : null);
     }
 
     private void OnVolumeChanged(object? sender, float volume)
     {
+        _peakVolume = Math.Max(_peakVolume, volume);
         Dispatcher.UIThread.Post(() =>
         {
-            if (_eqMeter != null)
-            {
-                double meterWidth = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0
-                    ? _eqMeterTrack.Bounds.Width
-                    : 150;
-                _eqMeter.Width = Math.Min(meterWidth, volume * meterWidth * 2.0);
-                if (volume > 0.8) _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
-                else if (volume > 0.5) _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppWarningBrush");
-                else _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
-            }
-
             if (_isRecording)
             {
                 _waveformSamples.Add(volume);
@@ -1396,17 +1876,50 @@ public partial class VoiceOverWindow : Window
         });
     }
 
+    private void UpdateSmoothEqMeter()
+    {
+        if (_eqMeter == null) return;
+
+        double currentPeak = _peakVolume;
+        _peakVolume = 0;
+
+        if (currentPeak > _smoothedVolume)
+        {
+            _smoothedVolume = currentPeak;
+        }
+        else
+        {
+            _smoothedVolume = Math.Max(0, _smoothedVolume - 0.05);
+        }
+
+        double meterWidth = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0
+            ? _eqMeterTrack.Bounds.Width
+            : 150;
+
+        double targetWidth = Math.Min(meterWidth, _smoothedVolume * meterWidth * 2.0);
+        _eqMeter.Width = targetWidth;
+
+        if (_smoothedVolume > 0.9)
+            _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppWarningBrush");
+        else
+            _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
+    }
+
     private void UpdateWaveformUI()
     {
-        if (_waveformCanvas == null || !_isRecording) return;
+        if (_liveWaveformMonitor == null || !_isRecording)
+        {
+            foreach (var line in _waveformLinePool) line.IsVisible = false;
+            return;
+        }
 
-        int maxLines = Math.Max(0, (int)(_waveformCanvas.Bounds.Width / 2));
+        int maxLines = Math.Max(0, (int)(_liveWaveformMonitor.Bounds.Width / 2));
         int visibleLines = Math.Min(maxLines, _waveformSamples.Count);
-        EnsureWaveformLinePool(_waveformCanvas, visibleLines);
+        EnsureWaveformLinePool(_liveWaveformMonitor, visibleLines);
         
         int startIdx = Math.Max(0, _waveformSamples.Count - visibleLines);
         double x = 0;
-        double laneHeight = Math.Max(1, _waveformCanvas.Bounds.Height);
+        double laneHeight = Math.Max(1, _liveWaveformMonitor.Bounds.Height);
         double centerY = laneHeight / 2;
 
         for (int i = 0; i < visibleLines; i++)
@@ -1440,7 +1953,7 @@ public partial class VoiceOverWindow : Window
         }
     }
 
-    private void ApplyAndClose()
+    private async void ApplyAndClose()
     {
         if (_isRecording)
         {
@@ -1448,15 +1961,12 @@ public partial class VoiceOverWindow : Window
         }
         _recorder?.StopRecording();
 
-        bool muteMale = _muteMaleCb?.IsChecked == true;
-        bool muteFemale = _muteFemaleCb?.IsChecked == true;
-        bool muteChild = _muteChildCb?.IsChecked == true;
-        bool hasMuteEffect = muteMale || muteFemale || muteChild;
+        bool duckAudio = _duckAudioCb?.IsChecked == true;
 
-        if (!HasSavedVoiceOverSession() && !hasMuteEffect)
+        if (!HasSavedVoiceOverSession())
         {
             Result = null;
-            UpdateApplyState("Nothing to apply yet. Record a take or choose a detected voice mute option.");
+            UpdateApplyState("Nothing to apply yet. Record a take before applying.");
             return;
         }
         
@@ -1469,7 +1979,8 @@ public partial class VoiceOverWindow : Window
             for (int i = 0; i < _sessions.Count; i++)
             {
                 var session = _sessions[i];
-                if (session.EndSec <= session.StartSec ||
+                if (session.IsMuted ||
+                    session.EndSec <= session.StartSec ||
                     string.IsNullOrWhiteSpace(session.WavPath) ||
                     !System.IO.File.Exists(session.WavPath))
                 {
@@ -1479,8 +1990,26 @@ public partial class VoiceOverWindow : Window
                 try
                 {
                     string persistedPath = CreatePersistedVoiceOverPath();
-                    File.Copy(session.WavPath, persistedPath, overwrite: true);
-                    persistedTakes.Add(new VoiceOverTake(persistedPath, session.StartSec));
+                    
+                    if (session.TrimLeftSec > 0 || session.TrimRightSec > 0)
+                    {
+                        double dur = session.RenderEndSec - session.RenderStartSec;
+                        string ffargs = $"-y -i \"{session.WavPath}\" -ss {session.TrimLeftSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {dur.ToString(System.Globalization.CultureInfo.InvariantCulture)} -c copy \"{persistedPath}\"";
+                        var startInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = ResolveBinaryPath("ffmpeg.exe", "backend"),
+                            Arguments = ffargs,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using var proc = System.Diagnostics.Process.Start(startInfo);
+                        if (proc != null) await proc.WaitForExitAsync();
+                    }
+                    else
+                    {
+                        await Task.Run(() => File.Copy(session.WavPath, persistedPath, overwrite: true));
+                    }
+                    persistedTakes.Add(new VoiceOverTake(persistedPath, session.RenderStartSec));
                     keepPaths.Add(persistedPath);
                 }
                 catch (Exception ex)
@@ -1488,7 +2017,7 @@ public partial class VoiceOverWindow : Window
                     RuntimeLog.Fail("VoiceOver", $"Voiceover take {i + 1} could not be persisted. {ex.Message}");
                     Result = null;
                     if (_applyButton != null) _applyButton.Content = "APPLY & CLOSE";
-                    UpdateApplyState($"Voiceover take {i + 1} could not be saved. Record another take or choose a mute option.");
+                    UpdateApplyState($"Voiceover take {i + 1} could not be saved. Record another take.");
                     return;
                 }
             }
@@ -1497,10 +2026,10 @@ public partial class VoiceOverWindow : Window
             DeleteSessionFilesExcept(keepPaths);
         }
 
-        if (persistedTakes.Count == 0 && !hasMuteEffect)
+        if (persistedTakes.Count == 0)
         {
             Result = null;
-            UpdateApplyState("Voiceover audio could not be prepared. Record another take or choose a mute option.");
+            UpdateApplyState("Voiceover audio could not be prepared. Record another take.");
             return;
         }
 
@@ -1512,14 +2041,10 @@ public partial class VoiceOverWindow : Window
             VoiceOverWavPath = finalWav,
             VoiceOverStartTimestampSec = finalStart,
             VoiceOverTakes = persistedTakes,
-            MuteMale = muteMale,
-            MuteFemale = muteFemale,
-            MuteChild = muteChild,
-            MaleFrequencyHz = _detectedMaleHz,
-            FemaleFrequencyHz = _detectedFemaleHz,
-            ChildFrequencyHz = _detectedChildHz
+            DuckAudio = duckAudio
         };
 
+        _isSafeToClose = true;
         Close();
     }
 
@@ -1582,7 +2107,6 @@ public partial class VoiceOverWindow : Window
     {
         _isClosing = true;
         _generationCts?.Cancel();
-        _probeCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;
         if (_recorder != null)
@@ -1590,18 +2114,24 @@ public partial class VoiceOverWindow : Window
             _recorder.VolumeChanged -= OnVolumeChanged;
             _recorder.Dispose();
         }
+
+        // AUDIO_01: fail-safe. If the window is closed mid-take, StopRecordingAndPlayback may
+        // never run — without this the whole suite would stay muted for the rest of the session.
+        _uiSoundMute?.Dispose();
+        _uiSoundMute = null;
+
         DeleteUnappliedVoiceOverFiles();
+        StopPreviewPlayers();
         
         if (_tempThumbPath != null && System.IO.File.Exists(_tempThumbPath))
         {
-            try { System.IO.File.Delete(_tempThumbPath); } catch { }
+            try { System.IO.File.Delete(_tempThumbPath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
         if (_tempWavePath != null && System.IO.File.Exists(_tempWavePath))
         {
-            try { System.IO.File.Delete(_tempWavePath); } catch { }
+            try { System.IO.File.Delete(_tempWavePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
-        _probeCts?.Dispose();
         _videoHost?.Dispose();
         base.OnClosed(e);
     }

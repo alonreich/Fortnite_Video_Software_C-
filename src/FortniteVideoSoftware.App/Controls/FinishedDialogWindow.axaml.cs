@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -19,6 +19,14 @@ public partial class FinishedDialogWindow : Window
     {
         InitializeComponent();
 
+        // AUDIO_02: THIS is the completion. The old dispatcher played the 1.385 s "process"
+        // fanfare whenever any Success-classed button was clicked, so it fired the moment the
+        // user pressed PROCESS/MERGE — before a single frame had been encoded — and then said
+        // nothing at all when the export actually finished minutes later. An export is exactly
+        // the moment a user walks away from the machine, so this was the single highest-value
+        // audio cue in the suite and it was inverted. Played on Opened rather than in the
+        // constructor so it lands with the window, not before it.
+        Opened += (_, _) => UiSoundEffect.PlayProcess();
     }
 
     private void InitializeComponent()
@@ -50,7 +58,7 @@ public partial class FinishedDialogWindow : Window
             if (el is Button) return;
             el = el.Parent;
         }
-        try { BeginMoveDrag(e); } catch { }
+        try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e)
@@ -78,7 +86,7 @@ public partial class FinishedDialogWindow : Window
             DialogResult = 1;
             Close();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
     private void OnInstagramClicked(object? sender, RoutedEventArgs e)
     {
@@ -93,7 +101,7 @@ public partial class FinishedDialogWindow : Window
             DialogResult = 1;
             Close();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private void OnYouTubeClicked(object? sender, RoutedEventArgs e)
@@ -109,7 +117,7 @@ public partial class FinishedDialogWindow : Window
             DialogResult = 1;
             Close();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private void OnTikTokClicked(object? sender, RoutedEventArgs e)
@@ -125,7 +133,7 @@ public partial class FinishedDialogWindow : Window
             DialogResult = 1;
             Close();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private void OnOpenFolderClicked(object? sender, RoutedEventArgs e)
@@ -147,9 +155,25 @@ public partial class FinishedDialogWindow : Window
         {
             if (!string.IsNullOrWhiteSpace(_outputPath) && File.Exists(_outputPath))
             {
-                Process.Start("explorer.exe", $"/select,\"{_outputPath}\"");
+                // ISSUE_3: this was Process.Start("explorer.exe", $"/select,\"{_outputPath}\"") —
+                // the one place in the app that glues a user path into a raw command line instead
+                // of using ArgumentList. ArgumentList applies Windows' own quoting rules per
+                // argument, so nothing in the path can break the command.
+                //
+                // NOTE the deliberate exception: explorer.exe does NOT follow the standard
+                // command-line parsing rules, and "/select," plus the path must arrive as ONE
+                // argument. That is why they are concatenated into a single ArgumentList entry
+                // rather than added as two.
+                var psi = new ProcessStartInfo { FileName = "explorer.exe", UseShellExecute = false };
+                psi.ArgumentList.Add("/select," + _outputPath);
+                Process.Start(psi);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // ISSUE_2: was `catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }`, so a failure left OPEN FOLDER looking like a dead button
+            // with no trace anywhere. Still non-fatal, but now diagnosable.
+            RuntimeLog.Fail("UI", $"Could not open the output folder: {ex.Message}");
+        }
     }
 }

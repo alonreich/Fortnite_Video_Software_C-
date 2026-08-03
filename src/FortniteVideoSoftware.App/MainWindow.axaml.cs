@@ -714,7 +714,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 {
                     var confirm = new ConfirmDialogWindow();
                     confirm.SetTitle("Remove Voice Over?");
-                    confirm.SetMessage("This will remove the applied voiceover or voice-frequency muting from the current edit.");
+                    confirm.SetMessage("This will remove the applied voiceover from the current edit.");
                     confirm.SetButtonText("REMOVE", "KEEP");
                     await confirm.ShowDialog(this);
                     if (!confirm.Result)
@@ -4336,12 +4336,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             VoiceOverWavPath = _voiceOverResult?.VoiceOverWavPath,
             VoiceOverStartSec = _voiceOverResult?.VoiceOverStartTimestampSec ?? 0.0,
             VoiceOverTakes = _voiceOverResult != null ? GetExistingVoiceOverTakes(_voiceOverResult) : null,
-            VoiceOverMuteMale = _voiceOverResult?.MuteMale ?? false,
-            VoiceOverMuteFemale = _voiceOverResult?.MuteFemale ?? false,
-            VoiceOverMuteChild = _voiceOverResult?.MuteChild ?? false,
-            VoiceOverMuteMaleHz = _voiceOverResult?.MaleFrequencyHz ?? 0.0,
-            VoiceOverMuteFemaleHz = _voiceOverResult?.FemaleFrequencyHz ?? 0.0,
-            VoiceOverMuteChildHz = _voiceOverResult?.ChildFrequencyHz ?? 0.0
+            VoiceOverDuckAudio = _voiceOverResult?.DuckAudio ?? false
         };
 
         var controller = new FortniteVideoSoftware.App.Services.MainMediaController();
@@ -4790,9 +4785,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private static bool HasVoiceOverEffect(VoiceOverWindow.VoiceOverResult? result)
     {
         return HasVoiceOverWav(result) ||
-               result?.MuteMale == true ||
-               result?.MuteFemale == true ||
-               result?.MuteChild == true;
+               result?.DuckAudio == true;
     }
 
     private void DisposeVoiceOverPreviewTakes()
@@ -4867,9 +4860,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 btn.Classes.Remove("VoiceOverEntry");
                 btn.Classes.Remove("Primary");
                 if (!btn.Classes.Contains("Danger")) btn.Classes.Add("Danger");
-                ToolTip.SetTip(btn, hasWav ? "Remove the current voiceover" : "Remove voice frequency muting");
+                ToolTip.SetTip(btn, hasWav ? "Remove the current voiceover" : "Add a voiceover");
             }
-            if (text != null) text.Text = hasWav ? "REMOVE VOICE" : "VOICE FX ON";
+            if (text != null) text.Text = hasWav ? "REMOVE VOICE" : "ADD VOICE";
 
             if (hasWav)
             {
@@ -4917,12 +4910,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var muteOnly = new VoiceOverWindow.VoiceOverResult
         {
-            MuteMale = _voiceOverResult!.MuteMale,
-            MuteFemale = _voiceOverResult.MuteFemale,
-            MuteChild = _voiceOverResult.MuteChild,
-            MaleFrequencyHz = _voiceOverResult.MaleFrequencyHz,
-            FemaleFrequencyHz = _voiceOverResult.FemaleFrequencyHz,
-            ChildFrequencyHz = _voiceOverResult.ChildFrequencyHz
+            DuckAudio = _voiceOverResult!.DuckAudio
         };
 
         ApplyVoiceOverState(HasVoiceOverEffect(muteOnly) ? muteOnly : null);
@@ -5004,12 +4992,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 state["voiceOverWavPath"] = _voiceOverResult.VoiceOverWavPath;
                 state["voiceOverStartSec"] = _voiceOverResult.VoiceOverStartTimestampSec;
-                state["voiceOverMuteMale"] = _voiceOverResult.MuteMale;
-                state["voiceOverMuteFemale"] = _voiceOverResult.MuteFemale;
-                state["voiceOverMuteChild"] = _voiceOverResult.MuteChild;
-                state["voiceOverMuteMaleHz"] = _voiceOverResult.MaleFrequencyHz;
-                state["voiceOverMuteFemaleHz"] = _voiceOverResult.FemaleFrequencyHz;
-                state["voiceOverMuteChildHz"] = _voiceOverResult.ChildFrequencyHz;
+                state["voiceOverDuckAudio"] = _voiceOverResult.DuckAudio;
 
                 var voiceTakeArray = new System.Text.Json.Nodes.JsonArray();
                 foreach (var take in GetExistingVoiceOverTakes(_voiceOverResult))
@@ -5334,15 +5317,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 UpdateSpeedLabel();
                 UpdateTimelineMarkers();
 
-                if (state.TryGetPropertyValue("voiceOverWavPath", out var wavPathNode) || state.ContainsKey("voiceOverMuteMale") || state.ContainsKey("voiceOverTakes"))
+                if (state.TryGetPropertyValue("voiceOverWavPath", out var wavPathNode) || state.ContainsKey("voiceOverDuckAudio") || state.ContainsKey("voiceOverTakes"))
                 {
                     var wavPath = wavPathNode?.GetValue<string>();
-                    bool muteMale = state.TryGetPropertyValue("voiceOverMuteMale", out var mNode) && mNode != null && mNode.GetValue<bool>();
-                    bool muteFemale = state.TryGetPropertyValue("voiceOverMuteFemale", out var fNode) && fNode != null && fNode.GetValue<bool>();
-                    bool muteChild = state.TryGetPropertyValue("voiceOverMuteChild", out var cNode) && cNode != null && cNode.GetValue<bool>();
-                    double muteMaleHz = state.TryGetPropertyValue("voiceOverMuteMaleHz", out var mhzNode) && mhzNode != null ? mhzNode.GetValue<double>() : 0;
-                    double muteFemaleHz = state.TryGetPropertyValue("voiceOverMuteFemaleHz", out var fhzNode) && fhzNode != null ? fhzNode.GetValue<double>() : 0;
-                    double muteChildHz = state.TryGetPropertyValue("voiceOverMuteChildHz", out var chzNode) && chzNode != null ? chzNode.GetValue<double>() : 0;
+                    bool duckAudio = state.TryGetPropertyValue("voiceOverDuckAudio", out var dNode) && dNode != null && dNode.GetValue<bool>();
+                    
                     var restoredTakes = new List<VoiceOverTake>();
                     if (state.TryGetPropertyValue("voiceOverTakes", out var takesNode) &&
                         takesNode is System.Text.Json.Nodes.JsonArray takesArray)
@@ -5359,19 +5338,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                         }
                     }
 
-                    if (restoredTakes.Count > 0 || (!string.IsNullOrEmpty(wavPath) && System.IO.File.Exists(wavPath)) || muteMale || muteFemale || muteChild)
+                    if (restoredTakes.Count > 0 || (!string.IsNullOrEmpty(wavPath) && System.IO.File.Exists(wavPath)) || duckAudio)
                     {
                         var resultObj = new VoiceOverWindow.VoiceOverResult
                         {
                             VoiceOverWavPath = wavPath ?? "",
                             VoiceOverStartTimestampSec = state.TryGetPropertyValue("voiceOverStartSec", out var sNode) && sNode != null ? sNode.GetValue<double>() : 0,
                             VoiceOverTakes = restoredTakes,
-                            MuteMale = muteMale,
-                            MuteFemale = muteFemale,
-                            MuteChild = muteChild,
-                            MaleFrequencyHz = muteMaleHz,
-                            FemaleFrequencyHz = muteFemaleHz,
-                            ChildFrequencyHz = muteChildHz
+                            DuckAudio = duckAudio
                         };
                         ApplyVoiceOverState(resultObj, true);
                     }

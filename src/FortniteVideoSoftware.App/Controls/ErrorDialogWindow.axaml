@@ -65,11 +65,13 @@
 
                 <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center"
                             Spacing="15" Margin="0,4,0,25">
+                    <!-- ISSUE_04 (audit round 5): MinHeight="34" removed — it overrode the global
+                         AppButtonMinHeight token (44) and blocked font-scale growth. -->
                     <Button Name="OkayBtn" Classes="Primary" Content="OKAY"
-                            MinWidth="140" MinHeight="34" Cursor="Hand" IsDefault="True"
+                            MinWidth="140" Cursor="Hand" IsDefault="True"
                             AutomationProperties.Name="Acknowledge the error" />
                     <Button Name="ShowLogsBtn" Classes="Secondary" Content="SHOW LOGS"
-                            MinWidth="140" MinHeight="34" Cursor="Hand"
+                            MinWidth="140" Cursor="Hand"
                             AutomationProperties.Name="Open the application log file" />
                 </StackPanel>
             </Grid>

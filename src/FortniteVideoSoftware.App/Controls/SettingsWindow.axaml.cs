@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -74,6 +74,11 @@ public partial class SettingsWindow : Window
         ConfirmCropToolReset = SettingsManager.Instance.ConfirmCropToolReset;
         ConfirmCropToolDelete = SettingsManager.Instance.ConfirmCropToolDelete;
 
+        // AUDIO_06
+        UiSoundsEnabled = SettingsManager.Instance.UiSoundsEnabled;
+        UiSoundVolume = SettingsManager.Instance.UiSoundVolume;
+        BuildUiSoundUi();
+
         this.FindControl<Button>("SaveBtn")!.Click += (s, e) => SaveAndClose();
         this.FindControl<Button>("CancelBtn")!.Click += (s, e) => Close();
 
@@ -110,6 +115,32 @@ public partial class SettingsWindow : Window
     public bool ConfirmVideoMergerClearAll { get; set; }
     public bool ConfirmCropToolReset { get; set; }
     public bool ConfirmCropToolDelete { get; set; }
+
+    /// <summary>AUDIO_06 — pending value for the UI sound master switch; committed by APPLY.</summary>
+    public bool UiSoundsEnabled { get; set; } = true;
+
+    /// <summary>AUDIO_06 — pending value for the UI sound level (0-100); committed by APPLY.</summary>
+    public int UiSoundVolume { get; set; } = 70;
+
+    /// <summary>
+    /// AUDIO_06: keeps the "NN%" readout beside the slider in step with the thumb. The slider's
+    /// VALUE is bound TwoWay in XAML like every other setting on this window; this only drives
+    /// the label, which has no binding source of its own.
+    /// </summary>
+    private void BuildUiSoundUi()
+    {
+        var slider = this.FindControl<Slider>("UiSoundVolumeSlider");
+        var label = this.FindControl<TextBlock>("UiSoundVolumeLabel");
+        if (slider == null || label == null) return;
+
+        void Render() => label.Text = $"{(int)Math.Round(slider.Value)}%";
+
+        Render();
+        slider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == RangeBase.ValueProperty) Render();
+        };
+    }
 
     private void LoadCurrentKeybinds()
     {
@@ -382,14 +413,16 @@ public partial class SettingsWindow : Window
         {
             if (System.IO.File.Exists(_paths.SessionStateFile))
             {
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile));
+                // ISSUE_1: reflection-free parse. JsonSerializer.Deserialize<JsonObject> needs the
+                // reflection resolver that NativeAOT + TrimMode=full removes from the shipped EXE.
+                var state = System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(_paths.SessionStateFile))?.AsObject();
                 if (state != null && state.ContainsKey("CustomMusicDirectory"))
                 {
                     _pendingMusicFolder = state["CustomMusicDirectory"]?.GetValue<string>() ?? "";
                 }
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         var txtFolder = this.FindControl<TextBox>("DefaultMusicFolderTextBox");
 
@@ -562,6 +595,10 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmCropToolReset = ConfirmCropToolReset;
         SettingsManager.Instance.ConfirmCropToolDelete = ConfirmCropToolDelete;
 
+        // AUDIO_06 — takes effect immediately; UiSoundEffect reads these on every play.
+        SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
+        SettingsManager.Instance.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);
+
         SettingsManager.Instance.ThemeMode = _pendingThemeMode;
         SettingsManager.Instance.FontScale = _pendingFontScale;
         SettingsManager.Instance.LoudnessNormalizationPrompt = _pendingLoudnessPrompt;
@@ -584,7 +621,7 @@ public partial class SettingsWindow : Window
                     ["CustomMusicDirectory"] = _pendingMusicFolder
                 });
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         Close(true);
     }
@@ -639,7 +676,7 @@ public partial class SettingsWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             };
         }

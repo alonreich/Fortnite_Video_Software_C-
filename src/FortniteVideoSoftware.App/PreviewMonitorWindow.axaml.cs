@@ -44,7 +44,7 @@ public partial class PreviewMonitorWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             };
         }

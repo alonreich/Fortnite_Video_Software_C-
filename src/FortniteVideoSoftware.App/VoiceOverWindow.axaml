@@ -3,7 +3,7 @@
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.VoiceOverWindow"
-        Title="Voice Over Studio"
+        Title="Microphone Voice-Over Studio"
 
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="980" MinHeight="640"
@@ -40,12 +40,28 @@
                                     <WrapPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                         
                                         <!-- Realistic Mic Button -->
-                                         <Button Name="MicRecordButton" Classes="Danger" MinWidth="82" MinHeight="82" Margin="0,0,20,0" ToolTip.Tip="Start or stop voiceover recording (V)" AutomationProperties.Name="Start or stop voiceover recording" IsEnabled="False">
-                                             <Viewbox MinWidth="32" MinHeight="32" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                 <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
-                                             </Viewbox>
+                                         <Button Name="MicRecordButton" Classes="Danger" MinWidth="70" MinHeight="50" Margin="0,0,20,0" ToolTip.Tip="Start or stop voiceover recording (V)" AutomationProperties.Name="Start or stop voiceover recording" IsEnabled="False">
+                                             <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                 <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                             </Panel>
                                          </Button>
                                         
+                                        <!-- Pause / Resume for an in-progress take.
+                                             Hidden until recording starts (code-behind drives IsVisible).
+                                             Pausing CLOSES the current take and resuming opens a new one that
+                                             re-anchors itself to the video clock, so pausing as often as you
+                                             like cannot push the voiceover out of sync. -->
+                                        <Button Name="RecordPauseButton" Classes="Secondary"
+                                                MinWidth="70" MinHeight="50" Margin="0,0,20,0"
+                                                IsVisible="False"
+                                                AutomationProperties.Name="Pause or resume the voiceover recording"
+                                                ToolTip.Tip="Stop recording and pause the video. You can resume and keep going. (Spacebar)">
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="RecordPauseIcon" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" IsVisible="True" />
+                                                <Path Name="RecordResumeIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" IsVisible="False" />
+                                            </Panel>
+                                        </Button>
+
                                         <!-- Recording Indicator & EQ -->
                                         <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="0,0,20,0">
                                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
@@ -54,9 +70,12 @@
                                             </StackPanel>
                                             
                                             <!-- EQ Meter -->
-                                            <Border Name="EqMeterTrack" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" MinWidth="120" MaxWidth="180" Height="20" ClipToBounds="True">
-                                                <Rectangle Name="EqMeter" Width="0" Height="20" HorizontalAlignment="Left" Fill="{DynamicResource AppSuccessBrush}" />
+                                            <Border Name="EqMeterTrack" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" MinWidth="250" MaxWidth="400" Height="30" ClipToBounds="True">
+                                                <Rectangle Name="EqMeter" Width="0" Height="30" HorizontalAlignment="Left" Fill="{DynamicResource AppSuccessBrush}" />
                                             </Border>
+                                            
+                                            <!-- Live Waveform Monitor -->
+                                            <Canvas Name="LiveWaveformMonitor" Height="60" MinWidth="250" MaxWidth="400" ClipToBounds="True" />
                                         </StackPanel>
 
                                         <!-- Play Pause -->
@@ -75,7 +94,11 @@
                                     <Border BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0">
                                         <Grid RowDefinitions="Auto, *, *" MinHeight="140">
                                             <!-- Ruler -->
-                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurface" Grid.Row="0" MinHeight="20" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
+                                            <!-- ISSUE_13 (audit round 5): MinHeight was 20. This is a click-and-drag
+                                                 SEEK surface (Focusable, tab stop, Hand cursor), and every other seek
+                                                 canvas in the suite renders at 32 (MainWindow TimelineMarkersCanvas,
+                                                 Merger, CropTool, Granular). Raised to 32 for parity. -->
+                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurface" Grid.Row="0" MinHeight="32" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
 
                                             <!-- Thumbnails -->
                                             <Grid Name="ThumbnailLaneGrid" Classes="TimelineSeekSurface" Grid.Row="1" MinHeight="54" Background="{DynamicResource AppSurfaceBrush}" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by frame preview" AutomationProperties.Name="Voiceover thumbnail seek lane">
@@ -112,32 +135,34 @@
                             </Grid>
                         </Grid>
 
-                        <!-- RIGHT PANEL: Probing & Options -->
+                        <!-- RIGHT PANEL: Options -->
                         <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15" MinWidth="260" MaxWidth="340">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Orientation="Vertical" Spacing="15">
-                                <TextBlock Text="VOICE DETECTION" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
-                                <TextBlock Text="Scanning for candidate voice-frequency ranges..." Name="ProbingStatusText" FontSize="{DynamicResource AppFontSize12}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Vertical" Spacing="5">
-                                    <TextBlock Text="MICROPHONE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
-                                    <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
-                                </StackPanel>
+                                <TextBlock Text="MICROPHONE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
                                 
-                                <StackPanel Orientation="Vertical" Spacing="5">
-                                    <TextBlock Text="VOICE MUTING FILTERS" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                <StackPanel Orientation="Vertical" Spacing="5" Margin="0,15,0,0">
+                                    <TextBlock Text="GAME AUDIO MIXING" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
                                     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
-                                        <Panel MinHeight="100">
-                                            <TextBlock Text="Scan audio to unlock voice frequencies" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="{Binding !#MuteMaleCb.IsVisible}" />
-                                            <StackPanel Orientation="Vertical" Spacing="10" Name="DemographicPanel">
-                                                <CheckBox Name="MuteMaleCb" Content="Reduce Adult Male Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteMale, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected adult male frequency range in the original audio" />
-                                                <CheckBox Name="MuteFemaleCb" Content="Reduce Female Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteFemale, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected female frequency range in the original audio" />
-                                                <CheckBox Name="MuteChildCb" Content="Reduce Child Range" IsVisible="False" IsChecked="{Binding $parent[local:VoiceOverWindow].IsMuteChild, Mode=TwoWay}" ToolTip.Tip="Attenuate the strongest detected child voice frequency range in the original audio" />
-                                            </StackPanel>
-                                        </Panel>
+                                        <CheckBox Name="DuckAudioCb" Content="Auto-Duck Game Audio" ToolTip.Tip="Automatically lowers the game volume to make your microphone recordings clearly audible" />
                                     </Border>
                                 </StackPanel>
                                 
-                                <TextBlock Text="Frequency muting can also reduce nearby game sounds." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                <Border BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Background="#1A332200">
+                                    <TextBlock Text="Drops the game volume by 85% exactly when you are speaking into your microphone.&#x0a;&#x0a;⚠️ IMPORTANT: This studio is for recording your own voice over the video. It does NOT contain AI to scan the video and mute other players' voices from the original game audio." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap"/>
+                                </Border>
+                                
+                                <Border Name="SelectedTakeToolbar" IsVisible="False" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,15,0,0">
+                                    <StackPanel Orientation="Vertical" Spacing="8">
+                                        <TextBlock Text="SELECTED TAKE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Button Name="MuteTakeButton" Classes="Secondary" Content="MUTE" Padding="15,4" ToolTip.Tip="Mute or unmute this specific take" />
+                                            <Button Name="DeleteTakeButton" Classes="Danger" Content="DELETE" Padding="15,4" ToolTip.Tip="Delete this take" />
+                                        </StackPanel>
+                                        <TextBlock Text="You can also trim by dragging its edges in the timeline" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                             </ScrollViewer>
                         </Border>
@@ -146,10 +171,10 @@
                     <!-- BOTTOM ROW (Apply / Cancel) -->
                     <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource AppBorderBrush}" Padding="12,12,12,12">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take or choose a detected voice mute option before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
                                 <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
-                                <Button Name="ApplyButton" Classes="Success" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take or choose a mute option before applying"/>
+                                <Button Name="ApplyButton" Classes="Success" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take before applying"/>
                             </StackPanel>
                         </Grid>
                     </Border>

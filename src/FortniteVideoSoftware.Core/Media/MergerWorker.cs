@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -27,6 +27,57 @@ public class MergerWorker : IDisposable
 
     public int QualityPercent { get; set; } = 100;
     public bool AutoSpikeFlattening { get; set; } = true;
+
+    /// <summary>
+    /// IDEA_8 — optional per-clip in/out points, in SOURCE seconds, index-aligned with
+    /// <see cref="InputFiles"/>. A null list, a short list, or an entry that covers the whole file
+    /// all mean "use the clip untrimmed", so an older caller that never sets this behaves exactly
+    /// as before.
+    ///
+    /// Trimming is done with the `trim`/`atrim` FILTERS rather than input-level `-ss`/`-t` on
+    /// purpose. The filters are frame-accurate, and — the part that matters — the identical
+    /// start/end numbers are applied to the video and the audio branch of the same clip in one
+    /// place, followed by `setpts=PTS-STARTPTS`/`asetpts=PTS-STARTPTS` to rebase both to zero.
+    /// That is what keeps picture and sound locked together through the concat. Input seeking
+    /// would have split that decision across two mechanisms and risked exactly the silent
+    /// audio-drift this feature must not introduce.
+    /// </summary>
+    public List<ClipTrim>? ClipTrims { get; set; }
+
+    /// <summary>
+    /// A clip's in/out point in SOURCE seconds. <see cref="EndSec"/> of 0 or less means "run to the
+    /// end of the file".
+    /// </summary>
+    public readonly record struct ClipTrim(double StartSec, double EndSec);
+
+    /// <summary>
+    /// Resolves the effective in/out window for one clip, clamped to the real file duration.
+    /// Returns the untrimmed window when no usable trim is configured. A window that would be
+    /// shorter than this is treated as a mistake and ignored — a zero-length clip in a concat
+    /// chain produces a corrupt output rather than an error.
+    /// </summary>
+    private const double MinTrimmedClipSec = 0.05;
+
+    private (double start, double end, bool trimmed) ResolveClipWindow(int index, double fileDuration)
+    {
+        double fullEnd = fileDuration > 0 ? fileDuration : 0;
+        if (ClipTrims == null || index < 0 || index >= ClipTrims.Count || fullEnd <= 0)
+            return (0, fullEnd, false);
+
+        ClipTrim t = ClipTrims[index];
+        double start = Math.Clamp(t.StartSec, 0, fullEnd);
+        double end = t.EndSec <= 0 ? fullEnd : Math.Clamp(t.EndSec, 0, fullEnd);
+
+        if (end - start < MinTrimmedClipSec)
+        {
+            CoreLogger.Info("Merger",
+                $"  [{index + 1}] trim ignored — the requested window ({start:F2}s to {end:F2}s) is shorter than {MinTrimmedClipSec:F2}s.");
+            return (0, fullEnd, false);
+        }
+
+        bool trimmed = start > 0.001 || end < fullEnd - 0.001;
+        return (start, end, trimmed);
+    }
 
     /// <summary>
     /// ISSUE_06 — raw error text (FFmpeg stderr tail / exception) behind the last failure.
@@ -58,7 +109,7 @@ public class MergerWorker : IDisposable
         CoreLogger.Info("Merger", "Merge cancelled by user.");
         if (_currentProcess != null)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch { }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
     }
 
@@ -78,7 +129,7 @@ public class MergerWorker : IDisposable
             {
                 if (!proc.WaitForExit(graceMs))
                 {
-                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     proc.WaitForExit(2000);
                 }
             }
@@ -120,6 +171,9 @@ public class MergerWorker : IDisposable
                 double totalDuration = 0;
                 var fileDurations = new double[InputFiles.Count];
                 var fileHasAudio = new bool[InputFiles.Count];
+                // IDEA_8: the resolved in/out window and the resulting length for each clip.
+                var clipWindows = new (double start, double end, bool trimmed)[InputFiles.Count];
+                var clipDurations = new double[InputFiles.Count];
                 double peakSourceVideoBitrateKbps = 0;
                 double durationWeightedBitrateKbps = 0;
                 for (int fi = 0; fi < InputFiles.Count; fi++)
@@ -129,9 +183,20 @@ public class MergerWorker : IDisposable
                     bool hasAudio = await prober.HasAudioAsync();
                     fileDurations[fi] = dur;
                     fileHasAudio[fi] = hasAudio;
-                    CoreLogger.Info("Merger", $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, audio={hasAudio}");
+
+                    // IDEA_8: every downstream size, duration and progress calculation must use the
+                    // TRIMMED length, not the file length. Getting this wrong does not fail loudly —
+                    // it produces a wrong bitrate budget and a progress bar that never reaches 100%.
+                    var (winStart, winEnd, winTrimmed) = ResolveClipWindow(fi, dur);
+                    double effectiveDur = winEnd - winStart;
+                    clipWindows[fi] = (winStart, winEnd, winTrimmed);
+                    clipDurations[fi] = effectiveDur;
+
+                    CoreLogger.Info("Merger", winTrimmed
+                        ? $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, trimmed to {winStart:F2}s-{winEnd:F2}s ({effectiveDur:F2}s), audio={hasAudio}"
+                        : $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, audio={hasAudio}");
                     CoreLogger.Debug("Merger", $"  [{fi + 1}] full path: {InputFiles[fi]}");
-                    totalDuration += dur;
+                    totalDuration += effectiveDur;
 
                     try
                     {
@@ -139,10 +204,10 @@ public class MergerWorker : IDisposable
                         if (srcVbit > 0)
                         {
                             peakSourceVideoBitrateKbps = Math.Max(peakSourceVideoBitrateKbps, srcVbit);
-                            durationWeightedBitrateKbps += srcVbit * Math.Max(0.1, dur);
+                            durationWeightedBitrateKbps += srcVbit * Math.Max(0.1, effectiveDur);
                         }
                     }
-                    catch { }
+                    catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
 
                 if (totalDuration == 0) totalDuration = 10.0;
@@ -198,8 +263,21 @@ public class MergerWorker : IDisposable
                         ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
                         : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
 
-                    filters.Add($"[{i}:v]{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near[v{i}]");
-                    double clipDur = fileDurations[i] > 0 ? fileDurations[i] : totalDuration;
+                    // IDEA_8: the trim pair. Both branches of the SAME clip get the identical window
+                    // and are then rebased to zero, which is the whole A/V sync guarantee — the
+                    // concat downstream assumes every segment starts at PTS 0.
+                    // Order matters: trim BEFORE the speed change, so the numbers stay in plain
+                    // source seconds and never have to be divided by speedFactor.
+                    var win = clipWindows[i];
+                    string vTrim = win.trimmed
+                        ? $"trim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS,"
+                        : "";
+                    string aTrim = win.trimmed
+                        ? $"atrim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS,"
+                        : "";
+
+                    filters.Add($"[{i}:v]{vTrim}{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near[v{i}]");
+                    double clipDur = clipDurations[i] > 0 ? clipDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
                         double atempoSpeed = speedFactor;
@@ -207,7 +285,7 @@ public class MergerWorker : IDisposable
                         while (atempoSpeed > 2.0) { atempoFilters.Add("atempo=2.0"); atempoSpeed /= 2.0; }
                         while (atempoSpeed < 0.5) { atempoFilters.Add("atempo=0.5"); atempoSpeed /= 0.5; }
                         atempoFilters.Add($"atempo={atempoSpeed.ToString("F4", CultureInfo.InvariantCulture)}");
-                        filters.Add($"[{i}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}[a{i}]");
+                        filters.Add($"[{i}:a]{aTrim}aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}[a{i}]");
                     }
                     else
                     {
@@ -356,7 +434,7 @@ public class MergerWorker : IDisposable
                     currentEncoder = fallbacks[0];
                     CoreLogger.Info("Merger", $"Encoder {failedEncoder} failed, retrying with fallback: {currentEncoder}");
 
-                    try { if (File.Exists(corePath)) File.Delete(corePath); } catch { }
+                    try { if (File.Exists(corePath)) File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
 
                 if (successOutputPath != null)
@@ -422,7 +500,7 @@ public class MergerWorker : IDisposable
             }
             finally
             {
-                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch { }
+                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
         catch (OperationCanceledException)
@@ -470,7 +548,7 @@ public class MergerWorker : IDisposable
                 if (end > start)
                     musicWindowDuration = Math.Max(0.01, end - start);
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         var normalized = new List<MusicTrack>();
@@ -487,7 +565,7 @@ public class MergerWorker : IDisposable
                     if (probedDuration > 0)
                         duration = probedDuration;
                 }
-                catch { }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
 
             if (durationFromSourceProbe && track.Offset > 0 && duration > track.Offset)
@@ -500,7 +578,7 @@ public class MergerWorker : IDisposable
         }
 
         bool loopMusic = false;
-        try { loopMusic = MusicConfig?["loop_music"]?.GetValue<bool>() ?? false; } catch { }
+        try { loopMusic = MusicConfig?["loop_music"]?.GetValue<bool>() ?? false; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         if (!loopMusic)
             return normalized;
 
@@ -557,11 +635,11 @@ public class MergerWorker : IDisposable
         if (_currentProcess == null)
             return false;
 
-        try { ChildProcessTracker.AddProcess(_currentProcess); } catch { }
+        try { ChildProcessTracker.AddProcess(_currentProcess); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         using var reg = cancellationToken.Register(() =>
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch { }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         });
 
         var progressTask = Task.Run(async () =>
@@ -716,9 +794,9 @@ public class MergerWorker : IDisposable
                     proc.Kill(entireProcessTree: true);
                 }
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
-            try { proc.Dispose(); } catch { }
+            try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             _currentProcess = null;
         }
     }

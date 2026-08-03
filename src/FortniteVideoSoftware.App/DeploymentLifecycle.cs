@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -546,9 +546,7 @@ internal static class DeploymentLifecycle
                 Directory.Delete(directory, recursive: true);
             }
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <param name="invokingUserDesktop">
@@ -657,9 +655,7 @@ internal static class DeploymentLifecycle
                             }
                         }
                     }
-                    catch
-                    {
-                    }
+                    catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 }
             }
         }
@@ -936,9 +932,7 @@ internal static class DeploymentLifecycle
                         return true;
                     }
                 }
-                catch
-                {
-                }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
 
@@ -985,9 +979,7 @@ internal static class DeploymentLifecycle
                         await TerminateProcessAsync(process).ConfigureAwait(false);
                     }
                 }
-                catch
-                {
-                }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
 
             if (!foundAny)
@@ -1049,9 +1041,7 @@ internal static class DeploymentLifecycle
                     await DeploymentReporter.FailAsync("VERIFY REGISTRY", $"Registry key still exists: {hive} {view}\\{path}", null).ConfigureAwait(false);
                 }
             }
-            catch
-            {
-            }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         return clean;
@@ -1071,9 +1061,7 @@ internal static class DeploymentLifecycle
                     return version;
                 }
             }
-            catch
-            {
-            }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         if (File.Exists(DeploymentFootprint.InstallPath))
@@ -1082,9 +1070,7 @@ internal static class DeploymentLifecycle
             {
                 return FileVersionInfo.GetVersionInfo(DeploymentFootprint.InstallPath).ProductVersion;
             }
-            catch
-            {
-            }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         return null;
@@ -1288,9 +1274,7 @@ internal static class DeploymentLifecycle
             using Process process = Process.GetProcessById(pid);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private static async Task<int> RunHiddenProcessAsync(string exe, string args, int timeoutMilliseconds)
@@ -1327,7 +1311,7 @@ internal static class DeploymentLifecycle
             }
             catch (TimeoutException)
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 output = outputTask.IsCompletedSuccessfully ? outputTask.Result : string.Empty;
                 error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
                 await DeploymentReporter.StepAsync("PROCESS TIMEOUT",
@@ -1360,9 +1344,7 @@ internal static class DeploymentLifecycle
                 UseShellExecute = false
             });
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

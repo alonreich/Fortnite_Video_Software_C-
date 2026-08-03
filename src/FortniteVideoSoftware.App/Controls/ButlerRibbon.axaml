@@ -43,11 +43,13 @@
             <Setter Property="Background" Value="{DynamicResource AppAccentAlpha20Brush}"/>
             <Setter Property="Opacity" Value="1"/>
         </Style>
+        <!-- ISSUE_05 (audit round 5): was 24x24, well under the suite 44px hit target and below
+             the ButlerCard it sits beside. Now on the same AppButtonMinHeight token. -->
         <Style Selector="Button.ButlerDismiss">
-            <Setter Property="MinWidth" Value="24"/>
-            <Setter Property="MinHeight" Value="24"/>
+            <Setter Property="MinWidth" Value="{DynamicResource AppButtonMinHeight}"/>
+            <Setter Property="MinHeight" Value="{DynamicResource AppButtonMinHeight}"/>
             <Setter Property="Padding" Value="4"/>
-            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="CornerRadius" Value="22"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextMutedBrush}"/>
             <!-- ISSUE_04 (audit round 4): token-scaled font sizes -->

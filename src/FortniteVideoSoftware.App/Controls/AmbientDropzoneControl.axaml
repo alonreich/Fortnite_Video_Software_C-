@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="FortniteVideoSoftware.App.Controls.AmbientDropzoneControl"
              IsVisible="False"
@@ -29,7 +29,7 @@
     <Border Name="ContainerBorder" Classes="DropzoneInactive" Background="{DynamicResource AppDimmerSoftBrush}">
         <Grid>
                 <Border Name="PulseBorder" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Width="200" Height="200" CornerRadius="100"
+                        MinWidth="200" MinHeight="200" CornerRadius="100"
                         Background="{DynamicResource AppAccentAlpha20Brush}"
                         BoxShadow="{DynamicResource AppDropzonePulseShadow}">
                     <Border.RenderTransform>

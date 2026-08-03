@@ -107,6 +107,45 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
 ------------------------------------------------------------------------------
 - Crash Recovery: Managed via `app_session.lock` and JSON atomic writes to `%PROGRAMDATA%` (or `%TMP%\Fortnite_Video_Software_DEV\.dev_data` when using dev.cmd).
 - Logging: Use `RuntimeLog` (shared by all 3 apps; the Core project's `CoreLogger` forwards Info/Fail/Debug/Append to it via delegates wired in `Program.cs`). Dev runs write strictly to `%TMP%\Fortnite_Video_Software_DEV\`. The single active log is capped at 10 MB and rotates BEFORE a batch would exceed the cap; rotated `.old` files use a millisecond+GUID name (collision-proof across the 3 concurrent processes) and are pruned by count (5), total size (~50 MB) AND age (14 days). All processes serialize writes through the `Global\FortniteVideoSoftwareLogMutex` on a shared-append handle, and the bounded 10k queue drops-with-warning under saturation rather than growing memory. Full FFmpeg/FFprobe commands and full file paths log at DEBUG (dev-only) so the production log never exposes user paths; INFO keeps a safe trail (encoder/mode, file names, exit codes, GPU discovery, cancellation). The live `LogAppended` callback is exception-guarded so a faulty on-screen log viewer cannot disturb the writer.
+
+  *** LOGGING INVARIANTS — AI AGENTS: DO NOT REGRESS THESE (audit round 7 fixed all seven) ***
+  Every rule below exists because the opposite was once true in shipped code. If a change you are
+  making requires breaking one of them, you are editing the wrong layer.
+  (L1) THE 10 MB CAP IS ENFORCED IN THREE PLACES, NOT ONE. `RuntimeLog.SafeWrite` truncates any
+       SINGLE entry over `MaxSingleEntryBytes` (64 KB) with an explicit "[truncated N bytes]"
+       marker; the drain loop in `ProcessLogQueue` stops at `MaxBatchBytes` (1 MB) per batch; the
+       post-write burst loop stops the moment `_estimatedSize` reaches `MaxLogSize`. Removing ANY
+       of the three makes the cap unenforceable again — the old code drained all 10,000 queued
+       entries into one StringBuilder and then appended 500 more AFTER the size check.
+  (L2) NOTHING OUTSIDE `RuntimeLog` MAY OPEN THE LOG FILE. `DeploymentFootprint.InstallReportPath`
+       is the SAME file `RuntimeLog.LogPath` returns when the app is not running from the install
+       directory. `DeploymentReporter` used to `File.WriteAllText`/`AppendAllText` it directly with
+       no mutex, no cap and no try/catch — racing RuntimeLog's writer, breaking rotation, and
+       truncating the user's whole log up to five times per install run. It now routes through
+       `RuntimeLog.AppendRaw`. Any new installer/updater/diagnostic writer must do the same.
+  (L3) LOGGING MUST NEVER THROW INTO A CALLER. `AppendFatalAsync` is invoked from inside catch
+       blocks in `DeploymentLifecycle`; a throwing logger there kills the installer while it is
+       reporting a failure. Keep every write path non-throwing.
+  (L4) RETENTION RUNS AT STARTUP, NOT ONLY AT ROTATION. `CleanupOldLogs` is called once from
+       `ProcessLogQueue` before the consuming loop AND from the rotation branch. Rotation-only
+       cleanup meant a machine whose log never hit 10 MB never enforced the age/size rules at all.
+  (L5) THE RETENTION SWEEP COVERS THE AUXILIARY FILES TOO — `mpv_debug_*.log`,
+       `<log>.crash.<pid>.log` (EmergencyWrite when the mutex is unavailable) and
+       `<log>.<pid>.local.log` (mutex creation failure). The count rule (`MaxOldLogs` = 5) applies
+       ONLY to rotated `.old` files so dev mpv logs cannot evict real rotation history; size and age
+       apply to everything. Do not reintroduce the undocumented `MaxOldLogs * 2`.
+  (L6) SILENT LOG DEATH IS A BUG. A failed batch increments `_failedBatchCount` and the next
+       successful write reports the loss as `[WARN] LOGGER`. A log that simply stops updating must
+       never be indistinguishable from a clean run.
+  (L7) `LogAppended` IS A STATIC EVENT AND ITS HANDLERS RUN SYNCHRONOUSLY ON THE CALLER'S THREAD.
+       Handlers must be cheap, must bound whatever they buffer, and must NEVER log — that recurses.
+       `PhaseOverlayControl` caps its hand-off queue at 500 and unsubscribes in BOTH `StopOverlay`
+       and `OnDetachedFromVisualTree`, because a window closed mid-export otherwise strands the
+       subscription and keeps the control alive for the session.
+  (L8) LEVEL DISCIPLINE IS A PRIVACY CONTRACT, NOT A STYLE CHOICE. Full file paths, full
+       FFmpeg/FFprobe command lines and full exception stacks are DEBUG (dev-only). INFO carries
+       `Path.GetFileName` only. Never promote a path or a command line to INFO/FAIL "for
+       convenience" — production logs are attached to bug reports.
 - Temp / Staging: All video processing temp files are strictly isolated to `%TMP%\Fortnite_Video_Software\temp` for prod and `%TMP%\Fortnite_Video_Software_DEV\temp` for dev. Root folder and Program Files must remain pristine.
 - Shared Styles: Use globals in `AvaloniaApp.axaml` (e.g., standard `Button` height 32, `Slider` enlarged thumbs).
 - Design Tokens (NO RAW HEX IN STYLES): ALL button gradients, deep border colors, hover overlays, CloseBtn states and the slider-thumb glow edge are named resources in `AvaloniaApp.axaml` (`AppPrimaryButtonGradient`, `AppSuccessButtonGradient`, `AppDangerButtonGradient`, `AppVoiceOverButtonGradient` + Hover variants, `App*DeepBorderBrush`, `AppHoverOverlayBrush`, `AppCloseBtn*Brush`, `AppSliderGlowEdgeColor`). Styles must reference these via DynamicResource — do not reintroduce inline hex in the Styles section. BoxShadow glows that cannot embed a brush token are ALSO named resources so no raw hex survives on any element: `AppItemGlowHoverShadow`/`AppItemGlowSelectedShadow` (Merger queue items) and `AppDropIndicatorShadow`/`AppPhaseGlowShadow` (Merger drop-indicator + Phase-overlay progress glow). Saturated brand buttons (WhatsApp/Instagram/YouTube/TikTok, Primary/Success/Danger) explicitly force `AppOnAccentTextBrush` (always-white) foregrounds so they stay readable in BOTH Light and Dark ThemeVariants (this also now covers the VoiceOver transport Play/Pause button, moved Secondary->Primary with always-white icons to match every other transport Play).

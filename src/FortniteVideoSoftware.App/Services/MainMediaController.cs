@@ -31,7 +31,7 @@ public class MainMediaController
             var tcs = new TaskCompletionSource<ExportResult>();
             
             ct.Register(() => {
-                try { worker.Cancel(); } catch {}
+                try { worker.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             });
 
             worker.Finished += (success, message) =>
@@ -55,7 +55,6 @@ public class MainMediaController
                 }
             };
             
-            // Map payload
             worker.InputPath = payload.InputPath;
             worker.StartTimeMs = payload.TrimStartMs;
             
@@ -70,17 +69,20 @@ public class MainMediaController
             {
                 worker.ThumbnailPosMs = payload.ThumbnailPosMs;
                 worker.IntroAbsTimeMs = payload.ThumbnailPosMs;
+                worker.IntroStillSec = payload.ThumbnailDurationSec > 0 ? payload.ThumbnailDurationSec : 0.1;
+            }
+            else
+            {
+                worker.IntroAbsTimeMs = payload.TrimStartMs;
                 worker.IntroStillSec = 0.1;
             }
             
-            // Audio Prefs
             var audioPrefs = Infrastructure.SettingsManager.Instance;
             worker.SourceMeasuredLufs = payload.SourceMeasuredLufs;
             worker.ApplyLoudnessNormalization = payload.ApplyLoudnessNormalization ?? audioPrefs.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.NeverApply;
             bool peakWanted = payload.ApplyPeakFlattening ?? audioPrefs.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.NeverApply;
             worker.AutoSpikeFlattening = audioPrefs.Defaults.AutoSpikeFlattening && peakWanted;
             
-            // View Flags
             worker.IsMobileFormat = payload.IsMobileFormat;
             worker.IsBossHp = payload.IsBossHp;
             worker.EnableFades = payload.EnableFades;
@@ -89,7 +91,6 @@ public class MainMediaController
             worker.MemeFile = payload.MemeFile;
             worker.PortraitText = payload.PortraitText;
             
-            // Missing wires mapped back
             worker.QualityLevel = payload.QualityLevel;
             worker.TargetMbOverride = payload.TargetMbOverride;
             
@@ -99,22 +100,12 @@ public class MainMediaController
             if (payload.MusicConfig != null) worker.MusicConfig = payload.MusicConfig;
             worker.KeepMusicDuringMeme = payload.KeepMusicDuringMeme;
             
-            if (!string.IsNullOrEmpty(payload.VoiceOverWavPath))
-            {
-                worker.VoiceOverWavPath = payload.VoiceOverWavPath;
-                worker.VoiceOverStartSec = payload.VoiceOverStartSec;
-                if (payload.VoiceOverTakes != null) worker.VoiceOverTakes = payload.VoiceOverTakes;
-                
-                worker.VoiceOverMuteMale = payload.VoiceOverMuteMale;
-                worker.VoiceOverMuteFemale = payload.VoiceOverMuteFemale;
-                worker.VoiceOverMuteChild = payload.VoiceOverMuteChild;
-                
-                worker.VoiceOverMuteMaleHz = payload.VoiceOverMuteMaleHz;
-                worker.VoiceOverMuteFemaleHz = payload.VoiceOverMuteFemaleHz;
-                worker.VoiceOverMuteChildHz = payload.VoiceOverMuteChildHz;
-            }
+            worker.VoiceOverWavPath = payload.VoiceOverWavPath;
+            worker.VoiceOverStartSec = payload.VoiceOverStartSec;
+            if (payload.VoiceOverTakes != null) worker.VoiceOverTakes = payload.VoiceOverTakes;
             
-            // Run
+            worker.VoiceOverDuckAudio = payload.VoiceOverDuckAudio;
+            
             _ = worker.RunAsync(ct);
             return await tcs.Task;
         }

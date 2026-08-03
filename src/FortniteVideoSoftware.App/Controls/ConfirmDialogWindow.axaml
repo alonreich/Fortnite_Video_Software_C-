@@ -25,8 +25,13 @@
                 </Border>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,0,0,25">
-                    <Button Name="YesBtn" Classes="Success" Content="YES" MinWidth="130" MinHeight="34" Cursor="Hand"/>
-                    <Button Name="NoBtn" Classes="Secondary" Content="NO" MinWidth="130" MinHeight="34" Cursor="Hand"/>
+                    <!-- ISSUE_04 (audit round 5): MinHeight="34" removed from both buttons. It
+                         locally overrode the global AppButtonMinHeight token (44) from
+                         AvaloniaApp.axaml, dropping the two most consequential buttons in the suite
+                         below the WCAG 2.2 target size AND freezing them at 34px while the Settings
+                         font scale grew their labels. They now inherit the 44px scaling token. -->
+                    <Button Name="YesBtn" Classes="Success" Content="YES" MinWidth="130" Cursor="Hand"/>
+                    <Button Name="NoBtn" Classes="Secondary" Content="NO" MinWidth="130" Cursor="Hand"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -91,6 +91,26 @@ public class AppSettings
     /// dialog, reversible from Settings → Audio.
     /// </summary>
     public AudioFixPrompt PeakFlatteningPrompt { get; set; } = AudioFixPrompt.Ask;
+
+    /// <summary>
+    /// AUDIO_06 — master switch for the app's own button/UI sound effects.
+    ///
+    /// Until audit round 5 there was no way to turn these off, in an app whose Settings window
+    /// advertises a "Sound &amp; Music" tab as "the single home for EVERY audio setting in the
+    /// suite". That matters most in the two screens built for critical listening — Music Wizard
+    /// step 3 (A/B-ing the video against the music) and the Voice Over Studio — where UI chirps
+    /// land straight on top of the mix the user is judging.
+    ///
+    /// Read only through <see cref="UiSoundEffect"/>; nothing else should gate on it.
+    /// </summary>
+    public bool UiSoundsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// AUDIO_06 — UI sound effect level, 0-100. 0 is equivalent to
+    /// <see cref="UiSoundsEnabled"/> = false. Defaults to 70 rather than 100: the previous
+    /// engine had no attenuation at all and played every clip at full scale.
+    /// </summary>
+    public int UiSoundVolume { get; set; } = 70;
 }
 
 /// <summary>
@@ -119,7 +139,7 @@ public static class MemeDirectory
     /// <summary>Raised after the user successfully changes the meme directory in Settings, so
     /// the MainWindow can silently re-scan and rebuild the MemeComboBox (§3 State Update).</summary>
     public static event Action? Changed;
-    public static void NotifyChanged() { try { Changed?.Invoke(); } catch { } }
+    public static void NotifyChanged() { try { Changed?.Invoke(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
 
     public static string GetDefault() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
@@ -130,7 +150,7 @@ public static class MemeDirectory
     {
         string configured = SettingsManager.Instance.MemeDirectoryPath;
         string dir = string.IsNullOrWhiteSpace(configured) ? GetDefault() : configured;
-        try { Directory.CreateDirectory(dir); } catch { }
+        try { Directory.CreateDirectory(dir); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         return dir;
     }
 }
@@ -351,12 +371,10 @@ public static class SettingsManager
 
             foreach (var f in backups)
             {
-                try { f.Delete(); } catch { }
+                try { f.Delete(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     public static void Save()

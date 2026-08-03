@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -18,7 +18,7 @@ public static class WindowBoundsHelper
             var state = store.LoadSync();
             ApplyBounds(window, state, key);
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public static class WindowBoundsHelper
                 appliedPosition = window.Position;
             }
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
         bool opened = false;
         Avalonia.Threading.DispatcherTimer? debounce = null;
@@ -80,7 +80,7 @@ public static class WindowBoundsHelper
                     window.Position = appliedPosition.Value;
                 }
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             opened = true;
         };
 
@@ -92,7 +92,7 @@ public static class WindowBoundsHelper
         };
         window.Closing += (_, _) =>
         {
-            try { debounce?.Stop(); } catch { }
+            try { debounce?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             SaveBoundsSync(window, key);
         };
     }
@@ -107,7 +107,7 @@ public static class WindowBoundsHelper
                 ApplyBounds(window, state, key);
             });
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     private static void ApplyBounds(Window window, JsonObject state, string key)
@@ -182,7 +182,7 @@ public static class WindowBoundsHelper
             var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
             await store.UpdatePropertiesAsync(updates).ConfigureAwait(false);
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>
@@ -202,7 +202,7 @@ public static class WindowBoundsHelper
             var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
             store.UpdatePropertiesSync(updates, default, timeout);
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>
@@ -245,7 +245,7 @@ public static class WindowBoundsHelper
             var updates = new JsonObject { [key] = BuildBoundsObj(snapshot, state, key) };
             store.UpdatePropertiesSync(updates);
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     /// <summary>

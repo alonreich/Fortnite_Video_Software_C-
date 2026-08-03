@@ -28,7 +28,7 @@ public static class AsyncProcessRunner
                 throw new InvalidOperationException($"Failed to start process: {psi.FileName}");
             }
             
-            try { ChildProcessTracker.AddProcess(process); } catch { }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             var outputTask = process.StandardOutput.ReadToEndAsync(cts.Token);
             var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
@@ -42,7 +42,7 @@ public static class AsyncProcessRunner
         }
         catch (OperationCanceledException)
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             throw;
         }
     }

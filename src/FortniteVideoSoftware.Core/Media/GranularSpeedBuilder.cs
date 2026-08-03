@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -434,11 +434,15 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double cropX = resW + cxTarget - cropW / 2.0;
-                        double cropY = resH + cyTarget - cropH / 2.0;
+                        double padX = resW / 2.0;
+                        double padY = resH / 2.0;
+                        double canvasW = resW + 2.0 * padX;
+                        double canvasH = resH + 2.0 * padY;
+                        double cropX = padX + cxTarget - cropW / 2.0;
+                        double cropY = padY + cyTarget - cropH / 2.0;
                         zoomFilter = new FilterChain()
                             .AddRaw(preScale)
-                            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+                            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
                             .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
                             .AddNode(new CasFilterNode { Strength = 0.5 })
                             .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
@@ -458,11 +462,15 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double cropX = resW + cxTarget - cropW / 2.0;
-                        double cropY = resH + cyTarget - cropH / 2.0;
+                        double padX = resW / 2.0;
+                        double padY = resH / 2.0;
+                        double canvasW = resW + 2.0 * padX;
+                        double canvasH = resH + 2.0 * padY;
+                        double cropX = padX + cxTarget - cropW / 2.0;
+                        double cropY = padY + cyTarget - cropH / 2.0;
                         zoomFilter = new FilterChain()
                             .AddRaw(preScale)
-                            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+                            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
                             .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
                             .AddNode(new CasFilterNode { Strength = 0.5 })
                             .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
@@ -514,7 +522,7 @@ public class GranularSpeedBuilder
 
                         var chain = new FilterChain()
                             .AddRaw(preScale)
-                            .AddNode(new PadFilterNode { Width = resW.ToString(CultureInfo.InvariantCulture), Height = resH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" });
+                            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" });
                         if (!string.IsNullOrEmpty(preDownscale))
                         {
                             if (preDownscale.EndsWith(",")) preDownscale = preDownscale.Substring(0, preDownscale.Length - 1);
@@ -668,13 +676,18 @@ public class GranularSpeedBuilder
 
         double cropW = resW / zVal;
         double cropH = resH / zVal;
-        double cropX = resW + viewCx - cropW / 2.0;
-        double cropY = resH + viewCy - cropH / 2.0;
+        double padX = resW / 2.0;
+        double padY = resH / 2.0;
+        double canvasW = resW + 2.0 * padX;
+        double canvasH = resH + 2.0 * padY;
+
+        double cropX = padX + viewCx - cropW / 2.0;
+        double cropY = padY + viewCy - cropH / 2.0;
 
         var ci = CultureInfo.InvariantCulture;
         return new FilterChain()
             .AddRaw(preScale)
-            .AddNode(new PadFilterNode { Width = (resW * 2).ToString(CultureInfo.InvariantCulture), Height = (resH * 2).ToString(CultureInfo.InvariantCulture), X = resW.ToString(CultureInfo.InvariantCulture), Y = resH.ToString(CultureInfo.InvariantCulture), Color = "black" })
+            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
             .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
             .AddNode(new CasFilterNode { Strength = 0.5 })
             .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })

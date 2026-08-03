@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -192,7 +192,7 @@ public sealed class MpvVideoView : Control, IDisposable
             _swThread = new System.Threading.Thread(SoftwareRenderThreadLoop) { IsBackground = true, Name = "MpvSwRenderThread" };
             _swThread.Start();
             UpdateCachedSize();
-            try { _renderSignal.Set(); } catch { }
+            try { _renderSignal.Set(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             RuntimeLog.Info(InteropLogStep, "Software preview active (CPU render). WGL interop not required.");
             return true;
         }
@@ -344,7 +344,7 @@ public sealed class MpvVideoView : Control, IDisposable
     private void ReleaseHardwareInteropResources()
     {
         _renderThreadRunning = false;
-        try { _renderSignal.Set(); } catch { }
+        try { _renderSignal.Set(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
         lock (_renderLock)
         {
@@ -593,7 +593,7 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 _gpuInterop = await compositor.TryGetCompositionGpuInterop();
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
     }
 
@@ -659,7 +659,7 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 _swTargetW = pw; _swTargetH = ph;
                 RuntimeLog.Info(InteropLogStep, $"SW target size -> {pw}x{ph} (control bounds {Bounds.Width:0}x{Bounds.Height:0}).");
-                if (_renderThreadRunning) { try { _renderSignal.Set(); } catch { } }
+                if (_renderThreadRunning) { try { _renderSignal.Set(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); } }
             }
         }
     }
@@ -689,7 +689,7 @@ public sealed class MpvVideoView : Control, IDisposable
                 }
             }
         }
-        catch { }
+        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
     }
 
     /// <summary>
@@ -708,12 +708,12 @@ public sealed class MpvVideoView : Control, IDisposable
                 catch (ObjectDisposedException) { break; }
 
                 if (!_renderThreadRunning || _disposing) break;
-                try { UpdateSurface(); } catch { }
+                try { UpdateSurface(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
         }
         catch (Exception ex)
         {
-            try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch { }
+            try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         }
         finally
         {
@@ -1244,14 +1244,14 @@ public sealed class MpvVideoView : Control, IDisposable
                     _gcHandle.Free();
                 }
             }
-            catch { }
+            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             return;
         }
 
         _swDisposing = true;
         _disposing = true;
         _renderThreadRunning = false;
-        try { _renderSignal.Set(); } catch { }
+        try { _renderSignal.Set(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
         bool swThreadStopped = true;
         if (_swThread != null)
@@ -1290,7 +1290,7 @@ public sealed class MpvVideoView : Control, IDisposable
 
         bool swPathOwnsContext = _swMode;
         _swMode = false;
-        try { _swBitmap?.Dispose(); } catch { }
+        try { _swBitmap?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
         _swBitmap = null;
         _swRenderBuffer = null;
         _swPresentBuffer = null;
@@ -1421,7 +1421,7 @@ public sealed class MpvVideoView : Control, IDisposable
 
             if (!skipRenderContextFree)
             {
-                try { _renderSignal.Dispose(); } catch { }
+                try { _renderSignal.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
             }
         }
     }

@@ -64,7 +64,8 @@ public class AudioFilterChain
         string? gameLoudnormFilter = null,
         double musicFollowGainDb = 0.0,
         bool musicLeadFadeIn = true,
-        bool musicTailFadeOut = true)
+        bool musicTailFadeOut = true,
+        string? voiceOverLabel = null)
     {
         var chain = new List<string>();
 
@@ -128,7 +129,7 @@ public class AudioFilterChain
                 double mEnd = (double)(musicConfig["timeline_end_sec"]?.GetValue<double>() ?? 0);
                 if (mEnd > mStart) musicWindowSec = mEnd - mStart;
             }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         if (tracks.Count > 0 && musicWindowSec.HasValue)
@@ -162,7 +163,7 @@ public class AudioFilterChain
         if (musicConfig != null)
         {
             try { initialDelaySec = Math.Max(0, (double)(musicConfig["timeline_start_sec"]?.GetValue<double>() ?? 0)); }
-            catch { }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
 
         var preparedMusicLabels = new List<string>();
@@ -267,8 +268,26 @@ public class AudioFilterChain
         if (appliedNormalizeDb != 0)
             vVolGame *= Math.Pow(10, appliedNormalizeDb / 20.0);
 
-        chain.Add($"[a_main_raw]{gameNormalizePrefix}volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}[game_leveled]");
-        chain.Add("[game_leveled]asplit=2[game_out_pre][game_trig]");
+        chain.Add($"[a_main_raw]volume={vVolGame.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)},aresample={targetSampleRate}:async=1[game_leveled_base]");
+        
+        if (!string.IsNullOrEmpty(voiceOverLabel))
+        {
+            chain.Add($"[game_leveled_base]{voiceOverLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0[game_leveled]");
+        }
+        else
+        {
+            chain.Add("[game_leveled_base]anull[game_leveled]");
+        }
+
+        chain.Add("[game_leveled]asplit=2[game_out_pre_raw][game_trig]");
+        if (useLoudnorm)
+        {
+            chain.Add($"[game_out_pre_raw]{gameLoudnormFilter},aresample={targetSampleRate}[game_out_pre]");
+        }
+        else
+        {
+            chain.Add("[game_out_pre_raw]anull[game_out_pre]");
+        }
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");

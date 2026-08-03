@@ -92,7 +92,7 @@ REM ═════════════════════════�
 :WIPE_DEV_CONFIG
 if exist "%TMP%\Fortnite_Video_Software_DEV\.dev_data" (
     echo [DEV] Wiping sandboxed config %TMP%\Fortnite_Video_Software_DEV\.dev_data for clean-slate boot...
-    rd /s /q "%TMP%\Fortnite_Video_Software_DEV\.dev_data" 2>nul
+    REM rd /s /q "%TMP%\Fortnite_Video_Software_DEV\.dev_data" 2>nul
 )
 REM Clear previous dev logs for a fresh debugging session
 if exist "%FVS_DEV_LOG_DIR%" (

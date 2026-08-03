@@ -99,6 +99,31 @@
 
                                     <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap" Margin="0,12,0,0"
                                                Text="Ducking, frequency carving and the music/voice balance you set in the Music Wizard all move together with these settings, so the mix keeps the same balance whatever your recording level was."/>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 4. The app's own button sounds =====
+                                         AUDIO_06 (audit round 5): this tab described itself as "the single home for
+                                         EVERY audio setting in the suite" while the one sound the app makes on its
+                                         own — the click/open/close effects on every button — had no volume control
+                                         and no off switch anywhere. That is worst in the two screens built for
+                                         critical listening (Music Wizard step 3 and the Voice Over Studio), where
+                                         UI chirps land on top of the mix the user is judging. -->
+                                    <TextBlock Text="Interface Sounds" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
+                                               Text="The small clicks and chimes the app plays when you press a button. These are never part of your exported video — they only come out of your speakers while you work." />
+
+                                    <CheckBox Name="UiSoundsEnabledCheckbox" Content="Play a sound when I press buttons" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding UiSoundsEnabled, Mode=TwoWay}" ToolTip.Tip="Turn every interface sound effect on or off." />
+
+                                    <TextBlock Text="Interface sound volume" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <Grid ColumnDefinitions="*, Auto" MaxWidth="480" IsEnabled="{Binding #UiSoundsEnabledCheckbox.IsChecked}">
+                                        <Slider Name="UiSoundVolumeSlider" Grid.Column="0" Minimum="0" Maximum="100" MinWidth="200" MaxWidth="400" MinHeight="44"
+                                                Value="{Binding UiSoundVolume, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                                ToolTip.Tip="How loud the interface sound effects are. Does not affect your video, your music or your voiceover." />
+                                        <TextBlock Name="UiSoundVolumeLabel" Grid.Column="1" Text="70%" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" MinWidth="48" TextAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    </Grid>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap"
+                                               Text="Interface sounds are muted automatically while the Voice Over Studio is recording, so they can never leak into your microphone take."/>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>

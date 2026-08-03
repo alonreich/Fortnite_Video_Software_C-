@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -104,14 +104,12 @@ public sealed class RecoveryManager
                     return true;
                 }
 
-                try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch { }
-                try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch { }
+                try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
                 File.Delete(_paths.SafeModeSentinelFile);
             }
-            catch
-            {
-            }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         }
         return false;
     }
@@ -144,9 +142,7 @@ public sealed class RecoveryManager
             }
             CoreLogger.Info("Recovery", "Safe mode deactivated after successful recovery.");
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     public void AcquireLock()
@@ -186,9 +182,7 @@ public sealed class RecoveryManager
             ClearState();
             CoreLogger.Info("Recovery", "Session lock and recovery state cleaned up on normal shutdown.");
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     public void SetSkipCleanup(bool skip)
@@ -212,9 +206,7 @@ public sealed class RecoveryManager
             }
             CoreLogger.Info("Recovery", "Session lock released for process handoff (recovery state preserved).");
         }
-        catch
-        {
-        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
 
     public void SaveStateAsync(JsonObject state)
@@ -267,15 +259,22 @@ public sealed class RecoveryManager
                 int fileVersion = SchemaVersion;
                 if (state.TryGetPropertyValue("schema_version", out JsonNode? versionNode) && versionNode != null)
                 {
-                    try { fileVersion = versionNode.GetValue<int>(); }
+                    try 
+                    { 
+                        if (versionNode.AsValue().TryGetValue(out int v)) fileVersion = v;
+                        else if (versionNode.AsValue().TryGetValue(out string? s) && int.TryParse(s, out int parsed)) fileVersion = parsed;
+                        else fileVersion = versionNode.GetValue<int>(); 
+                    }
                     catch
                     {
-                        throw new InvalidDataException("Unreadable schema_version in recovery state.");
+                        CoreLogger.Info("Recovery", "Unreadable schema_version in recovery state. Assuming current schema.");
+                        fileVersion = SchemaVersion;
                     }
 
                     if (fileVersion < 1)
                     {
-                        throw new InvalidDataException($"Invalid schema_version {fileVersion} in recovery state.");
+                        CoreLogger.Info("Recovery", $"Invalid schema_version {fileVersion} in recovery state. Assuming current schema.");
+                        fileVersion = SchemaVersion;
                     }
                 }
                 else
@@ -312,8 +311,40 @@ public sealed class RecoveryManager
                 File.Delete(_paths.RecoveryStateFile);
             }
         }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+    }
+
+    /// <summary>
+    /// ISSUE_1 — sets a FAILED restore aside instead of destroying it.
+    ///
+    /// A failed restore used to call <see cref="ClearState"/>, which deletes the file outright. The
+    /// user answered "yes, restore my work", one bad field threw, and their entire crashed session
+    /// was gone with nothing but a log line — and no second chance, because the evidence had been
+    /// deleted along with the data.
+    ///
+    /// Renaming instead keeps two things true at once: the data survives for a manual rescue or a
+    /// bug report, AND the app cannot get stuck in a crash-restore-crash loop, because the file is
+    /// no longer where <see cref="LoadState"/> looks. Only ONE quarantine file is kept — a repeated
+    /// failure overwrites it rather than growing a pile in the user's data folder.
+    ///
+    /// Returns the quarantine path so the caller can tell the user where their work went, or null
+    /// if there was nothing to move.
+    /// </summary>
+    public string? QuarantineState()
+    {
+        try
+        {
+            if (!File.Exists(_paths.RecoveryStateFile)) return null;
+
+            string quarantinePath = _paths.RecoveryStateFile + ".failed";
+            File.Move(_paths.RecoveryStateFile, quarantinePath, overwrite: true);
+            return quarantinePath;
+        }
         catch
         {
+            // Could not move it — leave the original alone. Keeping an unreadable file is strictly
+            // better than deleting a readable one, and LoadState already tolerates a bad file.
+            return null;
         }
     }
 }

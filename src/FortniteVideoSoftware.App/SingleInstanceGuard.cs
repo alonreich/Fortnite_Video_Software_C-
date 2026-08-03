@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -120,6 +120,12 @@ public static class SingleInstanceGuard
         {
             _mutex = new Mutex(initiallyOwned: true, MutexName, out createdNew);
         }
+        catch (AbandonedMutexException ex)
+        {
+            _mutex = ex.Mutex as Mutex ?? new Mutex(true, MutexName, out createdNew);
+            createdNew = true;
+            RuntimeLog.Fail("SingleInstance", "Acquired an abandoned instance mutex. The previous run crashed.");
+        }
         catch (Exception ex)
         {
             RuntimeLog.Fail("SingleInstance", $"Could not create the instance mutex: {ex.Message}. Continuing unguarded.");
@@ -146,7 +152,7 @@ public static class SingleInstanceGuard
 
         FocusExistingWindow();
 
-        try { _mutex.Dispose(); } catch { }
+        try { _mutex.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         _mutex = null;
         return false;
     }
@@ -154,12 +160,12 @@ public static class SingleInstanceGuard
     /// <summary>Releases the instance claim. Safe to call more than once.</summary>
     public static void Release()
     {
-        try { _listenerCts?.Cancel(); } catch { }
+        try { _listenerCts?.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         _listenerCts = null;
 
         if (_mutex == null) return;
-        try { _mutex.ReleaseMutex(); } catch { }
-        try { _mutex.Dispose(); } catch { }
+        try { _mutex.ReleaseMutex(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _mutex.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         _mutex = null;
     }
 
@@ -187,7 +193,7 @@ public static class SingleInstanceGuard
                     {
                         RuntimeLog.Fail("SingleInstance",
                             "Rejected a handoff connection from a different user account.");
-                        try { server.Disconnect(); } catch { }
+                        try { server.Disconnect(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                         continue;
                     }
 
@@ -221,7 +227,7 @@ public static class SingleInstanceGuard
                     }
                     else
                     {
-                        try { VideoPathReceived?.Invoke(string.Empty); } catch { }
+                        try { VideoPathReceived?.Invoke(string.Empty); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                     }
                 }
                 catch (OperationCanceledException)

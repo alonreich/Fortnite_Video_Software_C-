@@ -118,10 +118,14 @@
             <controls:HardwareGraphControl x:Name="GraphCanvas" />
         </Border>
         
-        <!-- Live Log Area -->
+        <!-- Live Log Area.
+             ISSUE_12 (audit round 5): FontFamily was "Consolas, monospace". "monospace" is not a
+             real installed family on Windows, so this was the only one of the suite's three
+             monospaced surfaces with no usable fallback. Now matches DeploymentProgressWindow and
+             ErrorDialogWindow exactly. -->
         <TextBox Grid.Row="2" x:Name="LiveLogTextBox" Margin="0,20,0,0"
                  IsReadOnly="True"
-                 FontFamily="Consolas, monospace"
+                 FontFamily="Consolas,Courier New,monospace"
                  FontSize="{DynamicResource AppFontSize11}"
                  Foreground="{DynamicResource AppSuccessBrush}"
                  Background="{DynamicResource AppControlTrackBrush}"

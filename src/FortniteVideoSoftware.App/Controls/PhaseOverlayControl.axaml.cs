@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -31,8 +31,8 @@ public partial class PhaseOverlayControl : UserControl
     private Rect _anchorProgressBar;
     private Rect _anchorLogBox;
     private Rect _anchorTelemetryBox;
-    private int _spamClickCount = 0;
-    private DispatcherTimer? _wobbleTimer;
+    // ISSUE_02: _spamClickCount and _wobbleTimer removed — see OnOverlayPointerPressed.
+    private bool? _originalCanResize;
 
     public PhaseOverlayControl()
     {
@@ -63,9 +63,27 @@ public partial class PhaseOverlayControl : UserControl
     
     private Process? _smiProcess;
 
+    /// <summary>
+    /// IDEA_3 — the host window's Win32 handle, or zero when there is none. Resolved fresh each
+    /// time because the overlay is reused across windows (Main App and Merger both host one) and
+    /// the handle does not exist until the window is shown.
+    /// </summary>
+    private IntPtr HostWindowHandle
+    {
+        get
+        {
+            try { return GetParentWindow()?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero; }
+            catch { return IntPtr.Zero; }
+        }
+    }
+
     public void StartOverlay()
     {
         IsVisible = true;
+
+        // IDEA_3: indeterminate until the first real percentage lands, so the icon reacts the
+        // instant the export starts rather than sitting empty during the analysis pass.
+        TaskbarProgress.SetState(HostWindowHandle, TaskbarProgress.State.Indeterminate);
 
         AmbientBubblesBackground.GloballySuspended = true;
         _cpuHist.Clear();
@@ -75,11 +93,19 @@ public partial class PhaseOverlayControl : UserControl
         
         try
         {
-            if (_smiProcess != null && !_smiProcess.HasExited)
+            // ISSUE_01: the previous monitor was killed but NEVER disposed before the field was
+            // overwritten, so every StartOverlay that ran without a matching StopOverlay leaked a
+            // Windows process handle (plus its redirected stdout pipe) for the life of the app.
+            // Kill AND Dispose, and null the field first so a throw below cannot leave a stale
+            // reference behind.
+            if (_smiProcess != null)
             {
-                try { _smiProcess.Kill(); } catch { }
+                var previous = _smiProcess;
+                _smiProcess = null;
+                try { if (!previous.HasExited) previous.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { previous.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
             }
-            
+
             _smiProcess = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -106,11 +132,11 @@ public partial class PhaseOverlayControl : UserControl
             };
             _smiProcess.Start();
 
-            try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(_smiProcess); } catch { }
+            try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(_smiProcess); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             _smiProcess.BeginOutputReadLine();
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         
         var txt = this.FindControl<TextBox>("LiveLogTextBox");
         if (txt != null) txt.Text = "Backend log stream attached.\n";
@@ -178,7 +204,7 @@ public partial class PhaseOverlayControl : UserControl
             if (Application.Current?.FindResource(key) is Color c) return c;
             if (Application.Current?.FindResource(key) is ISolidColorBrush b) return b.Color;
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         return fallback;
     }
 
@@ -195,6 +221,24 @@ public partial class PhaseOverlayControl : UserControl
     public void StopOverlay()
     {
         IsVisible = false;
+
+        // IDEA_3: the job is over — clear the bar and flash the button. StopOverlay is the single
+        // exit point for success, cancel and failure alike, so the icon can never be left stuck
+        // showing progress for a job that has finished.
+        IntPtr hwnd = HostWindowHandle;
+        TaskbarProgress.Clear(hwnd);
+        TaskbarProgress.Flash(hwnd);
+
+        var window = GetParentWindow();
+        if (window != null)
+        {
+            window.PropertyChanged -= OnWindowPropertyChanged;
+            if (_originalCanResize.HasValue)
+            {
+                window.CanResize = _originalCanResize.Value;
+                _originalCanResize = null;
+            }
+        }
 
         AmbientBubblesBackground.GloballySuspended = false;
         _timer?.Stop();
@@ -225,7 +269,7 @@ public partial class PhaseOverlayControl : UserControl
             _smiProcess?.Dispose();
             _smiProcess = null;
         }
-        catch { }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
     }
     public void UpdateTimeRemaining(string timeRemaining)
     {
@@ -250,6 +294,12 @@ public partial class PhaseOverlayControl : UserControl
             _barTarget = Math.Max(_barTarget, Math.Clamp(progress, 0, 100));
             EnsureBarTimer();
 
+            // IDEA_3: mirror the real percentage onto the taskbar icon. Already on the UI thread
+            // here (Dispatcher.Post above), which is the only thread TaskbarProgress may be used
+            // from. Uses _barTarget rather than the animated _barValue so the icon tracks the true
+            // job state, not the easing animation.
+            TaskbarProgress.SetProgress(HostWindowHandle, (int)Math.Round(_barTarget));
+
             ProcessEasterEggState(progress);
         });
     }
@@ -273,9 +323,44 @@ public partial class PhaseOverlayControl : UserControl
 
     private System.Collections.Concurrent.ConcurrentQueue<string> _pendingLogs = new();
 
+    /// <summary>
+    /// ISSUE_7 — ceiling on the hand-off queue.
+    ///
+    /// Only 100 lines are ever shown on screen (see the drain in the timer tick), so anything past
+    /// this is already unreachable. The cap matters because this method is invoked from
+    /// RuntimeLog.LogAppended, a STATIC event: if the overlay is torn down without StopOverlay
+    /// running — a window closed mid-export, say — the subscription outlives the timer that drains
+    /// this queue, and an unbounded queue would then grow for the rest of the session while also
+    /// keeping this control alive.
+    /// </summary>
+    private const int MaxPendingLogs = 500;
+
+    /// <summary>
+    /// Called on RuntimeLog's writer/caller thread, never the UI thread. Must stay cheap and must
+    /// never log anything itself — RuntimeLog invokes LogAppended synchronously from inside Write,
+    /// so logging here would recurse.
+    /// </summary>
     public void AppendLog(string message)
     {
         _pendingLogs.Enqueue(message);
+
+        while (_pendingLogs.Count > MaxPendingLogs && _pendingLogs.TryDequeue(out _))
+        {
+        }
+    }
+
+    /// <summary>
+    /// ISSUE_7 — safety net. StopOverlay is the normal place the static RuntimeLog.LogAppended
+    /// subscription is released, but nothing guarantees StopOverlay runs if the host window is
+    /// closed while an export is still in flight. Detaching from the visual tree always happens,
+    /// so releasing here as well makes the subscription impossible to strand.
+    /// Unsubscribing twice is harmless.
+    /// </summary>
+    protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        RuntimeLog.LogAppended -= AppendLog;
+        _pendingLogs.Clear();
+        base.OnDetachedFromVisualTree(e);
     }
 
     private Avalonia.Controls.Window? GetParentWindow()
@@ -283,34 +368,23 @@ public partial class PhaseOverlayControl : UserControl
         return this.VisualRoot as Avalonia.Controls.Window;
     }
 
+    /// <summary>
+    /// ISSUE_02: this used to count three clicks and then call TriggerWobbleMicroAnimation(),
+    /// which looked up an Image named "EasterEggPlayer". That control does NOT exist in
+    /// PhaseOverlayControl.axaml (verified: the string appeared nowhere in the whole solution
+    /// except that one lookup) — it belonged to the sprite-based easter egg that the procedural
+    /// stick-fighter replaced. So the method hit a null control and returned every single time,
+    /// the click counter silently reset, and a DispatcherTimer field existed that could never be
+    /// created or started.
+    ///
+    /// The dead method, its timer field and the click counter are gone. The handler itself is
+    /// kept because PhaseOverlayControl.axaml binds it on the root Grid, and it now does the one
+    /// thing that is unambiguously safe here: nothing. It deliberately does NOT re-enter
+    /// PlaySequence — that would overwrite _vectorState mid-export and corrupt the running fight
+    /// animation's state machine.
+    /// </summary>
     public void OnOverlayPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
-        if (!_easterEggActive) return;
-        _spamClickCount++;
-        if (_spamClickCount >= 3)
-        {
-            _spamClickCount = 0;
-            TriggerWobbleMicroAnimation();
-        }
-    }
-
-    private void TriggerWobbleMicroAnimation()
-    {
-        var player = this.FindControl<Image>("EasterEggPlayer");
-        if (player != null)
-        {
-            RuntimeLog.Info("EasterEgg", "Spam Click Edge Case Triggered! Wobble micro-animation started.");
-            player.Opacity = 0.5;
-            _wobbleTimer?.Stop();
-            _wobbleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(0.5) };
-            _wobbleTimer.Tick += (s, e) =>
-            {
-                player.Opacity = 1.0;
-                _wobbleTimer.Stop();
-                PlaySequence(_currentSequence);
-            };
-            _wobbleTimer.Start();
-        }
     }
 
     private void LockWindowAndAnchors()
@@ -318,7 +392,10 @@ public partial class PhaseOverlayControl : UserControl
         var window = GetParentWindow();
         if (window != null)
         {
+            _originalCanResize = window.CanResize;
             window.CanResize = false;
+            
+            window.PropertyChanged -= OnWindowPropertyChanged;
             window.PropertyChanged += OnWindowPropertyChanged;
         }
 
@@ -1320,4 +1397,5 @@ public class HardwareGraphControl : Control
         
         ctx.DrawLine(SeparatorPen, new Point(0, yOffset + 55), new Point(width, yOffset + 55));
     }
+    
 }

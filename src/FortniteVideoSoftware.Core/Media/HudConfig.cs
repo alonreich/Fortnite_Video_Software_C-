@@ -13,6 +13,14 @@ public static class HudConfig
     public const string HudCoordinateSpace = "content_1080x1620";
     public const int HudSchemaVersion = CropConfigDefaults.SchemaVersion;
 
+    /// <summary>
+    /// IDEA_1 — optional source-pixel crop rectangles. NOT in <see cref="RequiredSections"/>: the
+    /// exporter never reads it, only the Crop Tool editor does. <see cref="Sanitize"/> deep-clones
+    /// the document, so the section survives untouched; the loop at the end only prunes entries
+    /// whose matching content crop has been cleared, so a deleted layer cannot leave an orphan.
+    /// </summary>
+    public const string SourceCropsSection = CropConfigDefaults.SourceCropsSection;
+
     public static readonly Dictionary<string, int> ZDefaults = new()
     {
         ["loot"] = 10,
@@ -32,6 +40,14 @@ public static class HudConfig
     /// <summary>
     /// Returns the drift correction type: "left" for stats/map/hp/team/spec, "right" for loot.
     /// Enforces +1px Left bias for Map, Stats, and Health, and +1px Right bias for Loot.
+    ///
+    /// ISSUE_6 — scope note. "map"/"minimap" are matched here but are NOT in
+    /// <see cref="HudKeys"/> and have no entry in CropConfigDefaults, so no shipped profile
+    /// exercises that branch. It is still live and correct for user-created layers: the Crop Tool
+    /// accepts a free-text element name, <see cref="Sanitize"/> builds its key set from
+    /// <see cref="HudKeys"/> UNION every key present in the config, and the substring fallback
+    /// below catches names such as "minimap_left". Keep both the exact and the substring match —
+    /// removing them would silently drop the +1px LEFT bias from any custom map layer.
     /// </summary>
     public static string? CropDriftType(string key)
     {
@@ -90,6 +106,24 @@ public static class HudConfig
     }
 
     /// <summary>
+    /// Whether the crop Y values are already content-relative.
+    ///
+    /// CRITICAL — this deliberately ignores schema_version and looks ONLY at coordinate_space.
+    /// The one-time `y -= 150` migration converts canvas-space Y (0 at the top of the 1920 canvas)
+    /// into content-space Y (0 at the top of the 1620 content area). That is a property of the
+    /// COORDINATE SPACE, not of the schema number.
+    ///
+    /// Sanitize used to gate that subtraction on <see cref="IsCurrentSpace"/>, which also requires
+    /// `version >= HudSchemaVersion`. Bumping the schema to 4 for IDEA_1's crops_source section
+    /// would therefore have made every existing v3 file look un-migrated and subtracted 150px from
+    /// every crop a SECOND time — silently shifting every saved mask up by 150 pixels on first
+    /// load. Any future schema bump would have done the same. Keying on the space string alone
+    /// makes the migration idempotent no matter how many times the version changes.
+    /// </summary>
+    private static bool IsContentSpace(JsonObject config)
+        => config["coordinate_space"]?.ToString() == HudCoordinateSpace;
+
+    /// <summary>
     /// Exact port of sanitize_hud_config. Deep-clones, validates, and fixes all sections.
     /// Migrates legacy coordinates if not in current space.
     /// </summary>
@@ -97,7 +131,9 @@ public static class HudConfig
     {
         config ??= new JsonObject();
         JsonObject clean = config.DeepClone().AsObject();
-        bool currentSpace = IsCurrentSpace(clean);
+        // See IsContentSpace: this must NOT depend on schema_version, or a version bump re-runs the
+        // one-time -150px Y migration and shifts every saved mask.
+        bool currentSpace = IsContentSpace(clean);
 
         foreach (string section in RequiredSections)
         {
@@ -203,6 +239,23 @@ public static class HudConfig
 
             int zDef = ZDefaults.GetValueOrDefault(key, 10);
             zOrdersObj[key] = ToInt(zOrdersObj[key] ?? JsonValue.Create(zDef), zDef);
+        }
+
+        // IDEA_1: keep the optional source-crop section honest. An entry whose content crop has
+        // been cleared to 0x0 (the way CropToolWindow marks a deleted layer) must not keep a live
+        // source rect behind it, or reopening the editor would resurrect the deleted box.
+        if (clean[SourceCropsSection] is JsonObject sourceCrops)
+        {
+            foreach (string key in new List<string>(sourceCrops.Select(kvp => kvp.Key)))
+            {
+                var contentRect = cropsObj[key] as JsonArray;
+                bool contentAlive = contentRect != null
+                                    && contentRect.Count >= 4
+                                    && ReadArrayInt(contentRect, 0) >= 1
+                                    && ReadArrayInt(contentRect, 1) >= 1;
+
+                if (!contentAlive) sourceCrops.Remove(key);
+            }
         }
 
         return clean;

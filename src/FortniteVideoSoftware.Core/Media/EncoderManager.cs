@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -96,12 +96,12 @@ public class EncoderManager
             using var proc = Process.Start(psi);
             if (proc == null) return [];
 
-            try { ChildProcessTracker.AddProcess(proc); } catch { }
+            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
 
             var readTask = proc.StandardOutput.ReadToEndAsync();
             if (!proc.WaitForExit(5000))
             {
-                try { proc.Kill(entireProcessTree: true); } catch { }
+                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
                 return [];
             }
 
@@ -172,21 +172,6 @@ public class EncoderManager
         string fpsExpr = "60", int qualityLevel = 2, bool sizeLocked = true)
     {
         var fpsValue = FpsFraction(fpsExpr);
-        if (ForcedCpu)
-        {
-            string cpuPreset = qualityLevel <= 1 ? "fast" : "medium";
-            var flags = new List<string> { "-c:v", "libx264", "-preset", cpuPreset, "-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "5.1", "-bf", "2" };
-            if (videoBitrateKbps == null)
-            {
-                string crf = qualityLevel <= 1 ? "20" : "17";
-                flags.AddRange(["-crf", crf]);
-                return (flags, $"CPU ({cpuPreset}/CRF{crf})");
-            }
-            int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-            int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
-            flags.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
-            return (flags, $"CPU ({cpuPreset}/{kbps}k)");
-        }
 
         var vcodec = new List<string> { "-c:v", encoderName };
         int gop = (int)(fpsValue * new Frac(2, 1) + new Frac(1, 2)).ToDouble();

@@ -29,17 +29,32 @@ public static class Phase1Gate
             workers.Add(StartWorker(root, ((char)('A' + i)).ToString()));
         }
 
+        var stdoutTasks = workers.Select(w => w.StandardOutput.ReadToEndAsync()).ToList();
+        var stderrTasks = workers.Select(w => w.StandardError.ReadToEndAsync()).ToList();
+
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(45));
-        foreach (Process worker in workers)
+        try
         {
-            await worker.WaitForExitAsync(timeout.Token);
+            foreach (Process worker in workers)
+            {
+                await worker.WaitForExitAsync(timeout.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            foreach (Process worker in workers)
+            {
+                try { worker.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            }
+            throw new TimeoutException("Background workers timed out after 45 seconds.");
         }
 
         int failures = 0;
-        foreach (Process worker in workers)
+        for (int i = 0; i < workers.Count; i++)
         {
-            string stdout = await worker.StandardOutput.ReadToEndAsync();
-            string stderr = await worker.StandardError.ReadToEndAsync();
+            Process worker = workers[i];
+            string stdout = await stdoutTasks[i];
+            string stderr = await stderrTasks[i];
 
             if (worker.ExitCode != 0)
             {
