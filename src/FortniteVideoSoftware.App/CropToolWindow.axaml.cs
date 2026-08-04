@@ -25,38 +25,26 @@ using IOPath = System.IO.Path;
 
 namespace FortniteVideoSoftware.App;
 
-public partial class CropToolWindow : Window, System.ComponentModel.INotifyPropertyChanged, System.ComponentModel.INotifyDataErrorInfo
+public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataErrorInfo
 {
-    private string _roleName = "";
-    public string RoleName 
-    { 
-        get => _roleName; 
-        set 
-        {
-            if (_roleName != value) 
-            {
-                _roleName = value;
-                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(RoleName)));
-                ErrorsChanged?.Invoke(this, new System.ComponentModel.DataErrorsChangedEventArgs(nameof(RoleName)));
-            }
-        } 
+    public static readonly StyledProperty<string> RoleNameProperty =
+        AvaloniaProperty.Register<CropToolWindow, string>(nameof(RoleName), defaultValue: "");
+
+    public string RoleName
+    {
+        get => GetValue(RoleNameProperty);
+        set => SetValue(RoleNameProperty, value);
     }
 
-    private string _newMaskOverlayName = "";
+    public static readonly StyledProperty<string> NewMaskOverlayNameProperty =
+        AvaloniaProperty.Register<CropToolWindow, string>(nameof(NewMaskOverlayName), defaultValue: "");
+
     public string NewMaskOverlayName
     {
-        get => _newMaskOverlayName;
-        set
-        {
-            if (_newMaskOverlayName != value)
-            {
-                _newMaskOverlayName = value;
-                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(NewMaskOverlayName)));
-            }
-        }
+        get => GetValue(NewMaskOverlayNameProperty);
+        set => SetValue(NewMaskOverlayNameProperty, value);
     }
 
-    public new event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     public event System.EventHandler<System.ComponentModel.DataErrorsChangedEventArgs>? ErrorsChanged;
 
     public bool HasErrors => string.IsNullOrWhiteSpace(RoleName);
@@ -65,6 +53,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
     {
         if (propertyName == nameof(RoleName) && string.IsNullOrWhiteSpace(RoleName))
             yield return "Element name cannot be empty.";
+        else
+            yield break;
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == RoleNameProperty)
+        {
+            ErrorsChanged?.Invoke(this, new System.ComponentModel.DataErrorsChangedEventArgs(nameof(RoleName)));
+        }
     }
     private const double PortraitWidth = CoordinateConstants.PortraitW;
     private const double PortraitHeight = CoordinateConstants.PortraitH;
@@ -250,14 +249,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         ButtonClick("BackToVideoButton", (_, _) => ShowVideoPanel());
         ButtonClick("PlayPauseButton", async (_, _) => await TogglePlayPauseAsync());
         ButtonClick("AddSelectionButton", async (_, _) => await AddCurrentSelection());
-        
         ButtonClick("DeleteMenuButton", (_, _) =>
         {
             if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmCropToolDelete)
             {
-                var btn = this.FindControl<Button>("DeleteMenuButton");
-                btn?.Flyout?.Hide();
                 DeleteSelectedItem();
+            }
+            else
+            {
+                var btn = this.FindControl<Button>("DeleteMenuButton");
+                var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+                if (btn != null && pnl != null) { btn.IsVisible = false; pnl.IsVisible = true; }
             }
         });
         
@@ -265,8 +267,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         {
             DeleteSelectedItem();
             var btn = this.FindControl<Button>("DeleteMenuButton");
-            btn?.Flyout?.Hide();
+            var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+            if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
+
+        ButtonClick("CancelDeleteButton", (_, _) =>
+        {
+            var btn = this.FindControl<Button>("DeleteMenuButton");
+            var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+            if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
+        });
+        
         ButtonClick("UndoButton", (_, _) => Undo());
         ButtonClick("RedoButton", (_, _) => Redo());
         ButtonClick("RaiseButton", (_, _) => MoveSelectedLayer(1));
@@ -276,9 +287,13 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         {
             if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmCropToolReset)
             {
-                var btn = this.FindControl<Button>("ResetMenuButton");
-                btn?.Flyout?.Hide();
                 ResetWorkingState();
+            }
+            else
+            {
+                var btn = this.FindControl<Button>("ResetMenuButton");
+                var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+                if (btn != null && pnl != null) { btn.IsVisible = false; pnl.IsVisible = true; }
             }
         });
         
@@ -286,7 +301,15 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyPrope
         {
             ResetWorkingState();
             var btn = this.FindControl<Button>("ResetMenuButton");
-            btn?.Flyout?.Hide();
+            var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+            if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
+        });
+
+        ButtonClick("CancelResetButton", (_, _) =>
+        {
+            var btn = this.FindControl<Button>("ResetMenuButton");
+            var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+            if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
         ButtonClick("ReturnButton", async (_, _) => await ReturnToMainAppAsync());
         ButtonClick("SaveButton", async (button, _) => await SaveAndReturnAsync(button));

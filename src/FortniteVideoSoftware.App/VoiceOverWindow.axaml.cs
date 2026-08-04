@@ -1455,25 +1455,32 @@ public partial class VoiceOverWindow : Window
 
     private async void TogglePreviewPlayback(object? sender, Avalonia.Interactivity.RoutedEventArgs? e)
     {
-        if (!_isMpvReady || _isRecording || _videoHost?.IpcClient == null) return;
-
-        bool shouldPlay = _videoHost.IpcClient.IsPaused;
-        if (shouldPlay)
+        try
         {
-            double current = _videoHost.IpcClient.CurrentTime;
-            double safeStart = NormalizePreviewPlaybackPosition(current);
-            if (Math.Abs(safeStart - current) > 0.01)
-            {
-                await _videoHost.IpcClient.SetPropertyAsync("time-pos", safeStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            }
-            _isCurrentlyFrozen = false;
-            _lastFreezeTriggerMs = -1;
-            ApplyPreviewSpeedForPosition(safeStart * 1000.0);
-            RuntimeLog.Info("VoiceOver", $"Preview playback requested at {safeStart:0.###}s.");
-        }
+            if (!_isMpvReady || _isRecording || _videoHost?.IpcClient == null) return;
 
-        await _videoHost.IpcClient.SetPropertyAsync("pause", shouldPlay ? "no" : "yes");
-        UpdatePlayPauseIconUI();
+            bool shouldPlay = _videoHost.IpcClient.IsPaused;
+            if (shouldPlay)
+            {
+                double current = _videoHost.IpcClient.CurrentTime;
+                double safeStart = NormalizePreviewPlaybackPosition(current);
+                if (Math.Abs(safeStart - current) > 0.01)
+                {
+                    await _videoHost.IpcClient.SetPropertyAsync("time-pos", safeStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+                _isCurrentlyFrozen = false;
+                _lastFreezeTriggerMs = -1;
+                ApplyPreviewSpeedForPosition(safeStart * 1000.0);
+                RuntimeLog.Info("VoiceOver", $"Preview playback requested at {safeStart:0.###}s.");
+            }
+
+            await _videoHost.IpcClient.SetPropertyAsync("pause", shouldPlay ? "no" : "yes");
+            UpdatePlayPauseIconUI();
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("VoiceOver", $"Error toggling preview playback: {ex.Message}");
+        }
     }
 
     // =====================================================================================
@@ -1994,14 +2001,22 @@ public partial class VoiceOverWindow : Window
                     if (session.TrimLeftSec > 0 || session.TrimRightSec > 0)
                     {
                         double dur = session.RenderEndSec - session.RenderStartSec;
-                        string ffargs = $"-y -i \"{session.WavPath}\" -ss {session.TrimLeftSec.ToString(System.Globalization.CultureInfo.InvariantCulture)} -t {dur.ToString(System.Globalization.CultureInfo.InvariantCulture)} -c copy \"{persistedPath}\"";
                         var startInfo = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = ResolveBinaryPath("ffmpeg.exe", "backend"),
-                            Arguments = ffargs,
                             UseShellExecute = false,
                             CreateNoWindow = true
                         };
+                        startInfo.ArgumentList.Add("-y");
+                        startInfo.ArgumentList.Add("-i");
+                        startInfo.ArgumentList.Add(session.WavPath);
+                        startInfo.ArgumentList.Add("-ss");
+                        startInfo.ArgumentList.Add(session.TrimLeftSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        startInfo.ArgumentList.Add("-t");
+                        startInfo.ArgumentList.Add(dur.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        startInfo.ArgumentList.Add("-c");
+                        startInfo.ArgumentList.Add("copy");
+                        startInfo.ArgumentList.Add(persistedPath);
                         using var proc = System.Diagnostics.Process.Start(startInfo);
                         if (proc != null) await proc.WaitForExitAsync();
                     }

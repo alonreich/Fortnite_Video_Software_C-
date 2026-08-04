@@ -770,6 +770,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 _trimStartSet = true;
                 markStartButton.Content = $"START: {FormatTime(TimeSpan.FromSeconds(time))}";
 
+                if (ActiveVideoHost?.IpcClient != null)
+                {
+                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "no");
+                }
+
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
                 ShowTimelineGlow(_trimStartMs, Avalonia.Media.Brushes.SeaGreen);
@@ -800,6 +805,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 _trimEndMs = time * 1000;
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
+                if (ActiveVideoHost?.IpcClient != null)
+                {
+                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+                }
 
                 PlayUiSound();
                 ShowTacticalFeedback($"🏁 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
@@ -834,6 +843,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
             if (timelineOverlay != null && canvas != null)
             {
+                Controls.TimelineKnob.Attach(timelineOverlay, timelineSlider);
+
                 bool isScrubbing = false;
                 timelineOverlay.PointerPressed += (s, e) => {
                     if (e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
@@ -1984,7 +1995,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             try
             {
                 var state = System.IO.File.Exists(_paths.SessionStateFile)
-                    ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(System.IO.File.ReadAllText(_paths.SessionStateFile)) ?? new System.Text.Json.Nodes.JsonObject()
+                    ? System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(_paths.SessionStateFile))?.AsObject() ?? new System.Text.Json.Nodes.JsonObject()
                     : new System.Text.Json.Nodes.JsonObject();
                 if (state.ContainsKey("MainVolume"))
                 {
@@ -2133,10 +2144,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         bool isVideoLoaded = !string.IsNullOrEmpty(_loadedVideoPath);
         RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}, isVideoLoaded={isVideoLoaded}");
 
-        var portraitDimmingGrid = this.FindControl<Grid>("PortraitDimmingGrid");
-        if (portraitDimmingGrid != null)
+        var phoneFrame = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame");
+        if (phoneFrame != null)
         {
-            portraitDimmingGrid.IsVisible = isPortrait && (_detachedPreviewWindow == null) && isVideoLoaded;
+            phoneFrame.IsVisible = isPortrait && (_detachedPreviewWindow == null) && isVideoLoaded;
         }
 
         if (_videoHost != null)
@@ -5429,7 +5440,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 string json = System.IO.File.ReadAllText(files[0].Path.LocalPath);
 
-                var state = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(json);
+                var state = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
                 if (state == null) throw new InvalidOperationException("File is empty or invalid JSON.");
                 if (state["schema_version"] == null) throw new InvalidOperationException("Missing schema_version lock. This is not a valid Fortnite Video Software configuration file.");
 
@@ -5604,59 +5615,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void UpdateButlerSuggestion()
     {
         var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
-        if (butler == null) return;
-
-        if (string.IsNullOrEmpty(_loadedVideoPath))
-        {
-            butler.Clear();
-            return;
-        }
-
-        if (_trimStartSet && _trimEndMs > _trimStartMs)
-        {
-            if (!_isGranularSpeedActive && _speedSegments.Count == 0 &&
-                Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) < 0.01)
-            {
-                butler.Suggest(new ButlerAction
-                {
-                    Id = "speed",
-                    Icon = "⚡",
-                    Label = "Add a speed ramp?"
-                });
-            }
-            else if (!_isMusicActive)
-            {
-                butler.Suggest(new ButlerAction
-                {
-                    Id = "music",
-                    Icon = "🎵",
-                    Label = "Add background music?"
-                });
-            }
-            else if (IsPortraitMode && !string.IsNullOrEmpty(_loadedVideoPath))
-            {
-                butler.Suggest(new ButlerAction
-                {
-                    Id = "hud",
-                    Icon = "📐",
-                    Label = "Pick your HUD crop layout?"
-                });
-            }
-            else
-            {
-                butler.Clear();
-            }
-        }
-        else
-        {
-            butler.Suggest(new ButlerAction
-            {
-                Id = "trim",
-                Icon = "✂️",
-                Label = "Trim your clip to set start/end?"
-            });
-        }
+        if (butler != null) butler.Clear();
     }
+
 
     #endregion
 

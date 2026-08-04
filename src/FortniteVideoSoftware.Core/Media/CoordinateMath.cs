@@ -13,16 +13,20 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
     public readonly long Num;
     public readonly long Den;
 
+    public long SafeDen => Den == 0 ? 1 : Den;
+
     public static readonly Frac Zero = new(0, 1);
     public static readonly Frac One = new(1, 1);
 
     public Frac(long num, long den)
     {
         if (den == 0) throw new DivideByZeroException("Denominator is zero.");
-        if (den < 0) { num = -num; den = -den; }
-        long g = Gcd(Math.Abs(num), den);
-        Num = num / g;
-        Den = den / g;
+        Int128 n = num;
+        Int128 d = den;
+        if (d < 0) { n = -n; d = -d; }
+        Int128 g = Gcd128(n, d);
+        Num = (long)(n / g);
+        Den = (long)(d / g);
     }
 
     private static long Gcd(long a, long b)
@@ -114,30 +118,30 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
         return a == Int128.Zero ? Int128.One : a;
     }
 
-    public static Frac operator +(Frac a, Frac b) => FromWide((Int128)a.Num * b.Den + (Int128)b.Num * a.Den, (Int128)a.Den * b.Den);
-    public static Frac operator -(Frac a, Frac b) => FromWide((Int128)a.Num * b.Den - (Int128)b.Num * a.Den, (Int128)a.Den * b.Den);
-    public static Frac operator *(Frac a, Frac b) => FromWide((Int128)a.Num * b.Num, (Int128)a.Den * b.Den);
-    public static Frac operator /(Frac a, Frac b) => b.Num == 0 ? Zero : FromWide((Int128)a.Num * b.Den, (Int128)a.Den * b.Num);
-    public static Frac operator -(Frac a) => new(-a.Num, a.Den);
-    public static bool operator ==(Frac a, Frac b) => a.Num == b.Num && a.Den == b.Den;
+    public static Frac operator +(Frac a, Frac b) => FromWide((Int128)a.Num * b.SafeDen + (Int128)b.Num * a.SafeDen, (Int128)a.SafeDen * b.SafeDen);
+    public static Frac operator -(Frac a, Frac b) => FromWide((Int128)a.Num * b.SafeDen - (Int128)b.Num * a.SafeDen, (Int128)a.SafeDen * b.SafeDen);
+    public static Frac operator *(Frac a, Frac b) => FromWide((Int128)a.Num * b.Num, (Int128)a.SafeDen * b.SafeDen);
+    public static Frac operator /(Frac a, Frac b) => b.Num == 0 ? Zero : FromWide((Int128)a.Num * b.SafeDen, (Int128)a.SafeDen * b.Num);
+    public static Frac operator -(Frac a) => new(-a.Num, a.SafeDen);
+    public static bool operator ==(Frac a, Frac b) => a.Num == b.Num && a.SafeDen == b.SafeDen;
     public static bool operator !=(Frac a, Frac b) => !(a == b);
 
-    public static bool operator <(Frac a, Frac b) => (Int128)a.Num * b.Den < (Int128)b.Num * a.Den;
-    public static bool operator >(Frac a, Frac b) => (Int128)a.Num * b.Den > (Int128)b.Num * a.Den;
-    public static bool operator <=(Frac a, Frac b) => (Int128)a.Num * b.Den <= (Int128)b.Num * a.Den;
-    public static bool operator >=(Frac a, Frac b) => (Int128)a.Num * b.Den >= (Int128)b.Num * a.Den;
+    public static bool operator <(Frac a, Frac b) => (Int128)a.Num * b.SafeDen < (Int128)b.Num * a.SafeDen;
+    public static bool operator >(Frac a, Frac b) => (Int128)a.Num * b.SafeDen > (Int128)b.Num * a.SafeDen;
+    public static bool operator <=(Frac a, Frac b) => (Int128)a.Num * b.SafeDen <= (Int128)b.Num * a.SafeDen;
+    public static bool operator >=(Frac a, Frac b) => (Int128)a.Num * b.SafeDen >= (Int128)b.Num * a.SafeDen;
 
-    public bool Equals(Frac other) => Num == other.Num && Den == other.Den;
+    public bool Equals(Frac other) => Num == other.Num && SafeDen == other.SafeDen;
     public override bool Equals(object? obj) => obj is Frac f && Equals(f);
-    public override int GetHashCode() => HashCode.Combine(Num, Den);
+    public override int GetHashCode() => HashCode.Combine(Num, SafeDen);
     public int CompareTo(Frac other)
     {
-        Int128 left = (Int128)Num * other.Den;
-        Int128 right = (Int128)other.Num * Den;
+        Int128 left = (Int128)Num * other.SafeDen;
+        Int128 right = (Int128)other.Num * SafeDen;
         return left < right ? -1 : left > right ? 1 : 0;
     }
-    public double ToDouble() => (double)Num / Den;
-    public override string ToString() => Den == 1 ? Num.ToString() : $"{Num}/{Den}";
+    public double ToDouble() => (double)Num / SafeDen;
+    public override string ToString() => SafeDen == 1 ? Num.ToString() : $"{Num}/{SafeDen}";
 }
 
 
@@ -169,17 +173,17 @@ public static class CoordinateMath
 
     public static int FracFloor(Frac v)
     {
-        long q = v.Num / v.Den;
-        long r = v.Num % v.Den;
-        if (r != 0 && ((r < 0) != (v.Den < 0))) q--;
+        long q = v.Num / v.SafeDen;
+        long r = v.Num % v.SafeDen;
+        if (r != 0 && ((r < 0) != (v.SafeDen < 0))) q--;
         return (int)q;
     }
 
     public static int FracCeil(Frac v)
     {
-        long q = v.Num / v.Den;
-        long r = v.Num % v.Den;
-        if (r != 0 && ((r < 0) == (v.Den < 0))) q++;
+        long q = v.Num / v.SafeDen;
+        long r = v.Num % v.SafeDen;
+        if (r != 0 && ((r < 0) == (v.SafeDen < 0))) q++;
         return (int)q;
     }
 

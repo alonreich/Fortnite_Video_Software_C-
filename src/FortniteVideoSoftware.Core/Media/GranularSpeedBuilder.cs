@@ -507,13 +507,13 @@ public class GranularSpeedBuilder
                         int workH = EvenDim(canvasH * s);
                         int cropW = EvenDim(resW * s);
                         int cropH = EvenDim(resH * s);
-                        string sStr = s.ToString(CultureInfo.InvariantCulture);
+                        string sStr = s.ToString("0.000000", CultureInfo.InvariantCulture);
 
-                        string pExpr = $"{p1.ToString(CultureInfo.InvariantCulture)}+({(p2 - p1).ToString(CultureInfo.InvariantCulture)})*(t/{realDur.ToString(CultureInfo.InvariantCulture)})";
+                        string pExpr = $"{p1.ToString("0.000000", CultureInfo.InvariantCulture)}+({(p2 - p1).ToString("0.000000", CultureInfo.InvariantCulture)})*(t/{realDur.ToString("0.000000", CultureInfo.InvariantCulture)})";
 
-                        string zExpr = $"1.0+({(targetZ - 1.0).ToString(CultureInfo.InvariantCulture)})*({pExpr})";
-                        string cxExpr = $"({padX.ToString(CultureInfo.InvariantCulture)}+{(resW / 2.0).ToString(CultureInfo.InvariantCulture)}+({(cxTarget - resW / 2.0).ToString(CultureInfo.InvariantCulture)})*({pExpr})-({resW.ToString(CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
-                        string cyExpr = $"({padY.ToString(CultureInfo.InvariantCulture)}+{(resH / 2.0).ToString(CultureInfo.InvariantCulture)}+({(cyTarget - resH / 2.0).ToString(CultureInfo.InvariantCulture)})*({pExpr})-({resH.ToString(CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
+                        string zExpr = $"1.0+({(targetZ - 1.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})";
+                        string cxExpr = $"({padX.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cxTarget - resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resW.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
+                        string cyExpr = $"({padY.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cyTarget - resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resH.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
 
                         string cropX = $"(({cxExpr})*({zExpr})*{sStr})";
                         string cropY = $"(({cyExpr})*({zExpr})*{sStr})";

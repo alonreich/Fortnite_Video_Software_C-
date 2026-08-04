@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -12,22 +14,46 @@ public static class AtomicJsonFile
 
     public static JsonObject? ReadObject(string path)
     {
-        if (!File.Exists(path))
+        if (!File.Exists(path)) return null;
+
+        try
+        {
+            using FileStream stream = new(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 64 * 1024,
+                FileOptions.SequentialScan);
+
+            if (stream.Length == 0) return null;
+
+            using var reader = new StreamReader(stream);
+            string json = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(json) || json.Trim() == "null") return null;
+
+            JsonNode? node = JsonNode.Parse(json);
+            var obj = node as JsonObject;
+            
+            if (obj != null)
+            {
+                if (!obj.ContainsKey("schema_version") && !obj.ContainsKey("Version"))
+                {
+                    obj["schema_version"] = 1;
+                }
+            }
+
+            return obj;
+        }
+        catch (JsonException)
         {
             return null;
         }
-
-        using FileStream stream = new(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 64 * 1024,
-            FileOptions.SequentialScan);
-
-        JsonNode? node = JsonNode.Parse(stream);
-
-        return node as JsonObject;
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ReadObject failed: {ex}");
+            return null;
+        }
     }
 
     public static void WriteObject(string path, JsonObject payload)

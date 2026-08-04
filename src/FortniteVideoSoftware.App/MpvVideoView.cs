@@ -252,12 +252,16 @@ public sealed class MpvVideoView : Control, IDisposable
             byte[] target = _swRenderBuffer;
 
             int[] sz = { w, h };
-            nint fmtPtr = Marshal.StringToHGlobalAnsi("bgr0");
-            nint szPtr = Marshal.AllocHGlobal(sizeof(int) * 2);
-            nint stridePtr = Marshal.AllocHGlobal(nint.Size);
-            var pin = GCHandle.Alloc(target, GCHandleType.Pinned);
+            nint fmtPtr = nint.Zero;
+            nint szPtr = nint.Zero;
+            nint stridePtr = nint.Zero;
+            var pin = default(GCHandle);
             try
             {
+                fmtPtr = Marshal.StringToHGlobalAnsi("bgr0");
+                szPtr = Marshal.AllocHGlobal(sizeof(int) * 2);
+                stridePtr = Marshal.AllocHGlobal(nint.Size);
+                pin = GCHandle.Alloc(target, GCHandleType.Pinned);
                 Marshal.Copy(sz, 0, szPtr, 2);
                 Marshal.WriteIntPtr(stridePtr, (nint)stride);
                 var pars = new LibMpvInterop.mpv_render_param[]
@@ -279,10 +283,10 @@ public sealed class MpvVideoView : Control, IDisposable
             }
             finally
             {
-                pin.Free();
-                Marshal.FreeHGlobal(fmtPtr);
-                Marshal.FreeHGlobal(szPtr);
-                Marshal.FreeHGlobal(stridePtr);
+                if (pin.IsAllocated) pin.Free();
+                if (fmtPtr != nint.Zero) Marshal.FreeHGlobal(fmtPtr);
+                if (szPtr != nint.Zero) Marshal.FreeHGlobal(szPtr);
+                if (stridePtr != nint.Zero) Marshal.FreeHGlobal(stridePtr);
             }
 
             lock (_swBufLock)

@@ -121,15 +121,11 @@
                 <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                     <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip the clocks -->
                     <TextBlock Name="GranularTimeElapsed" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0" />
-                    <Grid Grid.Column="1" VerticalAlignment="Center" MinHeight="46" ClipToBounds="False">
-                        <StackPanel Orientation="Vertical">
-                            <Canvas Name="GranularTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                            <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
-                            <Grid Height="44" ClipToBounds="False" ZIndex="10001">
-                                <Slider Name="GranularTimeline" Classes="CompactSlider" Minimum="0" Maximum="1000" Height="44" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10002" ToolTip.Tip="Drag to scrub through the video" />
-                                <Canvas Name="GranularTimelineCanvas" Classes="TimelineSeekSurface" IsHitTestVisible="True" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" Height="32" ZIndex="10003" />
-                            </Grid>
-                        </StackPanel>
+                    <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
+                        <Canvas Grid.Row="0" Name="GranularTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" ZIndex="10000" />
+                        <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
+                        <Slider Grid.Row="1" Name="GranularTimeline" Classes="CompactSlider" Minimum="0" Maximum="1000" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10001" ToolTip.Tip="Drag to scrub through the video" />
+                        <Canvas Grid.Row="1" Name="GranularTimelineCanvas" Classes="TimelineSeekSurface" Background="Transparent" IsHitTestVisible="True" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" ZIndex="10002" />
                     </Grid>
                     <TextBlock Grid.Column="2" Name="GranularDuration" Text="-00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Margin="8,0,0,0" />
                 </Grid>
@@ -156,7 +152,7 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
                         <StackPanel Orientation="Vertical" Spacing="8" Margin="0,15,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
-                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" MinWidth="160" MaxWidth="300" MinHeight="35" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
+                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="44" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
                             <TextBlock Name="PendingSpeedLabel" Text="1.1x" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
                         <!-- Speed preset buttons — two rows with vertical gap -->

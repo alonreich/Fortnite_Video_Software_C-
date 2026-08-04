@@ -194,7 +194,7 @@
                             </ScrollViewer>
 
                             <!-- STEP 3: Final Review Summary -->
-                            <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto">
+                            <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto" ClipToBounds="False">
                                 <StackPanel Grid.Row="0" Margin="0,0,0,10" Spacing="3">
                                     <TextBlock Text="CONFIRM MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}"/>
                                     <TextBlock Name="FinalPlacementLabel" Text="The video and music preview will end together at the video end." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
@@ -258,20 +258,20 @@
                                     </Panel>
                                 </Grid>
 
-                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="42" Margin="0,0,0,10">
-                                    <StackPanel>
+                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="42" Margin="0,0,0,10" ClipToBounds="False">
+                                    <StackPanel ClipToBounds="False">
                                         <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
                                         <!-- ISSUE_07 (audit round 5): Height="30" -> MinHeight="44". These were the
                                              only two sliders in the suite pinned to a fixed height, and the global
                                              Slider thumb (AvaloniaApp.axaml) is 44x44 — so the app's universal grab
                                              handle was larger than the track it lived in. Fixed Height also violated
                                              the Font-Scale Sizing Rule. -->
-                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
+                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
                                     </StackPanel>
-                                    <StackPanel>
+                                    <StackPanel ClipToBounds="False">
                                         <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
                                         <!-- ISSUE_07 (audit round 5): see VideoVolSlider above — fixed Height 30 -> MinHeight 44. -->
-                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
+                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
                                     </StackPanel>
                                     <StackPanel>
                                         <TextBlock Text="Export Ducking" Name="DuckingCompareLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>

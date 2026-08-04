@@ -149,7 +149,7 @@
                                     </Border>
                                 </StackPanel>
                                 
-                                <Border BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Background="#1A332200">
+                                <Border BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Background="{DynamicResource AppPanelBrush}">
                                     <TextBlock Text="Drops the game volume by 85% exactly when you are speaking into your microphone.&#x0a;&#x0a;⚠️ IMPORTANT: This studio is for recording your own voice over the video. It does NOT contain AI to scan the video and mute other players' voices from the original game audio." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap"/>
                                 </Border>
                                 
