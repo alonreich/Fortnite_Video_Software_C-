@@ -2144,6 +2144,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         bool isVideoLoaded = !string.IsNullOrEmpty(_loadedVideoPath);
         RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}, isVideoLoaded={isVideoLoaded}");
 
+        var mainContainer = this.FindControl<Grid>("MainContainerGrid");
+        if (mainContainer != null)
+        {
+            mainContainer.Height = isPortrait ? 1280 : 1080;
+        }
+
         var phoneFrame = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame");
         if (phoneFrame != null)
         {

@@ -33,29 +33,34 @@
                 <!-- Video preview -->
                 <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
                     <Grid>
-                        <local:MpvVideoView Name="GranularVideoHost" ZIndex="0"/>
-                        <!-- #1 Fake mobile phone frame: shows the 9:16 portrait crop area (visible only when Portrait mode is on) -->
-                        <Grid Name="GranularPortraitDimmingGrid" ZIndex="5" IsVisible="False" IsHitTestVisible="False">
-                            <controls:PhoneFrameMockup Name="GranularPhoneFrame" />
-                        </Grid>
+                        <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" ZIndex="0">
+                            <Grid Name="ZoomContainerGrid" Width="1920" Height="1080">
+                                <Grid Width="1920" Height="1080" VerticalAlignment="Center">
+                                    <local:MpvVideoView Name="GranularVideoHost" ZIndex="0"/>
+                                    <!-- §4 Zoom draw surface. Dimmer + spotlight cutout + handles + tutorial are built
+                                         in code-behind and added here. Background is near-transparent so the whole
+                                         area receives pointer events while zoom mode is active. -->
+                                    <Canvas Name="ZoomOverlayCanvas" ZIndex="40" IsVisible="False" Background="{DynamicResource AppHoverOverlayBrush}" Cursor="Cross" ClipToBounds="True"/>
+                                </Grid>
+                                
+                                <!-- #1 Fake mobile phone frame: shows the 9:16 portrait crop area (visible only when Portrait mode is on) -->
+                                <Grid Name="GranularPortraitDimmingGrid" ZIndex="5" IsVisible="False" IsHitTestVisible="False">
+                                    <controls:PhoneFrameMockup Name="GranularPhoneFrame" />
+                                </Grid>
+                            </Grid>
+                        </Viewbox>
+                        
                         <!-- #10 Live drag readout: shows exact start / end / length while dragging a block -->
                         <Border Name="DragReadoutBadge" IsVisible="False" ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,5" IsHitTestVisible="False">
                             <TextBlock Name="DragReadoutText" Text="" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold"/>
                         </Border>
-                        <!-- §4 Zoom draw surface. Dimmer + spotlight cutout + handles + tutorial are built
-                             in code-behind and added here. Background is near-transparent so the whole
-                             area receives pointer events while zoom mode is active. -->
-                        <Canvas Name="ZoomOverlayCanvas" ZIndex="40" IsVisible="False" Background="{DynamicResource AppHoverOverlayBrush}" Cursor="Cross" ClipToBounds="True"/>
+                        
                         <Grid Name="FreezeDimmer" Background="{DynamicResource AppOverlayBrush}" IsVisible="{Binding #FreezeValidationPopup.IsOpen}" ZIndex="10" />
                         <Popup Name="FreezeValidationPopup" IsOpen="False" Placement="Center" IsHitTestVisible="False" ZIndex="11" IsLightDismissEnabled="False">
                             <Border Name="FreezeValidationBorder" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="2" CornerRadius="6" Padding="16,10">
                                 <TextBlock Name="FreezeValidationText" Text="SELECT FREEZE DURATION" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
-                        <!-- ISSUE_10 (audit round 5): IsHitTestVisible="False" — this dimmer backs a transient
-                             self-expiring FloatingFeedback toast and must not absorb clicks meant for the
-                             video/timeline. Matches MainWindow's FeedbackDimmer. -->
-                        <Grid Name="GranularFeedbackDimmer" Background="{DynamicResource AppOverlayBrush}" IsVisible="{Binding #GranularFeedbackPopup.IsOpen}" IsHitTestVisible="False" ZIndex="10" />
                         <Popup Name="GranularFeedbackPopup" IsOpen="False" Placement="Top"
                                IsLightDismissEnabled="False"
                                IsHitTestVisible="False" ZIndex="11">

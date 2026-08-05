@@ -312,7 +312,7 @@
                                  tokens (AppPhoneBezel*/AppPhoneChrome*), which are deliberately
                                  theme-agnostic: a phone bezel is black in Light and Dark alike. -->
                             <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Grid Width="1920" Height="1080">
+                                <Grid Width="1920" Height="1280">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="600" />
                                         <ColumnDefinition Width="720" />

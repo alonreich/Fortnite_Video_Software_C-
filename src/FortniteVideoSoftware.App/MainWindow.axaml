@@ -67,7 +67,15 @@
                     <!-- IDEA_03: duplicate PlaceholderBubbles layer removed — the window-wide
                          AmbientBubblesBackground already animates behind this area; two overlapping
                          densities read as a rendering glitch. -->
-                    <local:MpvVideoView Name="VideoHost" IsVisible="False" Grid.Row="0" controls:Tactile.IsParallaxTiltEnabled="True" />
+                    <Viewbox Grid.Row="0" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid Name="MainContainerGrid" Width="1920" Height="1080">
+                            <Grid Width="1920" Height="1080" VerticalAlignment="Center">
+                                <local:MpvVideoView Name="VideoHost" IsVisible="False" controls:Tactile.IsParallaxTiltEnabled="True" />
+                            </Grid>
+                            <controls:PhoneFrameMockup Name="PhoneFrame" IsVisible="False" IsHitTestVisible="False" />
+                        </Grid>
+                    </Viewbox>
+
                     <TextBlock Name="RdpWarningOverlay" Text="RDP SESSION" Foreground="{DynamicResource AppDangerBrush}" Opacity="0.5" FontSize="{DynamicResource AppFontSize60}" FontWeight="Black" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20" IsHitTestVisible="False" IsVisible="False" ZIndex="1" />
 
                     <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}"
@@ -80,9 +88,6 @@
                     <Border Name="PreviewDetachedWatermark" IsVisible="False" Background="{DynamicResource AppVideoSurfaceBrush}" Grid.Row="0">
                         <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
-
-                    <!-- ISSUE_03: Single child removed from PortraitDimmingGrid bloat -->
-                    <controls:PhoneFrameMockup Name="PhoneFrame" IsVisible="False" Grid.Row="0" IsHitTestVisible="False" />
 
                     <!-- IDEA_01: single consolidated hero empty-state (BlankStateOverlay merged in).
                          IDEA_04: Opacity transition lets the card fade while the drag-over dropzone speaks.
@@ -161,7 +166,6 @@
                          ISSUE_10 (audit round 5): the dimmer is now IsHitTestVisible="False". This is a
                          TRANSIENT toast that FloatingFeedback auto-closes after ~1.1s; it must never eat
                          a click aimed at the timeline underneath. -->
-                    <Grid Name="FeedbackDimmer" Background="{DynamicResource AppOverlayBrush}" IsVisible="{Binding #FeedbackPopup.IsOpen}" Grid.RowSpan="2" IsHitTestVisible="False" ZIndex="9998" />
                     <!-- ISSUE_10 (audit round 5): was IsLightDismissEnabled="True" IsHitTestVisible="True".
                          This Popup and GranularSpeedEditorWindow's GranularFeedbackPopup are driven by the
                          SAME helper (FloatingFeedback.Show) yet had opposite dismiss semantics: the Main App
@@ -343,67 +347,51 @@
                         <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,0,0,5"/>
                         <Expander Header="OVERLAYS &amp; EFFECTS" Cursor="Hand" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" IsExpanded="False" Background="Transparent" BorderThickness="0" Padding="0">
                         
-                        <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="8" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Margin="0,5,0,0">
-                            <StackPanel Spacing="12">
+                            <StackPanel Spacing="10" Margin="0,5,0,0">
                                 
-                                <StackPanel Spacing="6">
+                                <StackPanel Spacing="4">
                                     <TextBlock Text="LAYOUTS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
-                                    
-                                    <StackPanel Spacing="4">
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Text="Portrait (9:16)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                            <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsPortraitMode, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
-                                        </Grid>
-                                        <TextBox Name="PortraitTextInput" Text="{Binding $parent[local:MainWindow].OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="36" MaxHeight="80" FontSize="{DynamicResource AppFontSize12}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
-                                    </StackPanel>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Portrait (9:16)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsPortraitMode, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
+                                    </Grid>
+                                    <TextBox Name="PortraitTextInput" Text="{Binding $parent[local:MainWindow].OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="36" MaxHeight="80" FontSize="{DynamicResource AppFontSize12}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
                                 </StackPanel>
 
                                 <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
 
-                                <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="8" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1">
-                                    <StackPanel Spacing="6">
-                                        <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
-                                        
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
-                                        </Grid>
-
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Text="Teammate HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsTeammates, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
-                                        </Grid>
-
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Text="Spectating Eye" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="SpectatingCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsSpectating, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Teammate HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsTeammates, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Spectating Eye" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <ToggleSwitch Name="SpectatingCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsSpectating, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
+                                    </Grid>
+                                </StackPanel>
 
                                 <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
 
-                                <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="8" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1">
-                                    <StackPanel Spacing="6">
-                                        <TextBlock Text="EFFECTS &amp; MEMES" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
-
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBlock Text="Enable Fade" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                            <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsEnableFade, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
-                                        </Grid>
-
-                                        <StackPanel Spacing="4">
-                                            <Grid ColumnDefinitions="*, Auto">
-                                                <TextBlock Text="Add MEME" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                                <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsAddMeme, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
-                                            </Grid>
-                                            <ComboBox Name="MemeComboBox" HorizontalAlignment="Stretch" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" ToolTip.Tip="Choose which meme effect to display over your video." MinHeight="32" FontSize="{DynamicResource AppFontSize11}" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="EFFECTS &amp; MEMES" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Enable Fade" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsEnableFade, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Add MEME" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsAddMeme, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
+                                    </Grid>
+                                    <ComboBox Name="MemeComboBox" HorizontalAlignment="Stretch" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" ToolTip.Tip="Choose which meme effect to display over your video." MinHeight="32" FontSize="{DynamicResource AppFontSize11}" />
+                                </StackPanel>
 
                             </StackPanel>
-                        </Border>
                         </Expander>
                     </StackPanel>
                 </Grid>
@@ -433,9 +421,6 @@
 
                 <!-- Particle Burst Feedback (IDEA 011) -->
                 <controls:ParticleBurstCanvas x:Name="ParticleLayer" Grid.RowSpan="3" ZIndex="1000"/>
-
-                <!-- Butler Predictive Ribbon (IDEA 005) -->
-                <controls:ButlerRibbon x:Name="Butler" Grid.RowSpan="3"/>
 
                 <!-- Meme Wall (IDEA 008) -->
                 <controls:MemeWallControl x:Name="MemeWall" Grid.RowSpan="3" ZIndex="996"/>

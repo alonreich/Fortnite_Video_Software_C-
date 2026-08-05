@@ -114,6 +114,12 @@ public partial class GranularSpeedEditorWindow : Window
 
         InitializeComponent();
 
+        var zoomContainer = this.FindControl<Avalonia.Controls.Grid>("ZoomContainerGrid");
+        if (zoomContainer != null)
+        {
+            zoomContainer.Height = _isMobileFormat ? 1280 : 1080;
+        }
+
         this.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (s, e) =>
         {
             if (_isCanvasScrubbing)
