@@ -1,4 +1,4 @@
-<Application xmlns="https://github.com/avaloniaui"
+﻿<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
              xmlns:collections="using:System.Collections"
@@ -19,6 +19,25 @@
              (GetSegmentOverlayColor RGB 239,68,68) so the legend chip matches the timeline. -->
         <SolidColorBrush x:Key="AppSpeedSlowBrush" Color="#ef4444" />
         <SolidColorBrush x:Key="AppWarningBrush" Color="#facc15" />
+
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             IDEA_6 — THE ZOOM COLOUR. ONE COLOUR, ONE MEANING, EVERYWHERE.
+             The zoom feature previously spoke in THREE unrelated colours and users could not
+             tell zoom apart from a speed segment:
+               fuchsia #d946ef  timeline zoom bar + lollipop markers (Main App AND Granular)
+               yellow  #fde047  the dashed box you draw on the video, and the onboarding banner
+               blue    #1e40af  the four corner resize handles on that same box
+             Yellow also collides with the SELECTED-block highlight and with AppWarningBrush, so
+             "yellow" meant zoom, selection and warning at once.
+             Everything zoom now uses AppZoomBrush and nothing else does. AppZoomColor exists
+             because several zoom visuals are built in code-behind and need a Color, not a Brush.
+             ⚠️ DO NOT reuse this colour for anything that is not zoom, and do not give zoom a
+             second colour "for contrast" — that is the exact problem this token removes.
+             ══════════════════════════════════════════════════════════════════════════════════ -->
+        <Color x:Key="AppZoomColor">#d946ef</Color>
+        <SolidColorBrush x:Key="AppZoomBrush" Color="{StaticResource AppZoomColor}" />
+        <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#c026d3" />
+        <SolidColorBrush x:Key="AppZoomDeepBorderBrush" Color="#86198f" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />
         <!-- Always-white text/icons for saturated colored buttons (theme-agnostic) -->
@@ -420,6 +439,18 @@
             <Setter Property="Background" Value="{DynamicResource AppPrimaryButtonHoverGradient}"/>
         </Style>
 
+        <!-- IDEA_6: the ZOOM-IN button wears the zoom colour, so the button, the box you draw,
+             the handles, the timeline bar and the style picker are all visibly one feature. -->
+        <Style Selector="Button.ZoomAction">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppZoomDeepBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.ZoomAction:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppZoomHoverBrush}"/>
+        </Style>
+
         <!-- Voiceover entry: distinct from general primary actions in the main editing controls. -->
         <Style Selector="Button.VoiceOverEntry">
             <Setter Property="BorderBrush" Value="{DynamicResource AppVoiceOverBorderBrush}"/>
@@ -555,9 +586,21 @@
              ISSUE_03: single authoritative thumb style (a second duplicate selector below was merged
              into this block; ZIndex keeps the previously-winning max value). -->
         <Style Selector="Slider /template/ Thumb">
-            <Setter Property="Width" Value="44" />
+            <!-- ⚠️ SLIDER_04 — WIDTH IS 52, NOT 44, AND THAT NUMBER IS DERIVED, NOT TASTE.
+                 The knob is a 26px Ellipse that grows to scale(2.0) while held = 52px rendered.
+                 `Track` centres the thumb in its reserved slot, so the dot's centre can never get
+                 closer to either end than HALF the thumb's width. At 44 that is 22px, and a 52px
+                 dot centred 22px in reaches 4px PAST the slider's own left edge — which is why the
+                 knob appeared sliced at 0% and 100%: it was painting outside its parent and being
+                 covered by whatever sat beside it.
+                 52 = the largest rendered dot, so at the extremes the dot lands exactly flush with
+                 the slider edge and never leaves its own bounds. If you ever change the press
+                 scale or the 26px Ellipse, RECOMPUTE THIS (and the rail inset below, which must
+                 stay at half this value). Height stays 44: the vertical overflow is handled by
+                 margins on the hosting rows, not by the thumb. -->
+            <Setter Property="Width" Value="52" />
             <Setter Property="Height" Value="44" />
-            <Setter Property="MinWidth" Value="44" />
+            <Setter Property="MinWidth" Value="52" />
             <Setter Property="MinHeight" Value="44" />
             <!-- THE KNOB MUST BE A DOT — and this is the ONLY reliable way to guarantee it.
                  Forcing the thumb to 44x44 above made it render as a SQUARE, because Fluent's stock
@@ -610,6 +653,51 @@
         <Style Selector="Slider /template/ Track">
             <Setter Property="ZIndex" Value="9998" />
             <Setter Property="ClipToBounds" Value="False" />
+        </Style>
+
+        <!-- ════════════════════════════════════════════════════════════════════════════════
+             SLIDER_01 — THE BROKEN TRACK LINE.
+
+             `Track` lays out DecreaseButton | Thumb | IncreaseButton and reserves the thumb's
+             LAYOUT width for the middle slot. That width is 44px (the suite's grab target), while
+             the visible knob is a 26px Ellipse — and RenderTransform scaling does NOT change
+             layout width, so the reserved gap stays 44px at every size.
+
+             Measured result: 44px gap around a 26px dot leaves NINE PIXELS OF BARE TRACK ON EACH
+             SIDE at rest. The rail reads as two separate horizontal lines with the knob floating
+             between them, which is exactly what it looks like on screen. (At scale(2.0) the dot
+             grows to 52px and finally covers the gap — so the break appears to heal while
+             dragging and returns on release, which makes it read as a glitch rather than a style.)
+
+             FIX PART 1 — CLOSE THE GAP: pull each half of the rail 22px INTO the thumb's slot with
+             a negative margin, so the two halves meet underneath the knob and the line is
+             continuous at every size. 26 = half the 52px thumb (SLIDER_04). These two numbers MUST stay in step.
+
+             FIX PART 2 — THE RAIL MUST ALSO END WHERE THE DOT ENDS: because Track reserves the
+             thumb's 44px, the thumb CENTRE can only travel from 22px to (width - 22px). A rail
+             drawn the full width therefore has 22px at each end the dot can never reach — at 100%
+             you see bare rail to the RIGHT of the dot, at 0% to its LEFT. So each half ALSO gets a
+             POSITIVE margin on its OUTER edge, insetting the rail to exactly [22, width-22], which
+             is precisely the dot's travel range. Dot and rail now start and finish together.
+                 Decrease: left  +22 (inset)   right -22 (meet under the thumb)
+                 Increase: left  -22 (meet)    right +22 (inset)
+
+             ⚠️ NAME-TARGETED, SO IT FAILS SAFE. If a future Avalonia theme renames these template
+             parts the selectors simply match nothing and the rail goes back to being split — ugly,
+             never broken. Do NOT "fix" this by shrinking the Thumb to 26px: that would drop the
+             grab target from 44px to 26px and break the Font-Scale/hit-target rule in Section 4.
+             ════════════════════════════════════════════════════════════════════════════════ -->
+        <Style Selector="Slider:horizontal /template/ RepeatButton#PART_DecreaseButton">
+            <Setter Property="Margin" Value="26,0,-26,0" />
+        </Style>
+        <Style Selector="Slider:horizontal /template/ RepeatButton#PART_IncreaseButton">
+            <Setter Property="Margin" Value="-26,0,26,0" />
+        </Style>
+        <Style Selector="Slider:vertical /template/ RepeatButton#PART_DecreaseButton">
+            <Setter Property="Margin" Value="0,-22,0,22" />
+        </Style>
+        <Style Selector="Slider:vertical /template/ RepeatButton#PART_IncreaseButton">
+            <Setter Property="Margin" Value="0,22,0,-22" />
         </Style>
         <!-- Let the (growing) thumb paint outside every internal container so it is
              never cut off by the slider's own groove/track frame. Handle-only change. -->

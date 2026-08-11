@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FortniteVideoSoftware.App.Controls.TimelineLanesControl"
+             ClipToBounds="False">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════════════════
+         SHARED TWO-LANE TIMELINE (LANES_03)
+
+         ONE control, used by BOTH the Granular Speed Editor and Music Wizard phase 3. It owns
+         everything the two windows had been duplicating: the ruler, the gridlines, the caret and
+         all click-to-seek behaviour. The windows supply only their own lane CONTENT.
+
+           col 0 : elapsed clock   (counts UP   — time into the clip)
+           col 1 : row 0 ruler 22px
+                   row 1 LANE A host 60px   <- window fills this
+                   row 2 LANE B host 60px   <- window fills this
+                   overlays spanning all three rows: gridlines, seek surfaces, caret
+           col 2 : remaining clock (counts DOWN — time left)
+
+         ⚠️ THE SEEK SURFACES ARE PER-ROW, NOT ONE BIG ONE. Granular's upper lane handles its own
+         pointer input (block drag, edge resize, drag-to-create), so a single surface spanning
+         everything would swallow it. Each row gets its own, switched on independently.
+
+         ⚠️ THE CARET GRAB BOX SITS ABOVE THE SEEK SURFACES on purpose — grabbing the playhead must
+         never register as a click-to-seek. That is the whole reason it has a widened hit area.
+         ═══════════════════════════════════════════════════════════════════════════════════════ -->
+
+    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
+
+        <TextBlock Grid.Column="0" Name="ElapsedLabel" Text="00:00"
+                   Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                   MinWidth="52" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0"
+                   ToolTip.Tip="Time into the clip"/>
+
+        <Grid Grid.Column="1" Name="LanesGrid" RowDefinitions="22,Auto,Auto" ClipToBounds="False">
+
+            <!-- Ruler. Explicit Height, NOT MinHeight: a Canvas reports zero desired size, so an
+                 Auto row would rest entirely on MinHeight surviving the measure pass. -->
+            <Border Grid.Row="0" Background="Transparent" Height="22" ClipToBounds="False">
+                <Canvas Name="RulerCanvas" IsHitTestVisible="False" ClipToBounds="False"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+
+            <Border Grid.Row="1" Name="LaneABorder" BorderBrush="{DynamicResource AppPanelBrush}"
+                    BorderThickness="2" CornerRadius="2" MinHeight="60" ClipToBounds="False">
+                <Panel Name="LaneAHostPanel" ClipToBounds="False"/>
+            </Border>
+
+            <Border Grid.Row="2" Name="LaneBBorder" BorderBrush="{DynamicResource AppPanelBrush}"
+                    BorderThickness="2" CornerRadius="2" MinHeight="60">
+                <Panel Name="LaneBHostPanel"/>
+            </Border>
+
+            <!-- Faint vertical gridlines dropping from every ruler tick through both lanes, so a
+                 moment can be read straight down the screen. Never hit-testable. -->
+            <Canvas Grid.Row="0" Grid.RowSpan="3" Name="GridlinesCanvas"
+                    IsHitTestVisible="False" ClipToBounds="False" ZIndex="50"/>
+
+            <!-- Per-row seek surfaces (see the header note). -->
+            <Canvas Grid.Row="0" Name="RulerSeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" ClipToBounds="False"
+                    AutomationProperties.Name="Seek using the time ruler"/>
+            <Canvas Grid.Row="1" Name="LaneASeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" IsVisible="False"
+                    AutomationProperties.Name="Seek using the upper lane"/>
+            <Canvas Grid.Row="2" Name="LaneBSeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" IsVisible="False"
+                    AutomationProperties.Name="Seek using the lower lane"/>
+
+            <!-- Caret: a wide invisible grab column carrying a thin visible line, plus the time
+                 badge. Spans all three rows so the ruler, both lanes and the playhead always agree. -->
+            <Panel Grid.Row="0" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"
+                   IsHitTestVisible="False" ClipToBounds="False">
+                <Border Name="CaretGrab" Width="14" Background="Transparent" Cursor="SizeWestEast"
+                        HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="True"
+                        ToolTip.Tip="Drag to scrub through the video">
+                    <Border Name="CaretLine" Width="3" Background="{DynamicResource AppDangerBrush}"
+                            HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                            IsHitTestVisible="False"/>
+                </Border>
+                <Border Name="CaretBadge" IsVisible="False" Background="{DynamicResource AppOverlayBrush}"
+                        CornerRadius="3" Padding="5,2" Margin="4,2,0,0"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+                    <TextBlock Name="CaretBadgeText" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                               FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
+                </Border>
+            </Panel>
+        </Grid>
+
+        <TextBlock Grid.Column="2" Name="RemainingLabel" Text="00:00"
+                   Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                   MinWidth="52" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}"
+                   Margin="8,0,0,0" ToolTip.Tip="Time left in the clip"/>
+    </Grid>
+</UserControl>

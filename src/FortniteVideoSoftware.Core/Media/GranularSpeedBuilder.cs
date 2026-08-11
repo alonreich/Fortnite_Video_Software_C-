@@ -126,12 +126,94 @@ public class GranularSpeedBuilder
 
     private const double MaxZoomWorkingPixels = 100_000_000.0;
 
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // SLOW-ZOOM RAMP TIMING — THE SINGLE SOURCE OF TRUTH FOR BOTH THE EXPORT AND THE PREVIEW.
+    //
+    // A SLOW zoom does not ease inside the range the user marked. It BORROWS footage from either
+    // side: the glide-in happens in the seconds BEFORE the zoom start, the glide-out in the
+    // seconds AFTER the zoom end. The marked range itself is held at full zoom throughout.
+    //
+    // ⚠️ `GranularSpeedEditorWindow.UpdateLiveZoomCrop` MUST read these same two constants. The
+    // live mpv preview simulates this ramp 1:1, and if the two ever disagree the user is shown a
+    // zoom that is not the one that gets exported. That is the whole reason these are `public`
+    // rather than private — do NOT copy the numbers into the App layer.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// How long the glide lasts, in seconds, on a side that has room for it.
+    ///
+    /// FIXED length, deliberately. It used to be "up to 1 second, or whatever is available if
+    /// that is less" — which meant the same Slow setting produced a 1.0s glide in open footage
+    /// and a 0.6s glide next to a neighbour, with no way for the user to know which they got.
+    /// A full second also simply read as too slow for gameplay clips. It is now always exactly
+    /// this value, or nothing at all.
+    /// </summary>
+    public const double ZoomRampSeconds = 0.5;
+
+    /// <summary>
+    /// Minimum free footage a side must have before it gets a glide at all.
+    ///
+    /// Equal to <see cref="ZoomRampSeconds"/> by construction: a side either has room for the
+    /// whole ramp or it gets none. There is no partial ramp any more.
+    /// A side with less than this snaps instantly — see the Slow-zoom notes in
+    /// project_structure.txt Section 9.
+    /// </summary>
+    public const double ZoomRampMinAvailableSeconds = ZoomRampSeconds;
+
+    /// <summary>
+    /// OPTION A — free footage required between TWO ADJACENT **SLOW** ZOOMS before either of them
+    /// is granted a ramp on the side that faces the other. Twice the ramp length, because BOTH
+    /// zooms want to borrow from that one gap: the earlier zoom needs 0.5s after it to glide out,
+    /// the later zoom needs 0.5s before it to glide in.
+    ///
+    /// THE BUG THIS FIXES: the two borrow windows used to be allowed to overlap. The chunk builder
+    /// takes the FIRST matching zoom phase and stops looking, so the earlier zoom's glide-out won
+    /// the whole contested stretch and the later zoom's glide-in was partly or entirely discarded.
+    /// Measured results before the fix, with the zooms 0.75s apart: the picture glided out to
+    /// normal, then JUMPED straight to half zoom, then glided the rest of the way in — a visible
+    /// hop that looked like a rendering fault. At 0.5s apart the later zoom's glide vanished
+    /// completely and it hard-cut in, despite the user having chosen Slow.
+    ///
+    /// The rule is now symmetric and all-or-nothing: if two Slow zooms are closer than this,
+    /// NEITHER gets a ramp on the facing side and both snap. Predictable beats clever here — a
+    /// clean cut reads as deliberate, a half-zoom hop reads as broken.
+    ///
+    /// ⚠️ ONLY APPLIES WHEN BOTH NEIGHBOURS ARE SLOW. An Instant zoom borrows nothing, so it never
+    /// contests the gap and the ordinary <see cref="ZoomRampMinAvailableSeconds"/> applies against
+    /// it. Same for the clip start and clip end. Do not widen this to all neighbours — that would
+    /// deny ramps that are perfectly safe.
+    /// </summary>
+    public const double ZoomRampRequiredGapBetweenSlowZooms = ZoomRampSeconds * 2.0;
+
     /// <summary>ISSUE_02 — filter dimensions must be positive even integers.</summary>
     private static int EvenDim(double v)
     {
         int i = (int)Math.Round(v);
         if (i < 2) return 2;
         return i - (i % 2);
+    }
+
+    /// <summary>
+    /// G05 — minimal safe black margin (per side) for a digital-zoom pan, in source pixels.
+    ///
+    /// WHY A MARGIN EXISTS AT ALL: the zoom is `pad -> crop`. The crop window follows the zoom
+    /// box's centre, and that centre can sit anywhere from 0 to the frame edge — so the window
+    /// half-hangs off the frame at the extremes. Without a black border FFmpeg throws an
+    /// out-of-bounds `crop` error and the whole export dies (changelog item (10)).
+    ///
+    /// WHY THIS SIZE: for a FIXED crop window of width `cropExtent`, the furthest it can ever
+    /// hang off either edge is exactly `cropExtent / 2`. Anything beyond that is black pixels
+    /// that are allocated, cleared and then never sampled. The old code hardcoded HALF THE FULL
+    /// FRAME regardless of zoom level, which — combined with the `pad=iw+` double-count bug in
+    /// PadFilterNode — produced a 7680x4320 working frame for a 2560x1440 source.
+    ///
+    /// The +2px and the even-alignment are float-rounding insurance; `crop` is unforgiving and
+    /// two wasted pixels cost nothing.
+    /// </summary>
+    private static double ZoomPadMargin(double cropExtent)
+    {
+        double needed = Math.Max(0.0, cropExtent) / 2.0 + 2.0;
+        return EvenDim(Math.Ceiling(needed));
     }
 
     /// <param name="needHudBranch">
@@ -211,13 +293,32 @@ public class GranularSpeedBuilder
             double prevEnd = (i > 0) ? zooms[i - 1].EndSec : 0.0;
             double nextStart = (i < zooms.Count - 1) ? zooms[i + 1].StartSec : totalDurationSec;
 
+            // Free footage on each side, measured against the NEIGHBOURING ZOOMS only (plus the
+            // clip start and clip end). Speed segments are deliberately not considered — a glide
+            // may run through a slow-motion or fast-forward stretch.
+            //
+            // The ramp is ALL-OR-NOTHING at a fixed 0.5s. Previously it was `Math.Min(1.0, avail)`,
+            // which produced a variable-length glide (anywhere from 0.5s to 1.0s) that the user
+            // could neither predict nor see.
+            //
+            // OPTION A — how much room is required depends on WHO is next door:
+            //   * another SLOW zoom  -> 1.0s, because it wants to borrow from the same gap.
+            //   * an INSTANT zoom, the clip start, or the clip end -> 0.5s. None of those borrow
+            //     anything, so there is nothing to contend with.
+            // When two Slow zooms are closer than 1.0s NEITHER gets a ramp on the facing side and
+            // both snap — symmetric, predictable, and free of the half-zoom hop that the old
+            // overlapping-windows behaviour produced.
+            bool prevIsSlowZoom = i > 0 && zooms[i - 1].Slow;
+            bool nextIsSlowZoom = i < zooms.Count - 1 && zooms[i + 1].Slow;
+
+            double requiredBefore = prevIsSlowZoom ? ZoomRampRequiredGapBetweenSlowZooms : ZoomRampMinAvailableSeconds;
+            double requiredAfter = nextIsSlowZoom ? ZoomRampRequiredGapBetweenSlowZooms : ZoomRampMinAvailableSeconds;
+
             double availBefore = z.StartSec - prevEnd;
-            double stealBefore = 0.0;
-            if (availBefore >= 0.5) stealBefore = Math.Min(1.0, availBefore);
+            double stealBefore = availBefore >= requiredBefore ? ZoomRampSeconds : 0.0;
 
             double availAfter = nextStart - z.EndSec;
-            double stealAfter = 0.0;
-            if (availAfter >= 0.5) stealAfter = Math.Min(1.0, availAfter);
+            double stealAfter = availAfter >= requiredAfter ? ZoomRampSeconds : 0.0;
 
             if (stealBefore > 0)
             {
@@ -434,8 +535,13 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double padX = resW / 2.0;
-                        double padY = resH / 2.0;
+                        // G05: INSTANT zoom — the crop window is a FIXED cropW x cropH and its
+                        // centre can travel anywhere in [0, resW] x [0, resH]. The provably
+                        // minimal safe margin is therefore cropW/2 (see ZoomPadMargin), not the
+                        // old blanket resW/2. At 2x zoom that is a 25% smaller working frame; at
+                        // 4x, 37% smaller. Geometry is unchanged — the discarded band was black.
+                        double padX = ZoomPadMargin(cropW);
+                        double padY = ZoomPadMargin(cropH);
                         double canvasW = resW + 2.0 * padX;
                         double canvasH = resH + 2.0 * padY;
                         double cropX = padX + cxTarget - cropW / 2.0;
@@ -462,8 +568,9 @@ public class GranularSpeedBuilder
                         double cyTarget = zc.Y + zc.H / 2.0;
                         double cropW = resW / targetZ;
                         double cropH = resH / targetZ;
-                        double padX = resW / 2.0;
-                        double padY = resH / 2.0;
+                        // G05: INSTANT zoom on a speed-adjusted chunk — same reasoning as above.
+                        double padX = ZoomPadMargin(cropW);
+                        double padY = ZoomPadMargin(cropH);
                         double canvasW = resW + 2.0 * padX;
                         double canvasH = resH + 2.0 * padY;
                         double cropX = padX + cxTarget - cropW / 2.0;
@@ -487,6 +594,13 @@ public class GranularSpeedBuilder
                         double cxTarget = zc.X + zc.W / 2.0;
                         double cyTarget = zc.Y + zc.H / 2.0;
 
+                        // G05: SLOW RAMP — the ONLY site that legitimately needs the full
+                        // half-frame margin. Here the zoom factor is animated from 1.0 up to
+                        // targetZ, so at the START of the ramp the crop window is the ENTIRE
+                        // frame (cropW == resW) and ZoomPadMargin would return exactly resW/2
+                        // anyway. Written out explicitly so nobody "optimises" it to the instant
+                        // path's tighter margin and reintroduces the out-of-bounds crop crashes
+                        // that changelog item (10) fixed.
                         double padX = resW / 2.0;
                         double padY = resH / 2.0;
                         double canvasW = resW + 2.0 * padX;
@@ -676,8 +790,12 @@ public class GranularSpeedBuilder
 
         double cropW = resW / zVal;
         double cropH = resH / zVal;
-        double padX = resW / 2.0;
-        double padY = resH / 2.0;
+        // G05: this builds a CONSTANT crop for a fixed zoom progress `p`, so cropW/cropH do not
+        // change across the chunk and the minimal safe margin is cropW/2 (see ZoomPadMargin).
+        // At p=0 (zVal=1) this degrades gracefully to resW/2 — the old value — so the
+        // no-zoom-yet case is byte-identical.
+        double padX = ZoomPadMargin(cropW);
+        double padY = ZoomPadMargin(cropH);
         double canvasW = resW + 2.0 * padX;
         double canvasH = resH + 2.0 * padY;
 

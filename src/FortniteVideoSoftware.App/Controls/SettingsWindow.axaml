@@ -159,6 +159,18 @@
                                 <ComboBox Name="MaskOverlayProfileComboBox" MinWidth="300" ToolTip.Tip="Select which game profile controls the crop overlay positions." />
                             </StackPanel>
                         </TabItem>
+                        <TabItem Header="Performance">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Video Encoder" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="What is this section for?&#x0a;When you export a video, the heavy work can be done either by your graphics card (fast) or by your processor (slow). Normally the software checks your computer at startup and picks the best one for you — that is 'Automatic'.&#x0a;&#x0a;If that check ever goes wrong, your exports can quietly end up on the slow processor without telling you. This setting lets you take control and say exactly which chip to use." />
+
+                                <TextBlock Text="Which chip should encode your videos?" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,0"/>
+                                <ComboBox Name="VideoEncoderComboBox" MinWidth="300" ToolTip.Tip="Automatic is recommended. Pick a specific chip only if exports are running on the wrong one." />
+                                <TextBlock Name="VideoEncoderStatusText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize11}" Margin="0,6,0,0"
+                                           Text="If you pick a chip your computer does not actually have, the export will stop with a clear message instead of silently using something else."/>
+                            </StackPanel>
+                        </TabItem>
                         <TabItem Header="Confirmation Dialogs">
                             <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
                                 <TextBlock Text="Destructive Actions &amp; Warnings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />

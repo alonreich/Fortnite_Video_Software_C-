@@ -5,11 +5,26 @@ FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
 
 CRITICAL MANDATES FOR ALL AI AGENTS:
 1. NO CACHING ALLOWED FOR VIDEO PIPELINES: Do not implement any memory caches, disk caches, or memoization for FFmpeg exports or media generation. (Exception: UI state persistence via JSON and internal libmpv decoding buffers are explicitly allowed and required).
+   *** T01 CARVE-OUT (owner-approved, narrow — read before deleting anything) ***
+   SINGLE-JOB STAGING FILES INSIDE THE JOB'S OWN TEMP DIRECTORY ARE PERMITTED. The two-pass
+   size-targeting route renders the filter graph once into `<tempJobDir>\twopass_master.mp4` and
+   points both encoder passes at it (see `Media/TwoPassEncoding.cs`). This is NOT a cache: it is
+   created, consumed and deleted within a single export, is never reused across exports, and
+   cannot outlive the job folder. The pipeline already stages `core.mp4` the same way.
+   THE RULE THAT STILL STANDS: nothing may PERSIST or be REUSED between exports. If a change would
+   make a staging file survive a job, keyed on inputs, or shared between runs — that is the caching
+   this mandate forbids, and it is not allowed.
 2. *** SINGLE EXE INSTALLER ***: The output in .\COMPILED\ MUST BE EXACTLY ONE SINGLE CONDENSED `.exe` FILE containing an embedded payload (payload.zip).
 3. *** ⚠️ PORTRAIT CANVAS TRAP ⚠️ ***
    The portrait (9:16) conversion does NOT use a simple center crop!
    It uses the "Portrait Canvas Trick": scale -> crop -> overlay -> compose -> pad.
-   - For 1920x1080 input: scale factor = 1920/1080 = 1.778 -> 3413x1920.
+   - For 1920x1080 input: scale factor = 1920/1080 = 1.778 -> 3414x1920.
+     ⚠️ IT IS 3414, NOT 3413. The exact product is 1920 x 16/9 = 3413.33, and `CoordinateMath
+     .ScalePlan` applies `EvenUp(FracCeil(...))` -> ceil to 3414 -> already even -> 3414. The
+     round-UP-then-EVEN-UP order is mandatory: video dimensions in yuv420p MUST be even, so 3413
+     is not a legal width and never was. A real export confirms it (`scale=3414:1920` in the
+     FFmpeg filter graph). This line previously said 3413; anyone "correcting" the code to match
+     that would produce an odd width and break the filter graph. DO NOT.
    - Then it center-crops to exactly 1280px wide (Internal Space).
    - Surviving original horizontal width = 1280 / 1.778 = 720px (NOT 608px).
    THE SINGLE SOURCE OF TRUTH for all portrait math is:
@@ -65,13 +80,18 @@ Our goal is maximum GPU utilization and Zero-Copy UI integration on a C# .NET 9 
 5. NativeAOT Compilation: Maintained. Uses native Windows opengl32.dll and D3D11 libraries via [LibraryImport] and [UnmanagedCallersOnly]. No ANGLE/GStreamer bloat.
 6. Front-End Editing: Maintained. The UI retains libmpv, preserving advanced caching and frame-accurate scrubbing for the timeline.
 7. Back-End Exporting: Maintained. The FFmpeg headless encoding pipeline remains completely isolated from the UI render loop.
+   >>> THE EXPORT BACKEND IS FULLY DOCUMENTED IN SECTION 5C. If you are touching encoder selection,
+   >>> `-hwaccel`, rate control, two-pass, the size-target retry, or the export filter graph, READ
+   >>> SECTION 5C FIRST — it exists because every rule in it was once broken in shipped code.
+   >>> Note the scope split: Sections 1/5/5B are the PREVIEW (libmpv). Section 5C is the EXPORT
+   >>> (ffmpeg.exe). They share no code and no decisions; never justify a change in one by the other.
 
 2. THE THREE (3) SUB-APPLICATIONS
 ------------------------------------------------------------------------------
 The software suite comprises 3 completely separate processes to ensure strict memory isolation:
 1. MAIN App: The primary application (`MainWindow.axaml`). Handles timeline, trimming, music wizard, and final export.
-2. Video Merger: Joins separate videos via FFmpeg (`VideoMergerWindow.axaml`). Opened as a separate process.
-3. Crop Tools: Precision canvas interface (`CropToolWindow.axaml`) to export the JSON config file that powers Portrait mode coordinates. Opened as a separate process.
+2. Video Merger: Joins separate videos via FFmpeg (`VideoMergerWindow.axaml`). Opened as a separate process. Its encode backend is `MergerWorker.cs` and follows Section 5C exactly like the Main App (hardware decode per input, encoder override, and two-pass at 100% "Lossless" only).
+3. Crop Tools: Precision canvas interface (`CropToolWindow.axaml`) to export the JSON config file that powers Portrait mode coordinates. Opened as a separate process. It NEVER encodes video — `ffprobe` for metadata and SkiaSharp for PNGs only — so NOTHING in Section 5C applies to it.
 AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionally run as separate executables and instantly close the Main App.
 
 3. FILE & FOLDER STRUCTURE MINIMAP
@@ -79,6 +99,12 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
 |-- Build.cmd          : Production NativeAOT compile script (bundles payload.zip -> single .exe).
 |-- dev.cmd            : Developer hot-reload entrypoint. Uses `%TMP%\Fortnite_Video_Software_DEV\.dev_data` sandbox. Never writes logs to root.
 |-- binaries\          : Hosts native backend binaries (ffmpeg.exe, mpv.exe, libmpv-2.dll).
+|                        ⚠️ THE BUNDLED FFMPEG'S FILTER SET IS NOT THE SAME AS A STOCK BUILD.
+|                        Verified present in avfilter-11.dll: scale_cuda, overlay_cuda,
+|                        hwupload_cuda, hwdownload, colorspace_cuda.
+|                        Verified ABSENT: cas_cuda, pad_cuda, fade_cuda, crop_cuda.
+|                        Before planning any GPU filter work, PROBE THIS DLL — do not assume a
+|                        filter exists because upstream FFmpeg has it (see Section 5C.2, G07).
 |-- mp3\ mp4\ jpeg\    : ⚠️ AI AGENTS: IMPORTANT & NECESSARY — DO NOT DELETE OR FLAG AS JUNK. ⚠️
 |                        These folders are the CONTENT SOURCE for the public Git repository. Although no
 |                        code in this workspace references them directly, end users extend their meme
@@ -98,10 +124,34 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
     |   |-- Controls/FluidVolumeSlider.cs : Custom-rendered 3D "test tube" volume slider (fixed 60Hz physics, bubbles).
     |   |-- Controls/AmbientBubblesBackground.cs : Gentle ambient "live wallpaper" bubble layer (Main App + Merger backgrounds; render-only, 30Hz fixed timestep, non-hit-testable).
     +-- FortniteVideoSoftware.Core\ : Business Logic Layer
+        |   *** EXPORT BACKEND — the files that actually build and run FFmpeg. FULL SPEC: SECTION 5C. ***
+        |-- Media/ProcessWorker.cs        : Main App export engine. Owns the filter graph, the encode
+        |                                   attempts, the two-pass route and the size-target retry.
+        |-- Media/MergerWorker.cs         : Video Merger export engine. Same rules, same Section 5C.
+        |-- Media/EncoderManager.cs       : Encoder selection + per-encoder codec flags + decode flags.
+        |-- Media/ExportEncoderStrategy.cs: THE ONE resolver for "which chip encodes". All apps call it.
+        |-- Media/HardwareCapability.cs   : Suite-wide cache of the GPU + encoder probe results, so the
+        |                                   3 processes never re-scan and can never disagree.
+        |-- Media/HardwareScanner.cs      : The real ffmpeg capability scan (Main App runs it once).
+        |-- Media/TwoPassEncoding.cs      : Shared two-pass master/pass args + stats-file cleanup.
+        |-- Media/GranularSpeedBuilder.cs : FFmpeg setpts/atempo/zoom filter translation.
+        |-- Media/MobileFilterBuilder.cs  : Portrait canvas trick + HUD overlay compositing.
+        |-- Media/AudioFilterChain.cs     : Loudnorm / ducking / limiter chains.
+        |-- Media/FilterGraphBuilder.cs   : Small typed filter nodes (pad/crop/scale/cas).
+        |-- Media/CoordinateMath.cs       : SINGLE SOURCE OF TRUTH for all portrait math (mandate #3).
         |-- Media/TextOverlayGenerator.cs : SkiaSharp PNG text overlay with RTL/Hebrew wrap.
-        |-- Media/GranularSpeedBuilder.cs : FFmpeg setpts/atempo filter translation.
-        |-- Media/                  : MpvIpcClient, HardwareScanner, FilterBuilder (FFmpeg math).
-        |-- Ipc/                    : Atomic state transfer between the isolated processes.
+        |-- Media/MpvIpcClient.cs         : libmpv IPC for the PREVIEW (front end, not the export).
+        |-- Media/ZoomPreviewSimulator.cs : THE ONE live-zoom simulation shared by all 3 preview
+        |                                   surfaces (Granular, Main App, Music Wizard phase 3).
+        |                                   Reads its ramp timing off GranularSpeedBuilder so the
+        |                                   previews and the exported file cannot drift apart.
+        |-- Ipc/                          : Atomic state transfer between the isolated processes.
+        |   (App layer) ThumbnailStripGenerator.cs : the ONE film-strip renderer, shared by Music
+        |      Wizard phase 3 and the Granular editor's frame lane. Caller owns/deletes the temp PNG.
+        |   ⚠️ `Media/FilterBuilder.cs` DOES NOT EXIST — this map used to list it. It was deleted
+        |      along with FfmpegWorker.cs and TimeSyncEngine.cs (see the Pipeline Audit Fixes entry
+        |      in Section 9). Do not go looking for it; `MobileFilterBuilder.cs` and
+        |      `FilterGraphBuilder.cs` are the real filter-building files.
 
 4. UI & DEV RULES
 ------------------------------------------------------------------------------
@@ -148,9 +198,23 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
        convenience" — production logs are attached to bug reports.
 - Temp / Staging: All video processing temp files are strictly isolated to `%TMP%\Fortnite_Video_Software\temp` for prod and `%TMP%\Fortnite_Video_Software_DEV\temp` for dev. Root folder and Program Files must remain pristine.
 - Shared Styles: Use globals in `AvaloniaApp.axaml` (e.g., standard `Button` height 44, `Slider` enlarged thumbs).
-- Design Tokens (NO RAW HEX IN STYLES): ALL button gradients, deep border colors, hover overlays, CloseBtn states and the slider-thumb glow edge are named resources in `AvaloniaApp.axaml` (`AppPrimaryButtonGradient`, `AppSuccessButtonGradient`, `AppDangerButtonGradient`, `AppVoiceOverButtonGradient` + Hover variants, `App*DeepBorderBrush`, `AppHoverOverlayBrush`, `AppCloseBtn*Brush`, `AppSliderGlowEdgeColor`). Styles must reference these via DynamicResource — do not reintroduce inline hex in the Styles section. BoxShadow glows that cannot embed a brush token are ALSO named resources so no raw hex survives on any element: `AppItemGlowHoverShadow`/`AppItemGlowSelectedShadow` (Merger queue items) and `AppDropIndicatorShadow`/`AppPhaseGlowShadow` (Merger drop-indicator + Phase-overlay progress glow). Saturated brand buttons (WhatsApp/Instagram/YouTube/TikTok, Primary/Success/Danger) explicitly force `AppOnAccentTextBrush` (always-white) foregrounds so they stay readable in BOTH Light and Dark ThemeVariants (this also now covers the VoiceOver transport Play/Pause button, moved Secondary->Primary with always-white icons to match every other transport Play).
+- Design Tokens (NO RAW HEX IN STYLES): ALL button gradients, deep border colors, hover overlays, CloseBtn states and the slider-thumb glow edge are named resources in `AvaloniaApp.axaml` (`AppPrimaryButtonGradient`, `AppSuccessButtonGradient`, `AppDangerButtonGradient`, `AppVoiceOverButtonGradient` + Hover variants, `App*DeepBorderBrush`, `AppHoverOverlayBrush`, `AppCloseBtn*Brush`, `AppSliderGlowEdgeColor`). Styles must reference these via DynamicResource — do not reintroduce inline hex in the Styles section. BoxShadow glows that cannot embed a brush token are ALSO named resources so no raw hex survives on any element: `AppItemGlowHoverShadow`/`AppItemGlowSelectedShadow` (Merger queue items) and `AppDropIndicatorShadow`/`AppPhaseGlowShadow` (Merger drop-indicator + Phase-overlay progress glow). Saturated brand buttons (WhatsApp/Instagram/YouTube/TikTok, Primary/Success/Danger) explicitly force `AppOnAccentTextBrush` (always-white) foregrounds so they stay readable in BOTH Light and Dark ThemeVariants (this also now covers the VoiceOver transport Play/Pause button, moved Secondary->Primary with always-white icons to match every other transport Play). ZOOM COLOUR TOKENS: `AppZoomColor` / `AppZoomBrush` / `AppZoomHoverBrush` / `AppZoomDeepBorderBrush` plus the `Button.ZoomAction` style are the SINGLE colour identity for the zoom feature. ⚠️ ONE COLOUR, ONE MEANING: zoom previously spoke in THREE unrelated hard-coded hexes — fuchsia `#d946ef` (timeline bar + lollipops), yellow `#fde047` (the dashed box you draw + the onboarding banner) and dark blue `#1e40af` (the box's corner handles) — and yellow simultaneously meant "selected block" and "warning" (`AppWarningBrush`), which is a large part of why users could not tell a zoom from a speed segment. Everything zoom now uses `AppZoomBrush` and nothing else does. Code-behind zoom visuals resolve it via `GranularSpeedEditorWindow.ZoomBrush()` (which reads the `AppZoomColor` token, with a literal fallback so a missing resource can never render a zoom visual invisible). Do NOT reuse this colour for non-zoom UI, and do NOT give zoom a second colour "for contrast". The selected-block border and marching ants deliberately KEEP `#fde047` — that is SELECTION, not zoom, and must stay distinct.
 - Font-Scale Sizing Rule: Use `MinWidth`/`MinHeight` (never fixed `Width`/`Height`) on buttons, time labels ("00:00:00" clocks), wizard step dots, and text-bearing rows, so the Settings > Appearance font scale can grow containers without clipping. `Width`->`MinWidth` conversions were applied suite-wide (Main, Granular, CropTool, MusicWizard); Merger's `MinWidth="64"` time labels are the reference pattern. CropTool wizard header rows are `Auto`-sized; its summary ScrollViewer uses MaxHeight. A later audit round swept up the last fixed-size offenders: the Phase-overlay `CancelProcessButton`, the `DeploymentProgressWindow` FINISH button, all three Settings dropdowns (`FontScaleComboBox`/`ThemeComboBox`/`MaskOverlayProfileComboBox`) and the Granular `PendingSpeedSlider` all moved off fixed `Width`/`Height` (the speed slider now uses `MinWidth="160" MaxWidth="300"` like its Main/Merger siblings). The Main App bottom action `WrapPanel` children also gained an 8px vertical gap so wrapped rows never collide at large font scale.
-- Timeline Slider Row Rule: The 44px-tall `CompactSlider` scrubbers sit in 44px rows/grids so they never bleed into the 14px tick ruler. All applications (Main App, CropTool, Granular, and Merger) uniformly inherit a dynamic `Grid RowDefinitions="Auto, Auto"` layout with `MinHeight="14"` (ruler) / `MinHeight="44"` (slider) and a `MinHeight="32"` markers canvas. All code-behind canvas math and `Canvas.Bottom="32"` badge anchoring depend on the canvases rendering at 32px — do not change the canvas heights or convert Min sizes to larger fixed sizes.
+- On-Screen Clock Rule (Granular Speed Editor): everything the user READS on screen in that window — the segment list rows, BOTH ends of the timeline axis (`GranularTimeElapsed` / `GranularDuration`) and the ruler tick labels — uses `FormatClock` / `FormatClockSec`: `MM:SS`, escalating to `HH:MM:SS` only at one hour or more. NEVER milliseconds. ⚠️ THIS DOES NOT REPLACE `FormatMs`/`FormatSec`, which keep millisecond precision and remain what status messages and every `RuntimeLog` line use — a millisecond-accurate boundary is exactly what is needed when diagnosing a segment/export mismatch. Display and diagnostics want different things; do not "unify" them.
+- ⚠️ TIMELINE LAYOUT — TWO DIFFERENT RULES NOW. READ WHICH ONE APPLIES BEFORE EDITING.
+  (A) GRANULAR SPEED EDITOR — TWO-LANE LAYOUT (LANES_01/LANES_02). It has NO scrub slider. Layout
+      is: 20px tick ruler, then a 60px UPPER lane (speed blocks, freezes, zoom bar + magnifiers —
+      ALL of it inside the lane) stacked directly on a 60px LOWER lane of film frames covering the
+      trimmed range, with ONE caret and one seek surface spanning both. Y offsets live ONLY in
+      `LaneBlockHeight` / `LaneZoomBarY` / `LaneZoomMarkerY` / `LaneFreezeMarkerY`; the old
+      float-above-the-canvas offsets (-40 / -79 / -80) are gone. The playhead model is the
+      `_playheadMs` field — it used to be the slider's 0-1000 Value, which is why removing the
+      slider touched four unrelated places. Both lanes MUST share one X mapping (left = trim
+      start, right = trim end); the frames are generated once on open because the trim cannot
+      change while this window lives. DO NOT restore the slider or the 32px canvas here.
+  (B) EVERY OTHER TIMELINE (Main App, Crop Tool, Merger) — unchanged, and the rule below still
+      governs them exactly as before. They were deliberately NOT converted.
+- Timeline Slider Row Rule (applies to (B) only): The 44px-tall `CompactSlider` scrubbers sit in 44px rows/grids so they never bleed into the 14px tick ruler. All applications (Main App, CropTool, Granular, and Merger) uniformly inherit a dynamic `Grid RowDefinitions="Auto, Auto"` layout with `MinHeight="14"` (ruler) / `MinHeight="44"` (slider) and a `MinHeight="32"` markers canvas. All code-behind canvas math and `Canvas.Bottom="32"` badge anchoring depend on the canvases rendering at 32px — do not change the canvas heights or convert Min sizes to larger fixed sizes.
 - Borderless Window Drag Rule: Windows without an OS/custom title bar (`FinishedDialogWindow`, `DeploymentProgressWindow`) MUST provide a background `PointerPressed` -> `BeginMoveDrag` handler (left-click, `ClickCount < 2`, skipping Buttons/TextBoxes) or the user cannot move them at all.
 - Minimum Window Sizes: Every window declares `MinWidth`/`MinHeight` (including `PreviewMonitorWindow` at 480x300) so bounds persistence can never restore an unusably tiny window.
 - Z-Index: Always respect Avalonia native popups for overlays that need to float above standard elements. (Note: Video is now natively composited, so HWND airspace clipping is mostly resolved, but legacy popups are still used for timeline markers.)
@@ -159,6 +223,14 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
 
 5. HARDWARE RENDERING PIPELINE (THE ZERO-COPY VRAM PATH)
 ------------------------------------------------------------------------------
+>>> PATH SELECTION IS SUITE-WIDE AND CACHED. `VideoRenderMode.Initialize()` is called by
+>>> `AvaloniaApp.OnFrameworkInitializationCompleted` in EVERY process (Main App, Video Merger,
+>>> Crop Tools), so all three choose PATH A / PATH B through the same one method — there is no
+>>> per-app variant. Since DOC_AUDIT_02 it reads the answer the first app published
+>>> (`Media/HardwareCapability.cs`, Section 5C.0) instead of re-running the D3D11/DXGI probe.
+>>> ⚠️ The cache is keyed on the WINDOWS SESSION + remote flag, because Windows blocks the GPU
+>>> inside RDP — crossing that boundary always re-probes. Any cache problem falls through to a
+>>> real probe, so this can never downgrade a machine. <<<
 To fully understand the architecture (and the Keypoint 3 translation tax), this is the exact journey of a single video frame. The frame NEVER touches the CPU (RAM) after being read from disk; it stays entirely in GPU VRAM.
 
 .mp4 Video File (Disk)
@@ -249,6 +321,266 @@ NATIVE-ABI CAVEAT: the SW render param enum values (SW_SIZE=16, SW_FORMAT=17, SW
 SW_POINTER=19) and the "bgr0" pixel format are mpv-native — changes here MUST be verified on an
 actual CPU-only or RDP target, not just by static review.
 
+5C. FFMPEG EXPORT BACKEND (THE ENCODE PIPELINE)
+------------------------------------------------------------------------------
+>>> SCOPE: This section governs EXPORTING — the headless FFmpeg pipeline behind keypoint 7. It is
+>>> a DIFFERENT SUBSYSTEM from Sections 5 / 5B, which govern the live PREVIEW. The preview uses
+>>> libmpv; the export uses ffmpeg.exe. They share NO code and NO decisions. A change here must
+>>> never be justified by preview behaviour, and vice-versa. <<<
+
+FILES: `Media/ProcessWorker.cs` (Main App export) · `Media/MergerWorker.cs` (Video Merger) ·
+       `Media/EncoderManager.cs` (encoder selection + codec flags) ·
+       `Media/HardwareScanner.cs` (boot capability scan) ·
+       `Media/TwoPassEncoding.cs` (shared two-pass pieces) ·
+       `Infrastructure/DiskSpaceGuard.cs` (pre-flight + scratch-space probe) ·
+       `Media/GranularSpeedBuilder.cs`, `Media/MobileFilterBuilder.cs`,
+       `Media/AudioFilterChain.cs`, `Media/FilterGraphBuilder.cs` (filter graph construction).
+NOT INVOLVED: Crop Tools. It never encodes video — only `ffprobe` for metadata and SkiaSharp for
+PNGs. Nothing in this section applies to it.
+
+------------------------------------------------------------------------------
+5C.0 — ONE PROBE FOR THE WHOLE SUITE (`Media/HardwareCapability.cs`)
+------------------------------------------------------------------------------
+The suite is THREE separate processes (Section 2). They must reach IDENTICAL conclusions about the
+machine, and they must not each pay to find out.
+
+  MAIN APP AT BOOT (the only scanner in the suite)
+        │  HardwareScanner.ScanSharedAsync(ffmpeg)   → "which chip ENCODES"
+        │  VideoRenderMode.Initialize()              → "which path PREVIEWS"
+        ↓  publishes both to…
+  ProgramData\uistate\hardware_capability.json      (via UiStateStore, per ISSUE_09)
+        ↓  read by…
+  VIDEO MERGER + CROP TOOLS + every later Main App launch — NO re-scan, NO second opinion.
+
+WHAT THIS REPLACED: `VideoRenderMode.Initialize()` ran the D3D11/DXGI probe in EVERY process, and
+the encoder question was worse than duplicated — it was INCONSISTENT. The Merger ignored the boot
+scan AND the user's Settings choice and hardcoded the literal string "GPU", so the two apps could
+legitimately pick different encoders on the same machine. A full `HardwareScanner.ScanAsync` also
+spawns ffmpeg.exe up to FOUR times (one `-hwaccels` listing plus one real trial encode per vendor).
+
+THE TWO HALVES ARE VALIDATED SEPARATELY, because they go stale for different reasons:
+  ENCODER half invalidated by → a different ffmpeg.exe (path + byte-length + last-write
+                                fingerprint, so an app update re-probes by itself), age > 7 days
+                                (covers a driver install), or a recorded SCAN_FAILED.
+  RENDER  half invalidated by → a different WINDOWS SESSION. ⚠️ THIS IS THE RDP GUARD AND IT IS
+                                LOAD-BEARING: Windows blocks the GPU inside a remote session, so a
+                                result recorded locally is actively WRONG under RDP and vice-versa.
+                                The session id AND the remote-session flag are both in the key.
+
+⚠️ A FAILED SCAN IS NEVER PUBLISHED. Caching "we could not tell" would freeze a broken state across
+all three apps — exactly the G01/G02/G03 failure mode, but suite-wide and persistent.
+
+FAIL-SAFE: every read returns null on ANY problem and every write is non-throwing. An unreadable
+cache simply means the caller probes for itself — the original behaviour. This can never make the
+suite worse than not having it.
+
+------------------------------------------------------------------------------
+5C.1 — WHICH CHIP ENCODES (THE SELECTION CHAIN)
+------------------------------------------------------------------------------
+ONE resolver serves every application: `ExportEncoderStrategy.Resolve(override, bootScan, ffmpeg)`.
+
+  1. Settings ▸ Performance override   (AppSettings.VideoEncoderOverride)
+        ↓  "Auto"/empty falls through to…
+  2. This process's OWN boot scan       (Main App only — Merger and Crop Tools pass null)
+        ↓  null / SCAN_FAILED falls through to…
+  3. The suite-wide published result    (HardwareCapability — see 5C.0)
+        ↓  nothing known →
+  4. "SCAN_FAILED"  ⚠️ NOT "CPU". EncoderManager treats it as "unknown, re-probe at export time".
+
+  resolved strategy → ProcessWorker.HardwareStrategy / MergerWorker.HardwareStrategy
+        ↓ resolved by…
+  EncoderManager  →  h264_nvenc | h264_amf | h264_qsv | libx264
+
+⚠️ AN APP MUST NEVER BUILD ITS OWN STRATEGY STRING. The Main App reaches this resolver through
+`MainWindow.ResolveHardwareMode()` → `ExportPayload.HardwareMode` → `MainMediaController`; the
+Merger calls the resolver directly in `VideoMergerWindow` because it has no ExportPayload. Both
+end at the SAME function. Adding a new export surface? Call `ExportEncoderStrategy.Resolve`.
+(`MergerWorker.HardwareStrategy` still defaults to the legacy "GPU" so an un-set caller behaves
+sanely, but that is a safety net, NOT the path the UI takes.)
+
+THREE OUTCOMES OF THE BOOT SCAN — they are NOT interchangeable:
+  "NVIDIA"/"AMD"/"INTEL"  a probe RAN and PASSED. Use that encoder.
+  "CPU"                   every probe RAN and every probe FAILED. Genuinely CPU-only.
+  "SCAN_FAILED"           the scan ABORTED (exception/timeout). Capability UNKNOWN.
+                          EncoderManager re-probes and RECOVERS to hardware if it finds any.
+
+⚠️ WHY THE SENTINEL EXISTS (G01/G02/G03 — this cost every user their GPU): a crash in
+`ChildProcessTracker`'s static initializer aborted the scan, which returned "CPU", which set
+`EncoderManager.ForcedCpu=true`, which made it DISCARD its own successful encoder probe. The dev
+log showed "Found Hardware Encoders: h264_amf, h264_nvenc, h264_qsv" immediately followed by
+"Forced CPU selected. Using libx264" — on a machine with an RTX. NEVER collapse "SCAN_FAILED" back
+into "CPU". `MainWindow._hardwareMode` also DEFAULTS to the sentinel: "not scanned yet" is not
+"CPU-only".
+
+------------------------------------------------------------------------------
+5C.2 — DECODING: `-hwaccel` IS A PER-INPUT OPTION
+------------------------------------------------------------------------------
+`EncoderManager.GetDecodeFlags(encoder)` returns the decode flags for the CURRENT encoder
+(cuda / d3d11va / qsv / none). It MUST be emitted immediately before EVERY VIDEO `-i`.
+
+⚠️ `-hwaccel` binds ONLY to the next `-i`. Emitting it once at the head of the command line — which
+is what the code did before G04 — leaves every additional video input decoding in SOFTWARE: the
+thumbnail-intro clone (the same file re-opened) and any video meme, on every export, on every GPU
+machine. The Merger (G08) had no `-hwaccel` at all, so its clips were 100% software-decoded.
+
+Image inputs (text overlay PNG, image memes) and audio-only inputs deliberately get NO decode
+flags — there is no hardware path for a looped still, and adding it only makes FFmpeg warn.
+
+⚠️⚠️ DO NOT ADD `-hwaccel_output_format` (ISSUE_01). It leaves decoded frames in VRAM, and the
+export filter graph is 100% software with no `hwdownload` anywhere — FFmpeg aborts before a single
+frame, the encoder-fallback loop silently drops to libx264, and the UI claims otherwise. Plain
+`-hwaccel` returns frames to system memory automatically, which is what this graph requires.
+
+G07 FINDING — WHY A TRUE VRAM-RESIDENT EXPORT IS NOT AVAILABLE (probed against the ACTUAL bundled
+`binaries/avfilter-11.dll`, not assumed):
+  PRESENT: scale_cuda · overlay_cuda · hwupload_cuda · hwdownload · colorspace_cuda
+  ABSENT : cas_cuda · pad_cuda · fade_cuda · crop_cuda
+`cas` runs on every zoomed chunk and `fade` on both the main and HUD branches; either one alone
+forces a full frame readback, so there is no partial win to take. A real VRAM path requires
+replacing `cas`+`fade`, emulating `pad` via `color`→`hwupload_cuda`→`overlay_cuda`, and
+re-validating the alpha-blended HUD compositing that CoordinateMath.cs depends on. Until that work
+is done the honest frame journey is: NVDEC(VRAM) → PCIe download → software filters → PCIe upload
+→ NVENC. Do not paper over this by adding `-hwaccel_output_format` alone.
+
+------------------------------------------------------------------------------
+5C.3 — RATE CONTROL: TWO MODES, AND THEY BEHAVE COMPLETELY DIFFERENTLY
+------------------------------------------------------------------------------
+| Mode          | Main App                | Merger        | Flags                | Two-pass? |
+|---------------|-------------------------|---------------|----------------------|-----------|
+| SIZE-LOCKED   | MB quality slider       | 100% Lossless | -b:v / CBR / VBR     | YES       |
+| QUALITY-LOCKED| "ORIGINAL QUALITY"      | below 100%    | -crf / -cq / -qp     | NO        |
+
+The distinction is the single most important thing in this section. Two-pass REDISTRIBUTES A FIXED
+BUDGET. CRF/CQ is constant-quality and has NO budget, so a second pass there costs time and changes
+nothing measurable. Do not "enable it everywhere for better quality" — that is a misunderstanding
+of what it does.
+
+NVENC SETTINGS ARE OWNER-LOCKED (G06, reviewed and deliberately declined):
+`-preset p7 -multipass fullres -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -bf 2 -b_ref_mode
+middle`. This is the SLOWEST NVENC configuration available and dropping to p5/p6 + `-multipass
+qres` would be several times faster — the owner has explicitly chosen maximum quality. DO NOT
+change these values.
+
+------------------------------------------------------------------------------
+5C.4 — TWO-PASS SIZE TARGETING (T01) — `Media/TwoPassEncoding.cs`
+------------------------------------------------------------------------------
+WHAT IT IS: pass 1 encodes the whole timeline and writes a per-frame COMPLEXITY MAP; pass 2 reads
+that map and spends the SAME total budget where it is actually needed — taking bits from a static
+lobby and giving them to a firefight.
+
+WHAT IT IS NOT — three things it is constantly confused with:
+  `-rc-lookahead 32`  peeks ~32 frames (half a second at 60fps). CANNOT trade across a clip.
+                      Already enabled on NVENC. Different feature.
+  `-multipass fullres` NVENC encodes each FRAME twice for better in-frame quantization.
+                      Already enabled on NVENC. Different feature.
+  Any pixel filter    Two-pass touches NO pixels. No blur, no smoothing, no filter changes,
+                      no motion interpolation. ONLY bit allocation differs.
+
+GATED THREE WAYS — all three are load-bearing:
+  (1) A BITRATE BUDGET MUST EXIST — see 5C.3. Never on CRF/CQ.
+  (2) libx264 ONLY. ⚠️ `h264_nvenc` does NOT implement libavcodec's stats-file two-pass. It
+      ACCEPTS `-pass` and SILENTLY IGNORES IT, which is worse than not offering the feature at
+      all — you would ship a doubled encode time with zero benefit and no error. Do not wire this
+      into the NVENC/AMF/QSV paths.
+  (3) Not already failed this job (`twoPassDisabled`).
+Any other combination takes the original single-pass path, byte-identical to before.
+
+TWO ROUTES:
+  FAST (default) — the filter graph (14-18 way split, lanczos portrait scale, zoom pads, HUD
+    overlays) DOMINATES wall clock, so a naive `-pass 1`/`-pass 2` re-runs it twice and costs ~2x.
+    Instead the graph runs ONCE into a near-lossless CRF 14 master and both passes read that file.
+      Stage 1  filter graph ──► <tempJobDir>\twopass_master.mp4   (progress 0-60% of the band)
+      Pass 1   master ──► complexity map, -f null NUL             (60-75%)
+      Pass 2   master ──► core.mp4, -c:a copy                     (75-100%)
+    ⚠️ THE MAIN APP AND THE MERGER USE THESE EXACT SAME BOUNDARIES ON PURPOSE
+    (`ProcessWorker.TwoPassGraphFraction`/`TwoPassAnalysisFraction` = 0.60/0.75, and the literal
+    60/75 in `MergerWorker.RunTwoPassTailAsync`; the SLOW route splits at 0.45 in both). They
+    drifted apart once — the Merger was on 60/78 — which silently made this documentation wrong
+    for one of the two apps. If you retune one, retune the other AND this block, together.
+    Cost ~1.3-1.4x one render. Audio is FINALISED in the master and stream-copied by pass 2, so it
+    is encoded exactly ONCE across the export — no second-generation loss.
+  SLOW — chosen automatically when `DiskSpaceGuard.HasRoomFor` reports the staging drive cannot
+    hold the master. The graph genuinely runs twice (~2x) rather than abandoning the accurate size
+    targeting the user asked for. `HasRoomFor` is NON-FATAL by design (unlike `DiskSpaceGuard
+    .Check`) and returns true on any probe error, so an unmeasurable machine is never downgraded.
+
+⚠️⚠️ THE SLOW ROUTE'S PASS 1 MUST MAP **AND ENCODE** THE AUDIO BRANCH.
+The obvious optimisation is `-an`, since audio contributes nothing to a video complexity map. IT
+DOES NOT WORK. With `-filter_complex`, a labeled output that nothing consumes makes FFmpeg abort
+with an unconnected-output error — and `-map [a] -an` is the same thing by another route. Both
+slow passes map video AND audio; the null muxer discards them, and the audio chain is trivial next
+to the video graph. ONLY the FAST route's pass 1 may use `-an`, because it reads a plain FILE
+rather than a filter graph. This distinction is not cosmetic; getting it wrong is a hard failure at
+runtime that no static review catches.
+
+⚠️ BOTH PASSES MUST USE IDENTICAL ENCODER SETTINGS apart from the pass number — x264 validates the
+stats file against them and a mismatch either aborts pass 2 or silently degrades it.
+`TwoPassEncoding.PassArgs()` is the SINGLE source for both, so they cannot drift. Do not inline
+pass flags at a call site.
+
+⚠️ STATS HYGIENE: x264 writes BOTH `<prefix>-0.log` AND `<prefix>-0.log.mbtree`.
+`TwoPassEncoding.Cleanup()` runs BEFORE each attempt as well as after, because a stale stats file
+would hand pass 2 a complexity map built for a different bitrate or a different video — silent
+quality damage with no error anywhere. Keep the before-call.
+
+FAILURE IS NEVER FATAL: if either pass fails, two-pass is disabled for the rest of the job and the
+ordinary single-pass encode runs instead. The user always gets a video. The disable flag also
+guarantees the retry cannot loop.
+
+PROGRESS: the encode band is split by FRACTION, not by absolute percentage, because `encodeFloor`
+is 8 when the audio loudnorm analysis ran and 0 when it did not. The monotonic `EmitProgress` gate
+(Section 9, FIX_1) means a mis-estimated split can only ever STALL the bar, never rewind it.
+
+⚠️ MANDATE #1: the scratch master is NOT a cache — see the owner-approved carve-out at the top of
+this file. It is created, consumed and deleted inside one job and can never outlive `tempJobDir`.
+Do not delete this feature believing it violates the mandate, and do not use the carve-out to
+justify anything that persists or is reused between exports.
+
+------------------------------------------------------------------------------
+5C.5 — THE SIZE-TARGET RETRY (AND WHEN IT IS SUPPRESSED)
+------------------------------------------------------------------------------
+`ProcessWorker` allows up to 2 attempts. If a size-locked export lands outside ±5% of the target,
+attempt 2 scales the bitrate by the size ratio and re-renders — a blind guess that the code itself
+acknowledges can land FURTHER from the target than attempt 1.
+
+T01 SUPPRESSES THIS when a two-pass run produced the file: a real complexity map already
+distributed the exact budget it was given, so burning another full render on a guess cannot beat
+it. Worst case drops from ~2.7x to ~1.35x.
+
+⚠️ The suppression is keyed on `twoPassProducedResult` — "did a two-pass run actually produce this
+file" — and NOT on `lastSuccessfulEncoder == "libx264"`. Those are NOT the same thing: keying on
+the encoder would silently disable the retry for ordinary single-pass CPU exports, which still
+benefit from it. The retry remains fully intact for the NVENC/CQ paths.
+
+------------------------------------------------------------------------------
+5C.6 — OBSERVABILITY (G09) — READ THIS BEFORE DEBUGGING A SLOW EXPORT
+------------------------------------------------------------------------------
+Every export writes ONE INFO line naming the CHIPS, not just the codec:
+
+  PIPELINE RESULT: decode=GPU (NVDEC/cuda) encode=GPU (NVENC) speed=3.4x route=two-pass(fast)
+
+with an explicit "WARNING: this is the CPU fallback, the requested hardware encoder FAILED" suffix
+when hardware encoding was requested and did not happen. The absence of this line was precisely why
+two entire CPU-only exports went unnoticed on a machine with a working RTX. It carries no file
+paths, so it is safe at INFO under logging invariant L8 (Section 4). DO NOT demote it to DEBUG.
+
+⚠️ THE SHAPE IS IDENTICAL IN BOTH APPS, INCLUDING THE `route=` SUFFIX. `ProcessWorker` and
+`MergerWorker` build this line the same way on purpose, so a person reading a log never has to
+know which application produced a given line. The Merger's copy omitted `route=` at one point,
+which made this documented format wrong for half the suite. Keep them in lockstep.
+
+------------------------------------------------------------------------------
+5C.7 — QUICK "DO NOT" LIST FOR AI AGENTS
+------------------------------------------------------------------------------
+  ✗ Do NOT add `-hwaccel_output_format` (ISSUE_01 / 5C.2).
+  ✗ Do NOT emit `-hwaccel` once at the head of the command line (G04 / 5C.2).
+  ✗ Do NOT collapse "SCAN_FAILED" into "CPU" (G03 / 5C.1).
+  ✗ Do NOT enable two-pass on CRF/CQ exports or on NVENC/AMF/QSV (T01 / 5C.4).
+  ✗ Do NOT use `-an` on the SLOW route's pass 1 (T01 / 5C.4).
+  ✗ Do NOT change the NVENC preset/multipass/lookahead values (G06 / 5C.3).
+  ✗ Do NOT restore `pad=iw+…` in `PadFilterNode` (G05 / Section 9).
+  ✗ Do NOT let the two-pass scratch master survive a job (Mandate #1 carve-out).
+
 6. CURRENT CORE LOGIC & FEATURES
 ------------------------------------------------------------------------------
 - Video Playback (MpvVideoView.cs & MpvIpcClient.cs): Uses libmpv via named pipes/IPC for robust frame-accurate seeking. Preview rendering has TWO paths: the zero-copy GPU pipeline (Sections 1 & 5) and, when that bridge is physically unavailable (no GPU / RDP-blocked GPU), the additive CPU software-render fallback (Section 5B) — the GPU path is the default and is never altered by the fallback.
@@ -265,7 +597,7 @@ actual CPU-only or RDP target, not just by static review.
   * "Open With" (Windows Explorer file association): Program.cs detects a video file path (.mp4/.mkv/.avi/.mov) as the FIRST CLI argument via `OpenWithLaunch.IsVideoFilePath()` BEFORE the command switch. HISTORY (why it used to do nothing): the file path fell through the command switch into `PrintUsage` and the process exited with code 2 silently. The path is now stashed in `OpenWithLaunch.PendingVideoPath` and MainWindow auto-loads it in its `Loaded` handler. NOTE: the app now self-registers an Explorer "Open with" association on every UI launch via `ShellFileAssociation.EnsureRegistered()` (HKCU only, NO admin/UAC, idempotent stamp-guarded) — right-click any .mp4/.mkv/.avi/.mov -> "Open with" -> Fortnite Video Software launches with the path as argv[1] and loads it exactly like a normal upload (same `LoadVideoIntoEditorAsync` path). HKCU cleanup is covered by DeploymentLifecycle's uninstall registry purge. Do not "simplify" the arg parsing back to a bare command switch.
   * Drag & Drop (dual-path, DO NOT REMOVE EITHER PATH): (1) Avalonia OLE drag & drop — MainWindow accepts drops window-wide (`DragDrop.AllowDrop` + `OnVideoDrop`), including directly onto the video preview box, and immediately loads & plays the dropped video exactly like an upload; VideoMergerWindow's `VideoList` accepts MULTIPLE external files at once (`AddExternalVideosAsync`) with the exact same duplicate-detection as the Upload Files button, while still supporting internal "VideoItem" reordering drags. (2) `Win32FileDropInterop.cs` legacy WM_DROPFILES fallback (`ChangeWindowMessageFilterEx` + `DragAcceptFiles` + comctl32 `SetWindowSubclass`). HISTORY (why drag & drop used to do nothing): OLE drag & drop from Explorer is silently blocked by Windows UIPI whenever the process runs at a higher integrity level (launched "as administrator"); the fallback path works even then, and when OLE works WM_DROPFILES never fires, so drops are never double-handled.
   * Multi-select upload dialogs: BOTH the Main App and the Video Merger file pickers use `AllowMultiple = true`. The Merger queues every marked file. The Main App is a single-video editor, so it INTENTIONALLY loads only the file with the NEWEST modified date/time among the marked files — multi-select exists purely for end-user convenience (e.g. deleting several files directly inside the picker window). Do not "fix" the main app picker back to single-select.
-- FFmpeg Rendering (ProcessWorker.cs): Translates all UI selections (crops, time segments, speeds, audio) into complex FFmpeg filter graphs (AudioFilterChain.cs, GranularSpeedBuilder.cs, MobileFilterBuilder.cs) and executes them. (Legacy FfmpegWorker.cs / FilterBuilder.cs / TimeSyncEngine.cs shims were deleted; Phase4Gate now validates the production classes directly.) Granular speed segments flow `_segments` (rel ms, Granular) -> `ResultSegments` (abs ms) -> `_speedSegments` (Main App) -> `BuildExportSpeedSegments()` -> `worker.SpeedSegments`, millisecond-accurate on the X-axis end to end.
+- FFmpeg Rendering (ProcessWorker.cs) — ⚠️ FULL BACKEND SPEC LIVES IN SECTION 5C; READ IT BEFORE EDITING ENCODER SELECTION, `-hwaccel`, RATE CONTROL, TWO-PASS OR THE SIZE-TARGET RETRY. Translates all UI selections (crops, time segments, speeds, audio) into complex FFmpeg filter graphs (AudioFilterChain.cs, GranularSpeedBuilder.cs, MobileFilterBuilder.cs) and executes them. Encoder choice runs through the ONE shared resolver `ExportEncoderStrategy.Resolve` — Settings-override -> this process's own boot scan -> the suite-wide published result -> "unknown, re-probe" (5C.0/5C.1), never an app-local default; decode flags are emitted per video input (5C.2); size-locked exports use the two-pass complexity-map route on libx264 (5C.4) while ORIGINAL QUALITY stays single-pass CRF (5C.3). (Legacy FfmpegWorker.cs / FilterBuilder.cs / TimeSyncEngine.cs shims were deleted; Phase4Gate now validates the production classes directly.) Granular speed segments flow `_segments` (rel ms, Granular) -> `ResultSegments` (abs ms) -> `_speedSegments` (Main App) -> `BuildExportSpeedSegments()` -> `worker.SpeedSegments`, millisecond-accurate on the X-axis end to end.
 - Crash Recovery of Speed Segments: `SaveRecoveryState()` serializes `_speedSegments` (startMs/endMs/speed) and is invoked IMMEDIATELY when the Granular editor closes with Accept, so segment edits survive a crash/force-kill right after the editor closes.
 
 7. ACTIVE ARCHITECTURAL DECISIONS
@@ -275,18 +607,569 @@ actual CPU-only or RDP target, not just by static review.
 
 8. KNOWN LIMITATIONS & TODOS FOR THE NEXT AI AGENT
 ------------------------------------------------------------------------------
+- ⚠️⚠️ G07 "FULL-VRAM / ZERO-COPY EXPORT PATH" — CLOSED AS NOT ACHIEVABLE. DO NOT RE-OPEN WITHOUT READING THIS. ⚠️⚠️
+  The idea (keep frames in VRAM from NVDEC through the filter graph to NVENC, instead of
+  NVDEC -> PCIe download -> CPU filters -> PCIe upload -> NVENC) has been investigated twice and
+  filed as a finding at least once by an automated audit. It cannot be done with this filter graph.
+  FIVE BLOCKERS, all verified by dumping the option tables out of the SHIPPED `binaries\avfilter-11.dll`:
+    1. NO `crop_cuda`.
+    2. NO `pad_cuda`.
+    3. NO `fade_cuda`.
+    4. NO `cas_cuda` (nor any CUDA sharpener).
+    5. `scale_cuda` IN THIS BUILD HAS NO CROP OPTIONS — its option table contains only
+       `passthrough`, `param`, `interp_algo`, `force_original_aspect_ratio`, `force_divisible_by`.
+       The `crop_top`/`crop_bottom`/`crop_left`/`crop_right` options (FFmpeg 6.1+) are ABSENT, so
+       there is no GPU crop by either route. This is the blocker the audit missed.
+  WHAT IS PRESENT: `scale_cuda`, `overlay_cuda`, `hwupload_cuda`, `yadif_cuda`, `bwdif_cuda`,
+  `thumbnail_cuda`, `chromakey_cuda`, `bilateral_cuda`, `colorspace_cuda`. Essentially resize and
+  composite, nothing else.
+  WHY THAT KILLS IT: `crop` is load-bearing in FOUR places — `MobileFilterBuilder` lines 82/145
+  (the Portrait Canvas Trick's `crop=1280:1920`), line 132 (EVERY HUD layer cutout),
+  `FilterGraphBuilder` line 56 (every zoom) and `MergerWorker` line 308 (merger portrait). Add
+  fades, portrait padding and the mandatory post-zoom CAS sharpen and the conclusion is that ANY
+  export using fades, portrait mode, HUD overlays or zoom MUST return to system memory. That is
+  effectively every export this application exists to produce.
+  UPGRADING FFMPEG — CORRECTED, THIS PARAGRAPH PREVIOUSLY SAID SOMETHING FALSE. An earlier revision
+  claimed `pad_cuda` "does not exist in mainline FFmpeg at any version". THAT WAS WRONG: `pad_cuda`
+  is real and shipped upstream in FFmpeg 8.0. It is simply NOT COMPILED INTO THIS BUILD — note that
+  the bundled DLL set (avcodec-62 / avutil-60 / avfilter-11 / swscale-9) IS FFmpeg 8.0, so this is a
+  reduced build, and a fuller 8.x build would supply `pad_cuda`. What remains genuinely unavailable
+  anywhere upstream is `fade_cuda` and `cas_cuda` — no CUDA fade and no CUDA contrast-adaptive
+  sharpen exist (only `pad_opencl` exists as a non-CUDA hardware pad). Whether a fuller 8.x build
+  also restores `scale_cuda`'s crop options is UNVERIFIED — do not assume it.
+  SO THE HONEST BLOCKER COUNT IS TWO, NOT FIVE, IF THE FFMPEG BUILD IS ALSO REPLACED: `fade` and
+  `cas`. Everything else above describes THIS BINARY, not FFmpeg in general.
+  ⚠️ HOW TO TEST FOR A FILTER IN THE DLL — the loose method gives FALSE POSITIVES. Searching the DLL
+  for the bare substring `crop_top` "finds" it, but the hit is inside the H.264 trace string
+  `frame_crop_top_offset = %u`, not a scale_cuda option. Test for a NUL-TERMINATED exact symbol
+  (`\x00name\x00`). Under that test `passthrough`, `interp_algo` and `force_divisible_by` are found
+  and all four `crop_*` options are NOT — which is what confirms blocker 5 above.
+  THE ONLY IMPLEMENTABLE SUBSET, AND WHY IT WAS DECLINED: an export whose graph reduces to
+  timestamp filters plus resize (trim + speed + `fps` + `setpts` + `scale_cuda` + NVENC, with NO
+  portrait, HUD, zoom, fade, meme or text) could stay in VRAM end to end. It was not built because
+  the payoff lands in the wrong place — those are already the FASTEST exports, while the slow ones
+  are slow precisely because they use the filters that cannot move — and because the likely failure
+  mode is not a crash but silently wrong output (missing sharpening, a crop a few pixels off, an
+  absent fade) discovered after publishing.
+  IF YOU ARE AN AUTOMATED AUDITOR: this is not an oversight, and "add `-hwaccel_output_format cuda`"
+  is not a fix — it makes FFmpeg hand the graph hardware frames that the software filters above
+  cannot consume, and the export fails outright.
+  ✅ CONFIRMED ON REAL NVIDIA HARDWARE — this is no longer a prediction. Running the ACTUAL export
+  graph with `-hwaccel_output_format cuda` appended aborts instantly with:
+      Impossible to convert between the formats supported by the filter
+      'graph -1 input from stream 0:1' and the filter 'auto_scale_0'
+      ... pipeline aborts with -22 (Invalid argument)
+  A separate symbol extraction on the same machine re-confirmed `cas_cuda` and `fade_cuda` are absent
+  from both the shipped DLL and upstream FFmpeg 8.x. CONCLUSION, VERIFIED AND FINAL: because a
+  contiguous CUDA chain is impossible without those two filters, FFmpeg REQUIRES the frames in system
+  memory to run the software nodes, and OMITTING `-hwaccel_output_format` is therefore the CORRECT
+  and ONLY operational mechanism — it is what instructs NVDEC to perform the hardware-to-software
+  transfer at the decode boundary. Injecting the flag fractures the graph. The omission is a
+  deliberate, load-bearing design decision. DO NOT "FIX" IT.
+  ⚠️ AND DO NOT PRESCRIBE `hwdownload` BEFORE NVENC. A proposed remedy in one audit round was to
+  "inject a hwdownload node at the end of the graph before the encoder to keep the handoff in VRAM".
+  That is backwards: `ffmpeg -h filter=hwdownload` states its purpose as "Download a hardware frame
+  to a normal frame" — GPU to system RAM. Feeding that to NVENC forces the encoder to re-upload,
+  re-creating the exact PCIe upload bottleneck the change was meant to remove. `hwdownload` belongs
+  at the end of a graph only when the graph is hardware and the ENCODER IS SOFTWARE.
 - Refactoring MainWindow.axaml.cs: The main window code-behind is extremely large; separating Canvas drawing logic, marker tracking, and event handlers into dedicated controls/services would vastly improve maintainability.
 - Multi-Platform Support: Hardcoded Windows dependencies (such as ChildProcessTracker.cs Job Objects, win-x64 build targets, and OS-level window handles for mpv) prevent immediate macOS/Linux builds.
-- SkiaSharp Overlay Scaling: TextOverlayGenerator generates at exactly 1080px width; if the output resolution dynamically changes in the future, these dimensions must be proportionally scaled.
-- Granular segment edge markers: at very short segments (~<48px on screen) the two 24px marker hitboxes can overlap; proximity decides the winner. Runtime feel needs occasional review.
-- Portrait zoom quantization (AUDITED — ACCEPTED, DO NOT "FIX"): a full coordinate-chain audit (rubberband -> commit -> FFmpeg -> portrait crop) proved the zoom box is vertically drift-free and horizontally exact except three bounded residuals: (1) a constant +0.56px left bias affecting ALL portrait output identically (from `ScalePlan`'s even-aligned internal crop x=1066 vs true center 1067.5 — load-bearing for every profile, leave it); (2) independent `Even(round())` of ZoomW/ZoomH can deviate the committed aspect from exact 2:3, worst ~2.7px pillarbox sliver at minimum box size, <1px typical; (3) even-flooring can push ZoomX up to 2px outside the 720px brick wall (those pixels are simply cropped). All are one-time sub-3px snaps, non-accumulating, invisible at viewing size.
-- Zoom "next pass" (planned, NOT yet implemented): (a) real sub-range zoom — independent magnifier "lollipop" START/END markers on a zoomed block that can be dragged apart from the green trim markers so the zoom covers only a sub-range of the segment (needs per-segment zoom start/end plus a `GranularSpeedBuilder` chunk split into zoomed + non-zoomed parts); (b) ~~GPU-conditional LIVE zoom preview~~ — IMPLEMENTED (see Section 9 changelog "GPU-Conditional Live Zoom Preview"). Remaining runtime validation only: verify the mpv build bundled in `binaries\libmpv-2.dll` accepts the `video-crop` property (mpv >= 0.38; failures are silently ignored by `mpv_set_property_string`, falling back to no live zoom); (c) the 1280-internal-width portrait boundary is not yet drawn/clamped on the Granular preview, so mobile zoom boxes can be placed over pixels the portrait center-crop discards; (d) port the Main App detachable mobile phone preview (`PhoneFrameMockup` + a detach/reattach preview-monitor window and the fake-mobile effect) into the Granular editor.
+- SkiaSharp Overlay Scaling (TEXTGEN_01 — CLARIFIED, NOT A BUG): TextOverlayGenerator's default page is now `CoordinateConstants.PortraitW` x `CoordinateConstants.UIPaddingTop` rather than the literals 1080 x 150, because the PNG is composited with `overlay=0:0` onto the final portrait frame and must equal the canvas width and the top padding band exactly. The generator itself is already fully resolution-adaptive — the auto-fit loop starts at font size 110 and descends to 14 until the text fits BOTH the supplied width and height, and every derived quantity (`bgWidth`, `xOffset`, `yOffset`, `textY`, the wrap width) is computed from the arguments. There is currently no variable-output-resolution path in the app (portrait output is always 1080x1920), so nothing here is broken; if one is ever added, pass the new width/height and the layout follows. The dead `fontSize` parameter (declared, never read) was removed so the signature stops implying caller control that never existed.
+- ~~Granular segment edge markers: at very short segments the two marker hitboxes can overlap~~ — RESOLVED (HITBOX_01, see Section 9). Both the canvas hit test and the 24px markers are now width-aware; all three gestures stay reachable at every block width.
+- Portrait zoom quantization (AUDITED — ACCEPTED, DO NOT "FIX"): a full coordinate-chain audit (rubberband -> commit -> FFmpeg -> portrait crop) proved the zoom box is vertically drift-free and horizontally exact except three bounded residuals: (1) a constant left bias affecting ALL portrait output identically. ⚠️ MIND THE UNITS — this bullet previously quoted the bias in SOURCE pixels and the coordinates in INTERNAL pixels in the same breath, and stated the internal centre wrongly. The correct figures, reproducible from `CoordinateMath.ScalePlan` on a 1920x1080 source: scaledW = 3414, so the true centre is (3414 - 1280) / 2 = 1067.0 INTERNAL px exactly; `EvenDown` takes cropX to 1066, giving a bias of 1.0 INTERNAL px, which is 1.0 x (1920 / 3414) = 0.56 SOURCE px. Both numbers describe the same one-pixel snap — load-bearing for every profile, leave it; (2) independent `Even(round())` of ZoomW/ZoomH can deviate the committed aspect from exact 2:3, worst ~2.7px pillarbox sliver at minimum box size, <1px typical; (3) even-flooring can push ZoomX up to 2px outside the 720px brick wall (those pixels are simply cropped). All are one-time sub-3px snaps, non-accumulating, invisible at viewing size.
+  ⚠️ EVIDENCE STATUS, so nobody re-audits this blind: residual (1) is CONFIRMED and reproducible from `ScalePlan` (numbers above; a 15-resolution sweep also found the portrait crop is the CONSTANT 1280x1920 = exactly 2:3, never computed, with 0 out-of-bounds cases — so no aspect "drift" exists in `ScalePlan` itself). Residuals (2) and (3) concern the ZOOM-COMMIT path, NOT `ScalePlan`, and have NOT been re-verified since they were written — treat those two figures as unconfirmed until someone sweeps that path directly. Do not cite them as measured.
+- Zoom "next pass" — ALL FOUR ITEMS ARE NOW IMPLEMENTED. This bullet is retained because its stale "NOT yet implemented" wording caused a later automated audit to file four false-positive findings against code that already existed. DO NOT re-file these; verify with a grep before claiming any of them is missing.
+  (a) ~~real sub-range zoom~~ — IMPLEMENTED. `SpeedSegment.ZoomStartMs` / `ZoomEndMs` (`GranularSpeedBuilder.cs`) decouple zoom timing from the parent speed block entirely, resolved at `GranularSpeedBuilder` lines ~271-272, honoured by `ZoomPreviewSimulator`, dragged via the independent lollipop markers, persisted through recovery and included in the Granular dirty-state signature.
+  (b) ~~GPU-conditional LIVE zoom preview~~ — IMPLEMENTED (see Section 9 changelog "GPU-Conditional Live Zoom Preview"). Remaining runtime validation only: verify the mpv build bundled in `binaries\libmpv-2.dll` accepts the `video-crop` property (mpv >= 0.38; failures are silently ignored by `mpv_set_property_string`, falling back to no live zoom).
+  (c) ~~the 1280-internal-width portrait boundary is not drawn/clamped~~ — IMPLEMENTED, BOTH HALVES. Clamped: `ZoomCanvas_PointerMoved` narrows `bounds` to the 2:3 column when `_isMobileFormat`, and every draw / corner-resize / move path runs through `ClampToVideo(..., bounds, ...)`; `ZoomAspect` is locked to 2/3 so an illegal box cannot even be authored. Drawn: `RenderPortraitBoundary()`, invoked from `EnsureZoomVisuals()`.
+  (d) ~~port the Main App detachable preview into the Granular editor~~ — IMPLEMENTED AND GENERALISED (DETACH_01, see Section 9). `PhoneFrameMockup` was already present in `GranularSpeedEditorWindow.axaml`; the detachable preview monitor now exists on all five preview screens through one shared controller.
 
 [NVIDIA Highlights Probing & Upload Directory Memory]
 When the app is freshly installed and no config exists, the default upload video folder MUST probe and fallback to the NVIDIA Fortnite highlight folder. Probes strictly include raw hardcoded %USERPROFILE%\Videos\Fortnite and %USERPROFILE%\Videos\Highlights\Fortnite arrays in addition to standard Windows special folders. This guarantees detection even if Windows OneDrive hijacking redirects the default MyVideos path. Once the user uploads any video, the chosen directory path is cached into `UploadVideoDirectory` and explicitly restored on all subsequent opens via Avalonia's `SuggestedStartLocation`.
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- LEAK_01 — THE MAIN APP NEVER TORE DOWN ITS mpv / D3D11 / OpenGL PIPELINE (`MainWindow.axaml.cs`).
+  It was the ONLY window that never disposed its `MpvVideoView`; Granular, Voice Over, the Merger
+  and the Music Wizard all did. It mattered most here because this class leaves the process through
+  `Environment.Exit(0)` in TEN different places, and Environment.Exit does not run finalizers — so
+  `~MpvVideoView` never fired either, and the documented teardown ORDER
+  (`mpv_render_context_free` -> `IpcClient.Dispose` -> `mpv_terminate_destroy` ->
+  `NativeLibrary.Free(opengl32)` -> D3D11 context -> D3D11 device) was skipped every single time.
+  That is the exact ordering introduced to stop raw 0xc0000005 access violations inside NVIDIA's
+  `nvoglv64.dll` when the Granular editor closed; the Granular editor got that fix, the Main App
+  never did. It was usually masked because Environment.Exit tends to kill the process before the
+  driver can fault — "usually" is not a guarantee, and it was worst on the SIX handoff paths that
+  spawn the Merger or Crop Tool, where a sibling process grabs the same GPU as this one abandons it.
+  * FIX: new idempotent `ShutdownVideoPipeline()` — reattaches a detached preview first (DETACH_01),
+    then disposes `_videoHost` and `_musicPreviewIpcClient`, every step individually guarded.
+  * ⚠️ CALL IT BEFORE EVERY `Environment.Exit` IN THAT CLASS. All ten sites are wired. If you add an
+    eleventh exit path, add the call — it is idempotent and cheap, so when in doubt, call it.
+  * NOTE: the audit that found this reported ONE site. There were ten. Count them, do not sample.
+- LEAK_03 — THE VIDEO MERGER ABANDONED ITS GPU CONTEXT ON TWO OF THREE EXIT PATHS
+  (`VideoMergerWindow.axaml.cs`). Identical defect to LEAK_01, found in the Merger after the Main App
+  was fixed. The only `_videoHost?.Dispose()` lived inside `OnClosing`, but two exits never reach it:
+  `MenuExit` calls `Environment.Exit(0)` directly, and `ReturnToMainApp()` starts the Main App and
+  then exits from a `Task.Run` WITHOUT ever calling `Close()`.
+  * ⚠️ `ReturnToMainApp` was the dangerous one: it abandoned the mpv render context, the WGL bridge
+    and the D3D11 device WHILE THE MAIN APP WAS BOOTING AND CLAIMING THE SAME ADAPTER — precisely
+    the condition behind the documented 0xc0000005 faults in `nvoglv64.dll`.
+  * FIX: `ShutdownVideoPipeline()` mirroring the Main App's, called from all three paths. On
+    `ReturnToMainApp` it runs BEFORE `Process.Start`, so the GPU is released before the sibling
+    process asks for it. `OnClosing`'s bare Dispose now routes through the same method so the
+    graceful close and the two hard exits cannot drift apart.
+  * ⚠️ SAME RULE AS LEAK_01: call it before EVERY `Environment.Exit` in that class.
+  * AUDIT NOTE: an automated audit reported this as "Environment.Exit across 10 paths in
+    MainWindow" and cited MainWindow line numbers that were ALREADY the post-LEAK_01 line numbers —
+    every one of them has the guard on the line directly above. The MainWindow half of that finding
+    was stale; only the Merger citation was real. Check the line above an `Environment.Exit` before
+    filing it as unguarded.
+- LEAK_02 — SUPERSEDED VOICE-OVER LANE GENERATION (`VoiceOverWindow.axaml.cs`). `_generationCts` was
+  overwritten on every regeneration, which abandoned the previous `CancellationTokenSource`
+  undisposed and — worse than the leak — left the previous thumbnail/waveform job RUNNING, free to
+  finish late and overwrite the lanes belonging to the newer request. New `RetireGenerationCts()`
+  cancels the old one and disposes it on a worker thread.
+  * ⚠️⚠️ NEVER CALL `CancellationTokenSource.Dispose()` FROM AN INTERFACE-THREAD HANDLER IN THIS
+    CODEBASE. Dispose BLOCKS until every callback raised by Cancel() has finished, and those
+    callbacks marshal back to the interface thread — the interface thread then waits on itself.
+    This is not theoretical: it is the reproduced deadlock that froze the Granular Speed Editor
+    (CANCEL_01) earlier in the same session that introduced it.
+  * DELIBERATELY LEFT CANCEL-ONLY, AUDITED AND ACCEPTED: `SingleInstanceGuard.Release()`. It runs on
+    the interface thread immediately before `Environment.Exit(0)` while the handoff listener is
+    parked in `WaitForConnectionAsync(token)`; disposing would risk hanging the close for no gain.
+  * TWO AUDIT FALSE POSITIVES, RECORDED SO THEY ARE NOT RE-FILED: `CropToolWindow` line 870 and
+    `CrashLogDigest` line 65 already use `using var cts = ...` and dispose correctly. A grep that
+    counts `new CancellationTokenSource` against explicit `.Dispose()` calls MISSES `using var`.
+  * A THIRD FALSE POSITIVE: `MemeDirectory.Changed` (declared in `SettingsManager.cs` line 158) was
+    reported as a dead static event with zero subscribers. It is subscribed at `MainWindow` line
+    1126 (with a matching `-=` at 1127) and raised from `SettingsWindow` line 573. Searching for
+    `SettingsManager.Changed` finds nothing because the event belongs to the `MemeDirectory` class
+    that happens to LIVE in SettingsManager.cs — search by the declaring type, not the file name.
+- SYNC_01 — CUMULATIVE A/V DRIFT ACROSS A LONG MERGE (`MergerWorker.cs`). THE MOST IMPORTANT ENTRY
+  IN THIS SECTION FOR ANYONE TOUCHING THE MERGER. Symptom: merge many clips that are each perfectly
+  in sync on their own, and the audio slides further out of sync the further into the output you go.
+  * ROOT CAUSE — TWO INDEPENDENT `concat` FILTERS. The graph joined video with
+    `[v0][v1]...concat=n=N:v=1:a=0[v_concat]` and audio SEPARATELY with
+    `[a0][a1]...concat=n=N:v=0:a=1[a_concat]`. Each builds its own timeline by adding up only the
+    lengths it was handed, and neither knows the other exists. Those totals are never equal:
+    game-capture MP4s are variable-frame-rate, so the `fps=60` normalization re-times video onto an
+    exact 1/60s grid while audio keeps its true sample-accurate length. Every clip contributes a few
+    milliseconds of video-minus-audio difference, and with two concats those differences ACCUMULATE.
+  * MEASURED. 12 synthetic clips, video 3.000s / audio 2.980s each, beep at every clip start,
+    measured against the video timeline: OLD graph drifted -34.6ms at clip 2, -173.3ms at clip 6,
+    -381.3ms at clip 12, -416ms worst — perfectly linear, the signature of accumulation. NEW graph:
+    0.0ms at EVERY boundary.
+  * FIX — ONE INTERLEAVED CONCAT: `[v0][a0][v1][a1]...concat=n=N:v=1:a=1[v_concat][a_concat]`.
+    With `v=1:a=1` the filter treats each clip as a SEGMENT: it takes the longest stream in that
+    segment, advances every output by that same amount, and pads the shorter audio with silence.
+    Picture and sound are re-zeroed together at every boundary, so an error cannot survive past the
+    clip that produced it, let alone accumulate.
+  * ⚠️ DO NOT SPLIT THIS BACK INTO TWO `concat` FILTERS. It reintroduces the drift, and it looks
+    perfectly fine on a two-clip test — it only shows up on a long merge.
+  * SUPPORTING: `setpts=PTS-STARTPTS` / `asetpts=PTS-STARTPTS` are now UNCONDITIONAL, not only on
+    the trimmed path (game captures routinely start audio a few ms off video, and that offset used
+    to walk straight into concat on untrimmed clips); and
+    `aresample=48000:async=1:min_comp=0.01:first_pts=0` after the join repairs any residual sub-ms
+    gap by resampling instead of shifting everything downstream.
+- HITBOX_01 — GRANULAR SEGMENT HIT PRECEDENCE (`GranularSpeedEditorWindow.axaml.cs`). Two separate
+  collisions, both width-related, both fixed.
+  * CANVAS HIT TEST. The loop tested ResizeStart, then ResizeEnd, then Move, and `break`ed on the
+    first hit. `edgeMs` is 8 PIXELS worth of time and `SegMinWidthMs` is 200ms — about 3px on a 60s
+    clip in a 1000px canvas — so a minimum-width block sat ENTIRELY inside its own start-edge zone
+    and the first test swallowed every press on it: its END edge and its Move body were both
+    permanently unreachable. Now resolved in two phases: (1) the NEAREST grabbable edge across all
+    segments wins, so touching neighbours resolve by actual distance rather than by whichever
+    segment happens to be earlier in the list; (2) only if no edge is in reach does the body become
+    a Move. The edge zone is additionally CAPPED AT A THIRD OF THE BLOCK, per block — a start third,
+    a middle third and an end third — which keeps all three gestures reachable at EVERY width.
+    ⚠️ Simply DISABLING edges on narrow blocks (the obvious first fix, and one that was tried) is
+    wrong: it punches a hole where a ~10px block answers to nothing at all at its own edge.
+    Verified: 200ms/400ms/600ms/1200ms/5000ms/30s blocks all yield ResizeStart, ResizeEnd and Move
+    at their start, end and middle respectively; wide blocks behave exactly as before.
+  * EDGE MARKERS (`AddSegmentEdgeMarker`). Both markers were a fixed 24px wide CENTRED on their
+    edge, so on any block narrower than 24px they overlapped — and Avalonia resolves overlapping
+    siblings by z-order, handing every press to whichever was added last (the END marker), which
+    made the START edge of a short block dead. Each marker now keeps its full 12px reach on the
+    OUTSIDE of the block, where nothing can contest it, and surrenders only its INSIDE half, capped
+    at half the block width; the two spans meet exactly at the block midpoint and cannot cross.
+    Swept 0-800px: 0 overlapping cases. The visible 3px stick is offset inside the now-asymmetric
+    box so it stays centred on the edge — nothing changed on screen, only the hit area.
+- TEXTGEN_01 — `TextOverlayGenerator.GeneratePng` signature (`TextOverlayGenerator.cs`). Removed the
+  dead `fontSize` parameter (declared, never read — the auto-fit loop picks the size) and bound the
+  `width`/`height` defaults to `CoordinateConstants.PortraitW` / `UIPaddingTop` instead of restating
+  1080 / 150. See the Section 8 entry for why this was never a scaling bug.
+- DETACH_01 — SHARED DETACHABLE PREVIEW CONSOLE ON EVERY PREVIEW SCREEN (new
+  `PreviewDetachController.cs`; `PreviewMonitorWindow`, `MainWindow`, `GranularSpeedEditorWindow`,
+  `MusicWizardWindow`, `VoiceOverWindow`, `VideoMergerWindow`). The Main App could pop its preview
+  out into a floating window and nothing else could, because the behaviour was welded into
+  `MainWindow` as two hand-rolled methods.
+  * ONE CONTROLLER, FIVE CALLERS. All moving, persistence, placement and reattach logic lives in
+    `PreviewDetachController`. Each screen supplies only a BOUNDS KEY and a CONTENT ACCESSOR.
+    ⚠️ THE MAIN APP WAS REFACTORED ONTO IT TOO — `AttachPreviewMonitor`/`DetachPreviewMonitor` are
+    now thin `Task`-returning wrappers and `PreviewMonitorWindow.ParentMainWindow` is GONE, replaced
+    by `Controller`. Do not reintroduce a second implementation.
+  * PER-SCREEN GEOMETRY MEMORY. Five separate keys — `PreviewMonitorWindowBounds`,
+    `GranularPreviewMonitorBounds`, `MusicWizardPreviewMonitorBounds`,
+    `VoiceOverPreviewMonitorBounds`, `MergerPreviewMonitorBounds` — so each screen remembers its own
+    size, position, maximised state and therefore WHICH DISPLAY its preview was last on,
+    independently of the others. ⚠️ A new key must be added in THREE places or geometry silently
+    stops sticking: the constants on `PreviewDetachController`, `StateTransferStore.BoundsKeys`, and
+    the `preserveKeys` array in `MainWindow` (anything absent from that array is wiped on reset).
+  * THE ORIGIN IS CAPTURED, NOT ASSUMED. The Main App's original version hard-coded "put it back
+    into MainVideoGrid at index 0", which only worked because it was the sole caller. The controller
+    records the real parent — Panel (with child index), Decorator or ContentControl — and restores
+    exactly that, so a preview nested behind other overlays returns in the same z-order.
+  * GRANULAR MOVES ITS WHOLE VIEWBOX (`GranularPreviewViewbox`), not just the `MpvVideoView`. The
+    zoom rectangle, the dimmer and the phone frame are siblings inside that Viewbox and are
+    positioned in its 1920x1080 coordinate space; moving the picture alone would leave the zoom
+    overlay drawn over an empty box.
+  * TEARDOWN ORDER. The controller reattaches on the OWNER's `Closing`, so a live mpv render surface
+    is never left parented to a window that outlives its owner — each screen's existing disposal
+    path runs unchanged. The Music Wizard additionally reattaches at the top of its phase-3 preview
+    build, because its host is created in code as `VideoHostBorder`'s child: rebuilding while
+    detached would have orphaned the old host and created a second one alongside it.
+  * FIRST-DETACH PLACEMENT is centred on the OWNER's screen, not the primary display — on a
+    multi-monitor desk the owner is frequently not on the primary, and clamping to primary yanked
+    the new window onto a different display than the one it was summoned from. From the second
+    detach onwards the saved geometry wins.
+- LANES_04 — MUSIC WIZARD PHASE 3 CONVERTED TO THE SHARED TIMELINE (`MusicWizardWindow`): it now
+  uses the same `Controls/TimelineLanesControl` as the Granular editor, so it finally has the
+  numbered MM:SS / HH:MM:SS ruler, the gridlines dropping through both lanes, the grabbable caret
+  with its time badge, and the elapsed / remaining clocks — none of which it had. Its own ruler
+  drew 4px grey hairlines with `m\:ss` labels that could not represent hours at all.
+  * ⚠️ LANE ORDER IS OPPOSITE TO GRANULAR AND THAT IS DELIBERATE: here LANE A (upper) is the film
+    frames and LANE B (lower) is the waveform, matching what phase 3 has always shown. In Granular
+    A is the speed/zoom lane and B is the frames.
+  * BOTH LANES ARE SEEKABLE here (`LaneASeekable = LaneBSeekable = true`) — clicking the frames OR
+    the waveform seeks. Granular keeps LaneA non-seekable because its upper lane owns block drag,
+    edge resize and drag-to-create.
+  * THE LANE CONTENT IS REPARENTED, NOT REBUILT. The thumbnail and waveform controls are still
+    DECLARED in XAML inside `Phase3LaneContentHolder` and moved into the shared control's two
+    hosts once at construction. Recreating those 10 named controls in code would have been far
+    more churn, and reparenting keeps the window's namescope intact so every existing
+    `FindControl` (ThumbnailLaneGrid, WaveformLaneImage, both loading overlays, the two overlay
+    canvases …) resolves exactly as before. Verified: 0 type mismatches, 0 missing names.
+  * REMOVED: `Phase3TimelineCanvas`, `Phase3SeekCanvas`, `Phase3Caret`, `Phase3CaretCanvas`,
+    `Phase3CaretTextBorder`, `Phase3CaretTimeText` and roughly 30 lines of bespoke seek plumbing.
+    `DrawPhase3TimelineScale` now only keeps the merger clip-boundary overlays, which are phase-3
+    specific and have nothing to do with the ruler.
+- SLIDER_01 — VOLUME KNOBS CLIPPED, AND THE RAIL DREW AS TWO BROKEN LINES (`AvaloniaApp.axaml`,
+  `MusicWizardWindow.axaml`). Two independent faults on the Mix-and-Preview screen's video/music
+  volume sliders, both measured rather than guessed:
+  (A) CLIPPED BY THE LANES ROW. The knob grows to `scale(2.0)` while held, so a 44px thumb RENDERS
+      88px and overflows its own 44px row by 22px in every direction. The volume StackPanel was
+      `ZIndex="5"` while the lanes Grid directly above it is `ZIndex="10"`, so the lanes painted
+      over the overflow and the knob looked sliced off. Raised to `ZIndex="20"` and the two sliders
+      gained `Margin="0,22"` so the grown knob has room and never crosses a row boundary at all
+      (which also stops the repaint smearing the user reported). ⚠️ Do not lower that ZIndex back
+      below the lanes row.
+  (B) THE RAIL SPLIT IN TWO. `Track` lays out DecreaseButton | Thumb | IncreaseButton and reserves
+      the thumb's LAYOUT width — 44px, the suite's grab target — while the visible knob is a 26px
+      Ellipse. RenderTransform scaling does not change layout width, so the reserved gap stays
+      44px at every size: NINE PIXELS OF BARE TRACK EACH SIDE of the dot at rest, reading as two
+      separate horizontal lines with the knob floating between them. It appeared to heal at
+      scale(2.0) (52px dot finally covers the 44px gap) and returned on release, which is why it
+      read as a glitch. FIX: each half of the rail is pulled 22px (half the thumb) INTO the thumb's
+      slot with a negative margin, so the halves meet underneath the knob — continuous at rest,
+      hover and pressed. Applied to horizontal AND vertical sliders, so every slider in the suite
+      benefits.
+      ⚠️ NAME-TARGETED (`RepeatButton#PART_DecreaseButton` / `#PART_IncreaseButton`) SO IT FAILS
+      SAFE: if a future Avalonia theme renames those parts the selectors match nothing and the rail
+      merely goes back to being split — ugly, never broken. And do NOT "simplify" this by shrinking
+      the Thumb to 26px; that drops the grab target from 44px and breaks the Section 4 hit-target
+      rule that ISSUE_07 established for exactly these two sliders.
+- ⚠️ PORTRAIT_01 — THE PORTRAIT PREVIEW WAS LYING ABOUT THE FRAMING (`ZoomPreviewSimulator`,
+  `GranularSpeedEditorWindow`, `MainWindow`, `MusicWizardWindow`): in Portrait mode the live mpv
+  preview showed a region 2.67x WIDER than the exported file.
+  ROOT CAUSE: the portrait export runs THREE steps — (1) crop a window around the zoom box,
+  WIDENED to the source aspect ratio, (2) scale that back to full frame, (3) centre-crop to the
+  2:3 slice, keeping the middle 1280 of the 3414-wide internal space (= 720 of 1920 source px).
+  Steps 1 and 3 CANCEL, so the net visible region is exactly the box the user drew. The preview
+  performed step 1 ONLY, so it displayed the intermediate stage the export throws away.
+  MEASURED (1920x1080 source, 480x720 box): export showed 480px wide, preview showed 1280px. The
+  horizontal CENTRES matched at every box position including hard against both edges of the slice
+  — nothing drifted sideways; the FRAMING was wrong, which the eye reads as "not the same".
+  FIX: `Compute` now takes `portraitMode` + source dimensions and reproduces step 3. Verified
+  against the export maths across the full slow ramp (p = 0 / 0.25 / 0.5 / 0.75 / 1) and three box
+  positions: worst mismatch 0.000000 px.
+  ⚠️ TRUTHFUL THROUGHOUT, NOT JUST WHEN ZOOMED. A portrait preview is cropped to the 2:3 slice
+  even with NO zoom active and BETWEEN zooms, because that is what the export always produces.
+  `PortraitSliceOnly` handles those cases and the "no segments" early-outs had to be relaxed to
+  let them through. Music Wizard phase 3 could not know the export format at all, so it gained
+  `IsPortraitPreview`, set by the Main App — without it the A/B screen, whose entire job is
+  judging the finished result, was the least truthful preview in the suite.
+  ⚠️ ZOOM EDIT MODE STILL CLEARS THE CROP (`_zoomModeActive`). The rubber-band is mapped through
+  `GetVideoDisplayRect`, which assumes the FULL frame; cropping while drawing would corrupt the
+  coordinate mapping. The portrait brick-wall guide markers already show the slice there.
+  The surviving width is derived from `CoordinateConstants`, never hard-coded, so it tracks the
+  Portrait Canvas Trick automatically.
+  ALSO MEASURED WHILE INVESTIGATING: Section 8 claims the portrait centre bias is "+0.56px"; the
+  actual figure from `ScalePlan`'s even-aligned crop is 0.25px. LANDSCAPE was verified pixel-exact
+  end to end (0.00px at every box size and position) — it never had this problem.
+- LANES_01 — GRANULAR TIMELINE REBUILT AS TWO 60px LANES (`GranularSpeedEditorWindow.axaml/.cs`,
+  `ThumbnailStripGenerator` NEW): modelled on Music Wizard phase 3. A 20px tick ruler over a 60px
+  UPPER lane (speed blocks, freezes, zoom) stacked on a 60px LOWER lane of film frames, with ONE
+  caret and one seek surface crossing both, so the frame under the playhead and the block above it
+  always read as the same moment.
+  * THE 44px `CompactSlider` IS GONE. It was silently acting as the PLAYHEAD MODEL — its 0-1000
+    `Value` was the source of truth and four unrelated places read or wrote it, which is why
+    deleting one control touched scrubbing, snapping, seeking and playback sync at once. Replaced
+    by a plain `_playheadMs` field with the two paths finally separated: `SetPlayheadFromScrub`
+    (user dragged -> seek the video) and the playback tick (video moved -> move the caret, never
+    seek). The old design needed an `IsPointerOver` guard purely to stop those two fighting.
+  * EVERYTHING MOVED INSIDE THE LANE. The zoom bar floated at y=-40, its magnifiers at y=-80 and
+    the freeze marker at y=-79 — all ABOVE the old 32px canvas. They now sit at named constants
+    (`LaneZoomBarY` / `LaneZoomMarkerY` / `LaneFreezeMarkerY` / `LaneBlockHeight`), which are the
+    ONLY place a Y offset is allowed to live.
+  * FRAMES cover the TRIMMED range only and are rendered ONCE on open behind a "Generating
+    Frames..." bar. Safe precisely because the trim cannot change while this window is alive
+    (MARK START/END create SEGMENTS, not trim — the trim arrives as constructor args). ⚠️ If that
+    ever changes, the strip must be regenerated whenever the trim moves or the two lanes silently
+    stop lining up, which is the entire point of the feature.
+  * ONE STRIP RENDERER, NOT TWO. The FFmpeg tiling logic was a private method on
+    `MusicWizardWindow`; it is now `App/ThumbnailStripGenerator` and phase 3 delegates to it with
+    its signature unchanged. A second copy would have been free to drift on frame count, scaling
+    and temp-file cleanup. The CALLER owns and must delete the temp PNG.
+  * Empty-state label "No Speed Segments Yet!" shows whenever the lane is empty — the first time
+    AND after CLEAR ALL. Section 4 now documents the Granular editor as an explicit EXCEPTION to
+    the 14/44/32 Timeline Slider Row Rule; the Main App, Crop Tool and Merger were NOT touched.
+- LANES_02 — DRAG THE UPPER LANE TO CREATE A SEGMENT (`GranularSpeedEditorWindow`): splitting the
+  timeline into two lanes is what made this safe. While one strip had to serve both scrubbing and
+  editing, drag-to-create would have fought drag-to-scrub; now the frames lane owns seeking and the
+  segment lane owns creating. An empty-space press is AMBIGUOUS until the pointer moves, so both
+  are armed and the gesture decides: released without moving = a click = seek (old behaviour
+  preserved); moved past `CreateDragThresholdPx` = a drag = create a block across the sweep, drawn
+  live as a dashed translucent ghost. ⚠️ SEEKING NO LONGER HAPPENS ON PRESS — doing so would jump
+  the video every time the user started drawing. `CreateSegmentFromDrag` routes through the SAME
+  `AddPendingSegment` validation the MARK buttons use (1000ms neighbour gap, overlap ban,
+  `SegMinWidthMs` floor): those are export-correctness rules, and a second creation path that
+  skipped them would build filter graphs the buttons could never produce.
+- ⚠️ RECOVERY_01 — A CLEAN CLOSE COULD FAKE A CRASH (`MainWindow.OnClosing`): `_recovery
+  .CleanupLock()` sat INSIDE the try block, AFTER `await WindowBoundsHelper.SaveBoundsAsync(...)`.
+  If that await threw — disk full, bounds file locked, one bad serialize — the catch swallowed it,
+  the `finally` still exited the process cleanly, and the session lock PLUS the recovery state
+  survived a perfectly normal close. The next launch then announced a crash that never happened
+  and offered to restore a session the user had deliberately finished. Cleanup now runs in
+  `finally`, itself guarded. RULE: nothing that can throw may sit between the close handler
+  starting and the lock being released.
+- ⚠️ RECOVERY_02 — WINDOWS SHUTDOWN LOOKED LIKE A CRASH (`RecoveryManager`, `ApplicationPaths`,
+  `MainWindow.OnClosing`): the close path is `async void`, cancels the close and finishes in a
+  `finally`, so a Windows shutdown / restart / sign-out could terminate the process partway
+  through it — leaving the lock behind and faking a crash on every reboot done with the app open.
+  New `MarkCleanShutdownIntent()` writes `clean_shutdown.intent` SYNCHRONOUSLY as the FIRST
+  statement of `OnClosing`, before any await; `CheckFault()` treats that marker as proof of an
+  intentional exit, cleans up the leftovers and returns false. `AcquireLock()` clears the marker
+  when a new session starts (otherwise a genuine crash in THIS session would read as intentional
+  next launch) and `CleanupLock()` clears it on a completed close. ⚠️ DO NOT MOVE THE
+  `MarkCleanShutdownIntent()` CALL BELOW THE FIRST `await` — that is the entire point of it.
+- ⚠️ RECOVERY_03 + RECOVERY_04 — THE "IS THERE WORK TO SAVE?" TEST WAS WRONG IN BOTH DIRECTIONS
+  (`MainWindow.SaveRecoveryState`). These are a PAIR and must never be separated.
+  (03) The speed check was `Math.Abs(_baseSpeed - 1.0) > 0.01`, but the app's default speed is
+       1.1 (`SpeedPresetButtons.NativeDefaultSpeed`) — so it evaluated TRUE from the moment the
+       window opened, for every user on the defaults, permanently. Consequences pulled opposite
+       ways: the `ClearState()` branch became effectively DEAD (so after the user removed their
+       last edit the recovery file was never deleted and lingered with stale contents — the "false
+       states" symptom), while anyone selecting exactly 1.0x flipped it to false and had the file
+       DELETED. Now compares against the real default.
+  (04) The meme choice and the HUD/portrait toggles were WRITTEN into the payload but did not
+       count as "work", so if they were the only edits the state was erased — and because the
+       toggle handlers call `SaveRecoveryState()` on every click, ticking Boss HP actively
+       destroyed the recovery file instead of saving it. `memeSelected`, `hudToggled` and
+       `_musicWizardResult != null` are now part of the test.
+  VERIFIED PRESENT AND CORRECT (no change needed): speed segments incl. all zoom fields
+  (zoomSlow/zoomStartMs/zoomEndMs), music (every path + durations + ducking/carving/volumes/loop),
+  voice-over takes, freeze, trim, thumbnail, portrait text. Removal is persisted because
+  `ApplyVoiceOverState` calls `SaveRecoveryState()` internally and both
+  `ResetEditingStateForNewVideo` callers save afterwards. CROP SETTINGS ARE DELIBERATELY NOT IN
+  RECOVERY — they live in `crops_coordinations.conf` (ProgramData) as persistent configuration and
+  survive a crash by not being session state at all. Do not "add" them here.
+- RECOVERY_05 — SAFE MODE EXPIRED MID-RESTORE (`RecoveryManager.IsSafeModeActive`,
+  `ActivateSafeMode`): the sentinel was judged purely on wall-clock age (120s). A large restore on
+  a slow disk legitimately exceeds that, and the sentinel was then deleted WHILE THE RESTORE WAS
+  STILL RUNNING — so a crash during it was no longer recognised as a crash loop, which is exactly
+  what safe mode exists to break, failing precisely when the session is heaviest. The sentinel now
+  carries the owning PID + process start ticks (same stamp as the session lock, which together
+  defeat PID reuse) and is honoured for as long as that process is alive, however long the restore
+  takes; it is cleared only when the owner is genuinely gone. The age rule survives ONLY as a
+  backstop for sentinels written by older builds that carry no owner stamp.
+- LIVE ZOOM PREVIEW EXTENDED TO THE WHOLE SUITE (`ZoomPreviewSimulator` NEW, `MainWindow`,
+  `MusicWizardWindow`, `GranularSpeedEditorWindow`): the zoom effect — INCLUDING the slow glide —
+  now previews 1:1 with the exported file in ALL THREE preview surfaces, not just the Granular
+  editor. Previously the Main App preview and Music Wizard phase 3 played the clip with speed
+  changes and freezes applied but the zooms INVISIBLE: the fuchsia markers appeared on the
+  timeline while the picture never moved, so the final review before export was not showing what
+  was about to be rendered.
+  * ONE IMPLEMENTATION, NOT THREE. `Media/ZoomPreviewSimulator.Compute(segments, tSec, durSec)`
+    holds the entire simulation (steal windows, the two-Slow-zooms gap rule, ramp progress, centre
+    lerp, even-pixel rounding, edge clamp) and reads its timing constants directly off
+    `GranularSpeedBuilder` — the export engine itself. The Granular editor's own ~60-line copy was
+    DELETED and replaced with a call. Four copies of one algorithm would have been four chances
+    for a preview to stop matching the export, and a preview that lies is worse than none.
+  * ⚠️ GPU PATH ONLY, BY DESIGN. All three call sites gate on
+    `VideoRenderMode.Current.UseHardwareAcceleration`. On the GPU path mpv applies `video-crop`
+    inside its own renderer (a texture-coordinate change, effectively free). On the CPU fallback
+    every crop CHANGE rebuilds mpv's software scaler and a 0.5s glide produces ~10 of them — on
+    machines that by definition have no GPU. CPU-only machines therefore keep ONLY the static
+    guide rectangles. This is an owner decision; do not "improve" it by enabling the crop there.
+  * MUSIC WIZARD TIME BASE: phase 3's playhead runs on the OUTPUT timeline (speed segments and
+    freezes have already stretched it) while zoom times are SOURCE-relative. The existing
+    `MapPhase3OutputToSourceRelativeSeconds` conversion is used, so the zoom lands on the correct
+    frame instead of drifting wherever a speed segment changes the mapping. Its update also runs
+    OUTSIDE the `_isPreviewPlaying` guard — a paused frame must show the zoom truthfully too.
+  * STALE-CROP GUARDS: the crop is cleared when the Granular editor returns a new segment set,
+    when a different video is loaded in the Main App, when leaving phase 3, and on Music Wizard
+    teardown (BEFORE the host is disposed — afterwards there is no IPC client to send it to).
+    Without these a deleted zoom stays visibly applied to the wrong footage.
+  * ACCEPTED DIFFERENCE (unchanged, now suite-wide): near the frame edges the export PADS with
+    black where the preview CLAMPS the crop inside the picture. Do not "fix" this by letting the
+    crop leave the frame — mpv rejects an out-of-bounds crop and the preview would freeze.
+- DOC_AUDIT_01 — THE "SINGLE SOURCE OF TRUTH" PORTRAIT NUMBER WAS WRONG (mandate #3): it stated a
+  1920x1080 source scales to 3413x1920. `CoordinateMath.ScalePlan` computes
+  `EvenUp(FracCeil(1920 x 16/9))` = `EvenUp(ceil(3413.33))` = 3414, and a real export confirms it
+  (`scale=3414:1920`). 3413 is also ODD, which yuv420p forbids — the documented value could never
+  have worked. Corrected to 3414 with the round-up-then-even-up order spelled out, because an agent
+  trusting the mandate over the code would have "fixed" working code into a broken filter graph.
+- DOC_AUDIT_02 — SUITE-WIDE HARDWARE CAPABILITY (`HardwareCapability` NEW, `ExportEncoderStrategy`
+  NEW, `VideoRenderMode`, `HardwareScanner`, `MainWindow`, `VideoMergerWindow`, `MergerWorker`):
+  the documented encoder chain was only ever true for the Main App. `VideoMergerWindow` set
+  `HardwareStrategy` straight from Settings with no `ExportPayload` involved, `MergerWorker` mapped
+  "Auto" to a hardcoded "GPU", and the Merger process never ran `HardwareScanner` at all — so the
+  two apps could pick DIFFERENT encoders on the same machine. Meanwhile every process re-ran the
+  D3D11/DXGI GPU probe, and a full encoder scan spawns ffmpeg.exe up to FOUR times.
+  NOW: the Main App scans ONCE at boot and publishes both answers to
+  `ProgramData\uistate\hardware_capability.json` (via `UiStateStore`, per ISSUE_09 — no new state
+  root). Merger and Crop Tools READ it. `ExportEncoderStrategy.Resolve` is the ONE resolver both
+  apps call, so the preview path and the export encoder are now decided by identical logic
+  everywhere. Encoder half keyed on an ffmpeg path+size+mtime fingerprint + 7-day age; render half
+  keyed on the WINDOWS SESSION + remote flag (the RDP guard — a local result is actively wrong
+  inside RDP). A SCAN_FAILED is never published. Every read is null-on-any-problem and every write
+  is non-throwing, so a bad cache degrades to exactly the old per-process probe.
+- DOC_AUDIT_03 — SECTION 3 MAP POINTED AT A DELETED FILE: it listed `Media/FilterBuilder.cs`,
+  which Section 9 itself records as deleted and which does not exist. The map also never mentioned
+  `ProcessWorker.cs`, the actual export engine. Rebuilt the Core listing around the files that
+  really run FFmpeg, with an explicit note that `FilterBuilder.cs` is gone so nobody hunts for it.
+- DOC_AUDIT_04 — MERGER TWO-PASS DRIFTED FROM THE DOCUMENTED SHAPE (`MergerWorker`): its two-pass
+  progress split was 60/78 against the documented (and ProcessWorker) 60/75, and its
+  `PIPELINE RESULT` line omitted the `route=` suffix that Section 5C.6 documents for the whole
+  suite. Both aligned to the Main App so one description covers both apps, with lockstep warnings
+  added at all three sites.
+- T01 — TWO-PASS SIZE TARGETING (`TwoPassEncoding` NEW, `ProcessWorker`, `MergerWorker`,
+  `DiskSpaceGuard`): a size-locked export previously got ONE blind bitrate guess, and if the file
+  missed the ±5% band the ENTIRE render ran again with a scaled guess — a retry the code itself
+  admits can land FURTHER from the target ("Retry landed further from the target…"). Bits were also
+  spread evenly over the timeline, so a static lobby got the same budget per second as a firefight.
+  Pass 1 now builds a per-frame COMPLEXITY MAP of the whole timeline and pass 2 spends the same
+  budget where it is actually needed. This is NOT `-rc-lookahead` (which sees ~32 frames, half a
+  second at 60fps, and can never trade across a clip) and it is NOT NVENC's `-multipass` (which is
+  per-frame). Nothing touches pixels — no blur, no smoothing, no filter changes, only allocation.
+  * GATED THREE WAYS, and all three matter:
+    (1) a BITRATE BUDGET must exist — Main App: the MB quality slider, NEVER ORIGINAL QUALITY;
+        Merger: 100% "Lossless" only, never the CQ range below it. CRF/CQ has no budget to
+        redistribute, so two-pass there is pure wasted time.
+    (2) libx264 ONLY. `h264_nvenc` does not implement libavcodec's stats-file two-pass — it accepts
+        `-pass` and SILENTLY IGNORES it, which is worse than not offering the feature. Do not wire
+        this into the NVENC/AMF/QSV paths.
+    (3) not already failed this job.
+    Every other combination is byte-identical to before.
+  * FAST route (default): the filter graph — 14-18 way split, lanczos portrait scale, zoom pads,
+    HUD overlays — dominates wall clock, so a naive `-pass 1`/`-pass 2` costs ~2x. Instead the
+    graph runs ONCE into a near-lossless CRF 14 master and both passes read that file: ~1.3-1.4x.
+    Audio is finalised in the master and `-c:a copy`'d by pass 2, so it is encoded exactly once.
+  * SLOW route: chosen automatically when `DiskSpaceGuard.HasRoomFor` says the staging drive cannot
+    hold the master. The graph genuinely runs twice (~2x) rather than abandoning accurate sizing.
+    ⚠️ Its pass 1 MUST still map AND encode the audio branch — with `-filter_complex`, a labeled
+    output nothing consumes is an unconnected-output ABORT, so `-an` (or dropping the audio map)
+    breaks it. Only the FAST route's pass 1 may use `-an`, because it reads a plain file.
+  * The bitrate-scaling retry is now SUPPRESSED when a two-pass run produced the file (keyed on
+    `twoPassProducedResult`, NOT on "the encoder was libx264" — conflating those would disable the
+    retry for ordinary single-pass CPU exports that still benefit). It stays fully intact for the
+    NVENC/CQ paths. Worst case drops from ~2.7x to ~1.35x.
+  * Failure of either pass NEVER fails the export: two-pass is disabled for the rest of the job and
+    the ordinary single-pass encode runs instead. The disable flag also guarantees no retry loop.
+  * Stats hygiene: x264 writes BOTH `<prefix>-0.log` and `<prefix>-0.log.mbtree`. `TwoPassEncoding
+    .Cleanup` runs BEFORE each attempt as well as after, because a stale stats file would hand
+    pass 2 a complexity map for a different bitrate — silent quality damage with no error anywhere.
+  * Both passes MUST share identical encoder settings apart from the pass number (x264 validates
+    this); `TwoPassEncoding.PassArgs` is the single source for both so they cannot drift.
+  * Progress: the encode band is split by FRACTION (graph 0-60%, pass 1 60-75%, pass 2 75-100% of
+    the band) so it still works whether `encodeFloor` is 8 (audio analysis ran) or 0. The monotonic
+    EmitProgress gate (FIX_1) means a mis-estimated split can only stall the bar, never rewind it.
+  * NOT APPLICABLE TO CROP TOOLS — it never encodes video (ffprobe for metadata, SkiaSharp for PNGs).
+  * NVENC UNTOUCHED: `-preset p7 -multipass fullres -rc-lookahead 32` is the owner's explicit
+    maximum-quality choice (see G06). Do not "optimise" it.
+- ⚠️ G01 — THE GPU WAS DEAD ON EVERY MACHINE (CRITICAL, `ChildProcessTracker`): the static field
+  initializer threw on EVERY boot. `[LibraryImport("kernel32.dll")] CreateJobObject` names a symbol
+  kernel32 does not export (it exports `CreateJobObjectW`/`A`), and unlike legacy `[DllImport]` with
+  `CharSet.Unicode`, `[LibraryImport]` generates `ExactSpelling=true` stubs and does NO A/W suffix
+  probing. The resulting `EntryPointNotFoundException` became a `TypeInitializationException` that
+  the CLR then CACHES for the entire process lifetime. FIX: explicit `EntryPoint="CreateJobObjectW"`,
+  and the static init now runs through a guarded `CreateTracker()` that degrades to `NoOpJobTracker`
+  (new `IsJobObjectActive` flag). `AddProcess` is itself try/catch'd. RULE: this initializer must
+  NEVER be able to throw — losing child-process cleanup is cosmetic, losing hardware encoding is not.
+- G02 — ONE UNGUARDED LINE COST EVERY USER THEIR GPU (`HardwareScanner`): the two
+  `ChildProcessTracker.AddProcess` calls at `GetAvailableHwaccelsAsync` and
+  `CheckEncoderCapabilityAsync` were the ONLY unguarded call sites in the solution — every other one
+  already had try/catch. G01's throw therefore aborted the whole capability scan, which returned
+  "CPU". Both are now guarded.
+- G03 — "SCAN CRASHED" AND "USER CHOSE CPU" ARE NO LONGER THE SAME THING (`HardwareScanner`,
+  `EncoderManager`, `AppSettings`, `SettingsWindow`, `MainWindow`, `MergerWorker`,
+  `VideoMergerWindow`): an aborted scan returned "CPU", which set `EncoderManager.ForcedCpu=true`
+  and made it DISCARD its own successful `ffmpeg -encoders` probe. The dev log shows this exactly:
+  "Found Hardware Encoders: h264_amf, h264_nvenc, h264_qsv" immediately followed by "Forced CPU
+  selected. Using libx264." New `HardwareScanner.ScanFailed` ("SCAN_FAILED") sentinel is returned
+  ONLY on exception/timeout (a scan that RAN and found nothing still returns "CPU"), and
+  `EncoderManager` treats it as AUTO — recovering to hardware and logging that it did.
+  `MainWindow._hardwareMode` now DEFAULTS to the sentinel ("not scanned yet" ≠ "CPU-only") and the
+  HW badge shows "HW: Detecting…" instead of lying "CPU Only". NEW Settings ▸ Performance tab with
+  `AppSettings.VideoEncoderOverride` (Auto/NVIDIA/AMD/INTEL/CPU, schema v3→v4, "Auto" default keeps
+  old behaviour) which outranks the scan in BOTH the Main App and the Merger. The tab live-probes
+  and displays what FFmpeg can actually do on this machine.
+- G04 — ONLY INPUT 0 GOT GPU DECODING (`ProcessWorker`): `-hwaccel` is a PER-INPUT option that binds
+  to the next `-i` only. It was emitted once at the head of the arg list, so the thumbnail-intro
+  clone (the same file re-opened as input 1) and any video meme decoded in SOFTWARE on every export.
+  New `EncoderManager.GetDecodeFlags(encoder)` is now re-emitted before EVERY video input; still
+  deliberately NO `-hwaccel_output_format` (ISSUE_01 stands — the filter graph is software).
+  Image inputs (text PNG, image memes) are intentionally excluded.
+- G05 — ZOOM BUILT AN 8K CANVAS PER FRAME (`FilterGraphBuilder`, `GranularSpeedBuilder`):
+  `PadFilterNode` emitted `pad=iw+{Width}` while all four call sites passed the ABSOLUTE canvas
+  size, so the source frame was added twice: a 2560x1440 chunk became 7680x4320 (33 Mpx) instead of
+  the intended 5120x2880. The surplus band was pure black, off the right/bottom, never sampled by
+  the crop — so removing it is pixel-identical output. Node now emits `pad={Width}:{Height}`.
+  Separately, the margin itself was hardcoded to HALF THE FULL FRAME regardless of zoom; new
+  `ZoomPadMargin(cropExtent)` returns the provably minimal `cropExtent/2 + 2px`, applied to the two
+  INSTANT-zoom sites and `BuildConstantZoomFilter`. The SLOW-RAMP site KEEPS `resW/2` on purpose —
+  its zoom animates from 1.0x where the crop IS the whole frame; do not "unify" it or the
+  out-of-bounds crop crashes from changelog item (10) come back. Logged real case: 33.2 Mpx →
+  8.6 Mpx (3.86x). Verified against 1575 swept positions/zoom levels across 4 resolutions, 0
+  out-of-bounds, tightest residual margin 1px.
+- G08 — THE MERGER NEVER ASKED THE GPU TO DECODE (`MergerWorker`, `VideoMergerWindow`): there was no
+  `-hwaccel` anywhere in the file — every queued clip was decoded in software and then lanczos-
+  rescaled and fps-converted on the CPU; only the final encode used the GPU. Inputs are now built
+  PER ATTEMPT via `BuildInputArgs(encoder)` (necessary because `-hwaccel` depends on the encoder and
+  the encoder can change through the fallback chain). Input ORDER is unchanged, so `musicInputIndex`
+  and every `[n:v]`/`[n:a]` label still line up. The Merger also gained `HardwareStrategy` (G03) and
+  now honours `EncoderPreflightError` instead of silently ignoring it.
+- G09 — THE LOG NEVER SAID WHICH CHIP DID THE WORK (`ProcessWorker`, `MergerWorker`,
+  `EncoderManager`): this blind spot is precisely why two full CPU-only exports went unnoticed.
+  New `EncoderManager.DescribeDecoder/DescribeEncoder` plus a `speed=` parser on the existing
+  `-progress` stream produce one INFO line per export:
+  `PIPELINE RESULT: decode=GPU (NVDEC/cuda) encode=GPU (NVENC) speed=3.4x`, with an explicit
+  "WARNING: this is the CPU fallback" suffix when the hardware encoder failed. Contains no paths,
+  so it is safe at INFO under logging invariant L8.
+- G06 (NVENC preset) — REVIEWED AND DELIBERATELY DECLINED. `-preset p7 -multipass fullres
+  -rc-lookahead 32` is the slowest NVENC configuration available and dropping to p5/p6 + `qres`
+  would be several times faster, but maximum quality is the owner's explicit choice. DO NOT
+  "optimise" these values.
+- G07 (full-VRAM export filter graph) — INVESTIGATED, NOT IMPLEMENTED, BLOCKED ON MISSING FILTERS.
+  Even with G01-G04 fixed the journey is NVDEC(VRAM) → PCIe download → ~15 software filters → PCIe
+  upload → NVENC, i.e. two crossings per frame at 60fps. A CUDA-native graph was scoped against the
+  ACTUAL bundled `binaries/avfilter-11.dll`: `scale_cuda`, `overlay_cuda`, `hwupload_cuda`,
+  `hwdownload` and `colorspace_cuda` are PRESENT, but `cas_cuda`, `pad_cuda`, `fade_cuda` and
+  `crop_cuda` are ABSENT. `cas` runs on every zoomed chunk and `fade` on both the main and HUD
+  branches, so each one alone forces a full readback and there is no partial win available. A real
+  VRAM path requires replacing `cas`+`fade`, emulating `pad` via `color`→`hwupload_cuda`→
+  `overlay_cuda`, and re-validating the alpha-blended HUD compositing that the Crop Tools
+  coordinate math depends on. DO NOT add `-hwaccel_output_format` on its own — see ISSUE_01.
 - ⚠️ ISSUE_01 — HARDWARE EXPORT WAS SILENTLY DEAD (CRITICAL, `ProcessWorker`): the encode passed
   `-hwaccel_output_format cuda` (and `d3d11va`/`qsv`) alongside `-hwaccel`, which leaves every
   decoded frame in VRAM. But the EXPORT filter graph is 100% software (crop/scale/fade/overlay/
@@ -390,17 +1273,17 @@ When the app is freshly installed and no config exists, the default upload video
   escaping rules per argument. The joined string survives ONLY as a copy-pasteable DEBUG log line
   (`FormatForLog`) and is never passed to a process.
 - CPU / RDP Software Preview Fallback (`MpvVideoView` + `LibMpvInterop`): previously, on a GPU-less machine or an RDP session where the GPU is blocked, the `WGL_NV_DX_interop2` zero-copy bridge cannot initialize (`WGL_NV_DX_interop not supported by the OpenGL driver`), and the preview simply showed "Preview unavailable" — there was NO software render path (`vo` was set to `null` for CPU mode). Now the app uses mpv's SOFTWARE render API as a fallback: `vo=libmpv` for both paths, and when the GPU interop path is unavailable OR the machine is CPU-only, `InitializeSoftwareRender()` creates a render context with `api_type="sw"`, a background thread renders decoded frames (CPU `hwdec=no`) into a `WriteableBitmap` (mpv SW format `bgr0`, alpha forced opaque), and `Render()` paints it letterboxed. FAIL-SAFE + ISOLATED: the GPU path is completely untouched (GPU machines never enter this code), and ANY failure in the software path just leaves `IsSoftwareFallbackActive=true` (the original "Preview unavailable" overlay), so it can never be worse than before. Export was always CPU-capable and is unchanged; this only restores the live PREVIEW on GPU-less/RDP boxes. NOTE FOR AI AGENTS: this is native SW-render interop — verify on an actual CPU-only/RDP target (mpv SW render param enums SW_SIZE=16/FORMAT=17/STRIDE=18/POINTER=19).
-- Export Progress Accuracy Overhaul (`ProcessWorker` + `PhaseOverlayControl`, 6 fixes): the processing progress bar no longer jumps or misrepresents the work. (FIX_1) ALL progress now flows through a single monotonic `EmitProgress()` gate — the bar can never move backward — and the overlay eases the bar toward its target every ~33ms so bursty encoder reports never lurch. (FIX_2) Replaced the fixed 50/50 phase split with honest weights: fast audio Loudnorm analysis owns only 0-8%, video encoding owns 8-96%. (FIX_3) Killed the reset-to-zero at the phase seam — the handoff to the encode phase now emits the analysis-band ceiling instead of `0` (the old `PhaseUpdate(2,...,0)` made the bar visibly drop 8->0->back up). (FIX_4) Size-target retries can no longer snap the bar back to the start of the encode band — the monotonic gate holds it forward across attempts. (FIX_5) The encoder tops out at 96%; the file-copy + thumbnail tail fills 96-100% so "100%" only shows when the file is truly ready. (FIX_6) Cost-weighted encode mapping: a per-output-second cost map weights zoom (slow ramp heaviest, then instant), freeze frames (cheap) and the cloned intro still vs plain passthrough, so the bar advances by WORK done instead of raw `out_time` — no more stalling on heavy zoom/slow chunks and racing on freeze/passthrough chunks. If speed segments/timeMapper are absent the map degrades to near-linear. `Product Features Specifications.txt §32` corrected to match (it had falsely claimed the retry re-sweep was already smoothed).
+- Export Progress Accuracy Overhaul (`ProcessWorker` + `PhaseOverlayControl`, 6 fixes): the processing progress bar no longer jumps or misrepresents the work. (FIX_1) ALL progress now flows through a single monotonic `EmitProgress()` gate — the bar can never move backward — and the overlay eases the bar toward its target every ~33ms so bursty encoder reports never lurch. (FIX_2) Replaced the fixed 50/50 phase split with honest weights: fast audio Loudnorm analysis owns only 0-8%, video encoding owns 8-96%. (FIX_3) Killed the reset-to-zero at the phase seam — the handoff to the encode phase now emits the analysis-band ceiling instead of `0` (the old `PhaseUpdate(2,...,0)` made the bar visibly drop 8->0->back up). (FIX_4) Size-target retries can no longer snap the bar back to the start of the encode band — the monotonic gate holds it forward across attempts. (FIX_5) The encoder tops out at 96%; the file-copy + thumbnail tail fills 96-100% so "100%" only shows when the file is truly ready. (FIX_6) Cost-weighted encode mapping: a per-output-second cost map weights zoom (slow ramp heaviest, then instant), freeze frames (cheap) and the cloned intro still vs plain passthrough, so the bar advances by WORK done instead of raw `out_time` — no more stalling on heavy zoom/slow chunks and racing on freeze/passthrough chunks. If speed segments/timeMapper are absent the map degrades to near-linear. `Product_Features_Specifications.txt §32` corrected to match (it had falsely claimed the retry re-sweep was already smoothed).
 - Export Overlay — Vertical Play, Power-Up & Comedy Skits (`PhaseOverlayControl`, still fully SILENT): the two characters now use the WHOLE stage and randomly break into non-fight gags so it never loops the same. VERTICAL: "leap" makes one climb UP onto the progress-bar band and taunt from above; "hide" drops one DOWN into the log area to duck. POWER-UP: "mushroom" — a fighter grabs a mushroom, grows 2x (scale anchored at the feet), leaps high and GROUND-POUNDS the other straight down with an expanding shockwave ring + big knockback + screen shake ("SMASH!!"/"K.O.!"). SKITS (randomized, on their own ~6-12s cooldown, ~55% chance to interrupt the brawl): (1) DOOR PRANK — the prankster hides behind a door while the other wanders up asking "Where'd he go?", then the door SLAMS open ("WHAM!") and the victim is knocked out; (2) LADDER/BULB — one climbs to a light bulb and bubbles "Help me fix this bulb!", the other approaches and gets ELECTROCUTED ("BZZT!", bulb flares, zap bolt). KNOCK-OUT: a downed fighter topples gradually from vertical to horizontal (eased rotate around the feet) with spinning "seeing stars" overhead, then gets back up after ~1.7s; the director never picks a KO'd fighter as attacker. All props (door, ladder, bulb, zap, stars, mushroom, shockwave) are token-colored vector shapes; full per-export reset clears every prop, KO rotation, power-up scale and the bulb glow. No audio anywhere.
 - Export Overlay Fight — Variety Pass (`PhaseOverlayControl`, still fully SILENT): the brawl was made unpredictable instead of the old fixed-distance, single-projectile loop. It now runs a physics model (positions/velocities, gravity, damping) + a randomized MOVE DIRECTOR: each strike is picked from a weighted set — throw (randomized projectile color/size/arc/speed, sometimes a double throw), dash (attacker lunges in and knocks the defender back), uppercut (defender launched up, gravity drops them with a dust puff), kick (big horizontal knockback), feint (fake-out), and a rare "super" (full-canvas flash + big knockback + "SUPER!"). Defenders sometimes DODGE ("MISS!"/"WHIFF!") or BLOCK ("BLOCK!") instead of always eating the hit; occasional rapid COMBOS chain from the same attacker; the pair ROAM and continuously vary their distance via wander targets; taunts, impact words and timing are all randomized. Tempo still ramps with progress + GPU load; the entrance, finisher, cancel/error states and full per-export reset (now also clearing velocities + the 2nd projectile + super flash) are preserved. No audio anywhere.
 - Export Overlay Stick-Fighter Rework (`PhaseOverlayControl`, SILENT — no audio at all): the two procedural stick figures that play over the processing overlay were rebuilt to be legible and lively. (A) Fighter A is now accent-blue, Fighter B danger-red, thicker 9px strokes, 0.9 canvas opacity, each with a code-applied `DropShadowEffect` glow (theme-token colors) so they pop on the dark overlay; positions derive from the live `FightCanvas` size (no more hardcoded 700/800 overlap). (B) Real combat: the attacker throws an arced projectile to the defender's head, landing a comic impact burst ("POW/BAM/WHAM/…") plus a short defender shake; attacker alternates each strike. (C) Rotating taunt speech bubbles ("Encoding!", "2x speed!", "Hold still!", …) cycle every ~2.6s. (D) Dramatic entrance every export: the two slam in from opposite screen edges (ease-out) with dust puffs and a big "FIGHT!" title flash — fixed the `_animTime`-never-reset bug that silently killed the entrance on the 2nd+ video. (E) Finisher at 100%: the loser (whoever ate the last punch) collapses with a rotate/knock-down while a "VICTORY!" title + "GG" burst play. (F) Tempo is load-scaled: punch interval shortens from ~1.15s toward ~0.35s as progress and live GPU utilization rise. (G) FULL reset each export via `ResetFightVisuals()` — clears the knocked-down transform, hidden canvas (maximization edge case), and any lingering bursts/bubbles/dust so every render starts a clean brawl. Cancel shows a "?!" bubble; error shows a red "K.O." Nothing here emits sound.
 - Granular Crash Fix (CRITICAL): opening the Granular Speed Editor crashed the whole app (`InvalidOperationException: Expected control 'SlowZoomCheck' to be CheckBox but it was RadioButton` in `WireZoomControls`, killing the process at construction). The Slow/Instant zoom ramp selectors were converted to `RadioButton`s in XAML (`GroupName="ZoomRamp"`) but all 7 code-behind lookups still requested `CheckBox` — and Avalonia's `Find<T>` HARD-THROWS on found-but-wrong-type controls. All 7 lookups corrected to `RadioButton`. A suite-wide automated cross-check of EVERY typed `FindControl` against its actual XAML element type (with assignability resolution) now reports ZERO remaining mismatches. RULE FOR AI AGENTS: whenever you change a named element's TYPE in XAML, grep every `FindControl<...>("<Name>")` — a stale type is not a silent null, it is a process-killing throw.
 - MARK START Playhead Desync Fix (CRITICAL, suite-wide): the Play/Pause icons were converted to `Path` elements during the geometry-token sweep, but the sync code still looked them up as `Polygon`/`StackPanel` — the type-mismatched `FindControl` broke the Main App's 100ms `PlaybackTimer_Tick` icon/caret sync (caret froze at the MARK START position while the video kept playing; Play/Pause icon desynced). Fixed the lookups to `Shapes.Path` in ALL FIVE sites (MainWindow, Granular, MusicWizard x2, Merger). The Main App tick is now also wrapped in a defensive try/catch (logged once via RuntimeLog) so no single faulting lookup can ever freeze the sync loop again. Two related regressions fixed in the same pass: (1) MARK END had regressed back to force-pausing playback, violating the documented Playhead-Follow Rule — removed again; (2) `UpdateTimelineMarkers`' `canvas.Children.Clear()` permanently removed the XAML `PlayheadBadge` from the markers canvas on first rebuild, killing the floating time badge — it is now re-attached after every rebuild.
-- GPU-Conditional Live Zoom Preview (IMPLEMENTED, GranularSpeedEditorWindow.axaml/.cs): the boot-time GPU probe (`VideoRenderMode.Current.UseHardwareAcceleration`, initialized in AvaloniaApp) selects the Granular editor's zoom-preview path at construction (`_gpuLiveZoomPreview`). GPU PATH: `UpdateLiveZoomCrop()` (driven by the 50ms playback timer) mirrors the export-side `GranularSpeedBuilder` ZoomPhase math 1:1 — identical steal windows (>=0.5s available, capped 1.0s, computed against NEIGHBORING ZOOMS only), linear ramp progress p, zVal = 1 + (targetZ-1)*p, view center lerping from frame center to box center — and applies the equivalent visible source region live via mpv's `video-crop` property ("WxH+X+Y", even-rounded, deduplicated per tick, cleared with ""). mpv's aspect-fit letterboxing visually matches the export's force_original_aspect_ratio=decrease+pad stage (accepted minor difference: near frame edges the preview clamps the crop inside the frame where the export shows black padding). The yellow guide box is hidden on the GPU path (the real zoom is visible instead); zoom EDIT mode always clears the live crop first so drawing happens on the uncropped frame. APPLY ZOOM-IN stalls behind a blocking "Applying changes..." busy overlay (`ZoomApplyBusyOverlay`, indeterminate wheel) while the crop is primed — polls `GetPropertyString("video-crop")` up to ~1s plus one settle frame. CPU-ONLY PATH: everything above is skipped; behavior is byte-identical to before (yellow box overlay only, zoom visible only in the exported file). Cleanup: crop cleared on OnClosing; `mpv_set_property_string` failures are silent no-ops, so an old libmpv without `video-crop` degrades gracefully to the CPU-path visuals.
+- GPU-Conditional Live Zoom Preview (IMPLEMENTED, GranularSpeedEditorWindow.axaml/.cs): the boot-time GPU probe (`VideoRenderMode.Current.UseHardwareAcceleration`, initialized in AvaloniaApp) selects the Granular editor's zoom-preview path at construction (`_gpuLiveZoomPreview`). GPU PATH: `UpdateLiveZoomCrop()` (driven by the 50ms playback timer) mirrors the export-side `GranularSpeedBuilder` ZoomPhase math 1:1 — identical steal windows (fixed `GranularSpeedBuilder.ZoomRampSeconds` = 0.5s, granted only when >= `ZoomRampMinAvailableSeconds` = 0.5s is free on that side, computed against NEIGHBORING ZOOMS only — the preview READS those public constants rather than duplicating the numbers, so the two can never drift), linear ramp progress p, zVal = 1 + (targetZ-1)*p, view center lerping from frame center to box center — and applies the equivalent visible source region live via mpv's `video-crop` property ("WxH+X+Y", even-rounded, deduplicated per tick, cleared with ""). mpv's aspect-fit letterboxing visually matches the export's force_original_aspect_ratio=decrease+pad stage (accepted minor difference: near frame edges the preview clamps the crop inside the frame where the export shows black padding). The yellow guide box is hidden on the GPU path (the real zoom is visible instead); zoom EDIT mode always clears the live crop first so drawing happens on the uncropped frame. APPLY ZOOM-IN stalls behind a blocking "Applying changes..." busy overlay (`ZoomApplyBusyOverlay`, indeterminate wheel) while the crop is primed — polls `GetPropertyString("video-crop")` up to ~1s plus one settle frame. CPU-ONLY PATH: everything above is skipped; behavior is byte-identical to before (yellow box overlay only, zoom visible only in the exported file). Cleanup: crop cleared on OnClosing; `mpv_set_property_string` failures are silent no-ops, so an old libmpv without `video-crop` degrades gracefully to the CPU-path visuals.
 - Granular Editor Export Fix (CRITICAL): the Granular Speed Editor's deferred-close `OnClosing` cancelled the close and hid the window but never set `_isSafeToClose=true` / re-called `Close()`, so `ShowDialog` never returned and the MainWindow continuation that saves `editor.ResultSegments` into `_speedSegments` never ran — silently discarding ALL granular edits (speed segments, freezes AND zoom) so FFmpeg only ever got a uniform base-speed graph. Now closes properly (matching all sibling windows) and disposes its mpv preview host on close.
 - Granular Zoom Tutorial Fix: the "CLICK AND DRAG TO DRAW ZOOM BOX" onboarding banner never appeared because it was measured/positioned against the freshly-shown overlay canvas's still-zero `Bounds` and clipped by its `ClipToBounds`; positioning + the 2s dismiss timer now run at `DispatcherPriority.Loaded` (after layout).
 - Granular Editor Layout Redesign: `SET ZOOM`->`ZOOM-IN`; `ZOOM-IN` moved to the far right of the transport row (beside MARK END); `FREEZE IMAGE` + all six duration presets collapsed into one horizontal row on the left of the transport row (beside MARK START); `DELETE SEGMENT`/`CLEAR ALL SEGMENTS` stacked bottom-right; scrubber timeline given a black `AppOverlayBrush` backdrop for tick-grid parity with the Main App; zoom corner handles restyled dark-blue (`#1e40af`) and ~15% smaller (13.6px) with the 16px grab hitbox preserved; live hover cursors added (Hand on box interior, diagonal arrows on corners).
-- Zoom SLOW/INSTANT Ramp Mode: two mutually-exclusive Slow/Instant checkboxes under `ZOOM-IN` (INSTANT default) store a per-segment `SpeedSegment.ZoomSlow` flag (persisted via `zoomSlow`). SLOW spec = ease in over up to 1s (min 0.5s) stolen before the zoom start and ease out over up to 1s after the zoom end, instant on any side with <0.5s to steal. Selector/flag/persistence are LIVE, and the SLOW gradual zoom rendering IS fully implemented in the FFmpeg export graph via the `ZoomPhase` ramp engine in `GranularSpeedBuilder.cs` (steal-before/steal-after ease in/out). The only pending piece is the GPU-conditional live mpv preview simulation — see Section 8 item (b).
+- Zoom SLOW/INSTANT Ramp Mode: two mutually-exclusive Slow/Instant checkboxes under `ZOOM-IN` (INSTANT default) store a per-segment `SpeedSegment.ZoomSlow` flag (persisted via `zoomSlow`). SLOW spec = ease in over EXACTLY 0.5s stolen before the zoom start and ease out over EXACTLY 0.5s after the zoom end; a side with less than 0.5s of free footage to steal gets NO ramp and snaps instantly. ⚠️ TWO ADJACENT **SLOW** ZOOMS NEED A FULL 1.0s BETWEEN THEM (`ZoomRampRequiredGapBetweenSlowZooms`) before EITHER is granted a ramp on the facing side — both want to borrow from that one gap. Closer than that and NEITHER glides; both snap, symmetrically. This replaced a real defect: the two borrow windows were allowed to overlap, and because the chunk builder takes the FIRST matching zoom phase and stops, the earlier zoom's glide-out won the contested stretch and the later zoom's glide-in was partly or wholly discarded — at 0.75s apart the picture glided out to normal, JUMPED to half zoom, then glided the rest of the way in (a hop that looked like a rendering fault); at 0.5s apart the later glide vanished entirely. The 2x rule applies ONLY when BOTH neighbours are Slow — an Instant zoom and the clip start/end borrow nothing, so the ordinary 0.5s applies against them. Do not widen it. The editor additionally CLAMPS zoom-marker drags to that 1.0s (`ClampZoomEdgeAgainstSlowNeighbours`, mirroring the existing `SegGapMs` social-distance rule for speed blocks) so the state is normally unreachable; flipping a zoom to Slow after placing it can still reach it, and Option A handles that case correctly (both snap). ⚠️ THE RAMP IS ALL-OR-NOTHING AND FIXED-LENGTH. It was previously "up to 1s, or whatever is available if less", which produced a glide of anywhere between 0.5s and 1.0s that the user could neither predict nor see, and read as too slow for gameplay clips. The two numbers live in `GranularSpeedBuilder.ZoomRampSeconds` / `ZoomRampMinAvailableSeconds` and are PUBLIC so the live mpv preview reads the same values — never re-type them in the App layer or the preview will show a zoom that is not the one exported. Selector/flag/persistence are LIVE, and the SLOW gradual zoom rendering IS fully implemented in the FFmpeg export graph via the `ZoomPhase` ramp engine in `GranularSpeedBuilder.cs` (steal-before/steal-after ease in/out). The only pending piece is the GPU-conditional live mpv preview simulation — see Section 8 item (b).
 - UX/UI Structural Audit Fixes (Round 3, 7 issues): (01) Granular `PendingSpeedSlider` `Width`->`MinWidth/MaxWidth`; (02) Phase-overlay `CancelProcessButton` + `DeploymentProgressWindow` FINISH button `Width`/`Height`->`Min*`; (03) Settings `FontScaleComboBox`/`ThemeComboBox`/`MaskOverlayProfileComboBox` `Width`->`MinWidth`; (04) VoiceOver Play/Pause `Secondary`->`Primary` with always-white icons (matches all other transport Play buttons); (05) Merger drop-indicator + Phase-overlay glow `BoxShadow`s tokenized to `AppDropIndicatorShadow`/`AppPhaseGlowShadow`; (06) reusable `ConfirmDialogWindow` default labels made neutral ("YES"/"NO" — all callers already override via `SetButtonText`); (07) Main App bottom action `WrapPanel` children given an 8px vertical gap so wrapped rows never touch at large font scale.
 - "Open With" Launch Fix: Explorer "Open With" now works — a video file path as the first CLI argument boots the UI and auto-loads the file (Program.cs + OpenWithLaunch.cs). Previously the path hit PrintUsage and the process exited silently.
 - Drag & Drop Hardening: Main App preview box accepts dropped videos (instant load & play); Video Merger queue accepts bulk external file drops with upload-grade dedupe; new Win32FileDropInterop.cs WM_DROPFILES fallback makes drops work even in elevated processes where OLE drag & drop is UIPI-blocked.
@@ -424,12 +1307,19 @@ When the app is freshly installed and no config exists, the default upload video
 - Video Merger Lossless Size Fix: at 100% ("Lossless") the merge encoder now anchors the VBR target `-b:v` to the duration-weighted AVERAGE source video bitrate (so total output size ≈ the combined size of the input clips, matching the UI "Est. Output"), while `-maxrate`/`-bufsize` are raised to the PEAK clip bitrate for VBR headroom. Previously it anchored the WHOLE timeline to the PEAK single-clip bitrate, inflating the file far past the sum of inputs (forcing users down to ~40% just to hit the right size). Every merged clip is now also normalized to `fps=60` (CFR) BEFORE concat — matching the encoder's 60-fps GOP and removing mixed-fps stutter at clip joins. The unused `ffplay.exe` was dropped from the Debug dev-binary copy (`FortniteVideoSoftware.App.csproj`).
 - Crop Tools Pixel-Perfect + Responsiveness Fix: `QuantizeItemSize` now derives the overlay height `rh` from `contentH x scale x backendScale` — IDENTICAL to `MobileFilterBuilder.Build` — instead of deriving it from the already-even-ceiled `rw`, which could make the exported mask up to ~2px taller/shorter than the preview showed. Snapshot decode/scale/PNG-encode (`LoadSnapshotAsync`, `CreateComposerBackgroundPreview`) and the add-selection crop (`CropSnapshotRegion`) now run off the UI thread (only the Avalonia `Source` assignments stay on the UI thread), keeping the window responsive on 1440p/4K frames.
 - Logging Hardening: rotated `.old` logs use a millisecond+GUID name so the 3 concurrent apps can never collide on the same rotation name (which previously skipped rotation silently); retention now trims by count (5), total size (~50 MB) AND age (14 days); full FFmpeg/FFprobe commands and full file paths were demoted from INFO to DEBUG (dev-only) so the production log no longer exposes user paths (the Merger input list shows file NAMES at INFO, full path at DEBUG); the `LogAppended` live-viewer callback is now exception-guarded.
-- Granular Segment Zoom-In (FULLY IMPLEMENTED — data model, backend, and interactive editor UI): `SpeedSegment` (`GranularSpeedBuilder.cs`) carries optional `int? ZoomX/ZoomY/ZoomW/ZoomH` + `string? ZoomOrigRes`, threaded through `ChunkSpec` and the source-chunk split. It now correctly implements detached `ZoomStartMs` and `ZoomEndMs` so zoom durations are completely independent of speed blocks. A zoomed chunk injects `crop=W:H:X:Y,cas=0.5,scale=<srcW>:<srcH>:force_original_aspect_ratio=decrease,pad=<srcW>:<srcH>:(ow-iw)/2:(oh-ih)/2:color=black` before framerate normalization (mandatory AMD CAS `cas` counters digital-zoom softening). CONCAT/CANVAS-TRICK GEOMETRY: chunks concat at SOURCE resolution before the portrait stage, so the crop is aspect-fit + black-letterboxed back to the source WxH — a 16:9 crop fills exactly (no bars); a 2:3 mobile crop scales to source height and pads the sides, and MobileFilterBuilder's portrait center-crop (surviving width 720px = 1080×2/3) removes exactly those bars, yielding a flawless 2:3. EDITOR (`GranularSpeedEditorWindow`): a `ZOOM-IN` button (renamed from `SET ZOOM`; relocated to the FAR RIGHT of the transport row beside MARK END, with two mutually-exclusive Slow/Instant ramp checkboxes directly beneath it) is visible ONLY when a segment is selected (`_selectedSegmentIndex >= 0`) and toggles Primary->Success / ZOOM-IN->APPLY ZOOM-IN. Entering zoom mode drops a 50% `#80000000` dimmer + a yellow dashed spotlight box (`ZoomOverlayCanvas`) over the video supporting draw / center-pan / 4 dark-blue (`#1e40af`) corner-resize handles drawn ~15% smaller (13.6px) than their UNCHANGED 16px grab hitbox, with live hover cursors (Hand over the box interior, diagonal resize arrows over the corners), aspect-locked (16:9, or 2:3 when Main App Portrait mode is on — passed via NEW constructor args `isMobileFormat`/`originalResolution`), hard-clamped to the video edges with a 240x135 SOURCE-pixel floor (`ZoomFloorW`/`ZoomFloorH` in `GranularSpeedEditorWindow.axaml.cs`). In Portrait Mode, the Portrait Box Boundaries are strictly enforced (rubberband is geometric-clamped to the 9:16 'portrait brick wall' center slice). On `PointerReleased` the box is mapped through the video's letterboxed rect into SOURCE pixels, destructively overwrites the segment (sync guarantee so FFmpeg always sees the latest box), writes a `RuntimeLog.Info` (Created/Moved/Resized + X/Y/W/H), and shows a 🔍 on the timeline block + `[ZOOMED]` in the segment list. Zoom blocks are rendered on the timeline as a semi-transparent fuchsia line with two grab-able lollipop magnifying-glass icons (`#d946ef`), completely detached from the green speed segments, allowing independent X-axis resizing. A playhead-synced overlay renders the box only while the caret is inside the zoomed segment on CPU-only machines; on GPU machines the zoom is instead simulated live 1:1 in mpv via the `video-crop` property (see the "GPU-Conditional Live Zoom Preview" changelog entry — the yellow box is hidden there since the real zoom is visible). A 3-time onboarding tutorial ('CLICK AND DRAG TO DRAW ZOOM BOX', dismissed on first press or after 1.5s, mounted at Y:40) is counted in `%APPDATA%\FortniteVideoSoftware\Settings\zoom_tutorial.txt`. Zoom fields survive crashes via the MainWindow recovery save/restore, and the source resolution is taken live from mpv (`MpvIpcClient.VideoWidth/Height`) for exact coordinate mapping. SLOW/INSTANT ramp mode: a per-segment `bool ZoomSlow` flag (default false=INSTANT hard-cut) is set from the Slow/Instant checkboxes, live-applied to the selected segment, reflected on selection, - UI/UX Stability & Bug Fixes: (1) Fixed Granular Speed Editor playhead snapping - clicking a segment no longer disrupts the playhead unless the block is dragged. (2) Relocated Granular zoom tutorial banner to Y:40 (out of the center focus) and reduced timer to 1.5s. (3) Re-engineered Main App and Granular Editor MARK START / MARK END logic to strictly control playback states: MARK START explicitly forces playback (pause: no), and MARK END explicitly forces a pause (pause: yes). (4) Fixed crash when dragging Granular Speed Segment end-markers rapidly by enforcing boundary `Math.Clamp` against `SegMinWidthMs`. (5) Silenced transient `0x80070057` COMException logging inside `MpvVideoView.cs` (D3D11 frame buffer switching noise) that flooded the logs. (6) Eliminated raw hardware `0xc0000005` Segfault Access Violations inside NVIDIA's OpenGL driver (`nvoglv64.dll`) upon Granular Speed Editor window close by rigorously enforcing proper unmanaged DLL teardown ordering (`mpv_terminate_destroy` must now fire to release the render context before `NativeLibrary.Free` unloads `opengl32.dll` from the Avalonia host). (7) Rewired FFmpeg graph order (`zoom filter` -> `setpts` -> `fps=targetFps`) to prevent the camera ramp from freezing the video or fighting the speed modifier. Also rigidly forced `fps=targetFps:round=near:start_time=0` on *all* non-zoomed video chunks before concatenation; anchoring `start_time=0` ensures the frame grids start at 0.0s, permanently resolving severe A/V micro-desyncs caused by the VFR decoder injecting negative timestamps. (8) FIXED FATAL 100% MEMORY EXHAUSTION CRASH: Eradicated the extremely buggy FFmpeg `zoompan` filter from the codebase entirely; it was secretly caching entire uncompressed videos to RAM. It has been replaced by a mathematically pure, zero-leak per-frame evaluator chain using `scale=eval=frame` combined with dynamic `crop` coordinates. (9) FIXED PORTRAIT ZOOM UI DRIFT: Re-mapped the portrait rubberband boundaries in `GranularSpeedEditorWindow` to use `(2.0 / 3.0)` logic, perfectly matching the 720px surviving horizontal width of the "Portrait Canvas Trick" backend math, eliminating all vertical drawing restriction bugs. (10) FIXED SLOW ZOOM OVER-ZOOM/CRASH: Updated the FFmpeg slow-zoom engine's scale ceiling mathematically to `Math.Min(1920/W, 1080/H)` identical to the instant-zoom's `force_original_aspect_ratio=decrease`, preventing 2.66x over-zooming. Pre-padded the source frame with 1920px of black space to allow dynamic pan-crops to the very edges of the screen safely without throwing FFmpeg out-of-bounds `crop` crashes. (11) FIXED SEVERE FFmpeg IMPLICIT SPLIT A/V DESYNC: when no speed segments were used, the exact same `[v_with_intro]` stream was passed to `MobileFilterBuilder` as both the background canvas and the HUD-overlay cutout source, causing FFmpeg to perform an implicit stream split. Because the background path was heavy (`scale=1280... flags=lanczos`) and the HUD path was light, FFmpeg's internal buffer panicked and permanently dropped the first ~60 frames (1 full second) of the background video to conserve memory. This skipped the 1-second `fade=t=in` sequence (causing the video to pop in fully bright) and permanently destroyed 1 second of video frames, throwing the entire rest of the video out of sync with the audio track by 1 second. FIXED by manually injecting a `split=2` filter to explicitly clone the stream before `MobileFilterBuilder` receives it, forcing FFmpeg to cleanly duplicate the buffers in lockstep without dropping frames. (12) FIXED HUD ELEMENT FADE DESYNC: HUD cutout overlays were previously bypassing both the thumbnail-intro and the video fade-in passes because the `gVHud` source bypassed the `fade` filter graph block. The engine now detects `gVHud` and symmetrically applies the exact same `fade` sequences and exact same 0.1s source-frame intro prepend to it. Both streams now arrive at `MobileFilterBuilder` perfectly synchronized, so the HUD elements fade in perfectly with the main video instead of popping in instantly over black.
+- Granular Segment Zoom-In (FULLY IMPLEMENTED — data model, backend, and interactive editor UI): `SpeedSegment` (`GranularSpeedBuilder.cs`) carries optional `int? ZoomX/ZoomY/ZoomW/ZoomH` + `string? ZoomOrigRes`, threaded through `ChunkSpec` and the source-chunk split. It now correctly implements detached `ZoomStartMs` and `ZoomEndMs` so zoom durations are completely independent of speed blocks. A zoomed chunk injects `crop=W:H:X:Y,cas=0.5,scale=<srcW>:<srcH>:force_original_aspect_ratio=decrease,pad=<srcW>:<srcH>:(ow-iw)/2:(oh-ih)/2:color=black` before framerate normalization (mandatory AMD CAS `cas` counters digital-zoom softening). CONCAT/CANVAS-TRICK GEOMETRY: chunks concat at SOURCE resolution before the portrait stage, so the crop is aspect-fit + black-letterboxed back to the source WxH — a 16:9 crop fills exactly (no bars); a 2:3 mobile crop scales to source height and pads the sides, and MobileFilterBuilder's portrait center-crop (surviving width 720px = 1080×2/3) removes exactly those bars, yielding a flawless 2:3. EDITOR (`GranularSpeedEditorWindow`): a `ZOOM-IN` button (renamed from `SET ZOOM`; relocated to the FAR RIGHT of the transport row beside MARK END, with two mutually-exclusive Slow/Instant ramp checkboxes directly beneath it) is visible ONLY when a segment is selected (`_selectedSegmentIndex >= 0`) and toggles Primary->Success / ZOOM-IN->APPLY ZOOM-IN. Entering zoom mode drops a 50% `#80000000` dimmer + a yellow dashed spotlight box (`ZoomOverlayCanvas`) over the video supporting draw / center-pan / 4 dark-blue (`#1e40af`) corner-resize handles drawn ~15% smaller (13.6px) than their UNCHANGED 16px grab hitbox, with live hover cursors (Hand over the box interior, diagonal resize arrows over the corners), aspect-locked (16:9, or 2:3 when Main App Portrait mode is on — passed via NEW constructor args `isMobileFormat`/`originalResolution`), hard-clamped to the video edges with a 240x135 SOURCE-pixel floor (`ZoomFloorW`/`ZoomFloorH` in `GranularSpeedEditorWindow.axaml.cs`). In Portrait Mode, the Portrait Box Boundaries are strictly enforced (rubberband is geometric-clamped to the 9:16 'portrait brick wall' center slice). On `PointerReleased` the box is mapped through the video's letterboxed rect into SOURCE pixels, destructively overwrites the segment (sync guarantee so FFmpeg always sees the latest box), writes a `RuntimeLog.Info` (Created/Moved/Resized + X/Y/W/H), and shows a 🔍 on the timeline block + `[ZOOMED]` in the segment list. Zoom blocks are rendered on the timeline as a semi-transparent fuchsia line with two grab-able lollipop magnifying-glass icons (`#d946ef`), completely detached from the green speed segments, allowing independent X-axis resizing. A playhead-synced overlay renders the box only while the caret is inside the zoomed segment on CPU-only machines; on GPU machines the zoom is instead simulated live 1:1 in mpv via the `video-crop` property (see the "GPU-Conditional Live Zoom Preview" changelog entry — the yellow box is hidden there since the real zoom is visible). A 3-time onboarding tutorial ('CLICK AND DRAG TO DRAW ZOOM BOX', dismissed on first press or after 1.5s, mounted at Y:40) is counted in `%APPDATA%\FortniteVideoSoftware\Settings\zoom_tutorial.txt`. Zoom fields survive crashes via the MainWindow recovery save/restore, and the source resolution is taken live from mpv (`MpvIpcClient.VideoWidth/Height`) for exact coordinate mapping. SLOW/INSTANT ramp mode: a per-segment `bool ZoomSlow` flag (default false=INSTANT hard-cut) is set from the Slow/Instant checkboxes, live-applied to the selected segment, reflected on selection, carried out to `ResultSegments` alongside the geometry, included in the editor's unsaved-changes signature (`BuildStateSignature`, so flipping Slow/Instant alone counts as a real edit), and read by the zoom-marker drag clamp that enforces the 1-second gap between two SLOW zooms. A newly drawn zoom takes its initial mode from Settings -> `Defaults.DefaultZoomSlow` rather than hard-coding INSTANT.
+- UI/UX Stability & Bug Fixes: (1) Fixed Granular Speed Editor playhead snapping - clicking a segment no longer disrupts the playhead unless the block is dragged. (2) Relocated Granular zoom tutorial banner to Y:40 (out of the center focus) and reduced timer to 1.5s. (3) Re-engineered Main App and Granular Editor MARK START / MARK END logic to strictly control playback states: MARK START explicitly forces playback (pause: no), and MARK END explicitly forces a pause (pause: yes). (4) Fixed crash when dragging Granular Speed Segment end-markers rapidly by enforcing boundary `Math.Clamp` against `SegMinWidthMs`. (5) Silenced transient `0x80070057` COMException logging inside `MpvVideoView.cs` (D3D11 frame buffer switching noise) that flooded the logs. (6) Eliminated raw hardware `0xc0000005` Segfault Access Violations inside NVIDIA's OpenGL driver (`nvoglv64.dll`) upon Granular Speed Editor window close by rigorously enforcing proper unmanaged DLL teardown ordering (`mpv_terminate_destroy` must now fire to release the render context before `NativeLibrary.Free` unloads `opengl32.dll` from the Avalonia host). (7) Rewired FFmpeg graph order (`zoom filter` -> `setpts` -> `fps=targetFps`) to prevent the camera ramp from freezing the video or fighting the speed modifier. Also rigidly forced `fps=targetFps:round=near:start_time=0` on *all* non-zoomed video chunks before concatenation; anchoring `start_time=0` ensures the frame grids start at 0.0s, permanently resolving severe A/V micro-desyncs caused by the VFR decoder injecting negative timestamps. (8) FIXED FATAL 100% MEMORY EXHAUSTION CRASH: Eradicated the extremely buggy FFmpeg `zoompan` filter from the codebase entirely; it was secretly caching entire uncompressed videos to RAM. It has been replaced by a mathematically pure, zero-leak per-frame evaluator chain using `scale=eval=frame` combined with dynamic `crop` coordinates. (9) FIXED PORTRAIT ZOOM UI DRIFT: Re-mapped the portrait rubberband boundaries in `GranularSpeedEditorWindow` to use `(2.0 / 3.0)` logic, perfectly matching the 720px surviving horizontal width of the "Portrait Canvas Trick" backend math, eliminating all vertical drawing restriction bugs. (10) FIXED SLOW ZOOM OVER-ZOOM/CRASH: Updated the FFmpeg slow-zoom engine's scale ceiling mathematically to `Math.Min(1920/W, 1080/H)` identical to the instant-zoom's `force_original_aspect_ratio=decrease`, preventing 2.66x over-zooming. Pre-padded the source frame with 1920px of black space to allow dynamic pan-crops to the very edges of the screen safely without throwing FFmpeg out-of-bounds `crop` crashes. (11) FIXED SEVERE FFmpeg IMPLICIT SPLIT A/V DESYNC: when no speed segments were used, the exact same `[v_with_intro]` stream was passed to `MobileFilterBuilder` as both the background canvas and the HUD-overlay cutout source, causing FFmpeg to perform an implicit stream split. Because the background path was heavy (`scale=1280... flags=lanczos`) and the HUD path was light, FFmpeg's internal buffer panicked and permanently dropped the first ~60 frames (1 full second) of the background video to conserve memory. This skipped the 1-second `fade=t=in` sequence (causing the video to pop in fully bright) and permanently destroyed 1 second of video frames, throwing the entire rest of the video out of sync with the audio track by 1 second. FIXED by manually injecting a `split=2` filter to explicitly clone the stream before `MobileFilterBuilder` receives it, forcing FFmpeg to cleanly duplicate the buffers in lockstep without dropping frames. (12) FIXED HUD ELEMENT FADE DESYNC: HUD cutout overlays were previously bypassing both the thumbnail-intro and the video fade-in passes because the `gVHud` source bypassed the `fade` filter graph block. The engine now detects `gVHud` and symmetrically applies the exact same `fade` sequences and exact same 0.1s source-frame intro prepend to it. Both streams now arrive at `MobileFilterBuilder` perfectly synchronized, so the HUD elements fade in perfectly with the main video instead of popping in instantly over black.
 - UX/UI Architecture & Accessibility Resolution (13 Critical/High/Med/Low Fixes): (01) Wizard step indicator classes (`WizDot*`, `WizLabel*`, `WizIcon*`) promoted from local `CropToolWindow` styles to global `AvaloniaApp.axaml` styles and applied across `MusicWizardWindow` for uniform theme adaptive contrast. (02) Video Merger UI status text layouts (`EstimatedSizeText`, `NormalizeInfoText`) updated with explicit margin spacing and text wrapping to prevent label overlaps on long descriptions. (03) Wide-screen layout constraints removed from `VideoMergerWindow` preview containers via unconstrained `HorizontalAlignment="Stretch"` and `VerticalAlignment="Stretch"`. (04) Standard button dimensions (`MinHeight="{DynamicResource AppButtonMinHeight}"`) enforced across Merger queue operation controls (`AddVideoButton`, `AddMusicButton`, `RemoveVideoButton`). (05) Finish dialog (`FinishedDialogWindow`) action buttons upgraded with assistive `ToolTip.Tip`, `Cursor="Hand"`, and screen-reader `AutomationProperties.Name` metadata. (06 & 07) Comprehensive assistive tab navigation and accessibility descriptions (`KeyboardNavigation.IsTabStop="True"`, `AutomationProperties.Name`) added to timeline scrub sliders and seek surfaces in `VideoMergerWindow` and `CropToolWindow`. (08) Eliminated window resizing layout stutter in `CropToolWindow` by assigning explicit `HorizontalAlignment="Center"` and `VerticalAlignment="Center"` to the composer `Viewbox` container. (09 & 10) Enforced OS High-Contrast accessibility style focus overrides (`:focus-visible` border brush) within `AvaloniaApp.axaml`. (11) Fixed Main App playhead caret scaling hover/drag state by explicitly wiring `TimelineKnob` to `TimelineOverlay` instead of the starved canvas. (12 & 13) Forced `ClipToBounds="False"` across all slider parent containers in `MainWindow` and `MusicWizardWindow` to explicitly prevent scaled thumb visual cutoff near 0%/100% boundary extremes.
 - UX/UI Structural Audit Fixes (Round 4, 6 issues): (01) CPU Fallback Render Obscuration: replaced the opaque "IsSoftwareFallbackActive" overlay in `MainWindow.axaml` with a non-obstructive warning badge so the CPU preview remains visible. (02) Hardcoded Mockup Fragmentation: replaced the redundant, hardcoded phone shells in `CropToolWindow.axaml` with the central `PhoneFrameMockup` control. (03) Flyout Thrashing: removed unreliable `Flyout` controls in `CropToolWindow.axaml` and replaced them with inline `StackPanel` visibility toggles. (04) MVVM Refactoring: removed phantom bindings and updated manual `INotifyPropertyChanged` properties to native `StyledProperty<T>`. (05) PhoneFrameMockup Host-Clipping Paradox (WARNING TO FUTURE AI): The fake mobile frame in `PhoneFrameMockup.axaml` MUST use `Height="1080"` for its inner grid. If you attempt to make it 1280 units high to "perfectly overflow" the top/bottom bezels outside the 1080 video bounds (as the geometry math seems to suggest), the Avalonia host `MainVideoGrid` (which enforces `ClipToBounds="True"`) will brutally clip the overhanging 100-unit bezels. This completely deletes both the fake mobile graphics and the generated portrait text overlay from the screen. The bezels and text MUST be drawn inside the visible 1080 area to survive the host clipping pass. (06) Zoom FFmpeg Crash Fix: forced `"0.000000"` decimal precision on filter graph calculations in `GranularSpeedBuilder.cs` to prevent scientific notation from breaking FFmpeg parses on extremely tiny sub-pixel values.
 ==============================================================================
 
 10. ENHANCED MEME SYSTEM & HARDWARE GUARDRAILS
+------------------------------------------------------------------------------
+⚠️ MIRRORED SECTION — KEEP BOTH COPIES IN STEP. This section is deliberately duplicated in full as
+`Product_Features_Specifications.txt` §43. THIS file is the context seed and the source of truth for
+AI agents, so the information lives here IN FULL and is never reduced to a cross-reference. An audit
+will flag the duplication as bloat; that is expected and the duplication is intentional. Any edit
+here must be applied to §43 as well, and vice versa — the danger is DIVERGENCE, not repetition.
 ------------------------------------------------------------------------------
 - Unified Meme Directory & Pre-Flight Probe: Centralized asset folder `Environment.SpecialFolder.MyVideos + @"\Fortnite Video Software\Memes"`. Overridable by global settings. Scans `.mp4`, `.png`, `.jpg` (skips 0-byte). Probes native dimensions, calculates aspect ratio (`Width/Height`), and stores it.
 - Dynamic UI Validation: `MemeComboBox` items styled via DataTemplate. If `PortraitModeCheckbox` is checked AND meme ratio > 0.85f, text is Red with tooltip "Fit for landscape". Dynamically refreshes.

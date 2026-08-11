@@ -47,6 +47,19 @@ public class EncoderManager
                     EncoderPreflightError = $"Export blocked: {hardwareStrategy} ({requestedEncoder}) not in FFmpeg.";
                 }
             }
+            else if (upper == HardwareScanner.ScanFailed)
+            {
+                // G03: the boot scan ABORTED — it never proved this machine is CPU-only. This
+                // constructor has just run its OWN successful `ffmpeg -encoders` probe, which is
+                // strictly better evidence. Treat the sentinel exactly like AUTO and say so
+                // loudly, so a silent hardware downgrade can never happen again.
+                PrimaryEncoder = AvailableEncoders.Count == 0 ? "libx264" : EncoderPreference.FirstOrDefault(encoder =>
+                    encoder != "libx264" && AvailableEncoders.Contains(encoder)) ?? "libx264";
+                ForcedCpu = PrimaryEncoder == "libx264";
+                CoreLogger.Info("GPU STRATEGY", ForcedCpu
+                    ? "Boot hardware scan had failed; live encoder probe also found no hardware encoder. Using libx264."
+                    : $"Boot hardware scan had failed, but the live encoder probe found {PrimaryEncoder} — RECOVERING to hardware encoding instead of downgrading to CPU.");
+            }
             else if (upper == "CPU")
             {
                 PrimaryEncoder = "libx264";
@@ -65,6 +78,43 @@ public class EncoderManager
             }
         }
     }
+
+    /// <summary>
+    /// G04/G08: the FFmpeg `-hwaccel` flag is a PER-INPUT option — it binds only to the very next
+    /// `-i`. Emitting it once at the head of the command line leaves every additional video input
+    /// (the thumbnail-intro clone, video memes, extra merge clips) decoding in software. Callers
+    /// must call this immediately before EVERY video `-i`.
+    /// Returns an empty list for CPU encoders and for non-video inputs.
+    /// NOTE: `-hwaccel_output_format` is deliberately NOT emitted — see project_structure.txt
+    /// ISSUE_01. The export filter graph is software, so decoded frames must be returned to
+    /// system memory automatically. Re-adding that flag kills the encode outright.
+    /// </summary>
+    public static List<string> GetDecodeFlags(string encoderName) => encoderName switch
+    {
+        "h264_nvenc" => ["-hwaccel", "cuda"],
+        "h264_amf" => ["-hwaccel", "d3d11va"],
+        "h264_qsv" => ["-hwaccel", "qsv"],
+        _ => [],
+    };
+
+    /// <summary>G09: human-readable name of the chip doing the DECODING for a given encoder.</summary>
+    public static string DescribeDecoder(string encoderName) => encoderName switch
+    {
+        "h264_nvenc" => "GPU (NVDEC/cuda)",
+        "h264_amf" => "GPU (d3d11va)",
+        "h264_qsv" => "GPU (QuickSync)",
+        _ => "CPU (software)",
+    };
+
+    /// <summary>G09: human-readable name of the chip doing the ENCODING.</summary>
+    public static string DescribeEncoder(string encoderName) => encoderName switch
+    {
+        "h264_nvenc" => "GPU (NVENC)",
+        "h264_amf" => "GPU (AMD AMF)",
+        "h264_qsv" => "GPU (Intel QSV)",
+        "libx264" => "CPU (libx264)",
+        _ => encoderName,
+    };
 
     private int VbvBufKbps(int kbps) => Math.Min(MaxBitrateKbps, Math.Max(kbps, kbps * 2));
 

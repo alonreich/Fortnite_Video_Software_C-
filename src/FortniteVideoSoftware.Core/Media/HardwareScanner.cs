@@ -5,8 +5,17 @@ namespace FortniteVideoSoftware.Core.Media;
 
 public static class HardwareScanner
 {
+    /// <summary>
+    /// G03: returned when the scan could NOT complete (exception / timeout) as opposed to
+    /// completing and legitimately finding no hardware encoder. These two outcomes used to
+    /// collapse into the same "CPU" string, which made EncoderManager set ForcedCpu=true and
+    /// discard its own successful encoder detection — the exact reason a machine with a working
+    /// RTX exported every video on libx264. NEVER merge this back into "CPU".
+    /// </summary>
+    public const string ScanFailed = "SCAN_FAILED";
+
     private static readonly string[] Priority = ["NVIDIA", "AMD", "INTEL"];
-    
+
     private static readonly Dictionary<string, string> Encoders = new()
     {
         { "NVIDIA", "h264_nvenc" },
@@ -14,6 +23,34 @@ public static class HardwareScanner
         { "INTEL", "h264_qsv" },
         { "CPU", "libx264" }
     };
+
+    /// <summary>
+    /// Suite-wide entry point (issue 2). Returns the shared result published by whichever app
+    /// scanned first, and only pays for a real scan when there is nothing valid to reuse.
+    ///
+    /// A full <see cref="ScanAsync"/> spawns ffmpeg.exe up to FOUR times (one `-hwaccels` listing
+    /// plus a real trial encode per vendor). Doing that in every process of a three-process suite
+    /// was pure waste AND allowed two apps to disagree about the same machine. Every caller should
+    /// use THIS method; call <see cref="ScanAsync"/> directly only when a forced re-probe is
+    /// genuinely wanted.
+    ///
+    /// A successful result is published for the other apps. A failure is deliberately NOT
+    /// published — see <see cref="HardwareCapability"/>.
+    /// </summary>
+    public static async Task<string> ScanSharedAsync(string ffmpegPath, CancellationToken cancellationToken = default)
+    {
+        var cached = HardwareCapability.TryLoadEncoder(ffmpegPath);
+        if (cached.HasValue)
+        {
+            CoreLogger.Info("Hardware",
+                $"Hardware scan skipped — reusing the suite-wide result: {cached.Value.EncoderMode}.");
+            return cached.Value.EncoderMode;
+        }
+
+        string mode = await ScanAsync(ffmpegPath, cancellationToken);
+        HardwareCapability.SaveEncoder(mode, ffmpegPath);
+        return mode;
+    }
 
     public static async Task<string> ScanAsync(string ffmpegPath, CancellationToken cancellationToken = default)
     {
@@ -39,13 +76,17 @@ public static class HardwareScanner
         }
         catch (OperationCanceledException)
         {
-            CoreLogger.Fail("Hardware", "Hardware scan timed out or was cancelled.");
+            // G03: an ABORTED scan proves nothing about the hardware. Do not report "CPU".
+            CoreLogger.Fail("Hardware", "Hardware scan timed out or was cancelled — hardware capability UNKNOWN, deferring to the encoder probe at export time.");
+            return ScanFailed;
         }
         catch (Exception ex)
         {
-            CoreLogger.Fail("Hardware", $"Hardware scan failed: {ex.Message}");
+            CoreLogger.Fail("Hardware", $"Hardware scan failed: {ex.Message} — hardware capability UNKNOWN, deferring to the encoder probe at export time.");
+            return ScanFailed;
         }
 
+        // Reached only when every probe RAN and every probe legitimately failed.
         CoreLogger.Fail("Hardware", "No working hardware encoder detected; using CPU.");
         return "CPU";
     }
@@ -81,7 +122,10 @@ public static class HardwareScanner
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg.");
         using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
         CoreLogger.Debug("HardwareScanner", $"Command: {psi.FileName} {psi.Arguments}");
-        ChildProcessTracker.AddProcess(process);
+        // G02: these were the ONLY two unguarded ChildProcessTracker.AddProcess call sites in the
+        // solution. Process tracking is cosmetic bookkeeping; it must never be able to abort the
+        // GPU capability scan and downgrade the whole session to CPU encoding.
+        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         
@@ -122,7 +166,8 @@ public static class HardwareScanner
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg for encoder test.");
         using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
-        ChildProcessTracker.AddProcess(process);
+        // G02: see GetAvailableHwaccelsAsync — tracking failures must never abort the probe.
+        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         
         try

@@ -6,10 +6,12 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using FortniteVideoSoftware.Core.Infrastructure;
+using FortniteVideoSoftware.Core.Media;
 using FortniteVideoSoftware.App.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace FortniteVideoSoftware.App.Controls;
 
@@ -25,6 +27,8 @@ public partial class SettingsWindow : Window
     private string _pendingMusicFolder = "";
 
     private string _pendingMaskOverlay = "";
+    /// <summary>G03 — pending value of <see cref="AppSettings.VideoEncoderOverride"/>.</summary>
+    private string _pendingVideoEncoder = "Auto";
     private ThemeMode _pendingThemeMode = ThemeMode.FollowOS;
     private FontScale _pendingFontScale = FontScale.Normal;
     private AudioFixPrompt _pendingLoudnessPrompt = AudioFixPrompt.Ask;
@@ -66,6 +70,7 @@ public partial class SettingsWindow : Window
         BuildKeyBindsUi();
         BuildDefaultsUi();
         BuildMaskOverlayUi();
+        BuildVideoEncoderUi();
         BuildAppearanceUi();
         BuildMemeFolderUi();
 
@@ -331,6 +336,74 @@ public partial class SettingsWindow : Window
                     btnRef.Content = _pendingKeys[kvp].ToString();
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// G03 — Performance tab. Maps the friendly labels shown to the user onto the exact strings
+    /// <c>EncoderManager.HardwareByStrategy</c> understands. Do not change the right-hand values.
+    /// </summary>
+    private static readonly (string Label, string Value)[] VideoEncoderChoices =
+    [
+        ("Automatic (recommended)", "Auto"),
+        ("NVIDIA graphics card (NVENC)", "NVIDIA"),
+        ("AMD graphics card (AMF)", "AMD"),
+        ("Intel built-in graphics (QuickSync)", "INTEL"),
+        ("Processor only — slowest (CPU)", "CPU"),
+    ];
+
+    private void BuildVideoEncoderUi()
+    {
+        _pendingVideoEncoder = string.IsNullOrWhiteSpace(SettingsManager.Instance.VideoEncoderOverride)
+            ? "Auto"
+            : SettingsManager.Instance.VideoEncoderOverride;
+
+        var combo = this.FindControl<ComboBox>("VideoEncoderComboBox");
+        var status = this.FindControl<TextBlock>("VideoEncoderStatusText");
+        if (combo == null) return;
+
+        var labels = VideoEncoderChoices.Select(c => c.Label).ToList();
+        combo.ItemsSource = labels;
+
+        int idx = Array.FindIndex(VideoEncoderChoices, c =>
+            c.Value.Equals(_pendingVideoEncoder, StringComparison.OrdinalIgnoreCase));
+        combo.SelectedIndex = idx >= 0 ? idx : 0;
+
+        combo.SelectionChanged += (_, _) =>
+        {
+            int i = combo.SelectedIndex;
+            if (i >= 0 && i < VideoEncoderChoices.Length)
+                _pendingVideoEncoder = VideoEncoderChoices[i].Value;
+        };
+
+        // Show what FFmpeg can ACTUALLY do on this machine, probed live — so the user is never
+        // guessing, and so a broken boot scan is immediately visible here.
+        if (status != null)
+        {
+            _ = Task.Run(() =>
+            {
+                string text;
+                try
+                {
+                    var mgr = new EncoderManager(null, null);
+                    text = mgr.AvailableEncoders.Count == 0
+                        ? "Detected on this computer: no graphics-card encoder found."
+                        : "Detected on this computer: " + string.Join(", ", mgr.AvailableEncoders
+                            .Select(e => e switch
+                            {
+                                "h264_nvenc" => "NVIDIA",
+                                "h264_amf" => "AMD",
+                                "h264_qsv" => "Intel",
+                                _ => e
+                            }));
+                }
+                catch (System.Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(ex.ToString());
+                    text = "Could not check this computer's graphics encoders.";
+                }
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => status.Text = text);
+            });
         }
     }
 
@@ -609,6 +682,14 @@ public partial class SettingsWindow : Window
         if (_pendingMaskOverlay != SettingsManager.Instance.ActiveMaskOverlay)
         {
             MaskOverlayManager.ApplyProfile(_pendingMaskOverlay);
+        }
+
+        // G03 — encoder override. Read by MainWindow.ResolveHardwareMode() and
+        // VideoMergerWindow on the NEXT export; nothing needs to restart.
+        if (_pendingVideoEncoder != SettingsManager.Instance.VideoEncoderOverride)
+        {
+            RuntimeLog.Info("Settings", $"Video encoder override changed: {SettingsManager.Instance.VideoEncoderOverride} -> {_pendingVideoEncoder}");
+            SettingsManager.Instance.VideoEncoderOverride = _pendingVideoEncoder;
         }
 
         SettingsManager.Save();

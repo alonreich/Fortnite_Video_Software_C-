@@ -21,6 +21,34 @@ public class ProcessWorker : IDisposable
 
     private const double AnalysisBandMax = 8.0;
     private const double EncodeBandMax = 96.0;
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // T01 — TWO-PASS PROGRESS SPLIT.
+    // The encode band (encodeFloor .. EncodeBandMax) is carved into three sub-bands when the
+    // two-pass route runs. Fractions, not absolute percentages, because `encodeFloor` is 8 when
+    // the audio loudnorm analysis ran and 0 when it did not.
+    //   0.00 -> 0.60 : Stage 1, the filter graph + near-lossless master (BY FAR the slowest part)
+    //   0.60 -> 0.75 : Pass 1, complexity analysis (decodes the master, encodes to null)
+    //   0.75 -> 1.00 : Pass 2, the real encode at the user's target size
+    // These are wall-clock-proportional estimates, not guarantees; the monotonic EmitProgress gate
+    // means an over- or under-run can only ever stall the bar, never rewind it (FIX_1).
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    private const double TwoPassGraphFraction = 0.60;
+    private const double TwoPassAnalysisFraction = 0.75;
+
+    /// <summary>
+    /// T01 — SLOW-route split. Used only when the temp drive cannot hold the scratch master, in
+    /// which case the filter graph genuinely runs twice and the two halves cost about the same.
+    /// </summary>
+    private const double TwoPassSlowPass1Fraction = 0.45;
+
+    /// <summary>
+    /// G09 — last `speed=` value FFmpeg reported (e.g. "3.4x"). Instance-scoped rather than a
+    /// local so the two-pass stages can report through the same field. "?" until the first
+    /// progress line arrives.
+    /// </summary>
+    public string LastReportedSpeed { get; private set; } = "?";
+
     private int _lastEmittedPct = -1;
 
     /// <summary>
@@ -836,6 +864,29 @@ public class ProcessWorker : IDisposable
 
                 string corePath = Path.Combine(tempJobDir, "core.mp4");
 
+                // ── T01 two-pass state ───────────────────────────────────────────────────────
+                // Both artefacts live in tempJobDir and are deleted the moment the job is done
+                // (see CleanupTwoPassArtifacts + the job-dir teardown). Nothing survives an export.
+                string twoPassMasterPath = Path.Combine(tempJobDir, "twopass_master.mp4");
+                string twoPassLogPrefix = Path.Combine(tempJobDir, "twopass_stats");
+
+                // Disabled for the rest of the job once the tail has failed, so the outer retry
+                // cannot loop forever trying the same broken route.
+                bool twoPassDisabled = false;
+
+                // Set only when a two-pass run actually PRODUCED the delivered file. The
+                // size-retry suppression below keys off this, not off "the encoder was libx264" —
+                // those are not the same thing and conflating them would silently disable the
+                // retry for ordinary single-pass CPU exports that still benefit from it.
+                bool twoPassProducedResult = false;
+
+                // The FAST route needs room for the scratch master. If it does not fit we do NOT
+                // fall back to single-pass (the user asked for accurate size targeting) — we fall
+                // back to plain -pass 1/-pass 2 over the filter graph, which costs ~2x but needs
+                // no extra disk. HasRoomFor never fails an export; it only answers yes/no.
+                bool twoPassFastRoute = DiskSpaceGuard.HasRoomFor(
+                    tempJobDir, DiskSpaceGuard.EstimateTwoPassMasterBytes(renderDurationSec + memeDuration));
+
                 bool success = false;
                 string lastError = "Render failed.";
 
@@ -845,9 +896,25 @@ public class ProcessWorker : IDisposable
                 {
                     string currentEncoder = lastSuccessfulEncoder ?? lastAttemptedEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
 
+                    // T01 SLOW route only: 1 = analysis run pending, 2 = real run pending. On the
+                    // FAST route the two passes are handled by RunTwoPassTailAsync and this stays 1.
+                    int slowStage = 1;
+
                     while (true)
                     {
                         lastAttemptedEncoder = currentEncoder;
+
+                        // ── T01 GATE ────────────────────────────────────────────────────────
+                        // Two-pass runs ONLY when all three hold:
+                        //   (1) a bitrate target exists — CRF/CQ exports have no budget to
+                        //       redistribute, so a second pass would cost time for nothing;
+                        //   (2) the encoder is libx264 — NVENC has no stats-file two-pass;
+                        //   (3) the tail has not already failed this job.
+                        // Every other combination takes the original single-pass path unchanged.
+                        bool twoPass = requestedBitrate.HasValue
+                                       && currentEncoder == "libx264"
+                                       && !twoPassDisabled;
+
                         var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(
                             currentEncoder, requestedBitrate, gDur, targetFps, qualityLevel,
                             targetMb.HasValue);
@@ -857,25 +924,31 @@ public class ProcessWorker : IDisposable
                             "-y", "-hide_banner", "-progress", "pipe:1"
                         };
 
-                        if (currentEncoder == "h264_nvenc")
-                        {
-                            ffmpegArgs.AddRange(["-hwaccel", "cuda"]);
-                        }
-                        else if (currentEncoder == "h264_amf")
-                        {
-                            ffmpegArgs.AddRange(["-hwaccel", "d3d11va"]);
-                        }
-                        else if (currentEncoder == "h264_qsv")
-                        {
-                            ffmpegArgs.AddRange(["-hwaccel", "qsv"]);
-                        }
+                        // ─────────────────────────────────────────────────────────────────────
+                        // G04 — `-hwaccel` IS A PER-INPUT OPTION.
+                        // It binds ONLY to the next `-i` on the command line. This block used to
+                        // emit it exactly once, at the head of the arg list, so ONLY input 0 (the
+                        // main clip) decoded on the GPU. The thumbnail-intro clone — which is the
+                        // SAME 1080p/1440p file re-opened as a second input — and any video meme
+                        // both decoded in software, on every single export, on every GPU machine.
+                        // `decodeFlags` must therefore be re-emitted immediately before EVERY
+                        // video `-i`. Image inputs (text PNG, image memes) are deliberately
+                        // excluded: there is no hardware path for a looped still and adding the
+                        // flag there just makes FFmpeg warn.
+                        // NOTE: still no `-hwaccel_output_format` — see ISSUE_01 in
+                        // project_structure.txt. Frames MUST come back to system memory because
+                        // the whole filter graph below is software.
+                        // ─────────────────────────────────────────────────────────────────────
+                        var decodeFlags = EncoderManager.GetDecodeFlags(currentEncoder);
 
+                        ffmpegArgs.AddRange(decodeFlags);
                         ffmpegArgs.AddRange([
                             "-ss", (actualExtractStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-t", ((actualExtractEndMs - actualExtractStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                             "-i", InputPath,
                         ]);
 
+                        // Audio-only inputs: no hwaccel (there is nothing to decode on the GPU).
                         foreach (var track in musicTracks)
                             ffmpegArgs.AddRange(["-i", track.Path]);
 
@@ -886,18 +959,28 @@ public class ProcessWorker : IDisposable
                                 : StartTimeMs / 1000.0;
                             if (sourceDuration > 0.25)
                                 introAbsSec = Math.Min(Math.Max(0, introAbsSec), Math.Max(0, sourceDuration - 0.2));
+                            // G04: video input — needs its own decode flags.
+                            ffmpegArgs.AddRange(decodeFlags);
                             ffmpegArgs.AddRange(["-ss", introAbsSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-t", Math.Max(0.2, introDurationSec + 0.1).ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", InputPath]);
                         }
 
+                        // Still image — intentionally NO hwaccel.
                         if (textPngPath != null)
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
                         if (MemeFile != null)
                         {
                             if (memeIsImage)
+                            {
+                                // Still image — intentionally NO hwaccel.
                                 ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", MemeFile]);
+                            }
                             else
+                            {
+                                // G04: video meme — needs its own decode flags.
+                                ffmpegArgs.AddRange(decodeFlags);
                                 ffmpegArgs.AddRange(["-i", MemeFile]);
+                            }
                         }
 
                         var voTakes = GetEffectiveVoiceOverTakes();
@@ -905,15 +988,85 @@ public class ProcessWorker : IDisposable
                             ffmpegArgs.AddRange(["-i", voTake.Path]);
 
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
-                        ffmpegArgs.AddRange(["-map", vOutputFinal, "-map", aOutputFinal]);
-                        ffmpegArgs.AddRange(codecArgs);
                         double totalOutputDurationSec = renderDurationSec + memeDuration;
-                        ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
-                            "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                            "-movflags", "+faststart", corePath]);
+
+                        // ── T01: what this FFmpeg invocation actually produces ───────────────
+                        // FAST two-pass  -> the near-lossless master; passes 1+2 follow separately.
+                        // SLOW two-pass  -> pass 1 straight off the filter graph (no master; the
+                        //                   graph will simply be re-run for pass 2). Only used
+                        //                   when the drive cannot hold the master.
+                        // Single-pass    -> the finished file, exactly as before.
+                        bool graphIsMaster = twoPass && twoPassFastRoute;
+                        bool graphIsSlowPass1 = twoPass && !twoPassFastRoute && slowStage == 1;
+                        bool graphIsSlowPass2 = twoPass && !twoPassFastRoute && slowStage == 2;
+
+                        ffmpegArgs.AddRange(["-map", vOutputFinal, "-map", aOutputFinal]);
+
+                        if (graphIsMaster)
+                        {
+                            // Audio is FINALISED here and stream-copied by pass 2, so it is
+                            // encoded exactly once across the whole export.
+                            ffmpegArgs.AddRange(TwoPassEncoding.MasterCodecArgs());
+                            ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
+                                "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                                twoPassMasterPath]);
+                        }
+                        else if (graphIsSlowPass1)
+                        {
+                            // ⚠️ THE AUDIO BRANCH MUST STILL BE MAPPED AND ENCODED HERE.
+                            // The obvious "optimisation" is `-an`, since audio contributes nothing
+                            // to a video complexity map. It does not work: with `-filter_complex`,
+                            // a labeled output that is never consumed makes FFmpeg abort with an
+                            // unconnected-output error, and `-map [a] -an` is the same thing by
+                            // another route. The null muxer discards both streams and the audio
+                            // chain is trivial next to the video graph, so the cost is noise.
+                            // (The FAST route's pass 1 CAN use `-an` — it reads a plain file, not
+                            // a filter graph. See RunTwoPassTailAsync.)
+                            ffmpegArgs.AddRange(TwoPassEncoding.PassArgs(requestedBitrate!.Value, 1, twoPassLogPrefix));
+                            ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k", "-sn", "-dn",
+                                "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                                "-f", "null", "NUL"]);
+                        }
+                        else if (graphIsSlowPass2)
+                        {
+                            ffmpegArgs.AddRange(TwoPassEncoding.PassArgs(requestedBitrate!.Value, 2, twoPassLogPrefix));
+                            ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
+                                "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                                "-movflags", "+faststart", corePath]);
+                        }
+                        else
+                        {
+                            ffmpegArgs.AddRange(codecArgs);
+                            ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
+                                "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                                "-movflags", "+faststart", corePath]);
+                        }
+
+                        // T01: progress window for THIS invocation. On the ordinary single-pass
+                        // path graphFloor/graphCeiling collapse to encodeFloor/EncodeBandMax, so
+                        // the maths below is byte-identical to before.
+                        double encodeBand = EncodeBandMax - encodeFloor;
+                        double graphFloor = graphIsSlowPass2
+                            ? encodeFloor + encodeBand * TwoPassSlowPass1Fraction
+                            : encodeFloor;
+                        double graphCeiling =
+                            graphIsMaster ? encodeFloor + encodeBand * TwoPassGraphFraction :
+                            graphIsSlowPass1 ? encodeFloor + encodeBand * TwoPassSlowPass1Fraction :
+                            EncodeBandMax;
+                        double pass1Ceiling = encodeFloor + encodeBand * TwoPassAnalysisFraction;
 
                         string cmdLine = FormatForLog(ffmpegArgs);
-                        CoreLogger.Info("FFmpeg", $"Starting encode: encoder={currentEncoder}, mode={rcLabel}, attempt={attemptNum}.");
+                        // G09: name the CHIPS, not just the codec. Nothing in the log used to
+                        // distinguish "GPU decode + GPU encode" from "everything on the CPU",
+                        // which is exactly why a fully dead hardware pipeline went unnoticed
+                        // across entire sessions. This line is INFO on purpose — it contains no
+                        // paths, so it is safe in production logs (see logging invariant L8).
+                        string routeLabel = graphIsMaster
+                            ? "two-pass FAST (rendering master, 2 passes follow)"
+                            : graphIsSlowPass1
+                                ? "two-pass SLOW (pass 1 over the filter graph — not enough temp disk for a master)"
+                                : "single-pass";
+                        CoreLogger.Info("FFmpeg", $"Starting encode: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={routeLabel}, attempt={attemptNum}.");
                         CoreLogger.Debug("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
                         var psi = new ProcessStartInfo
@@ -951,7 +1104,8 @@ public class ProcessWorker : IDisposable
                             while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
                             {
                                 var line = await reader.ReadLineAsync(cancellationToken);
-                                if (line != null && line.StartsWith("out_time_us="))
+                                if (line == null) continue;
+                                if (line.StartsWith("out_time_us="))
                                 {
                                     if (long.TryParse(line.AsSpan(12), out long outTimeUs))
                                     {
@@ -959,10 +1113,24 @@ public class ProcessWorker : IDisposable
                                         if (totalOutputDurationSec > 0)
                                         {
                                             double frac = EncodeFraction(currentSec);
-                                            int scaledPercent = (int)Math.Round(encodeFloor + frac * (EncodeBandMax - encodeFloor));
-                                            EmitProgress(2, "Encoding Video", scaledPercent);
+                                            // T01: graphFloor/graphCeiling collapse to
+                                            // encodeFloor/EncodeBandMax on the single-pass path.
+                                            int scaledPercent = (int)Math.Round(graphFloor + frac * (graphCeiling - graphFloor));
+                                            EmitProgress(2,
+                                                graphIsMaster ? "Preparing Video (1 of 3)" :
+                                                graphIsSlowPass1 ? "Analyzing Video (1 of 2)" :
+                                                graphIsSlowPass2 ? "Encoding Video (2 of 2)" :
+                                                "Encoding Video",
+                                                scaledPercent);
                                         }
                                     }
+                                }
+                                // G09: capture throughput so a slow run is diagnosable from the
+                                // log alone. Cheap string slice; no allocation-heavy parsing.
+                                else if (line.StartsWith("speed="))
+                                {
+                                    string v = line[6..].Trim();
+                                    if (v.Length > 0 && v != "N/A") LastReportedSpeed = v;
                                 }
                             }
                         }, cancellationToken);
@@ -1007,15 +1175,68 @@ public class ProcessWorker : IDisposable
                             return false;
                         }
 
-                        if (exitCode == 0 && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
+                        // T01: what counts as "this invocation succeeded" depends on the route.
+                        // The SLOW analysis pass writes to the null muxer, so there is no file to
+                        // check — only the exit code matters.
+                        string producedPath = graphIsMaster ? twoPassMasterPath : corePath;
+                        bool producedOk = graphIsSlowPass1
+                            ? exitCode == 0
+                            : exitCode == 0 && File.Exists(producedPath) && new FileInfo(producedPath).Length > 0;
+
+                        if (producedOk)
                         {
+                            // ── SLOW route: analysis done, now re-run the graph for the real pass.
+                            if (graphIsSlowPass1)
+                            {
+                                slowStage = 2;
+                                CoreLogger.Info("FFmpeg", "Two-pass SLOW: analysis complete, starting the real pass.");
+                                continue;
+                            }
+
+                            // ── FAST route: the master exists; run both passes off it.
+                            if (graphIsMaster)
+                            {
+                                bool tailOk = await RunTwoPassTailAsync(
+                                    twoPassMasterPath, corePath, twoPassLogPrefix,
+                                    requestedBitrate!.Value, totalOutputDurationSec,
+                                    graphCeiling, pass1Ceiling, EncodeBandMax, cancellationToken);
+
+                                CleanupTwoPassArtifacts(twoPassMasterPath, twoPassLogPrefix);
+
+                                if (_isCanceled || cancellationToken.IsCancellationRequested)
+                                {
+                                    lastError = CancelledMessage;
+                                    FailureDetail = null;
+                                    return false;
+                                }
+
+                                if (!tailOk)
+                                {
+                                    // Do NOT fail the export over this. Disable two-pass for the
+                                    // rest of the job and fall straight through to the ordinary
+                                    // single-pass encode — the user still gets a video. The flag
+                                    // guarantees this cannot loop.
+                                    twoPassDisabled = true;
+                                    CoreLogger.Fail("FFmpeg",
+                                        "Two-pass tail failed — falling back to a single-pass encode for this export.");
+                                    if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                                    continue;
+                                }
+                            }
+
                             lastSuccessfulEncoder = currentEncoder;
+                            twoPassProducedResult = twoPass;
 
                             bool cpuFallback = currentEncoder == "libx264" && useCuda && !encoderMgr.ForcedCpu;
+                            string passLabel = twoPass ? (twoPassFastRoute ? " route=two-pass(fast)" : " route=two-pass(slow)") : "";
+                            // G09: the one line that makes a silent hardware downgrade impossible
+                            // to miss. decode / encode / speed, in plain terms, at INFO.
                             CoreLogger.Info("FFmpeg",
-                                cpuFallback
-                                    ? $"Encode SUCCEEDED on {currentEncoder} — NOTE: this is the CPU fallback, the requested hardware encoder failed."
-                                    : $"Encode SUCCEEDED on {currentEncoder}.");
+                                $"PIPELINE RESULT: decode={EncoderManager.DescribeDecoder(currentEncoder)} " +
+                                $"encode={EncoderManager.DescribeEncoder(currentEncoder)} speed={LastReportedSpeed}{passLabel}" +
+                                (cpuFallback
+                                    ? " — WARNING: this is the CPU fallback, the requested hardware encoder FAILED."
+                                    : string.Empty));
 
                             if (stderrLines.Length > 0)
                                 CoreLogger.Debug("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
@@ -1065,6 +1286,10 @@ public class ProcessWorker : IDisposable
                     for (int attempt = 1; attempt <= 2; attempt++)
                     {
                         if (File.Exists(corePath)) File.Delete(corePath);
+                        // T01: never let a previous attempt's master or stats file leak into this
+                        // one — a stale stats file would hand pass 2 a complexity map for a
+                        // different bitrate, which is silent quality damage rather than an error.
+                        CleanupTwoPassArtifacts(twoPassMasterPath, twoPassLogPrefix);
 
                         success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
 
@@ -1108,6 +1333,25 @@ public class ProcessWorker : IDisposable
                         if (Math.Abs(finalActualSize - finalTargetSize) <= variance)
                         {
                             sizeTargetMet = true;
+                            break;
+                        }
+
+                        // ── T01: TWO-PASS REPLACES THE BITRATE-SCALING RETRY ────────────────
+                        // The retry below was a blind guess: scale the bitrate by the size ratio
+                        // and render everything again, with the code itself acknowledging the
+                        // second attempt can land FURTHER from the target than the first.
+                        // A completed two-pass run already distributed the exact budget it was
+                        // given using a real complexity map of the whole timeline; if it still
+                        // missed the ±5% band the bitrate estimate itself was off, and burning
+                        // another full render on a guess is not the answer. Accept the result,
+                        // log the miss, and stop — the user gets their video in ~1.35x rather
+                        // than ~2.7x. The retry stays fully intact for the NVENC/CQ paths, which
+                        // have no complexity map and genuinely can improve on a second guess.
+                        if (twoPassProducedResult)
+                        {
+                            CoreLogger.Info("FFmpeg",
+                                $"Two-pass landed at {finalActualSize / 1048576.0:F2} MB against a {finalTargetSize / 1048576.0:F2} MB target " +
+                                "(outside the 5% band). Accepting it — a blind bitrate-scaling retry cannot beat a real complexity map.");
                             break;
                         }
 
@@ -1456,6 +1700,187 @@ public class ProcessWorker : IDisposable
         _finishEmitted = true;
         Finished?.Invoke(success, message);
     }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // T01 — TWO-PASS SIZE TARGETING (CPU / libx264 path only)
+    //
+    // WHAT IT SOLVES: with a size target the encoder previously got ONE blind bitrate guess. If
+    // the finished file missed the ±5% band, the whole export was rendered AGAIN with a scaled
+    // guess — and the retry could legitimately land FURTHER from the target than the first try
+    // (see the "Retry landed further from the target" branch). Bits were also distributed evenly
+    // across the timeline, so a static lobby got the same budget per second as a firefight.
+    //
+    // HOW IT WORKS: pass 1 encodes the whole timeline and writes a per-frame complexity map; pass
+    // 2 reads that map and redistributes the SAME total budget toward the frames that need it.
+    // Unlike `-rc-lookahead` (which only sees ~32 frames, half a second at 60fps) the map spans
+    // the entire video, so it can take bits from the last quiet 20 seconds and spend them on a
+    // 3-second fight at 0:45. Nothing here touches pixels — no blur, no smoothing, no filter
+    // changes. Only the bit allocation differs.
+    //
+    // WHY A SCRATCH MASTER: naive `-pass 1`/`-pass 2` re-runs the ENTIRE filter graph for both
+    // passes, and in this app the graph (14-18 way split, lanczos portrait scale, zoom pads, HUD
+    // overlays) dominates wall clock — that would be ~2x. Instead the graph runs ONCE into a
+    // near-lossless master, and both passes read that master: ~1.3-1.4x instead of ~2x.
+    //
+    // ⚠️ MANDATE #1 CARVE-OUT: `project_structure.txt` forbids caches for video pipelines. The
+    // master is NOT a cache — it is created inside the job's own `tempJobDir`, consumed by the two
+    // passes, and deleted in the same job. It is never reused across exports and never outlives
+    // the job directory. Do NOT "optimise" it into something that survives an export.
+    //
+    // ⚠️ NVENC IS DELIBERATELY EXCLUDED. `h264_nvenc` does not implement libavcodec's stats-file
+    // two-pass; its equivalent is `-multipass fullres` + `-rc-lookahead 32`, both already enabled
+    // in EncoderManager and explicitly NOT to be changed. This route is libx264 only.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// T01 — runs the analysis pass and the real pass against the pre-rendered master.
+    ///
+    /// Audio is NOT re-encoded: it was finalised in the master and is stream-copied through, so it
+    /// is encoded exactly once across the whole export and suffers no double loss.
+    /// </summary>
+    /// <returns>True when <paramref name="finalPath"/> was produced successfully.</returns>
+    private async Task<bool> RunTwoPassTailAsync(
+        string masterPath,
+        string finalPath,
+        string passLogPrefix,
+        int videoBitrateKbps,
+        double totalOutputDurationSec,
+        double pass1Floor,
+        double pass1Ceiling,
+        double pass2Ceiling,
+        CancellationToken cancellationToken)
+    {
+        // PASS 1 — analysis only. `-an` because audio contributes nothing to video complexity
+        // stats and decoding it would be wasted work. Output is discarded via the null muxer.
+        var pass1 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
+        pass1.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 1, passLogPrefix));
+        pass1.AddRange(["-an", "-sn", "-dn", "-f", "null", "NUL"]);
+
+        if (!await RunPassAsync(pass1, "Analyzing Video (2 of 3)", totalOutputDurationSec,
+                                pass1Floor, pass1Ceiling, cancellationToken))
+        {
+            return false;
+        }
+
+        // PASS 2 — the real encode, reading the map pass 1 wrote.
+        // `-c:a copy`: the audio was finalised in the master, so it is encoded exactly ONCE across
+        // the whole export and suffers no second-generation loss.
+        var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
+        pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
+        pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
+
+        if (!await RunPassAsync(pass2, "Encoding Video (3 of 3)", totalOutputDurationSec,
+                                pass1Ceiling, pass2Ceiling, cancellationToken))
+        {
+            return false;
+        }
+
+        return File.Exists(finalPath) && new FileInfo(finalPath).Length > 0;
+    }
+
+    /// <summary>
+    /// T01 — runs one of the two passes, mapping its `-progress` output onto a progress sub-band.
+    /// Deliberately small and self-contained: these invocations have no filter graph, no encoder
+    /// fallback chain and no size-retry, so none of RunFfmpegOnce's machinery applies.
+    /// </summary>
+    private async Task<bool> RunPassAsync(
+        List<string> args, string phaseTitle, double totalOutputDurationSec,
+        double floor, double ceiling, CancellationToken cancellationToken)
+    {
+        CoreLogger.Info("FFmpeg", $"Two-pass: {phaseTitle}.");
+        CoreLogger.Debug("FFmpeg", $"Two-pass command:\n{_ffmpegPath} {FormatForLog(args)}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = _ffmpegPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (string arg in args) psi.ArgumentList.Add(arg);
+
+        var proc = Process.Start(psi);
+        if (proc == null)
+        {
+            CoreLogger.Fail("FFmpeg", $"Two-pass: could not start FFmpeg for {phaseTitle}.");
+            return false;
+        }
+
+        // Cancellation must reach THIS process too, not just the filter-graph one.
+        _currentProcess = proc;
+
+        try
+        {
+            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
+            using var reg = cancellationToken.Register(() =>
+            {
+                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            });
+
+            var progressTask = Task.Run(async () =>
+            {
+                using var reader = proc.StandardOutput;
+                while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(cancellationToken);
+                    if (line == null) continue;
+                    if (line.StartsWith("out_time_us=") && long.TryParse(line.AsSpan(12), out long outTimeUs))
+                    {
+                        if (totalOutputDurationSec > 0)
+                        {
+                            double frac = Math.Clamp(outTimeUs / 1_000_000.0 / totalOutputDurationSec, 0.0, 1.0);
+                            EmitProgress(2, phaseTitle, (int)Math.Round(floor + frac * (ceiling - floor)));
+                        }
+                    }
+                    else if (line.StartsWith("speed="))
+                    {
+                        string v = line[6..].Trim();
+                        if (v.Length > 0 && v != "N/A") LastReportedSpeed = v;
+                    }
+                }
+            }, cancellationToken);
+
+            var tail = new System.Collections.Generic.Queue<string>(40);
+            var stderrTask = Task.Run(async () =>
+            {
+                using var reader = proc.StandardError;
+                while (!reader.EndOfStream)
+                {
+                    string? line = await reader.ReadLineAsync(CancellationToken.None);
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.StartsWith("frame=") || line.StartsWith("size=")) continue;
+                    tail.Enqueue(line);
+                    if (tail.Count > 40) tail.Dequeue();
+                }
+            }, CancellationToken.None);
+
+            try { await proc.WaitForExitAsync(cancellationToken); }
+            catch (OperationCanceledException) { return false; }
+
+            try { await progressTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { await stderrTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
+            int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
+            if (exitCode == 0) return true;
+
+            string detail = tail.Count > 0 ? string.Join("\n", tail) : $"FFmpeg exited with code {exitCode}";
+            FailureDetail = detail;
+            CoreLogger.Fail("FFmpeg", $"Two-pass {phaseTitle} failed (exit {exitCode}).");
+            CoreLogger.Fail("FFmpeg", $"FFmpeg stderr tail:\n{detail}");
+            return false;
+        }
+        finally
+        {
+            _currentProcess = null;
+            proc.Dispose();
+        }
+    }
+
+    /// <summary>T01 — see <see cref="TwoPassEncoding.Cleanup"/>.</summary>
+    private static void CleanupTwoPassArtifacts(string masterPath, string passLogPrefix)
+        => TwoPassEncoding.Cleanup(masterPath, passLogPrefix);
 
     private async Task PerformLoudnormPassAsync(double measureStartMs, double measureEndMs, CancellationToken cancellationToken)
     {

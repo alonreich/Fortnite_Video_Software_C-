@@ -190,6 +190,27 @@
                                     </Grid.RowDefinitions>
 
                                     <local:MpvVideoView Name="VideoHost" Grid.Row="0" />
+
+                                    <!-- DETACH_01: shared pop-out preview. Own geometry key:
+                                         MergerPreviewMonitorBounds. -->
+                                    <Border Name="MergerPreviewDetachedWatermark" Grid.Row="0" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="4">
+                                        <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <!-- UXQA_04: only exists once there is something to preview. At
+                                         ZIndex 9999 with no visibility gate it used to float ON TOP of
+                                         NoVideoOverlay (ZIndex 500), so an empty queue showed a
+                                         "Detach Monitor" button sitting over the "add some videos"
+                                         message — offering an action that could not work, covering the
+                                         instruction for what to actually do. ZIndex is now 600: above
+                                         the empty state it no longer collides with, below nothing that
+                                         needs to block input. -->
+                                    <Button Name="MergerDetachPreviewBtn" Grid.Row="0" Classes="Secondary" Content="◳ Detach Monitor"
+                                            IsVisible="{Binding $parent[local:VideoMergerWindow].HasVideos}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0" Padding="8,4"
+                                            FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
+                                            Background="{DynamicResource AppOverlayBrush}" ZIndex="600"
+                                            ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
+
                                     <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
                                         <TextBlock Text="⚠️" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" />
                                     </Border>

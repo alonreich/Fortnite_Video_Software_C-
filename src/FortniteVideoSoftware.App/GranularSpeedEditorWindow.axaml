@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -33,7 +33,10 @@
                 <!-- Video preview -->
                 <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
                     <Grid>
-                        <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" ZIndex="0">
+                        <!-- DETACH_01: named so the detach controller can move this WHOLE Viewbox —
+                             video + zoom overlay + phone frame — as one piece. Moving only the
+                             MpvVideoView would leave the zoom rectangle drawn over an empty box. -->
+                        <Viewbox Name="GranularPreviewViewbox" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" ZIndex="0">
                             <Grid Name="ZoomContainerGrid" Width="1920" Height="1080">
                                 <Grid Width="1920" Height="1080" VerticalAlignment="Center">
                                     <local:MpvVideoView Name="GranularVideoHost" ZIndex="0"/>
@@ -49,7 +52,27 @@
                                 </Grid>
                             </Grid>
                         </Viewbox>
-                        
+
+                        <!-- DETACH_01: the Viewbox above is what travels to the floating window, so the
+                             zoom overlay and the phone frame stay in register with the picture. These two
+                             stay behind: the placeholder fills the hole, the button brings it back. -->
+                        <Border Name="GranularPreviewDetachedWatermark" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}">
+                            <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <!-- UXQA_02/03: TOP-RIGHT and ZIndex 66 — BOTH DELIBERATE, DO NOT "TIDY".
+                             Top-LEFT put it exactly where users start dragging a zoom box, and the
+                             button (being on top) swallowed the drag, silently blocking zoom in that
+                             corner. ZIndex 9999 also floated it ABOVE ZoomApplyBusyOverlay (70) and
+                             the freeze dimmer, so it stayed clickable while those overlays existed
+                             precisely to block input. 66 keeps it above the detached watermark (65)
+                             and under every blocking overlay. It is also hidden outright while zoom
+                             mode is active — see UpdateDetachButtonForZoomMode(). -->
+                        <Button Name="GranularDetachPreviewBtn" Classes="Secondary" Content="◳ Detach Monitor"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,10,0" Padding="8,4"
+                                FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
+                                Background="{DynamicResource AppOverlayBrush}" ZIndex="66"
+                                ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
+
                         <!-- #10 Live drag readout: shows exact start / end / length while dragging a block -->
                         <Border Name="DragReadoutBadge" IsVisible="False" ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,5" IsHitTestVisible="False">
                             <TextBlock Name="DragReadoutText" Text="" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold"/>
@@ -68,6 +91,56 @@
                                 <TextBlock Name="GranularFeedbackPopupText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize28}" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
+                        <!-- ══════════════════════════════════════════════════════════════════
+                             IDEA_6 — ZOOM STYLE PICKER, SHOWN WHERE THE ZOOM IS BEING DRAWN.
+                             This used to be two radio buttons labelled "ANIMATION: Slow | Instant"
+                             parked at the far right of the toolbar row, a long way from the video,
+                             visible only when a block happened to be selected. Nothing about it
+                             said what it changed, so it read as decoration.
+                             It now appears ONLY while the zoom box is being drawn, directly under
+                             the video, in plain words, with a little shape showing the difference.
+                             ⚠️ The two RadioButtons keep their EXACT original Names, type and
+                             GroupName ("SlowZoomCheck"/"InstantZoomCheck", GroupName="ZoomRamp").
+                             Seven typed FindControl<RadioButton> lookups depend on that, and per
+                             the R3 rule in project_structure.txt a stale type there is a
+                             process-killing throw, not a silent null. Do not rename or retype.
+                             ══════════════════════════════════════════════════════════════════ -->
+                        <Border Name="ZoomStylePanel" IsVisible="False" ZIndex="65"
+                                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14"
+                                Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppZoomBrush}"
+                                BorderThickness="2" CornerRadius="8" Padding="14,10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="HOW SHOULD THE ZOOM ARRIVE?" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"
+                                           Foreground="{DynamicResource AppZoomBrush}" HorizontalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" Spacing="18" HorizontalAlignment="Center">
+                                    <RadioButton Name="InstantZoomCheck" GroupName="ZoomRamp" IsChecked="True"
+                                                 MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center"
+                                                 ToolTip.Tip="The picture cuts straight to the zoomed view with no movement.">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <!-- Step shape = an instant jump -->
+                                            <Path Data="M 0,16 L 12,16 L 12,2 L 26,2" Stroke="{DynamicResource AppZoomBrush}" StrokeThickness="2.5" VerticalAlignment="Center"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Snap straight in" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                <TextBlock Text="Jumps instantly" FontSize="{DynamicResource AppFontSize9}" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton Name="SlowZoomCheck" GroupName="ZoomRamp"
+                                                 MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center"
+                                                 ToolTip.Tip="The camera glides into the zoom over half a second, then glides back out. Needs at least half a second of spare video on that side, otherwise that side snaps.">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <!-- Ramp shape = a gradual glide -->
+                                            <Path Data="M 0,16 L 6,16 C 14,16 12,2 26,2" Stroke="{DynamicResource AppZoomBrush}" StrokeThickness="2.5" VerticalAlignment="Center"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Glide in over half a second" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                <TextBlock Text="Eases in, then eases out" FontSize="{DynamicResource AppFontSize9}" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </RadioButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- GPU live zoom preview: blocking busy overlay shown while APPLY ZOOM-IN
                              primes the simulated crop in mpv (GPU render path only). -->
                         <Border Name="ZoomApplyBusyOverlay" IsVisible="False" ZIndex="70" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6">
@@ -103,37 +176,31 @@
                                 <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s" Cursor="Hand"/>
                             </StackPanel>
                         </StackPanel>
-                        <!-- RIGHT: Zoom Controls -->
+                        <!-- RIGHT: Zoom Controls
+                             IDEA_6: the "ANIMATION Slow|Instant" pair that used to live here has
+                             MOVED into `ZoomStylePanel`, under the video, where the zoom is
+                             actually being drawn. It is no longer a permanent piece of toolbar
+                             the user must decode before they know what it affects.
+                             IDEA_3: ZOOM-IN is now always visible (was IsVisible="False" until a
+                             block was selected) — pressing it creates its own container block. -->
                         <Panel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" MinHeight="30" MinWidth="240">
-                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" IsVisible="{Binding #ZoomSegmentBtn.IsVisible}">
-                                <TextBlock Text="ANIMATION" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" VerticalAlignment="Center" Margin="0,0,2,0"/>
-                                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,15,0,20">
-                                    <!-- ISSUE_05 (audit round 5): both radios shipped MinHeight="0" with
-                                         the vertical padding stripped, collapsing them to a text-line-tall
-                                         hit target. Now on the 44px token with real vertical padding. -->
-                                    <RadioButton Name="SlowZoomCheck" GroupName="ZoomRamp" Content="Slow" FontSize="{DynamicResource AppFontSize9}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center" ToolTip.Tip="Slow zoom-in/out: eases in over up to 1 second."/>
-                                    <RadioButton Name="InstantZoomCheck" GroupName="ZoomRamp" Content="Instant" IsChecked="True" FontSize="{DynamicResource AppFontSize9}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center" ToolTip.Tip="Instant zoom-in/out: snaps to the box immediately."/>
-                                </WrapPanel>
-                                <Border Width="1" Background="{DynamicResource AppBorderBrush}" Margin="2,4" Opacity="0.5" />
-                                <Button Name="ZoomSegmentBtn" Classes="Primary" Content="ZOOM-IN" MinWidth="100" HorizontalAlignment="Right" IsVisible="False" ToolTip.Tip="Draw a zoom (punch-in) box on the selected speed segment"/>
-                            </StackPanel>
+                            <Button Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="120" HorizontalAlignment="Right"
+                                    ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
                         </Panel>
                     </Grid>
                 </Border>
 
-                <!-- ROW 2: Timeline -->
+                <!-- ROW 2: Timeline — now the SHARED TimelineLanesControl (LANES_03).
+                     The ruler, gridlines, caret, both clocks and every click-to-seek surface
+                     live in that control and are shared with Music Wizard phase 3. This window
+                     supplies only its two lane CONTENTS from code-behind:
+                       LaneAHost -> the speed/freeze/zoom drawing canvas + empty-state label
+                       LaneBHost -> the film-frame strip
+                     ⚠️ LaneASeekable stays FALSE: the upper lane runs its own pointer pipeline
+                     (block move, edge resize, drag-to-create) and a seek surface over it would
+                     swallow all of that. -->
                 <Border Grid.Row="2" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,5,10,10" ClipToBounds="False">
-                <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
-                    <!-- ISSUE_05: MinWidth (not Width) so scaled fonts never clip the clocks -->
-                    <TextBlock Name="GranularTimeElapsed" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0" />
-                    <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
-                        <Canvas Grid.Row="0" Name="GranularTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" ZIndex="10000" />
-                        <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
-                        <Slider Grid.Row="1" Name="GranularTimeline" Classes="CompactSlider" Minimum="0" Maximum="1000" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" ZIndex="10001" ToolTip.Tip="Drag to scrub through the video" />
-                        <Canvas Grid.Row="1" Name="GranularTimelineCanvas" Classes="TimelineSeekSurface" Background="Transparent" IsHitTestVisible="True" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" ZIndex="10002" />
-                    </Grid>
-                    <TextBlock Grid.Column="2" Name="GranularDuration" Text="-00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Margin="8,0,0,0" />
-                </Grid>
+                    <controls:TimelineLanesControl Name="GranularLanes" ClipToBounds="False"/>
                 </Border>
 
                 <!-- ROW 3: Transport -->
@@ -211,8 +278,19 @@
                         </StackPanel>
                     </Border>
                     <!-- The scrollable list of segments -->
-                    <Border Grid.Row="3" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="4">
-                        <ListBox Name="SegmentsPanel" Background="Transparent" BorderThickness="0" Margin="0,4,0,4">
+                    <Border Grid.Row="3" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="3">
+                        <ListBox Name="SegmentsPanel" Background="Transparent" BorderThickness="0" Margin="0,2,0,2">
+                            <!-- COMPACT LIST: the default ListBoxItem chrome adds ~9px of padding
+                                 above AND below every row plus a min-height, on top of the padding
+                                 the row Border already draws. That was the single biggest consumer
+                                 of vertical space in this pane. Scoped to THIS ListBox only — it
+                                 does not touch any other list in the suite. -->
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="MinHeight" Value="0"/>
+                                </Style>
+                            </ListBox.Styles>
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel />

@@ -449,6 +449,7 @@ public partial class VoiceOverWindow : Window
     private void CacheControls()
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
+        WirePreviewDetach();
         _micRecordButton = this.FindControl<Button>("MicRecordButton");
         _pauseResumeButton = this.FindControl<Button>("RecordPauseButton");
         if (_pauseResumeButton != null) _pauseResumeButton.Click += ToggleRecordPause;
@@ -904,6 +905,11 @@ public partial class VoiceOverWindow : Window
         if (durationSec <= 0) durationSec = videoDuration;
         string ffmpeg = ResolveBinaryPath("ffmpeg.exe", "backend");
 
+        // LEAK_02: retire the PREVIOUS generation before starting a new one. This used to just
+        // overwrite the field, which abandoned the old CancellationTokenSource undisposed AND —
+        // worse than the leak — left the old thumbnail/waveform job running, free to finish late
+        // and overwrite the lanes belonging to the newer request.
+        RetireGenerationCts(_generationCts);
         _generationCts = new System.Threading.CancellationTokenSource();
         var token = _generationCts.Token;
 
@@ -2118,9 +2124,36 @@ public partial class VoiceOverWindow : Window
         }
     }
 
+    /// <summary>
+    /// LEAK_02 — cancel a superseded generation, then dispose it OFF the interface thread.
+    ///
+    /// ⚠️ NEVER call <c>CancellationTokenSource.Dispose()</c> directly from an event handler here.
+    /// Dispose BLOCKS until every callback raised by Cancel() has finished, and those callbacks
+    /// marshal back to the interface thread — so the interface thread ends up waiting for itself.
+    /// That is the exact deadlock that froze the Granular Speed Editor earlier (see CANCEL_01);
+    /// it is a real, reproduced bug in this codebase, not a theoretical one.
+    ///
+    /// Handing the disposal to a worker thread keeps the tidy-up without the wait: nothing on that
+    /// thread is holding the interface hostage, so Cancel's callbacks are free to complete.
+    /// </summary>
+    private static void RetireGenerationCts(System.Threading.CancellationTokenSource? cts)
+    {
+        if (cts == null) return;
+        try { cts.Cancel(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { cts.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        });
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _isClosing = true;
+        // Cancel ONLY on the close path — see RetireGenerationCts for why Dispose must not happen
+        // on this thread. The window is going away, so there is nothing left to reclaim.
         _generationCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;
@@ -2149,5 +2182,36 @@ public partial class VoiceOverWindow : Window
 
         _videoHost?.Dispose();
         base.OnClosed(e);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // DETACH_01 — pop-out preview. Shared mechanism, own remembered geometry.
+    // The controller reattaches on this window's Closing, so _videoHost is always back in its
+    // home tree by the time OnClosed disposes it above.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private PreviewDetachController? _previewDetach;
+
+    private void WirePreviewDetach()
+    {
+        var btn = this.FindControl<Button>("VoiceOverDetachPreviewBtn");
+        if (btn == null) return;
+
+        _previewDetach = new PreviewDetachController(
+            this,
+            PreviewDetachController.VoiceOverKey,
+            "Preview Monitor — Voice Over",
+            () => _videoHost);
+
+        _previewDetach.StateChanged += detached =>
+        {
+            var watermark = this.FindControl<Avalonia.Controls.Border>("VoiceOverPreviewDetachedWatermark");
+            if (watermark != null) watermark.IsVisible = detached;
+            _previewDetach!.SyncButton(btn);
+        };
+
+        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);   // UXQA_01
+
+        btn.Click += (_, _) => _previewDetach.Toggle();
+        _previewDetach.SyncButton(btn);
     }
 }

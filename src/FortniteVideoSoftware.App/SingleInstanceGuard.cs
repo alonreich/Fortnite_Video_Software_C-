@@ -160,6 +160,12 @@ public static class SingleInstanceGuard
     /// <summary>Releases the instance claim. Safe to call more than once.</summary>
     public static void Release()
     {
+        // LEAK_02 — CANCEL ONLY, DELIBERATELY NOT DISPOSED. AUDITED, ACCEPTED, DO NOT "FIX".
+        // Release() runs on the interface thread immediately before Environment.Exit(0). The
+        // handoff listener is parked inside WaitForConnectionAsync(token), which registers a
+        // callback on this token; CancellationTokenSource.Dispose() would block until that
+        // callback completed and could hang the app on close for no gain whatsoever — the process
+        // is about to end, and the OS reclaims the source either way.
         try { _listenerCts?.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         _listenerCts = null;
 

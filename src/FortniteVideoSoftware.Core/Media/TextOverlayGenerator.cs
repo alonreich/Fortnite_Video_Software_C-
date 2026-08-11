@@ -10,7 +10,26 @@ namespace FortniteVideoSoftware.Core.Media;
 
 public static class TextOverlayGenerator
 {
-    public static void GeneratePng(string text, string outputPath, int width = 1080, int height = 150, int fontSize = 40, int padding = 10)
+    /// <summary>
+    /// Renders the portrait caption to a transparent PNG.
+    ///
+    /// TEXTGEN_01: the defaults are BOUND to the portrait canvas, not typed as literals. This
+    /// PNG is composited by <c>MobileFilterBuilder</c> with <c>overlay=0:0</c> onto the final
+    /// portrait frame, so <paramref name="width"/> must equal the canvas width and
+    /// <paramref name="height"/> must equal the top padding band the caption lives in. Writing
+    /// 1080 and 150 here duplicated <see cref="CoordinateConstants.PortraitW"/> and
+    /// <see cref="CoordinateConstants.UIPaddingTop"/>; changing either constant would then have
+    /// silently misaligned the caption instead of failing.
+    ///
+    /// A <c>fontSize</c> parameter used to sit in this signature and was never read — the size
+    /// is chosen by the auto-fit loop below, which starts at 110 and descends until the text
+    /// fits BOTH the given width and height. It has been removed rather than left implying a
+    /// control the caller never had.
+    /// </summary>
+    public static void GeneratePng(string text, string outputPath,
+                                   int width = CoordinateConstants.PortraitW,
+                                   int height = CoordinateConstants.UIPaddingTop,
+                                   int padding = 10)
     {
         using var surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
         var canvas = surface.Canvas;

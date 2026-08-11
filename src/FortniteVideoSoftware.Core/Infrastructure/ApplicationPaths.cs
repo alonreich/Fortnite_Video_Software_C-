@@ -42,6 +42,22 @@ public sealed class ApplicationPaths
 
     public string SafeModeSentinelFile => Path.Combine(ProgramDataRoot, "safe_mode.sentinel");
 
+    /// <summary>
+    /// RECOVERY_02 — "the user meant to close the app" marker.
+    ///
+    /// Written SYNCHRONOUSLY as the very first act of MainWindow.OnClosing, before any await, and
+    /// deleted by the normal cleanup. Its whole purpose is the case where the app is closing
+    /// legitimately but never reaches <see cref="RecoveryManager.CleanupLock"/> — most commonly a
+    /// Windows shutdown / restart / sign-out, where the OS terminates the process partway through
+    /// the asynchronous close. Without it the leftover session lock makes the next launch announce
+    /// a crash that never happened.
+    ///
+    /// Deliberately lives beside the other recovery sentinels rather than in UiStateStore
+    /// (ISSUE_09): it is part of the crash-detection family, must be readable before any UI state
+    /// exists, and must be writable with one synchronous call on a shutting-down process.
+    /// </summary>
+    public string CleanShutdownIntentFile => Path.Combine(ProgramDataRoot, "clean_shutdown.intent");
+
     public string RecoveryStateFile => Path.Combine(ProgramDataRoot, "recovery_v2.json");
 
     public string InstallerReportFile => Path.Combine(TempDirectory, "Fortnite_Video_Software_Install_Report.txt");

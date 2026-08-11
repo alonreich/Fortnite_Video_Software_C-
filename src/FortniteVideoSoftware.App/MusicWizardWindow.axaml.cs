@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -190,7 +190,54 @@ public partial class MusicWizardWindow : Window
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MusicWizardBounds");
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += PlayheadTimer_Tick;
+        WirePreviewDetach();
     }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // DETACH_01 — pop-out preview for phase 3. Shared mechanism, own remembered geometry.
+    //
+    // The wizard's MpvVideoView is not in the XAML — it is created in code as VideoHostBorder's
+    // child each time phase 3 loads. The controller therefore reparents it OUT of that Border and
+    // back INTO it, which the captured-origin logic handles as a Decorator. The phase-3 loader
+    // reattaches first (see BuildPhase3PreviewAsync) so it never finds an empty Border and builds
+    // a second host while the first is still alive in the floating window.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private PreviewDetachController? _previewDetach;
+
+    private void WirePreviewDetach()
+    {
+        var btn = this.FindControl<Button>("WizardDetachPreviewBtn");
+        if (btn == null) return;
+
+        _previewDetach = new PreviewDetachController(
+            this,
+            PreviewDetachController.MusicWizardKey,
+            "Preview Monitor — Add Music Wizard",
+            () => WizardVideoHost);
+
+        _previewDetach.StateChanged += detached =>
+        {
+            var watermark = this.FindControl<Avalonia.Controls.Border>("WizardPreviewDetachedWatermark");
+            if (watermark != null) watermark.IsVisible = detached;
+            _previewDetach!.SyncButton(btn);
+        };
+
+        // UXQA_01: phase 3 builds its player asynchronously, so this window genuinely spends a few
+        // seconds with nothing to detach. Say so in the phase-3 status line rather than ignoring
+        // the click.
+        _previewDetach.DetachUnavailable += why =>
+        {
+            var status = this.FindControl<TextBlock>("Phase3StatusLabel");
+            if (status != null) status.Text = why;
+        };
+
+        btn.Click += (_, _) => _previewDetach.Toggle();
+        _previewDetach.SyncButton(btn);
+    }
+
+    /// <summary>UXQA_01: re-enable the detach button once phase 3's player actually exists.</summary>
+    private void RefreshDetachButtonState()
+        => _previewDetach?.SyncButton(this.FindControl<Button>("WizardDetachPreviewBtn"));
 
     private void PlayheadTimer_Tick(object? sender, EventArgs e)
     {
@@ -201,6 +248,78 @@ public partial class MusicWizardWindow : Window
             EnforcePhase3PreviewEnd();
             UpdatePlayhead();
         }
+
+        // Outside the `_isPreviewPlaying` guard on purpose: phase 3 is the screen where the user
+        // scrubs and pauses to judge how the music lines up against the picture, and a paused
+        // frame must show the zoom just as truthfully as a playing one.
+        UpdatePhase3LiveZoomCrop();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // LIVE ZOOM PREVIEW (Music Wizard phase 3)
+    //
+    // Phase 3 is the A/B screen — video against music, judged as a whole before export. It used
+    // to play the clip with speed changes and freezes applied but the zooms invisible, so what
+    // you were judging was not what you were about to render.
+    //
+    // The maths comes from `ZoomPreviewSimulator`, shared with the Main App and the Granular
+    // editor and derived from the export engine's own timing constants, so all three previews and
+    // the exported file agree by construction.
+    //
+    // ⚠️ GPU MACHINES ONLY — see the note on the Main App's copy. CPU-only machines keep the
+    // static rectangles.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Last crop pushed to mpv, so an unchanged value is never re-sent every tick.</summary>
+    private string _lastLiveCrop = "";
+
+    /// <summary>
+    /// PORTRAIT_01 — set by the Main App when Portrait mode is on.
+    ///
+    /// Phase 3 had no idea whether the export would be portrait, so its preview showed the full
+    /// 16:9 frame while the export produced a 2:3 clip. That made the A/B screen — the one whose
+    /// entire job is judging the finished result — the least truthful preview in the suite.
+    /// </summary>
+    public bool IsPortraitPreview { get; set; }
+
+    private void UpdatePhase3LiveZoomCrop()
+    {
+        if (!FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration) return;
+
+        var ipc = WizardVideoHost?.IpcClient;
+        if (ipc == null) return;
+
+        // Only phase 3 previews the composed video; steps 1-2 must never be cropped.
+        // PORTRAIT_01: an empty segment list no longer means "nothing to do" — in portrait the
+        // export still delivers the 2:3 slice, so the preview must show it.
+        if (_currentStep != 3) { ClearPhase3LiveZoomCrop(); return; }
+        if (_phase3SpeedSegments.Count == 0 && !IsPortraitPreview) { ClearPhase3LiveZoomCrop(); return; }
+
+        // ⚠️ The zoom timeline is in SOURCE-relative seconds, but phase 3's playhead runs on the
+        // OUTPUT timeline (speed segments and freezes have already stretched/compressed it).
+        // MapPhase3OutputToSourceRelativeSeconds is the existing, authoritative conversion — the
+        // same one used to drive the video clock — so the zoom lands on the correct frame instead
+        // of drifting wherever a speed segment changes the mapping.
+        double outputRelativeSec = GetCurrentPhase3VideoRelativeSeconds();
+        double sourceRelativeSec = MapPhase3OutputToSourceRelativeSeconds(outputRelativeSec);
+        double durSec = Math.Max(0.1, GetPhase3SourceDurationSeconds());
+
+        var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
+            _phase3SpeedSegments, sourceRelativeSec, durSec,
+            IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight);
+
+        if (!result.HasCrop) { ClearPhase3LiveZoomCrop(); return; }
+        if (result.Crop == _lastLiveCrop) return;
+        _lastLiveCrop = result.Crop;
+        _ = ipc.SetPropertyAsync("video-crop", result.Crop);
+    }
+
+    /// <summary>Drops any simulated crop. Called when leaving phase 3 and on teardown.</summary>
+    private void ClearPhase3LiveZoomCrop()
+    {
+        if (_lastLiveCrop.Length == 0) return;
+        _lastLiveCrop = "";
+        _ = WizardVideoHost?.IpcClient?.SetPropertyAsync("video-crop", "");
     }
 
 
@@ -592,43 +711,53 @@ public partial class MusicWizardWindow : Window
         }
 
 
-        var phase3SeekCanvas = this.FindControl<Canvas>("Phase3SeekCanvas");
-        if (phase3SeekCanvas != null)
+        // ── LANES_04: move the XAML-declared lane content into the shared control ─────────
+        // The thumbnail and waveform lanes are still DECLARED in XAML — they are merely
+        // reparented here. Recreating those 10 named controls in code would have been far more
+        // churn, and reparenting keeps the window's namescope intact so every existing
+        // FindControl (ThumbnailLaneGrid, WaveformLaneImage, the two loading overlays, …) keeps
+        // resolving exactly as before. Runs once, before first layout, so nothing flashes.
+        // ⚠️ LANE ORDER IS OPPOSITE TO THE GRANULAR EDITOR: here A (upper) = film frames,
+        // B (lower) = waveform. That is intentional and matches what phase 3 always showed.
+        var laneHolder = this.FindControl<Panel>("Phase3LaneContentHolder");
+        var lanesHost = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
+        var thumbContent = this.FindControl<Panel>("Phase3ThumbLaneContent");
+        var waveContent = this.FindControl<Panel>("Phase3WaveLaneContent");
+        if (laneHolder != null && lanesHost?.LaneAHost != null && lanesHost.LaneBHost != null)
         {
-            bool isScrubbingPhase3 = false;
-            void phase3Seek(Avalonia.Input.PointerEventArgs eArgs) {
-                var pt = eArgs.GetCurrentPoint(phase3SeekCanvas);
-                if (pt.Properties.IsLeftButtonPressed && phase3SeekCanvas.Bounds.Width > 0) {
-                    double fraction = pt.Position.X / phase3SeekCanvas.Bounds.Width;
-                    fraction = Math.Clamp(fraction, 0.0, 1.0);
-                    double duration = GetPhase3VideoDurationSeconds();
-                    double videoRelativeSec = duration * fraction;
-                    bool wasPlaying = _isPreviewPlaying;
-                    StopPreview();
-                    _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
-                    SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
-                    if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
-                    else UpdatePlayhead();
-                }
+            if (thumbContent != null)
+            {
+                laneHolder.Children.Remove(thumbContent);
+                thumbContent.IsVisible = true;
+                lanesHost.LaneAHost.Children.Add(thumbContent);
             }
-            phase3SeekCanvas.PointerPressed += (s, e) => {
-                if (e.GetCurrentPoint(phase3SeekCanvas).Properties.IsLeftButtonPressed) {
-                    isScrubbingPhase3 = true;
-                    e.Pointer.Capture(phase3SeekCanvas);
-                    phase3Seek(e);
-                }
-            };
-            phase3SeekCanvas.PointerMoved += (s, e) => {
-                if (isScrubbingPhase3 && e.GetCurrentPoint(phase3SeekCanvas).Properties.IsLeftButtonPressed) {
-                    phase3Seek(e);
-                }
-            };
-            phase3SeekCanvas.PointerReleased += (s, e) => {
-                isScrubbingPhase3 = false;
-                e.Pointer.Capture(null);
-            };
+            if (waveContent != null)
+            {
+                laneHolder.Children.Remove(waveContent);
+                waveContent.IsVisible = true;
+                lanesHost.LaneBHost.Children.Add(waveContent);
+            }
+            laneHolder.IsVisible = false;
+        }
 
-            phase3SeekCanvas.KeyDown += (s, e) => HandlePhase3SeekKeyDown(e);
+        // ── LANES_04: seeking now comes from the shared TimelineLanesControl ──────────────
+        // It raises SeekRequested for the ruler AND both lanes (frames + waveform) AND the
+        // grabbable caret. The bespoke Phase3SeekCanvas pointer plumbing that used to live here
+        // is gone; only the phase-3-specific "what a seek MEANS" logic remains.
+        var phase3Lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
+        if (phase3Lanes != null)
+        {
+            phase3Lanes.LaneASeekable = true;   // film frames
+            phase3Lanes.LaneBSeekable = true;   // waveform
+            phase3Lanes.SeekRequested += videoRelativeSec =>
+            {
+                bool wasPlaying = _isPreviewPlaying;
+                StopPreview();
+                _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
+                SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
+                if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
+                else UpdatePlayhead();
+            };
         }
 
         var phase3WaveformClip = this.FindControl<Canvas>("Phase3WaveformClip");
@@ -654,7 +783,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("VideoVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Video Volume: {videoVolSlider.Value:0}%";
+                    if (lbl != null) lbl.Text = $"Video {videoVolSlider.Value:0}%";   // SLIDER_05: short form - the long one stole width from the slider
 
 
                     if (_currentStep == 3)
@@ -695,7 +824,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("MusicVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Music Volume: {musicVolSlider.Value:0}%";
+                    if (lbl != null) lbl.Text = $"Music {musicVolSlider.Value:0}%";   // SLIDER_05: short form - see VideoVolLabel
 
 
                     if (_audioIpcClient != null)
@@ -1943,82 +2072,15 @@ public partial class MusicWizardWindow : Window
     }
 
 
-    private async Task<string?> GenerateThumbnailsStripAsync(string ffmpegPath, string videoPath, double startSec, double durationSec, CancellationToken cancellationToken, int frames = 15)
-    {
-        string? tempPng = null;
-        Process? process = null;
-        try
-        {
-            tempPng = Path.Combine(_paths.TempDirectory, $"fvs_thumb_{Guid.NewGuid():N}.png");
-            if (durationSec <= 0) durationSec = 10;
-            frames = Math.Max(1, frames);
-            
-            double fps = (double)frames / durationSec;
-            string startArg = startSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-            string durationArg = durationSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-            string fpsArg = fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
-            string filter = $"fps=fps={fpsArg}:round=up,scale=-1:60,tpad=stop_mode=clone:stop_duration=1,tile={frames}x1:margin=0:padding=0";
-
-            var stripArgs = new[]
-            {
-                "-y", "-hide_banner", "-loglevel", "error",
-                "-ss", startArg,
-                "-t", durationArg,
-                "-i", videoPath,
-                "-vf", filter,
-                "-frames:v", "1",
-                tempPng
-            };
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-            foreach (string arg in stripArgs) psi.ArgumentList.Add(arg);
-
-            process = Process.Start(psi);
-            using var _processCleanup = process;
-            if (process == null) return null;
-
-            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-
-            Task<string> stripOut = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            Task<string> stripErr = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            _ = await stripOut;
-            string stripErrText = string.Empty;
-            try { stripErrText = await stripErr; } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-
-            if (process.ExitCode == 0 && File.Exists(tempPng)) return tempPng;
-
-            RuntimeLog.Fail("MusicWizard", $"Filmstrip render failed (exit {process.ExitCode}).");
-            if (!string.IsNullOrWhiteSpace(stripErrText))
-                RuntimeLog.Debug("MusicWizard", $"FFmpeg stderr:\n{stripErrText.Trim()}");
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                if (process != null && !process.HasExited) process.Kill(entireProcessTree: true);
-            }
-            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-            if (tempPng != null && File.Exists(tempPng))
-            {
-                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-            }
-            throw;
-        }
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-        finally
-        {
-            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-        }
-        return null;
-    }
+    /// <summary>
+    /// LANES_01: delegates to the shared <see cref="ThumbnailStripGenerator"/>. The ~70 lines of
+    /// FFmpeg tiling that used to live here were lifted out when the Granular Speed Editor needed
+    /// the identical strip — two copies would have been free to drift on frame count, scaling and
+    /// temp-file cleanup. Signature unchanged so every phase-3 call site is untouched.
+    /// </summary>
+    private async Task<string?> GenerateThumbnailsStripAsync(string ffmpegPath, string videoPath, double startSec, double durationSec, CancellationToken cancellationToken, int frames = ThumbnailStripGenerator.DefaultFrames)
+        => await ThumbnailStripGenerator.GenerateAsync(
+            ffmpegPath, videoPath, _paths.TempDirectory, startSec, durationSec, cancellationToken, frames, "MusicWizard");
 
     private async Task<string?> GeneratePhase3MusicSequenceWaveformAsync(
         string ffmpegPath,
@@ -2237,6 +2299,11 @@ public partial class MusicWizardWindow : Window
             }
             _phase3ClipDurationsSec.Clear();
 
+            // DETACH_01: if the preview is currently popped out, the old host is NOT in this
+            // Border — it is inside the floating window. Rebuilding without pulling it home first
+            // would leave that host alive and undisposed while a second one is created here.
+            _previewDetach?.Attach();
+
             var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
             if (border != null && !string.IsNullOrEmpty(_videoPath))
             {
@@ -2267,6 +2334,7 @@ public partial class MusicWizardWindow : Window
                 await wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", (_trimStartMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await wizardVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 RuntimeLog.Info("MUSIC_WIZARD", "Phase 3 MPV preview video loaded.");
+                RefreshDetachButtonState();   // UXQA_01: there is now something to pop out.
 
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
@@ -3371,77 +3439,12 @@ public partial class MusicWizardWindow : Window
 
     {
 
-        var scaleCanvas = this.FindControl<Canvas>("Phase3TimelineCanvas");
-
-        if (scaleCanvas == null) return;
-
-
-        double canvasWidth = scaleCanvas.Bounds.Width;
-
+        // LANES_04: the ruler, its labels and the gridlines are drawn by the shared
+        // TimelineLanesControl. Phase 3's own version drew 4px grey hairlines with `m\:ss`
+        // labels that could never show hours. Only the merger clip-boundary overlays remain here.
+        var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
+        double canvasWidth = lanes?.Bounds.Width ?? 0;
         if (canvasWidth <= 0) return;
-
-
-        double videoDuration = GetPhase3VideoDurationSeconds();
-
-
-        scaleCanvas.Children.Clear();
-
-
-        double interval = 10.0;
-
-        if (videoDuration > 300) interval = 60.0;
-
-        else if (videoDuration > 60) interval = 30.0;
-
-        else if (videoDuration < 30) interval = 5.0;
-
-
-        for (double t = 0; t <= videoDuration; t += interval)
-
-        {
-
-            double fraction = t / videoDuration;
-
-            double xPos = fraction * canvasWidth;
-
-
-            var tickLine = new Avalonia.Controls.Shapes.Line
-
-            {
-
-                StartPoint = new Avalonia.Point(xPos, scaleCanvas.Bounds.Height - 4),
-
-                EndPoint = new Avalonia.Point(xPos, scaleCanvas.Bounds.Height),
-
-                Stroke = Avalonia.Media.Brushes.Gray,
-
-                StrokeThickness = 1,
-
-                IsHitTestVisible = false
-
-            };
-
-            scaleCanvas.Children.Add(tickLine);
-
-
-            var tickLabel = new TextBlock
-
-            {
-
-                Text = TimeSpan.FromSeconds(t).ToString(@"m\:ss"),
-
-                FontSize = Infrastructure.ThemeManager.ScaledFontSize(9),
-
-                Foreground = Avalonia.Media.Brushes.Gray,
-
-                IsHitTestVisible = false,
-
-                RenderTransform = new Avalonia.Media.TranslateTransform(xPos - 10, -2)
-
-            };
-
-            scaleCanvas.Children.Add(tickLabel);
-        }
 
         DrawPhase3MergerOverlays(canvasWidth);
     }
@@ -3450,7 +3453,8 @@ public partial class MusicWizardWindow : Window
     {
         if (!_isMergerMode) return;
 
-        var scaleCanvas = this.FindControl<Canvas>("Phase3TimelineCanvas");
+        // LANES_04: the ruler canvas is gone; clip markers live on the two lane overlays.
+        Canvas? scaleCanvas = null;
         var thumbCanvas = this.FindControl<Canvas>("ThumbnailOverlayCanvas");
         var waveCanvas = this.FindControl<Canvas>("WaveformOverlayCanvas");
         if (thumbCanvas != null) thumbCanvas.Children.Clear();
@@ -3617,49 +3621,18 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            var p3Canvas = this.FindControl<Panel>("Phase3CaretCanvas");
-
-            var p3Caret = this.FindControl<Border>("Phase3Caret");
-
-            if (p3Canvas != null && p3Caret != null && p3Canvas.Bounds.Width > 0)
-
+            // LANES_04: the caret, its time badge and both clocks belong to the shared control.
+            // Phase 3 only reports WHERE the playhead is; the control derives the line position,
+            // the badge text and the elapsed/remaining clocks from Duration + Position.
+            var p3Lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
+            if (p3Lanes != null)
             {
-
-                p3Caret.IsVisible = true;
-
                 double videoDuration = GetPhase3VideoDurationSeconds();
-                double vFraction = GetCurrentPhase3VideoRelativeSeconds() / videoDuration;
-                if (vFraction < 0) vFraction = 0;
-                if (vFraction > 1) vFraction = 1;
-
-
-                double p3txPos = p3Canvas.Bounds.Width * vFraction;
-
-                p3Caret.RenderTransform = new Avalonia.Media.TranslateTransform(p3txPos, 0);
-
-
-                var p3CaretTextBorder = this.FindControl<Border>("Phase3CaretTextBorder");
-
-                var p3CaretTimeText = this.FindControl<TextBlock>("Phase3CaretTimeText");
-
-                if (p3CaretTextBorder != null && p3CaretTimeText != null)
-
-                {
-
-                    p3CaretTextBorder.IsVisible = true;
-
-                    double currentVideoSec = videoDuration * vFraction;
-
-                    p3CaretTimeText.Text = TimeSpan.FromSeconds(currentVideoSec).ToString(@"m\:ss\.ff");
-
-                    p3CaretTextBorder.RenderTransform = new Avalonia.Media.TranslateTransform(p3txPos, 0);
-
-                }
-
+                if (Math.Abs(p3Lanes.DurationSeconds - videoDuration) > 0.001)
+                    p3Lanes.DurationSeconds = videoDuration;
+                p3Lanes.PositionSeconds = GetCurrentPhase3VideoRelativeSeconds();
             }
-
         }
-
     }
 
 
@@ -3803,6 +3776,9 @@ public partial class MusicWizardWindow : Window
         CancelMusicScan();
         CancelPhase3Load();
         StopPreview();
+        // Drop the simulated crop BEFORE the host is torn down — afterwards there is no IPC
+        // client left to send it to.
+        ClearPhase3LiveZoomCrop();
         DisposePhase3VideoHost();
 
         if (_playheadTimer != null) { _playheadTimer.Stop(); _playheadTimer.Tick -= PlayheadTimer_Tick; _playheadTimer = null; }

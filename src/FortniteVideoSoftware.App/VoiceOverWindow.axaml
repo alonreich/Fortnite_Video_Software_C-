@@ -31,6 +31,17 @@
                                 <Grid>
                                     <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                     <!-- Playhead overlay (optional) -->
+
+                                    <!-- DETACH_01: shared pop-out preview. Same control, same persistence,
+                                         its own remembered geometry (VoiceOverPreviewMonitorBounds). -->
+                                    <Border Name="VoiceOverPreviewDetachedWatermark" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}">
+                                        <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <Button Name="VoiceOverDetachPreviewBtn" Classes="Secondary" Content="◳ Detach Monitor"
+                                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0" Padding="8,4"
+                                            FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
+                                            Background="{DynamicResource AppOverlayBrush}" ZIndex="9999"
+                                            ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
                                 </Grid>
                             </Border>
 

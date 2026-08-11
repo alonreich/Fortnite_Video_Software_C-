@@ -29,7 +29,13 @@ public sealed class StateTransferStore
         "MusicWizardBounds",
         "SettingsBounds",
         "VoiceOverWindowBounds",
-        "PreviewMonitorWindowBounds"
+        // DETACH_01 — one detached-preview geometry per screen, so each remembers its own size,
+        // position and display. Must stay in step with the key constants on PreviewDetachController.
+        "PreviewMonitorWindowBounds",
+        "GranularPreviewMonitorBounds",
+        "MusicWizardPreviewMonitorBounds",
+        "VoiceOverPreviewMonitorBounds",
+        "MergerPreviewMonitorBounds"
     ];
     private static readonly string[] SubprocessStateKeys =
     [

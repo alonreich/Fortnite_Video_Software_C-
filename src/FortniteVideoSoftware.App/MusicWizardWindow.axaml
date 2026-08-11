@@ -1,6 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:Class="FortniteVideoSoftware.App.MusicWizardWindow"
         Title="Background Music Selection Wizard"
         Background="{DynamicResource AppSurfaceBrush}"
@@ -207,6 +208,19 @@
                                 <Grid Grid.Row="1" Margin="0,0,0,10">
                                     <Border Name="VideoHostBorder" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
                                     </Border>
+
+                                    <!-- DETACH_01: shared pop-out preview. The MpvVideoView is created in
+                                         code-behind as VideoHostBorder's child, so the controller reparents
+                                         it out of the Border and back into it. Own geometry key:
+                                         MusicWizardPreviewMonitorBounds. -->
+                                    <Border Name="WizardPreviewDetachedWatermark" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6">
+                                        <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <Button Name="WizardDetachPreviewBtn" Classes="Secondary" Content="◳ Detach Monitor"
+                                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0" Padding="8,4"
+                                            FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
+                                            Background="{DynamicResource AppOverlayBrush}" ZIndex="9999"
+                                            ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
                                     <Border Name="Phase3VideoLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" IsHitTestVisible="False" IsVisible="False">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
                                             <!-- ISSUE_5: Min sizes (were fixed Width/Height) so the loading bar
@@ -217,66 +231,114 @@
                                     </Border>
                                 </Grid>
 
-                                <Grid Grid.Row="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False" RowDefinitions="20,Auto">
-                                    <Canvas Grid.Row="0" Name="Phase3TimelineCanvas" Height="20" Cursor="Hand" HorizontalAlignment="Stretch" ClipToBounds="False"/>
-                                    <StackPanel Grid.Row="1" Spacing="0">
-                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" MinHeight="60" Margin="0">
-                                            <Panel>
-                                                <Grid Name="ThumbnailLaneGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
-                                                <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
-                                                <Border Name="Phase3ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
-                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <!-- ISSUE_5: Min sizes, see the loading bar above. -->
-                                                        <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppPanelBrush}"/>
-                                                        <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
-                                                    </StackPanel>
-                                                </Border>
-                                            </Panel>
-                                        </Border>
-                                        <Border BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="2" CornerRadius="2" MinHeight="60">
-                                            <Panel>
-                                                <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                                    <Image Name="WaveformLaneImage" Stretch="Fill" MinHeight="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
-                                                    <Canvas Name="WaveformOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
-                                                </Canvas>
-                                                <Border Name="Phase3WaveLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
-                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
-                                                        <!-- ISSUE_5: Min sizes, see the loading bar above. -->
-                                                        <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppPanelBrush}"/>
-                                                        <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
-                                                    </StackPanel>
-                                                </Border>
-                                            </Panel>
-                                        </Border>
-                                    </StackPanel>
-                                    <Canvas Grid.Row="1" Name="Phase3SeekCanvas" Classes="TimelineSeekSurface" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Final preview seek area" ToolTip.Tip="Click to seek the video and audio preview" IsHitTestVisible="True" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" />
-                                    <Panel Grid.Row="1" Name="Phase3CaretCanvas" ZIndex="20" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                        <Border Name="Phase3Caret" Width="2" Background="{DynamicResource AppDangerBrush}" IsVisible="False" HorizontalAlignment="Left" VerticalAlignment="Stretch" RenderTransform="translateY(0px)"/>
-                                        <Border Name="Phase3CaretTextBorder" IsVisible="False" Background="{DynamicResource AppOverlayBrush}" CornerRadius="2" Padding="4,2" Margin="4,2" HorizontalAlignment="Left" VerticalAlignment="Top">
-                                            <TextBlock Name="Phase3CaretTimeText" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
-                                        </Border>
+                                <!-- LANES_04 - phase 3 now uses the SAME shared TimelineLanesControl as the Granular
+                                     editor, so it finally gets the numbered ruler, the gridlines, the grabbable
+                                     caret with its time badge, and the elapsed/remaining clocks it never had.
+                                     Its own 20px ruler drew 4px grey hairlines with `m\:ss` labels that could not
+                                     show hours - see LANES_03.
+
+                                     LANE ORDER IS INTENTIONALLY OPPOSITE TO GRANULAR: here LANE A (upper) is the
+                                     film frames and LANE B (lower) is the waveform.
+
+                                     The lane CONTENT below is still declared in XAML and merely REPARENTED into the
+                                     shared control at construction. That keeps every existing FindControl in the
+                                     code-behind working untouched - recreating 13 named controls in code would have
+                                     been far more churn for no benefit. -->
+                                <Grid Grid.Row="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False">
+                                    <controls:TimelineLanesControl Name="Phase3Lanes" ClipToBounds="False"/>
+
+                                    <Panel Name="Phase3LaneContentHolder" IsVisible="False">
+                                        <Panel Name="Phase3ThumbLaneContent">
+                                            <Grid Name="ThumbnailLaneGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                            <Canvas Name="ThumbnailOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                            <Border Name="Phase3ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                            <!-- ISSUE_5: Min sizes, see the loading bar above. -->
+                                            <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            </Border>
+                                        </Panel>
+                                        <Panel Name="Phase3WaveLaneContent">
+                                            <Canvas Name="Phase3WaveformClip" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                            <Image Name="WaveformLaneImage" Stretch="Fill" MinHeight="60" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                            <Canvas Name="WaveformOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                            </Canvas>
+                                            <Border Name="Phase3WaveLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                            <!-- ISSUE_5: Min sizes, see the loading bar above. -->
+                                            <ProgressBar IsIndeterminate="True" MinWidth="60" MinHeight="3" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            </Border>
+                                        </Panel>
                                     </Panel>
                                 </Grid>
 
-                                <StackPanel Grid.Row="3" ZIndex="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="42" Margin="0,0,0,10" ClipToBounds="False">
-                                    <StackPanel ClipToBounds="False">
-                                        <TextBlock Text="Video Volume: 100%" Name="VideoVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
-                                        <!-- ISSUE_07 (audit round 5): Height="30" -> MinHeight="44". These were the
-                                             only two sliders in the suite pinned to a fixed height, and the global
-                                             Slider thumb (AvaloniaApp.axaml) is 44x44 — so the app's universal grab
-                                             handle was larger than the track it lived in. Fixed Height also violated
-                                             the Font-Scale Sizing Rule. -->
-                                        <Slider Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the original video audio"/>
-                                    </StackPanel>
-                                    <StackPanel ClipToBounds="False">
-                                        <TextBlock Text="Music Volume: 100%" Name="MusicVolLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
-                                        <!-- ISSUE_07 (audit round 5): see VideoVolSlider above — fixed Height 30 -> MinHeight 44. -->
-                                        <Slider Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100" HorizontalAlignment="Stretch" MinWidth="150" MaxWidth="320" MinHeight="44" ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1" ToolTip.Tip="Volume of the background music"/>
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="Export Ducking" Name="DuckingCompareLabel" Foreground="{DynamicResource AppTextPrimaryBrush}" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}"/>
-                                        <Button Name="DuckingCompareBtn" Content="Export Ducking ON" Classes="Primary" MinWidth="130" HorizontalContentAlignment="Center" ToolTip.Tip="Toggle whether FFmpeg applies ducking during export."/>
-                                    </StackPanel>
+                                <!-- SLIDER_01 - ZIndex MUST STAY ABOVE THE LANES ROW.
+                                     The knobs grow to scale(2.0) while held: a 44px thumb RENDERS 88px and
+                                     overflows by 22px in every direction. This row was ZIndex="5" while the
+                                     lanes Grid above it is ZIndex="10", so the lanes painted over the overflow
+                                     and the knob looked sliced off. Do not lower it below the lanes row.
+
+                                     SLIDER_02 - both sliders live in one framed "MIX LEVELS" card. The frame's
+                                     horizontal Padding is what stops the knob being clipped at 0% and 100%: the
+                                     dot centre sits 22px inside the slider, and at scale(2.0) the 52px dot reaches
+                                     4px PAST the slider edge, so it needs real clearance to paint into. Do not
+                                     reduce that padding below ~16.
+
+                                     SLIDER_03 - they sit SIDE BY SIDE inside that card, not stacked. See the note
+                                     on the inner Grid: this screen is short of vertical space and has horizontal
+                                     space to spare. -->
+                                <!-- SLIDER_01 - ZIndex MUST STAY ABOVE THE LANES ROW.
+                                     The knobs grow to scale(2.0) while held and overflow their row vertically.
+                                     This was ZIndex="5" while the lanes Grid above is ZIndex="10", so the lanes
+                                     painted over the overflow and the knob looked sliced off at the top.
+
+                                     SLIDER_05 - ONE ROW, NOT THREE. This screen is the tightest in the suite for
+                                     vertical space (video preview + ruler + two 60px lanes + transport + nav all
+                                     compete), so MIX LEVELS is now a SINGLE row: the frame caption sits inline on
+                                     the left and each label sits inline beside its own slider. That removed the
+                                     separate caption row and the separate label row - roughly 45px back.
+                                     The labels are also short ("Video 100%" not "Video Volume: 100%") so they steal
+                                     as little width as possible from the sliders. -->
+                                <StackPanel Grid.Row="3" ZIndex="20" Orientation="Horizontal" HorizontalAlignment="Center"
+                                            VerticalAlignment="Center" Spacing="14" Margin="0,0,0,4" ClipToBounds="False">
+
+                                    <Border Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="14,2,14,2" ClipToBounds="False">
+                                        <Grid ColumnDefinitions="Auto,10,Auto,*,16,Auto,*" VerticalAlignment="Center" ClipToBounds="False">
+
+                                            <TextBlock Grid.Column="0" Text="MIX LEVELS" Foreground="{DynamicResource AppTextMutedBrush}"
+                                                       FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"
+                                                       VerticalAlignment="Center"/>
+
+                                            <TextBlock Grid.Column="2" Text="Video 100%" Name="VideoVolLabel"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                                                       FontSize="{DynamicResource AppFontSize11}" Margin="0,0,6,0"/>
+                                            <!-- ISSUE_07 (audit round 5): fixed Height 30 -> MinHeight 44, because the global
+                                                 Slider thumb must not exceed its own track. SLIDER_04 sizes that thumb 52 wide so
+                                                 the knob can no longer paint outside the slider at 0%/100%, which is what made it
+                                                 look cut off - so no horizontal padding is needed here any more. -->
+                                            <Slider Grid.Column="3" Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100"
+                                                    HorizontalAlignment="Stretch" MinWidth="200" MinHeight="44"
+                                                    ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                    ToolTip.Tip="Volume of the original video audio"/>
+
+                                            <TextBlock Grid.Column="5" Text="Music 100%" Name="MusicVolLabel"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                                                       FontSize="{DynamicResource AppFontSize11}" Margin="0,0,6,0"/>
+                                            <Slider Grid.Column="6" Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100"
+                                                    HorizontalAlignment="Stretch" MinWidth="200" MinHeight="44"
+                                                    ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                    ToolTip.Tip="Volume of the background music"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <Button Name="DuckingCompareBtn" Content="Export Ducking ON" Classes="Primary" MinWidth="130"
+                                            VerticalAlignment="Center" HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="Toggle whether FFmpeg applies ducking during export."/>
+                                    <TextBlock Name="DuckingCompareLabel" Text="Export Ducking" IsVisible="False"/>
                                 </StackPanel>
                             </Grid>
 

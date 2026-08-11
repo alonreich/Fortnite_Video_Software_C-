@@ -63,6 +63,23 @@ public class AppSettings
     /// <summary>ISSUE_04 — Video Merger export destination. Independent of <see cref="MainOutputDirectory"/>.</summary>
     public string MergerOutputDirectory { get; set; } = "";
 
+    /// <summary>
+    /// G03 — user override for which chip encodes the final video.
+    /// Valid values: "Auto" (trust the boot hardware scan), "NVIDIA", "AMD", "INTEL", "CPU".
+    ///
+    /// WHY THIS EXISTS: the boot scan used to be the ONLY input to encoder selection, and when it
+    /// crashed (see ChildProcessTracker G01) it reported "CPU" — permanently, silently, with no
+    /// way for the user to say "no, I have an RTX, use it". Every export on an affected machine
+    /// ran on libx264 while the UI gave no indication anything was wrong.
+    ///
+    /// "Auto" must remain the default. A non-Auto value wins over the scan result unconditionally
+    /// and is passed straight through to <c>ProcessWorker.HardwareStrategy</c> /
+    /// <c>MergerWorker.HardwareStrategy</c>. If the chosen encoder is genuinely absent from the
+    /// bundled FFmpeg, <c>EncoderManager.EncoderPreflightError</c> blocks the export with a clear
+    /// message instead of silently doing something else.
+    /// </summary>
+    public string VideoEncoderOverride { get; set; } = "Auto";
+
     public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
     public FontScale FontScale { get; set; } = FontScale.Normal;
 
@@ -242,10 +259,11 @@ public static class SettingsManager
     ///   1 = original unversioned shape (no SchemaVersion field on disk).
     ///   2 = added MainOutputDirectory / MergerOutputDirectory (ISSUE_04).
     ///   3 = added LoudnessNormalizationPrompt / PeakFlatteningPrompt (audio warning dialogs).
+    ///   4 = added VideoEncoderOverride (G03 — user-forced encoder).
     /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
     /// case to <see cref="Migrate"/>. NEVER reuse a number.
     /// </summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
@@ -334,6 +352,14 @@ public static class SettingsManager
         if (from < 3)
         {
             from = 3;
+        }
+
+        if (from < 4)
+        {
+            // G03: pre-v4 files have no encoder override. "Auto" preserves the old behaviour
+            // exactly (trust the boot scan), so this migration is a no-op for existing users.
+            if (string.IsNullOrWhiteSpace(loaded.VideoEncoderOverride)) loaded.VideoEncoderOverride = "Auto";
+            from = 4;
         }
 
         loaded.SchemaVersion = from;

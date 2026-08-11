@@ -226,7 +226,7 @@ public partial class VideoMergerWindow : Window
         if (returnBtn != null) returnBtn.Click += (s, e) => ReturnToMainApp();
 
         var menuExit = this.FindControl<MenuItem>("MenuExit");
-        if (menuExit != null) menuExit.Click += (s, e) => Environment.Exit(0);
+        if (menuExit != null) menuExit.Click += (s, e) => { ShutdownVideoPipeline(); Environment.Exit(0); };   // LEAK_03
 
         var returnToMainBtn = this.FindControl<Button>("ReturnToMainAppButton");
         if (returnToMainBtn != null) returnToMainBtn.Click += (s, e) => ReturnToMainApp();
@@ -1401,7 +1401,17 @@ public partial class VideoMergerWindow : Window
                 targetRatio = dialog.Result ? FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Portrait9x16 : FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
             }
 
-            var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening };
+            // ISSUE 2: the Merger resolves its encoder through the SAME shared code path as the
+            // Main App — Settings override, then the suite-wide boot-scan result the Main App
+            // published, then the "unknown, re-probe" sentinel. It used to hardcode "GPU", which
+            // ignored the user's Settings choice AND the boot scan, so the two apps could pick
+            // different encoders on the same machine. It never runs its own scan.
+            string mergerStrategy = FortniteVideoSoftware.Core.Media.ExportEncoderStrategy.Resolve(
+                FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.VideoEncoderOverride,
+                bootScanResult: null,
+                ffmpegPath: FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries"));
+
+            var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening, HardwareStrategy = mergerStrategy };
 
             // IDEA_8: build the trim list in the SAME order as InputFiles. The list is keyed by
             // path rather than index because the queue can be drag-reordered, and it is rebuilt
@@ -1713,6 +1723,7 @@ public partial class VideoMergerWindow : Window
     private async void InitializeMpv()
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
+        WirePreviewDetach();
         if (_videoHost != null)
         {
             string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "frontend", "mpv.exe");
@@ -1752,6 +1763,10 @@ public partial class VideoMergerWindow : Window
     private void ReturnToMainApp()
     {
         _recovery.ReleaseLockOnly();
+        // LEAK_03: release the GPU BEFORE spawning the Main App, not after. This path never reaches
+        // OnClosing, so without this the render context is abandoned exactly as the sibling process
+        // starts claiming the same adapter.
+        ShutdownVideoPipeline();
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)
@@ -1766,6 +1781,39 @@ public partial class VideoMergerWindow : Window
         if (action == "whatsapp") Process.Start(new ProcessStartInfo("cmd", "/c start whatsapp://send?text=CheckOutThisVideo") { CreateNoWindow = true });
         else if (action == "folder") Process.Start(new ProcessStartInfo("explorer.exe", _outputDirectory ?? ".") { CreateNoWindow = true });
         Close();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // LEAK_03 — ORDERED TEARDOWN OF THE MERGER'S mpv / D3D11 / OpenGL PIPELINE.
+    //
+    // Same defect the Main App had (LEAK_01), and for the same reason: this window also leaves the
+    // process through `Environment.Exit(0)`, which does NOT run finalizers. The only disposal used
+    // to live inside OnClosing — but TWO of the three exit paths never reach OnClosing at all:
+    //
+    //   • MenuExit                      -> Environment.Exit(0) directly.
+    //   • ReturnToMainApp()             -> starts the Main App, then Environment.Exit(0) from a
+    //                                      Task.Run. It never calls Close(), so OnClosing never runs.
+    //
+    // ReturnToMainApp is the dangerous one: it abandons the mpv render context, the WGL bridge and
+    // the D3D11 device WHILE THE MAIN APP IS BOOTING AND CLAIMING THE SAME GPU. That is exactly the
+    // condition behind the documented 0xc0000005 faults in `nvoglv64.dll`.
+    //
+    // ⚠️ CALL THIS BEFORE EVERY `Environment.Exit` IN THIS CLASS. Idempotent and cheap.
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    private bool _videoPipelineShutDown;
+
+    private void ShutdownVideoPipeline()
+    {
+        if (_videoPipelineShutDown) return;
+        _videoPipelineShutDown = true;
+
+        // DETACH_01: a popped-out preview is parented to the floating window. Bring it home so it
+        // is disposed from its own tree and the floating window does not outlive its surface.
+        try { _previewDetach?.Attach(); }
+        catch (Exception ex) { RuntimeLog.Fail("UI", $"Could not reattach the preview during shutdown: {ex.Message}"); }
+
+        try { _videoHost?.Dispose(); }
+        catch (Exception ex) { RuntimeLog.Fail("UI", $"Video preview teardown reported: {ex.Message}"); }
     }
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
@@ -1783,7 +1831,9 @@ public partial class VideoMergerWindow : Window
                 var timeoutTask = Task.Delay(2000);
                 await Task.WhenAny(stopTask, timeoutTask);
             }
-            _videoHost?.Dispose();
+            // LEAK_03: was a bare _videoHost?.Dispose(). Routed through the shared method so the
+            // graceful close and the two Environment.Exit paths cannot drift apart.
+            ShutdownVideoPipeline();
         }
         catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
         finally { _isSafeToClose = true; this.Close(); }
@@ -2090,6 +2140,35 @@ public partial class VideoMergerWindow : Window
         if (frame == null) return;
         frame.Background = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppPanelBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!;
         frame.BorderBrush = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppBorderBrush")!;
-    
+
 }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // DETACH_01 — pop-out preview. Shared mechanism, own remembered geometry.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private PreviewDetachController? _previewDetach;
+
+    private void WirePreviewDetach()
+    {
+        var btn = this.FindControl<Button>("MergerDetachPreviewBtn");
+        if (btn == null) return;
+
+        _previewDetach = new PreviewDetachController(
+            this,
+            PreviewDetachController.MergerKey,
+            "Preview Monitor — Video Merger",
+            () => _videoHost);
+
+        _previewDetach.StateChanged += detached =>
+        {
+            var watermark = this.FindControl<Avalonia.Controls.Border>("MergerPreviewDetachedWatermark");
+            if (watermark != null) watermark.IsVisible = detached;
+            _previewDetach!.SyncButton(btn);
+        };
+
+        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);   // UXQA_01
+
+        btn.Click += (_, _) => _previewDetach.Toggle();
+        _previewDetach.SyncButton(btn);
+    }
 }

@@ -12,7 +12,14 @@ public interface IProcessJobTracker
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public partial class WindowsJobObjectTracker : IProcessJobTracker
 {
-    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    // G01: kernel32 exports CreateJobObjectW / CreateJobObjectA — there is NO unsuffixed
+    // "CreateJobObject" symbol. [LibraryImport] generates ExactSpelling=true stubs and performs
+    // NO A/W suffix probing (unlike legacy [DllImport] with CharSet.Unicode), so the unsuffixed
+    // name threw EntryPointNotFoundException from this type's static field initializer. That
+    // surfaced as "The type initializer for 'ChildProcessTracker' threw an exception" in
+    // HardwareScanner, which then reported the machine as CPU-only and silently disabled
+    // hardware encoding for the entire session. DO NOT drop the explicit EntryPoint.
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateJobObjectW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     private static partial IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
@@ -118,9 +125,36 @@ public class NoOpJobTracker : IProcessJobTracker
 
 public static class ChildProcessTracker
 {
-    private static readonly IProcessJobTracker _tracker = OperatingSystem.IsWindows()
-        ? new WindowsJobObjectTracker()
-        : new NoOpJobTracker();
+    // G01: this initializer MUST NOT be able to throw. A TypeInitializationException here is
+    // unrecoverable for the whole process lifetime (the CLR caches the failure and rethrows on
+    // every subsequent touch of the type), and every caller of AddProcess is a media-pipeline
+    // call site. A job-object failure is cosmetic — losing child-process cleanup is acceptable;
+    // losing hardware encoding is not. Degrade to NoOpJobTracker instead.
+    private static readonly IProcessJobTracker _tracker = CreateTracker();
 
-    public static void AddProcess(Process process) => _tracker.AddProcess(process);
+    /// <summary>True when the real Windows Job Object tracker is active.</summary>
+    public static bool IsJobObjectActive { get; private set; }
+
+    private static IProcessJobTracker CreateTracker()
+    {
+        if (!OperatingSystem.IsWindows()) return new NoOpJobTracker();
+        try
+        {
+            var tracker = new WindowsJobObjectTracker();
+            IsJobObjectActive = true;
+            return tracker;
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChildProcessTracker] Job object unavailable, degrading to no-op: {ex}");
+            IsJobObjectActive = false;
+            return new NoOpJobTracker();
+        }
+    }
+
+    public static void AddProcess(Process process)
+    {
+        try { _tracker.AddProcess(process); }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+    }
 }

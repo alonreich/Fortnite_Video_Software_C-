@@ -34,10 +34,56 @@ public sealed class RecoveryManager
         _paths = paths ?? ApplicationPaths.CreateDefault();
     }
 
+    /// <summary>
+    /// RECOVERY_02 — records that the user is closing the app ON PURPOSE.
+    ///
+    /// MUST be called synchronously at the very top of the close handler, BEFORE any await. The
+    /// close path is asynchronous (save window bounds, stop mpv, dispose the host) and during a
+    /// Windows shutdown / restart / sign-out the OS can terminate the process partway through it.
+    /// The session lock then survives and the next launch reports a crash that never happened.
+    /// This marker is the evidence that the exit was intentional, written while we still certainly
+    /// have a thread to write it with.
+    ///
+    /// Non-throwing by contract: it runs inside a close handler, and a failure here must never
+    /// prevent the app from closing.
+    /// </summary>
+    public void MarkCleanShutdownIntent()
+    {
+        try
+        {
+            File.WriteAllText(_paths.CleanShutdownIntentFile,
+                $"{Environment.ProcessId}:{DateTime.UtcNow:O}");
+        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+    }
+
+    private void ClearCleanShutdownIntent()
+    {
+        try
+        {
+            if (File.Exists(_paths.CleanShutdownIntentFile))
+                File.Delete(_paths.CleanShutdownIntentFile);
+        }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+    }
+
     public bool CheckFault()
     {
         if (!File.Exists(_paths.RecoveryStateFile))
         {
+            return false;
+        }
+
+        // RECOVERY_02: the previous session declared it was closing on purpose. Whatever stopped it
+        // from finishing the cleanup (an OS shutdown, a failed bounds save) it was NOT a crash, so
+        // do not accuse it of one — and do not offer to restore work the user deliberately ended.
+        // Tidy up the leftovers the interrupted close never got to.
+        if (File.Exists(_paths.CleanShutdownIntentFile))
+        {
+            CoreLogger.Info("Recovery",
+                "Previous session was closing intentionally but did not finish its cleanup (typically a Windows shutdown). Not treating this as a crash.");
+            ClearCleanShutdownIntent();
+            CleanupLock();
             return false;
         }
 
@@ -92,26 +138,82 @@ public sealed class RecoveryManager
         return true;
     }
 
+    /// <summary>
+    /// RECOVERY_05 — is a restore currently in flight (or did one die mid-flight)?
+    ///
+    /// OWNERSHIP FIRST, AGE ONLY AS A BACKSTOP. This used to expire the sentinel purely on
+    /// wall-clock age (120 seconds). A restore of a large project on a slow disk can legitimately
+    /// take longer than that, and when it did the sentinel was deleted MID-RESTORE — so a crash
+    /// during that restore was no longer recognised as a crash loop, which is precisely the
+    /// scenario safe mode exists to break, arriving exactly when the session is heaviest.
+    ///
+    /// The sentinel now records the owning process the same way the session lock does
+    /// (PID + process start ticks, which together defeat PID reuse). It is honoured for as long as
+    /// that process is genuinely alive, however long the restore takes. It is considered stale —
+    /// and cleaned up — only when the owner is gone. The age check survives purely as a backstop
+    /// for a sentinel written by an older build that carries no owner stamp.
+    /// </summary>
     public bool IsSafeModeActive()
     {
-        if (File.Exists(_paths.SafeModeSentinelFile))
+        if (!File.Exists(_paths.SafeModeSentinelFile)) return false;
+
+        try
         {
-            try
-            {
-                TimeSpan age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_paths.SafeModeSentinelFile);
-                if (age < _safeModeThreshold)
-                {
-                    return true;
-                }
-
-                try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-                try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-
-                File.Delete(_paths.SafeModeSentinelFile);
-            }
+            string content = "";
+            try { content = File.ReadAllText(_paths.SafeModeSentinelFile).Trim(); }
             catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
+            if (TryParseOwner(content, out int ownerPid, out long ownerTicks))
+            {
+                // Our own sentinel — a restore is running right now, in this process.
+                if (ownerPid == Environment.ProcessId) return true;
+
+                if (IsProcessStillRunning(ownerPid, ownerTicks)) return true;
+                // Owner is gone: the restore died. Fall through and clear.
+            }
+            else
+            {
+                // Legacy/unstamped sentinel: fall back to the original age rule.
+                TimeSpan age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_paths.SafeModeSentinelFile);
+                if (age < _safeModeThreshold) return true;
+            }
+
+            try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
+            File.Delete(_paths.SafeModeSentinelFile);
         }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+
         return false;
+    }
+
+    /// <summary>Parses a "pid:startTicks" owner stamp. Shared by the lock and the safe-mode sentinel.</summary>
+    private static bool TryParseOwner(string content, out int pid, out long startTicks)
+    {
+        pid = 0; startTicks = 0;
+        if (string.IsNullOrWhiteSpace(content)) return false;
+        string[] parts = content.Split(':');
+        return parts.Length >= 2
+               && int.TryParse(parts[0], out pid)
+               && long.TryParse(parts[1], out startTicks);
+    }
+
+    /// <summary>
+    /// True when the stamped process is still alive AND is genuinely the same process — the start
+    /// ticks are what stop a recycled PID from impersonating the previous owner.
+    /// </summary>
+    private static bool IsProcessStillRunning(int pid, long startTicks)
+    {
+        try
+        {
+            using Process proc = Process.GetProcessById(pid);
+            return !proc.HasExited && proc.StartTime.Ticks == startTicks;
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+        catch (System.ComponentModel.Win32Exception) { return false; }
+        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); return false; }
     }
 
     public void ActivateSafeMode()
@@ -119,7 +221,10 @@ public sealed class RecoveryManager
         try
         {
             _paths.EnsureWritableDirectories();
-            File.WriteAllText(_paths.SafeModeSentinelFile, string.Empty);
+            // RECOVERY_05: stamp the owner so the sentinel is judged by whether this process is
+            // still alive, not by an arbitrary 120-second clock.
+            File.WriteAllText(_paths.SafeModeSentinelFile,
+                $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}");
             CoreLogger.Info("Recovery", "Safe mode activated to prevent a crash loop.");
         }
         catch (Exception ex)
@@ -152,6 +257,10 @@ public sealed class RecoveryManager
             _paths.EnsureWritableDirectories();
             string lockData = $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}";
             File.WriteAllText(_paths.AppSessionLockFile, lockData);
+            // RECOVERY_02: a NEW session is starting, so any "closing on purpose" marker left by a
+            // previous one is spent. Leaving it would make a genuine crash in THIS session look
+            // like an intentional close on the next launch.
+            ClearCleanShutdownIntent();
             CoreLogger.Info("Recovery", $"Session lock acquired (PID {Environment.ProcessId}).");
         }
         catch (Exception ex)
@@ -180,6 +289,8 @@ public sealed class RecoveryManager
             }
 
             ClearState();
+            // RECOVERY_02: the close completed properly, so the intent marker has done its job.
+            ClearCleanShutdownIntent();
             CoreLogger.Info("Recovery", "Session lock and recovery state cleaned up on normal shutdown.");
         }
         catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
