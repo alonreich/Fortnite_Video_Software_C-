@@ -563,12 +563,6 @@ public partial class VoiceOverWindow : Window
         return fallback;
     }
 
-    private SolidColorBrush CreateAppOverlayBrush(string resourceKey, byte alpha, Color fallback)
-    {
-        var color = GetAppColor(resourceKey, fallback);
-        return new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
-    }
-
     private void AttachResizeGrip()
     {
         var resizeGrip = this.FindControl<Border>("ResizeGrip");
@@ -849,11 +843,6 @@ public partial class VoiceOverWindow : Window
             }
         }
         return false;
-    }
-
-    private bool HasMuteSelection()
-    {
-        return _duckAudioCb?.IsChecked == true;
     }
 
     private bool HasApplicableVoiceEffect()

@@ -3344,12 +3344,6 @@ public partial class GranularSpeedEditorWindow : Window
         return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
     }
 
-    private static string FormatSec(double sec)
-    {
-        var ts = TimeSpan.FromSeconds(sec < 0 ? 0 : sec);
-        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
-    }
-
     /// <summary>
     /// SHORT CLOCK — the format used by everything the user READS on screen in this window:
     /// the segment list, both ends of the timeline axis, and the ruler tick labels.
@@ -3371,9 +3365,6 @@ public partial class GranularSpeedEditorWindow : Window
             ? $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}"
             : $"{ts.Minutes:D2}:{ts.Seconds:D2}";
     }
-
-    /// <summary>Seconds overload of <see cref="FormatClock(double)"/>.</summary>
-    private static string FormatClockSec(double sec) => FormatClock(sec * 1000.0);
 
     /// <summary>
     /// Returns the timeline overlay color for a speed segment, based on its speed

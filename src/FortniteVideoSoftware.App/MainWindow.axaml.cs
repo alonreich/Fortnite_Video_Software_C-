@@ -1430,15 +1430,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         ToggleMuteFromSpeakerIcon();
     }
 
-    private void SpeakerIcon_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter || e.Key == Key.Space)
-        {
-            ToggleMuteFromSpeakerIcon();
-            e.Handled = true;
-        }
-    }
-
     private void ToggleMuteFromSpeakerIcon()
     {
         var volumeSlider = this.FindControl<Slider>("VolumeSlider");
@@ -2444,20 +2435,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (string.IsNullOrEmpty(_loadedVideoPath)) return Task.CompletedTask;
         PreviewDetach.Detach();
         return Task.CompletedTask;
-    }
-
-    private async Task InitializeMpvInstanceAsync(MpvVideoView view)
-    {
-        string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "frontend", "mpv.exe");
-        if (!System.IO.File.Exists(mpvPath)) mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "mpv.exe");
-        if (!System.IO.File.Exists(mpvPath)) mpvPath = "mpv.exe";
-        
-        await view.StartMpvProcessAsync(mpvPath);
-        if (view.IpcClient != null)
-        {
-            view.IpcClient.SeekCompleted -= OnSeekCompleted;
-            view.IpcClient.SeekCompleted += OnSeekCompleted;
-        }
     }
 
     private double CalculateEffectiveDurationMs(double trimStartMs, double trimEndMs, double baseSpeed)
@@ -5682,18 +5659,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-        ShutdownVideoPipeline();
-        Environment.Exit(0);
-    }
-
-    /// <summary>Launches the Video Merger process and exits the Main App.</summary>
-    private void OpenVideoMerger(object? sender, RoutedEventArgs? e)
-    {
-        SaveRecoveryState(sync: true);
-        _recovery.ReleaseLockOnly();
-        RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
-        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-        var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
         ShutdownVideoPipeline();
         Environment.Exit(0);
     }

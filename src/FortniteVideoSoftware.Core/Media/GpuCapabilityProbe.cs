@@ -12,9 +12,6 @@ public interface IGpuCapabilityProbe
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public partial class WindowsGpuCapabilityProbe : IGpuCapabilityProbe
 {
-    [StructLayout(LayoutKind.Sequential)]
-    private struct D3D_FEATURE_LEVEL { }
-
     [LibraryImport("d3d11.dll", EntryPoint = "D3D11CreateDevice")]
     private static partial int D3D11CreateDevice(
         IntPtr pAdapter,

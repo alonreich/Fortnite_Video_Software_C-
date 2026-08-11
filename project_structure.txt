@@ -706,6 +706,36 @@ When the app is freshly installed and no config exists, the default upload video
   * ⚠️ CALL IT BEFORE EVERY `Environment.Exit` IN THAT CLASS. All ten sites are wired. If you add an
     eleventh exit path, add the call — it is idempotent and cheap, so when in doubt, call it.
   * NOTE: the audit that found this reported ONE site. There were ten. Count them, do not sample.
+- UXQA_01..04 — END-USER QA PASS ON THE DETACHABLE PREVIEW (DETACH_01 FOLLOW-UP). An audit performed
+  purely from the end user's seat — not the code's — found four defects, ALL of them introduced by
+  DETACH_01 itself. Recorded because each fix looks like an arbitrary style choice from the source
+  alone and WILL be "tidied" back into a bug by anyone who does not know why it is that way.
+  * UXQA_01 — THE BUTTON THAT DID NOTHING AND WOULD NOT SAY WHY. "◳ Detach Monitor" was always
+    clickable on all five preview screens, plus the Main App MENU entry (which had never been gated
+    at all, predating DETACH_01). With no preview to move, the controller returned false and the
+    click vanished — no message, no disabled look, nothing. FIX: `PreviewDetachController.CanDetach`
+    + `SyncButton()` now own the caption, the enabled state and an explanatory tooltip for every
+    caller, so the six entry points cannot drift; the string "◱ Attach Monitor" now exists in
+    EXACTLY ONE place in the codebase. A new `DetachUnavailable` event fires instead of silence —
+    the Music Wizard shows it in its phase-3 status line (that window genuinely spends seconds with
+    no player, because phase 3 builds it asynchronously) and re-enables the button once the player
+    loads. The Main App menu entry is greyed with "Load a video first" until a clip is open.
+  * UXQA_02 — THE BUTTON ATE THE ZOOM BOX (Granular). It sat top-LEFT over the video at ZIndex 9999
+    while the zoom draw surface is ZIndex 40 — so starting a zoom-box drag from the top-left corner
+    of the picture, the most natural place to start one, hit the BUTTON and silently blocked the
+    feature in that corner. FIX: moved to the top-RIGHT and hidden outright while zoom mode is
+    active (`UpdateDetachButtonForZoomMode`), except when the preview is already detached — hiding
+    it then would strand the only control that brings the preview back.
+  * UXQA_03 — CLICKABLE THROUGH "PLEASE WAIT" (Granular). At ZIndex 9999 the button floated ABOVE
+    `ZoomApplyBusyOverlay` (70) and the freeze dimmer (10/11), so the user could reach through
+    overlays that exist to block input and tear the player out mid-operation. FIX: ZIndex 66 —
+    above the detached watermark (65), below every blocking overlay.
+  * UXQA_04 — "DETACH MONITOR" FLOATING OVER "ADD SOME VIDEOS" (Merger). ZIndex 9999 with no
+    visibility gate put it on top of `NoVideoOverlay` (500), so an empty queue showed a button that
+    could not work, covering the instruction for what to actually do. FIX: bound to `HasVideos` and
+    dropped to ZIndex 600.
+  ⚠️ THE Z-INDEX VALUES (66 IN GRANULAR, 600 IN THE MERGER) AND THE TOP-RIGHT POSITION ARE LOAD-
+  BEARING, NOT COSMETIC. Raising them back to 9999 restores UXQA_02/03/04 in one move.
 - LEAK_03 — THE VIDEO MERGER ABANDONED ITS GPU CONTEXT ON TWO OF THREE EXIT PATHS
   (`VideoMergerWindow.axaml.cs`). Identical defect to LEAK_01, found in the Merger after the Main App
   was fixed. The only `_videoHost?.Dispose()` lived inside `OnClosing`, but two exits never reach it:

@@ -101,8 +101,8 @@ To compile the application from source, you will need the **.NET 9 SDK** and the
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/alonreich/FortniteVideoSoftware.git
-cd FortniteVideoSoftware
+git clone https://github.com/alonreich/Fortnite_Video_Software_C-.git
+cd Fortnite_Video_Software_C-
 
 # 2. Run the automated build script
 .\build.cmd

@@ -2598,11 +2598,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return CoordinateMath.ClampOverlayPosition(x, y, width, height);
     }
 
-    private static int RoundPixel(double value)
-    {
-        return CoordinateMath.ScaleRound(Frac.FromDouble(value));
-    }
-
     private Point ClampToSnapshot(Point point)
     {
         return new Point(

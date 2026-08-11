@@ -29,13 +29,6 @@ public readonly struct Frac : IEquatable<Frac>, IComparable<Frac>
         Den = (long)(d / g);
     }
 
-    private static long Gcd(long a, long b)
-    {
-        a = Math.Abs(a); b = Math.Abs(b);
-        while (b != 0) { long t = a % b; a = b; b = t; }
-        return a == 0 ? 1 : a;
-    }
-
     public static Frac FromDouble(double d)
     {
         if (double.IsNaN(d) || double.IsInfinity(d)) return Zero;

@@ -155,6 +155,16 @@ public class EncoderManager
                 return [];
             }
 
+            // ⚠️ SYNC-OVER-ASYNC, AND IT IS ONLY SAFE BECAUSE OF WHERE THIS RUNS. `.Wait()`/`.Result`
+            // on a task whose continuation needs the interface thread is a classic deadlock; this
+            // one is fine for two reasons, BOTH of which must stay true:
+            //   1. `proc.WaitForExit(5000)` above already returned true, so the process has exited
+            //      and the stdout stream is at EOF — the task is effectively complete before we wait.
+            //   2. EVERY construction site wraps this type in `Task.Run` — ProcessWorker,
+            //      MergerWorker and SettingsWindow — so no UI SynchronizationContext is ever
+            //      captured and the continuation cannot need the interface thread.
+            // ⚠️ DO NOT construct EncoderManager directly on the interface thread. An audit flagged
+            // this line as a live deadlock; it is not, but only while rule 2 holds.
             string output = readTask.Wait(TimeSpan.FromSeconds(5)) ? readTask.Result : string.Empty;
             if (output.Length == 0)
             {

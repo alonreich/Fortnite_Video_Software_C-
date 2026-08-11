@@ -1790,36 +1790,6 @@ public partial class MusicWizardWindow : Window
         e.Handled = true;
     }
 
-    private void HandlePhase3SeekKeyDown(KeyEventArgs e)
-    {
-        double step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 5.0 : 1.0;
-        double currentRelative = GetCurrentPhase3VideoRelativeSeconds();
-        double duration = GetPhase3VideoDurationSeconds();
-
-        if (e.Key == Key.Left)
-        {
-            SeekPhase3Relative(Math.Max(0, currentRelative - step));
-        }
-        else if (e.Key == Key.Right)
-        {
-            SeekPhase3Relative(Math.Min(duration, currentRelative + step));
-        }
-        else if (e.Key == Key.Home)
-        {
-            SeekPhase3Relative(0);
-        }
-        else if (e.Key == Key.End)
-        {
-            SeekPhase3Relative(duration);
-        }
-        else
-        {
-            return;
-        }
-
-        e.Handled = true;
-    }
-
     private void SeekPhase3Relative(double videoRelativeSec)
     {
         double duration = GetPhase3VideoDurationSeconds();
@@ -2613,12 +2583,6 @@ public partial class MusicWizardWindow : Window
         }
 
         return Math.Max(0.001, _phase3BaseSpeed);
-    }
-
-    private double GetAudibleMusicDurationSeconds()
-    {
-        double remainingSong = Math.Max(0, _trackDuration - _songStartSeconds);
-        return Math.Min(GetPhase3VideoDurationSeconds(), remainingSong);
     }
 
     private double GetCurrentPhase3VideoRelativeSeconds()
