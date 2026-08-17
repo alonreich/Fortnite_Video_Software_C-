@@ -32,6 +32,15 @@ public record ExportPayload
     public bool ShowTeammates { get; init; }
     public bool ShowSpectating { get; init; }
     public string? MemeFile { get; init; }
+
+    /// <summary>
+    /// MEME_03 — several memes, each at a chosen moment (CLIP-RELATIVE source seconds, already
+    /// snapped per D8). Empty means "fall back to the legacy single-meme fields".
+    /// </summary>
+    public List<FortniteVideoSoftware.Core.Media.MemePlacement>? MemePlacements { get; init; }
+
+    /// <summary>MEME_02 — play the meme before the gameplay instead of after it.</summary>
+    public bool MemeAtStart { get; init; }
     public string? PortraitText { get; init; }
     public List<SpeedSegment>? SpeedSegments { get; init; }
     

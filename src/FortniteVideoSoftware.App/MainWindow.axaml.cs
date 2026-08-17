@@ -742,6 +742,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
                 if (wasPlaying) _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
+                // PREVIEW_03: see the wizard call site — same reason, same measured number.
                 var dialog = new VoiceOverWindow(
                     _loadedVideoPath,
                     GetCurrentMpvTime(),
@@ -749,6 +750,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _trimEndSet ? _trimEndMs : 0,
                     BuildExportSpeedSegments(),
                     _baseSpeed);
+                dialog.SourceMeasuredLufs = _sourceMeasuredLufs;   // PREVIEW_03
                 try
                 {
                     await dialog.ShowDialog(this);
@@ -1010,6 +1012,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 // PORTRAIT_01: phase 3 cannot know the export format on its own, and without this
                 // its A/B preview shows a 16:9 frame for a clip that exports as 2:3.
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+                // PREVIEW_03: hand over the loudness this window already measured on upload, so the
+                // wizard can reproduce the EXPORT's game-vs-music balance instead of guessing.
+                // Re-measuring inside the wizard would cost seconds for a number we already have.
+                wizard.SourceMeasuredLufs = _sourceMeasuredLufs;
                 await wizard.ShowDialog(this);
                 // RETURN_01: see ReturnToTrimStartPaused.
                 ReturnToTrimStartPaused();
@@ -1087,11 +1093,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
         
         var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+        WireMemePlacementCombo();   // MEME_02
+
         if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
             if (memeCb.SelectedItem is MemeItem action && action.IsDownloadAction)
             {
                 memeCb.SelectedItem = e.RemovedItems != null && e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
-                _ = RunCloudMemeSyncAsync();
+                _ = RunCloudMemeSyncAsync(action.DownloadCategory);   // DOWNLOAD_01
                 return;
             }
 
@@ -1101,6 +1109,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     $"MemeSelected: type={(sel.IsImage ? "image" : "video")}, file={sel.FileName}, " +
                     $"width={sel.Width}, height={sel.Height}, aspect={sel.AspectRatio:0.###}");
                 RuntimeLog.Debug("Memes", $"MemeSelected full path: {sel.FullPath}");
+                SyncMemePlacementUi(sel.FullPath);   // MEME_02
             }
 
             SaveRecoveryState();
@@ -1305,9 +1314,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             var tb = new TextBlock { Text = item.FileName, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
             if (item.IsDownloadAction)
             {
-                tb.Text = "⬇ Download more memes...";
+                // DOWNLOAD_01: name the category outright. "Download more memes..." gave no hint
+                // that it also pulled every image, or how long that would take.
+                tb.Text = item.DownloadCategory == "jpeg"
+                    ? "⬇  Download more meme PICTURES…"
+                    : "⬇  Download more meme VIDEOS…";
                 tb.FontWeight = Avalonia.Media.FontWeight.Bold;
                 tb.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8"));
+                ToolTip.SetTip(tb, item.DownloadCategory == "jpeg"
+                    ? "Fetch more still-image memes from the official library. Files you already have are skipped, never overwritten."
+                    : "Fetch more video memes from the official library. Files you already have are skipped, never overwritten.");
             }
             else if (isPortrait && item.AspectRatio > 0.85f)
             {
@@ -1318,7 +1334,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         });
 
         var prev = preserveSelection ? cb.SelectedItem as MemeItem : null;
-        var list = new List<MemeItem>(_memeItems) { new MemeItem { IsDownloadAction = true, FileName = "Download more memes..." } };
+        // DOWNLOAD_01: one row per library, so each button fetches exactly one thing.
+        var list = new List<MemeItem>(_memeItems)
+        {
+            new MemeItem { IsDownloadAction = true, DownloadCategory = "mp4",  FileName = "Download more meme videos..." },
+            new MemeItem { IsDownloadAction = true, DownloadCategory = "jpeg", FileName = "Download more meme pictures..." },
+        };
         cb.ItemsSource = list;
         if (prev != null && !prev.IsDownloadAction)
         {
@@ -1329,31 +1350,115 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     }
 
     /// <summary>§4 consent + delta sync + silent §1 rescan.</summary>
-    private async Task RunCloudMemeSyncAsync()
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // MEME_02 — the Start/End picker.
+    //
+    // Shows the placement this meme will actually use, resolved through MemePlacementStore:
+    // the user's remembered choice for this file, else the shipped default, else End. Changing it
+    // writes the choice straight back, so it is remembered for that meme from then on.
+    //
+    // ⚠️ THE WARNING IS A NUDGE, NOT A BLOCK. Some memes only make sense leading INTO the
+    // gameplay, and choosing End for one of those produces a video that lands oddly — but it is a
+    // legitimate choice and the app has no business refusing it. It says so once and gets out of
+    // the way.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private bool _suppressMemePlacementEvent;
+
+    private void SyncMemePlacementUi(string? memePath)
     {
+        var row = this.FindControl<Grid>("MemePlacementRow");
+        var combo = this.FindControl<ComboBox>("MemePlacementCombo");
+        if (row == null || combo == null) return;
+
+        bool has = !string.IsNullOrWhiteSpace(memePath) && System.IO.File.Exists(memePath);
+        row.IsVisible = has;
+        if (!has) return;
+
+        _suppressMemePlacementEvent = true;
+        combo.SelectedIndex =
+            Infrastructure.MemePlacementStore.Get(memePath!) == Infrastructure.MemePlacement.Start ? 1 : 0;
+        _suppressMemePlacementEvent = false;
+    }
+
+    private void WireMemePlacementCombo()
+    {
+        var combo = this.FindControl<ComboBox>("MemePlacementCombo");
+        if (combo == null) return;
+
+        combo.SelectionChanged += async (_, _) =>
+        {
+            if (_suppressMemePlacementEvent) return;
+
+            var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+            if (memeCb?.SelectedItem is not MemeItem sel || sel.IsDownloadAction) return;
+
+            var chosen = combo.SelectedIndex == 1
+                ? Infrastructure.MemePlacement.Start
+                : Infrastructure.MemePlacement.End;
+
+            Infrastructure.MemePlacementStore.Set(sel.FullPath, chosen);
+            SaveRecoveryState();
+
+            if (Infrastructure.MemePlacementStore.ContradictsShippedDefault(sel.FullPath, chosen))
+            {
+                await ErrorReporter.ShowAsync(this,
+                    "This meme usually goes first",
+                    $"'{sel.FileName}' is the kind of meme that normally plays BEFORE your gameplay — " +
+                    "it is an intro, so putting it at the end can feel out of place.\n\n" +
+                    "Your choice has been saved either way. Switch it back to \"at the START\" if that " +
+                    "was not what you meant.",
+                    "You will not be asked about this meme again.");
+            }
+        };
+    }
+
+    /// <summary>
+    /// DOWNLOAD_01 — fetches ONE library at a time and says which one, throughout.
+    ///
+    /// Previously a single action pulled the video memes AND the image memes together, announced
+    /// only as "memes", so the user could not tell what they had asked for, what was arriving, or
+    /// why it was taking so long. Every message here now names the category, and the count at the
+    /// end reports what actually landed.
+    ///
+    /// NON-DESTRUCTIVE: the sync is a delta — a file already present by name is skipped, never
+    /// overwritten. That is what makes this safe to press repeatedly to "get everything again"
+    /// without any risk to files the user has added or edited themselves.
+    /// </summary>
+    private async Task RunCloudMemeSyncAsync(string category)
+    {
+        bool pictures = string.Equals(category, "jpeg", StringComparison.OrdinalIgnoreCase);
+        string label = pictures ? "meme pictures" : "meme videos";
+
         var dlg = new Controls.ConfirmDialogWindow();
-        dlg.SetTitle("Download more memes?");
-        dlg.SetMessage("This will connect to the internet and download new meme files from the official meme library into your meme folder. Continue?");
+        dlg.SetTitle($"Download more {label}?");
+        dlg.SetMessage(
+            $"This connects to the internet and copies new {label} from the official library into your meme folder.\n\n" +
+            "Anything you already have is left alone — nothing is replaced or deleted. " +
+            "You can press this again any time to pick up whatever is new.");
         dlg.SetButtonText("DOWNLOAD", "CANCEL");
         await dlg.ShowDialog(this);
         if (!dlg.Result) return;
 
         string memeDir = Infrastructure.MemeDirectory.GetActive();
         var (count, error) = await Controls.CloudSyncProgressWindow.RunAsync(
-            this, "Downloading memes",
-            (progress, ct) => MemeCatalog.SyncFromCloudAsync(memeDir, progress, ct));
+            this, $"Downloading {label}",
+            (progress, ct) => pictures
+                ? MemeCatalog.SyncImageMemesAsync(memeDir, progress, ct)
+                : MemeCatalog.SyncVideoMemesAsync(memeDir, progress, ct));
 
         PopulateMemeComboBox();
 
         if (error != null)
         {
-            ShowTacticalFeedback("⚠ Meme download problem");
-            await ErrorReporter.ShowAsync(this, "Meme download problem", error,
+            ShowTacticalFeedback($"⚠ Could not finish downloading {label}");
+            await ErrorReporter.ShowAsync(this, $"Problem downloading {label}", error,
                 "See the log entries tagged [Memes] for the per-file detail.");
             return;
         }
 
-        ShowTacticalFeedback(count > 0 ? $"✔ {count} new meme(s) added" : "✔ Meme library is up to date");
+        ShowTacticalFeedback(count > 0
+            ? $"✔ {count} new {label} added"
+            : $"✔ You already have all the {label}");
     }
 
     private async Task PushAssetsAsync()
@@ -1361,8 +1466,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         try
         {
             await Task.Run(() => {
-                string musicFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
-                string videosFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                string musicFolder = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
+                string videosFolder = Infrastructure.MemeDirectory.GetVideosRoot();   // SANDBOX_01
                 string memeFolder = Infrastructure.MemeDirectory.GetActive();
 
                 if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
@@ -1382,41 +1487,24 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     }
                 }
 
-                string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory;
-                string appRoot = Path.Combine(baseDir, "..", "..", "..", "..", "..");
-                if (!Directory.Exists(Path.Combine(appRoot, "mp3"))) appRoot = baseDir;
-                var music1 = Path.Combine(appRoot, "mp3", "Cool Dance Background Music (No CopyRights).mp3");
-                var music2 = Path.Combine(appRoot, "mp3", "Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3");
-                var meme1 = Path.Combine(appRoot, "mp4", "Dexter Sargent Duke.mp4");
-                var meme2 = Path.Combine(appRoot, "mp4", "Crying.mp4");
-                var meme3 = Path.Combine(appRoot, "mp4", "Donald Trump - He Died like a Dog.mp4");
-                var meme4 = Path.Combine(appRoot, "mp4", "What the fuck am I doing here (Robert Deniro).mp4");
-
-                if (File.Exists(music1) && !File.Exists(Path.Combine(musicFolder, Path.GetFileName(music1))))
-                    File.Copy(music1, Path.Combine(musicFolder, Path.GetFileName(music1)));
-                if (File.Exists(music2) && !File.Exists(Path.Combine(musicFolder, Path.GetFileName(music2))))
-                    File.Copy(music2, Path.Combine(musicFolder, Path.GetFileName(music2)));
-                
-                if (File.Exists(meme1) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme1))))
-                    File.Copy(meme1, Path.Combine(memeFolder, Path.GetFileName(meme1)));
-                if (File.Exists(meme2) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme2))))
-                    File.Copy(meme2, Path.Combine(memeFolder, Path.GetFileName(meme2)));
-                if (File.Exists(meme3) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme3))))
-                    File.Copy(meme3, Path.Combine(memeFolder, Path.GetFileName(meme3)));
-                if (File.Exists(meme4) && !File.Exists(Path.Combine(memeFolder, Path.GetFileName(meme4))))
-                    File.Copy(meme4, Path.Combine(memeFolder, Path.GetFileName(meme4)));
-
-                var imageSourceDir = Path.Combine(appRoot, "jpeg");
-                if (Directory.Exists(imageSourceDir))
-                {
-                    foreach (var img in Directory.GetFiles(imageSourceDir))
-                    {
-                        string ext = Path.GetExtension(img).ToLowerInvariant();
-                        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png") continue;
-                        string imgDest = Path.Combine(memeFolder, Path.GetFileName(img));
-                        if (!File.Exists(imgDest)) File.Copy(img, imgDest);
-                    }
-                }
+                // ─────────────────────────────────────────────────────────────────────────
+                // STARTER_01 — DELIVER THE SHIPPED STARTER MEDIA.
+                //
+                // ⚠️ WHAT USED TO BE HERE NEVER WORKED OUTSIDE THE DEV TREE. It walked FIVE
+                // LEVELS UP from the executable looking for `mp3`/`mp4`/`jpeg` — that is the
+                // bin/Debug/net9.0-windows/win-x64 -> repo root layout. On a real install those
+                // folders are nowhere, the fallback was the install directory which had no media
+                // either, so every File.Exists() returned false and the user got three EMPTY
+                // libraries with nothing to tell them anything was missing.
+                //
+                // The media now ships in `starter\` next to the program (Build.cmd step 2.6),
+                // a location that exists identically in dev and in production. MemeAssets owns
+                // the file list, skips anything already present, and writes a one-time marker so
+                // a starter file the user deletes stays deleted.
+                // ─────────────────────────────────────────────────────────────────────────
+                Infrastructure.MemeAssets.DeliverStarter("mp3", musicFolder);
+                Infrastructure.MemeAssets.DeliverStarter("mp4", memeFolder);
+                Infrastructure.MemeAssets.DeliverStarter("jpeg", memeFolder);
             });
         }
         catch (Exception ex)
@@ -3773,13 +3861,38 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         double dur = ActiveVideoHost.IpcClient.Duration;
         double displayTime = dur > 0 ? Math.Clamp(time, 0, dur) : Math.Max(0, time);
 
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        // EOF_01 — THE VIDEO REACHING ITS END MUST STOP THE MUSIC AND THE VOICE-OVER.
+        //
+        // Symptom: "the music keeps playing after the video ends." Both preview gates below asked
+        // only `!isPaused && time is inside my range`, and NEITHER of those turns false at the end
+        // of the clip:
+        //   * `MpvVideoView` sets `keep-open=yes`, so at EOF mpv parks on the last frame instead of
+        //     unloading. `time` freezes at roughly `duration` — it never advances PAST the music's
+        //     end point, so `time <= TimelineEndSeconds` stays TRUE.
+        //   * That comparison is inclusive, and the normal case is music running to the very end of
+        //     the clip, which puts TimelineEndSeconds exactly at `duration`. So the range test can
+        //     never fail on its own.
+        //   * `_isCurrentlyFrozen` force-clears `isPaused` a few lines down, so even the pause flip
+        //     is not dependable.
+        // With every condition stuck TRUE, the music player was simply never told to stop.
+        //
+        // `IsEof` was already being maintained by MpvIpcClient from mpv's `eof-reached` property —
+        // the signal existed and was used in exactly ONE place in the whole application. The
+        // duration fallback covers the tick or two before `eof-reached` propagates, and is skipped
+        // entirely when duration is unknown (dur <= 0) so a still-loading file is never treated as
+        // finished.
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        bool videoEnded = ActiveVideoHost.IpcClient.IsEof || (dur > 0 && time >= dur - 0.05);
+
         if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
         {
             bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
             if (_isCurrentlyFrozen) isPaused = false;
             double songTime = _musicWizardResult.OffsetSeconds + (time - _musicWizardResult.TimelineStartSeconds);
             bool songHasAudio = _musicWizardResult.MusicDurationSeconds <= 0 || songTime < _musicWizardResult.MusicDurationSeconds;
-            bool shouldPlayMusic = !isPaused && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds && songHasAudio;
+            // EOF_01: `!videoEnded` is what actually stops this at the end of the clip — see above.
+            bool shouldPlayMusic = !isPaused && !videoEnded && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds && songHasAudio;
             bool isDraggingAnyMarker = _draggingStartMarker || _draggingEndMarker || _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock;
 
             if (shouldPlayMusic && _isMusicPreviewPlaying && (Math.Abs(time - _lastMusicPreviewSyncTime) > 0.5 || Math.Abs(_musicWizardResult.TimelineStartSeconds - _playingMusicTimelineStartSeconds) > 0.05))
@@ -3811,7 +3924,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             foreach (var take in _voiceOverPreviewTakes)
             {
                 double voiceTime = editedTime - take.StartProjectSec;
-                bool shouldPlayVoice = !isPaused && voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
+                // EOF_01: identical defect — a take that runs to the end of the clip kept playing
+                // past it, for exactly the same reason the music did.
+                bool shouldPlayVoice = !isPaused && !videoEnded && voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
 
                 if (shouldPlayVoice && take.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
                 {
@@ -4365,8 +4480,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
             musicConfig = new System.Text.Json.Nodes.JsonObject
             {
-                ["ducking_threshold"] = _musicWizardResult.EnableDucking ? 0.15 : 1.0,
-                ["ducking_ratio"] = _musicWizardResult.EnableDucking ? 2.5 : 1.0,
+                ["ducking_threshold"] = _musicWizardResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedThreshold : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassThreshold,
+                ["ducking_ratio"] = _musicWizardResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedRatio : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassRatio,
                 ["main_vol"] = _musicWizardResult.VideoVolume,
                 ["music_vol"] = _musicWizardResult.MusicVolume,
                 ["carving_enabled"] = _musicWizardResult.EnableCarving
@@ -4404,6 +4519,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ShowTeammates = this.FindControl<Avalonia.Controls.ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
             ShowSpectating = this.FindControl<Avalonia.Controls.ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
             MemeFile = memeFile,
+            // MEME_02: resolved per file — the user's remembered choice, else the shipped
+            // default, else End. See MemePlacementStore for the precedence.
+            MemeAtStart = !string.IsNullOrWhiteSpace(memeFile) &&
+                          Infrastructure.MemePlacementStore.Get(memeFile!) == Infrastructure.MemePlacement.Start,
             PortraitText = this.FindControl<Avalonia.Controls.TextBox>("PortraitTextInput")?.Text,
             SpeedSegments = allSegments,
             QualityLevel = resolvedQuality,

@@ -389,6 +389,21 @@
                                         <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsAddMeme, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
                                     </Grid>
                                     <ComboBox Name="MemeComboBox" HorizontalAlignment="Stretch" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" ToolTip.Tip="Choose which meme effect to display over your video." MinHeight="32" FontSize="{DynamicResource AppFontSize11}" />
+
+                                    <!-- MEME_02: where the meme plays. Hidden until a meme is actually
+                                         chosen, so it never clutters the panel for people who do not use
+                                         memes. The value is remembered PER FILE, so a meme you set to
+                                         Start once comes back as Start for ever. -->
+                                    <Grid Name="MemePlacementRow" IsVisible="False" ColumnDefinitions="Auto,*" Margin="0,6,0,0">
+                                        <TextBlock Grid.Column="0" Text="Plays" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                   Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}"/>
+                                        <ComboBox Grid.Column="1" Name="MemePlacementCombo" HorizontalAlignment="Stretch"
+                                                  MinHeight="32" FontSize="{DynamicResource AppFontSize11}"
+                                                  ToolTip.Tip="Choose whether this meme plays before your gameplay or after it. Your choice is remembered for this meme.">
+                                            <ComboBoxItem Content="at the END — after my video"/>
+                                            <ComboBoxItem Content="at the START — before my video"/>
+                                        </ComboBox>
+                                    </Grid>
                                 </StackPanel>
 
                             </StackPanel>

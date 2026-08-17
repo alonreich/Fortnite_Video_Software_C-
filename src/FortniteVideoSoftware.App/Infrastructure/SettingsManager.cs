@@ -158,9 +158,39 @@ public static class MemeDirectory
     public static event Action? Changed;
     public static void NotifyChanged() { try { Changed?.Invoke(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
 
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // SANDBOX_01 — DEV MUST NEVER WRITE INTO THE INSTALLED APP'S MEDIA LIBRARY.
+    //
+    // `dev.cmd` already keeps its settings and state apart (FVS_PROGRAMDATA_ROOT ->
+    // %TMP%\Fortnite_Video_Software_DEV), but the MEDIA folders were resolved straight from the
+    // Windows Videos/Music known folders — so a dev run seeded starter files, downloaded memes and
+    // wrote songs into exactly the same library the installed copy uses. Debugging a starter-file
+    // or download change would silently pollute the user's real collection, and deleting a test
+    // file would delete the real one.
+    //
+    // In dev, all three libraries now live under the same sandbox as everything else, so the whole
+    // folder can be deleted to get a clean slate. Behaviour is otherwise IDENTICAL — same seeding,
+    // same download buttons, same layout — which is the point: dev should rehearse production, not
+    // share its data.
+    // ⚠️ ONE PLACE DECIDES THIS. Do not resolve MyVideos/MyMusic directly anywhere else.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private static bool IsDevSandbox =>
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
+            FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.ProgramDataRootOverrideEnvironmentVariable));
+
+    private static string MediaRoot(Environment.SpecialFolder productionFolder) =>
+        IsDevSandbox
+            ? Path.Combine(Path.GetTempPath(), "Fortnite_Video_Software_DEV", "media")
+            : Environment.GetFolderPath(productionFolder);
+
+    /// <summary>Where background music lives. Sandboxed in dev — see the note above.</summary>
+    public static string GetMusicRoot() => MediaRoot(Environment.SpecialFolder.MyMusic);
+
+    /// <summary>Where images/memes live. Sandboxed in dev — see the note above.</summary>
+    public static string GetVideosRoot() => MediaRoot(Environment.SpecialFolder.MyVideos);
+
     public static string GetDefault() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-        "Fortnite Video Software", "Memes");
+        GetVideosRoot(), "Fortnite Video Software", "Memes");
 
     /// <summary>Resolves the active directory (settings override or default) and ensures it exists.</summary>
     public static string GetActive()
@@ -231,6 +261,24 @@ public class DefaultValues
 
     public bool AutoVoiceNormalization { get; set; } = true;
     public bool AutoSpikeFlattening { get; set; } = true;
+
+    /// <summary>
+    /// AUDIO_09 — the master switch for BOTH sidechain ducking and EQ carving.
+    ///
+    /// Replaces the per-export "Export Ducking ON/OFF" button that used to sit in Music Wizard
+    /// phase 3. That button was in the wrong place twice over: it occupied a permanent row in the
+    /// app's most vertically-cramped screen, and it could not demonstrate its own effect — the
+    /// preview never applied ducking, so pressing it changed nothing you could hear until after
+    /// an export.
+    ///
+    /// It is also a SET-ONCE PREFERENCE, not a per-video decision. Turning it off is what produces
+    /// the "music swallows the gunshots" complaint, so it belongs with the other standing audio
+    /// preferences rather than in the middle of a per-clip workflow.
+    ///
+    /// ⚠️ OFF MEANS NO PROTECTION AT ALL. Both the ducking and the carving are skipped, so the
+    /// music sits on top of the gameplay at a fixed level for the whole video. Default ON.
+    /// </summary>
+    public bool AudioProtection { get; set; } = true;
     
     /// <summary>Whether to remember the music and video volume set in the music wizard</summary>
     public bool RememberMusicVolumes { get; set; } = true;

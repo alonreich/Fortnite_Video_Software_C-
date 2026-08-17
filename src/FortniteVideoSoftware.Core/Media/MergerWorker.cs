@@ -215,7 +215,7 @@ public class MergerWorker : IDisposable
                     CoreLogger.Info("Merger", winTrimmed
                         ? $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, trimmed to {winStart:F2}s-{winEnd:F2}s ({effectiveDur:F2}s), audio={hasAudio}"
                         : $"  [{fi + 1}] {Path.GetFileName(InputFiles[fi])} — {dur:F2}s, audio={hasAudio}");
-                    CoreLogger.Debug("Merger", $"  [{fi + 1}] full path: {InputFiles[fi]}");
+                    CoreLogger.Info("Merger", $"  [{fi + 1}] full path: {InputFiles[fi]}");
                     totalDuration += effectiveDur;
 
                     try
@@ -428,7 +428,9 @@ public class MergerWorker : IDisposable
                 string filterScript = string.Join(";", filters.Where(p => !string.IsNullOrEmpty(p)));
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
-                CoreLogger.Debug("FFmpeg MERGE", $"Filter Script Content:\n{filterScript}");
+                // LOG_02: at INFO for the same reason as the Main App — the command line only ever
+                // shows the -filter_complex_script PATH, and that file dies with tempJobDir.
+                CoreLogger.Info("FFmpeg MERGE", $"Filter Script Content:\n{filterScript}");
 
                 // G03: honour the user's Settings override. "Auto"/empty keeps the historical
                 // "GPU" behaviour (best available hardware encoder, CPU only as a fallback).
@@ -872,7 +874,7 @@ public class MergerWorker : IDisposable
     {
         string cmdLine = string.Join(" ", cmdArgs.Select(a =>
             a.Length == 0 || a.Contains(' ') || a.Contains('"') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
-        CoreLogger.Debug("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+        CoreLogger.Info("FFmpeg MERGE", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
         var psi = new ProcessStartInfo
         {

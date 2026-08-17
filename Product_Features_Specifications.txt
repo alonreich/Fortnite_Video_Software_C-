@@ -60,7 +60,7 @@
 
 ## 7. Tactile UI Prompts (Freeze Time)
 **Description:** Visual guidance forcing the user to select a freeze duration.
-**Core Logic:** Clicking the freeze image camera icon triggers a centralized `Popup` UI element displaying "SELECT FREEZE DURATION" inside a bordered container to draw the user's eye to the duration buttons. Layout note (current): the `FREEZE IMAGE` button and ALL six freeze-duration presets (0.5s–3.0s) live in the contextual Action Ribbon (Row 1), distinct and physically separated from the transport controls like `MARK START` which reside on Row 3.
+**Core Logic:** Clicking the freeze image camera icon triggers a centralized `Popup` UI element displaying "SELECT FREEZE DURATION" inside a bordered container to draw the user's eye to the duration buttons. Layout note (current): the contextual Action Ribbon that used to occupy its own row was REMOVED to give the video preview back a full band of vertical space. The `FREEZE IMAGE` button and all six freeze-duration presets (0.5s–3.0s) now sit on the LEFT flank of the transport row itself, on the same line as `MARK START` / Play / `MARK END` (centred) and `ZOOM-IN` (right flank). The six presets are stacked as TWO ROWS OF THREE, matching the speed presets directly below them so the two blocks read as a matched pair. The standalone "DURATION" caption was dropped — the buttons are self-describing at a glance.
 **Edge Cases:**
 * **Edge Case A (Memory Leak Prevention):** The blink animation loop must run on a finite timer or iteration count (e.g., stops after 15 seconds or 10 blinks) and settle at a solid state or disappear, preventing infinite background rendering threads from consuming RAM.
 **Examples:**
@@ -112,11 +112,15 @@
 2. Yellow Camera Overlays
 3. Slider Playhead (Carrot)
 4. MARK START / MARK END markers (Lowest priority)
+**Exclusive Focus Rule (Granular Speed Editor):** Selection is EXCLUSIVE — exactly one object on the timeline holds focus at a time. Touching a yellow camera overlay gives it focus and takes it away from everything else; selecting a speed block takes it back. Focus is released in exactly three ways: pressing `Esc`, right-clicking anywhere in the window, or selecting a different object. All three run through one shared clear routine so they can never drift apart in behaviour. The marching ants CRAWL for as long as the object holds focus, not merely while it is being dragged — a static dashed outline reads as a border, whereas movement reads as "this is live and listening to your keyboard".
 **Edge Cases:**
 * **Edge Case A (Marching Ants Recovery):** When an element (like the yellow camera) is clicked and wins the priority check, it must regain its "marching ants" highlight state, allowing it to be nudged frame-by-frame via keyboard arrows.
+* **Edge Case B (Esc With Nothing Selected):** `Esc` is only consumed when something on the timeline actually holds focus. With nothing selected the key keeps whatever meaning it has elsewhere in the window, so the shortcut can never swallow an unrelated action.
+* **Edge Case C (Right-Click Over A Live Control):** The right-click release is detected on the way DOWN to whatever was clicked, not on the way back up. Detecting it on the way up would let any control that consumed the event block it, and "right-click anywhere" would quietly become "anywhere except the controls the user is most likely to be pointing at".
 **Examples:**
 * *Example 1:* A Music Note, the Playhead, and a Camera Overlay are all stacked perfectly on frame 300. User clicks that exact pixel. The Music Note is selected because it is highest in the hierarchy.
 * *Example 2:* User clicks slightly below the Music Note hitbox, successfully hitting the Camera Overlay. It gains a dashed marching ants border and responds to the Left/Right keyboard arrows.
+* *Example 3:* User grabs the freeze START camera (ants begin crawling on it), then clicks a 2x speed block. The camera's ants stop and the block takes the highlight — never both at once. Pressing `Esc`, or right-clicking on empty timeline space, leaves nothing selected.
 
 ## 13. Portrait Mode Visual Dimming
 **Description:** Canvas visual aid for 9:16 aspect ratio conversion.
@@ -147,7 +151,10 @@
 
 ## 16. Advanced Audio Ducking & Sidechain Compression
 **Description:** Professional FFmpeg mastering pipeline for dynamic audio mixing.
-**Core Logic:** When background music is added alongside game audio, the FFmpeg rendering pipeline applies an RMS sidechain compressor (`sidechaincompress=threshold=0.15:ratio=2.5:detection=rms`, defaults overridable via config) fed by a cleaned trigger signal: the game audio is band-passed 200Hz–3.5kHz, noise-gated and mid-boosted so only meaningful game sounds trigger ducking. The music itself is first split at 150Hz via `acrossover` — the bass band bypasses ducking entirely (so the low-end groove never pumps) and ONLY the >150Hz band is compressed, then the two bands are re-mixed. This dynamically "ducks" the audible music body whenever game audio (e.g. a loud sniper shot) punches through.
+**Core Logic:** When background music is added alongside game audio, the FFmpeg rendering pipeline applies a PEAK-detecting sidechain compressor (`sidechaincompress=threshold=0.15:ratio=8:attack=1:release=800:detection=peak`, defaults overridable via config) fed by a cleaned trigger signal: the game audio is band-passed 200Hz–3.5kHz, noise-gated and mid-boosted so only meaningful game sounds trigger ducking. The music itself is first split at 250Hz via `acrossover` — the bass band bypasses ducking entirely (so the low-end groove never pumps) and ONLY the >250Hz band is compressed, then the two bands are re-mixed. This dynamically "ducks" the audible music body whenever game audio (e.g. a loud sniper shot) punches through.
+**Why these specific values (all three were changed after the ducking was reported as inaudible):** `ratio=8` because 2.5:1 is a mix-glue setting that removed only ~6 dB — real broadcast ducking runs 8:1 to 20:1. `detection=peak` because RMS AVERAGES the trigger, which is right for speech and exactly wrong for gunfire: the short sharp cracks that matter most were the ones being smoothed away before they could trigger anything. `release=800` because at 400ms the music surged back between individual shots and "breathed"; `sidechaincompress` has no hold parameter, so a longer release stands in for one. The split moved 150Hz→250Hz because a gunshot's WEIGHT lives around 80–250Hz, so the old shelter let the music's body keep masking shots that its treble had already made room for.
+**Music Bed Level (added the same session):** the music is now loudness-measured and set to a background bed level (−20 LUFS) BEFORE the user's volume slider is applied. Previously music entered at whatever loudness its label mastered it to — a commercial master sits around −8 to −10 LUFS against a −14 LUFS game bus, so "music 100% vs video 100%" actually started the music roughly 5 dB AHEAD, and the ducking above was permanently fighting a deficit rather than doing its real job.
+**⚠️ PREVIEW LIMITATION:** ducking and EQ carving are applied on EXPORT ONLY. They are not, and cannot be, simulated in the preview: ducking requires the game and the music inside one filter graph so one can listen to the other, and the preview plays them through two SEPARATE media players that cannot hear each other. The preview DOES now reproduce the correct resting BALANCE (video, music and voice-over levels all match the export). Trust the preview for balance, never for dynamics.
 **Edge Cases:**
 * **Edge Case A (Silent Source Tracks):** If the game audio track is entirely silent or absent, the sidechain compressor must mathematically bypass the ducking logic, preventing the background music from improperly inflating or compressing against an empty signal.
 **Examples:**
@@ -277,7 +284,8 @@
 **Core Logic:**
 1. **Offline FFT Probing:** Upon launch, the engine uses NAudio to analyze the first 15 seconds of video offline. It performs a Fast Fourier Transform (FFT) to hunt for localized frequencies corresponding to Adult Male (125Hz), Female (210Hz), and Children (325Hz). Discovered demographics unlock muting checkboxes.
 2. **Synchronization:** Users press 'V' to seamlessly record. NAudio precisely mirrors libmpv's playback state so the generated VoiceOver `.wav` stays locked to the timeline, even if granular 2x speed segments exist underneath.
-3. **DB Matching & Burst Protection:** The engine calculates the raw LUFS of the game audio. It dynamically applies FFmpeg's `loudnorm` filter to the voice-over track, perfectly matching the Voice Over loudness to the Game Audio loudness. The `loudnorm` True Peak limiter simultaneously acts as a brick-wall to squash any sudden screaming bursts.
+3. **DB Matching & Burst Protection:** The engine applies FFmpeg's `loudnorm` filter to the voice-over track so it lands level with the gameplay. **Corrected this session:** it used to aim at the game's RAW measured loudness, but the game bus is itself normalised to the −14 LUFS standard a few steps earlier — so on a quiet clip the voice was aimed at the old, quieter number and ended up sitting exactly as far beneath the gameplay as the boost the game had just received. The quieter the source, the further the voice fell behind. It now targets the same −14 LUFS the game bus lands on, so the two arrive together. The `loudnorm` True Peak limiter simultaneously acts as a brick-wall to squash any sudden screaming bursts.
+4. **Preview Level Match (new):** each recorded take is measured and played back in the Voice Over window at the level the export will give it. Previously the raw `.wav` was previewed at unity gain, so a quietly-recorded take sounded too soft in the window and arrived correct in the file — the user was being asked "is this level right?" against a level that was never going to ship.
 4. **Sidechain Integration:** Because the voice-over is structurally muxed into the base game audio track before the AudioFilterChain builds, the voice automatically benefits from sidechain compression, inherently ducking any background music the moment the user speaks.
 5. **Timeline Granularity & Constraint:** The studio rigorously adheres to the user's previously defined `Mark Start` and `Mark End` trims. Background extraction tasks (waveforms/thumbnails) and MPV loop boundaries are hard-clamped exclusively to this active segment, preventing unnecessary generation of irrelevant video data.
 6. **Multi-Session Recording & Mixing:** Users can record multiple disjointed or overlapping voiceover chunks. The UI tracks each session internally, drawing 40% semi-transparent red bounding rectangles over an interactive X-axis Timeline Ruler to visualize recorded zones. Upon "Apply", a background `ffmpeg -filter_complex` pipeline dynamically calculates precise `adelay` offsets relative to the trim-start and sub-mixes all chunks via `amix` into a single perfectly synchronized master voiceover track.
@@ -330,6 +338,8 @@
 **Edge Cases:**
 * **Edge Case A (Social Distancing Barrier):** To prevent overlapping math errors, dragging a segment edge toward another segment acts exactly like a brick wall. The segment will halt unconditionally exactly `1000ms` (1 second) before colliding with the neighboring segment. It physically cannot overlap.
 * **Edge Case B (Freeze Image Immunity):** The Freeze Frame camera icon is exclusively governed by its own independent X-axis logic (`_freezeTimeMs`). It is entirely immune to the speed segment `1000ms` brick-wall collision logic. A user can freely drag a speed segment completely through or directly over the freeze image icon without getting blocked.
+* **Edge Case C (The Frozen Band Wins The Click Where It Overlaps):** The frozen span is drawn ON TOP of whatever speed block it sits inside, so it is also tested for a grab FIRST. Without that, a freeze placed inside a block would be permanently unreachable — visible, but answering to nothing. The block underneath stays fully grabbable everywhere the band is not.
+* **Edge Case D (Rubber-Band Blocks Arrive Selected):** A block swept out with a drag is selected the moment it is released, with the speed wheel, the delete button and the marching ants already pointing at it. It previously arrived unselected, so the very next action the user wanted needed a second click on the object they were already pointing at — which reads as the drag having half-failed. The new block is located by matching its start/end, NOT by taking the last item: the segment list re-sorts on insert, so a block drawn to the left of an existing one is not last and an index would select the wrong block.
 **Examples:**
 * *Example 1:* User drags the right edge of a 2x Speed segment toward a 0.5x Speed segment. As the user drags the mouse, the yellow marching ants expand. Once the right edge is exactly 1 second away from the left edge of the 0.5x segment, the right edge stops moving, even if the mouse continues dragging to the right.
 * *Example 2:* User drags the center body of a speed segment across the timeline. It seamlessly slides over the yellow Freeze Camera icon, disregarding it entirely, but violently stops when it gets within 1 second of another speed block.
@@ -422,3 +432,111 @@ On `PointerReleased` the box maps to source pixels and DESTRUCTIVELY overwrites 
 **Examples:**
 * *Example 1:* User merges 30 gameplay clips, each perfectly in sync on its own. Previously the last clips drifted noticeably — measured at roughly a third of a second by clip 12 and growing linearly. The merged output now measures 0.0ms of drift at every clip boundary.
 * *Example 2:* User merges a clip recorded with the microphone muted between two normal clips. The silent clip holds its full duration and the following clip's audio still starts exactly on its first frame.
+## 46. Output Timeline — Truthful Finished-Video Length
+
+**What it is:** one shared model (`OutputTimeline`) that answers two questions for the whole
+application: how long is the FINISHED video, and which source frame is showing at a given moment of
+it. Speed changes, freeze frames and the thumbnail still all stretch the finished video, and this is
+the only place permitted to work out by how much.
+
+**The rule that matters:** a freeze is an INSERTION, not a replacement. Freezing 5s-8s holds the
+frame at 5s for 3 seconds and then carries on playing from 5s. Nothing is skipped and the finished
+video becomes 3 seconds longer.
+
+**Why it was built:** the same mathematics existed in three hand-written copies and they had
+drifted. The Music Wizard's copy believed a freeze replaced the footage beneath it, so it
+under-reported the finished length by the whole freeze duration every time — a 3 second freeze made
+the real video 63.000s while the Wizard reported 60.000s, and at base speed 2x it reported 31.500s
+against a true 33.000s. Slow motion always agreed; only freezes diverged. Background music was
+therefore being placed against a length the exported video never had.
+
+**Verification:** the forward direction was diffed statement-by-statement against the original and
+is algorithmically identical (51 vs 51 statements, zero difference), so nothing that consumed it
+changes. The new reverse direction was exercised at 54,000 sample points across 9 scenarios with a
+worst round-trip error of 0.000000000s outside freezes, the correct held frame returned inside every
+freeze, and the playhead never running backwards.
+
+**Known limitation:** mpv plays the source file and cannot play the finished timeline. A ruler drawn
+in finished-video time is an app-driven clock backed by mpv — during a freeze the clock advances
+while the picture correctly holds one frame. That is intended behaviour, not a stalled preview.
+
+**The caret crosses the frozen seconds (corrected this session):** because the reverse mapping is
+deliberately many-to-one inside a hold — every output moment of a 1.5 second freeze maps to the SAME
+source frame — a playhead derived from the source position could not move during the hold. It leapt
+the whole frozen span in one step the instant the freeze began and then sat still for 1.5 seconds:
+the ruler had grown by the freeze, correctly, and the caret refused to walk across the space it
+added. The playhead position is now supplied directly while a frame is held, and advances in real
+time across it. Clicking INSIDE a frozen span also used to kick the caret to that span's right edge,
+leaving the user pointing at one place and looking at another; where the user clicked is now the
+answer.
+
+**Examples:**
+* *Example 1:* User freezes a frame for 1.5 seconds in a 60 second clip. The finished video is 61.5
+  seconds. Every ruler that reads from this model reports 61.5 seconds instead of 60.
+* *Example 2:* User applies half-speed to a 10 second stretch and freezes a frame for 3 seconds. The
+  finished video is 73 seconds; the Music Wizard previously believed 70 and placed music 3 seconds
+  short of the true end.
+
+## 47. The Frozen Segment As A First-Class Timeline Object
+
+**What it is:** a freeze frame stopped being a marker at a point and became an object with a visible
+extent, two grab handles and its own editing gestures — the same treatment every speed block on the
+lane already had.
+
+**Why it needed it:** the freeze is the one element in the editor that actually LENGTHENS the
+finished video, and it was the only element on the timeline with no visible length at all. It could
+be nudged whole by its camera icon, and its duration could only be chosen from six preset buttons.
+
+**Seeing it.** The held frame is stretched across the whole hold on the thumbnail lane, which is
+exactly what the exported file shows — and on its own that is unreadable, because a stretched frame
+looks like slow footage or a glitch. Four cues carry the meaning instead, each doing a different job:
+a cool blue wash in the same blue as the block above it, so both lanes read as ONE object; diagonal
+hatching, which survives where colour alone does not (over a blue-ish frame, over a blown-out white
+one, and for a colour-blind user); solid posts at both ends, because the wash says "something is
+here" while the posts say exactly WHERE it starts and stops; and a centred ❄ FROZEN 1.5s label that
+is dropped entirely rather than clipped when the span is too narrow to hold it.
+
+**The floating marker.** A yellow camera "popsicle" hangs above the ruler at each end of the hold
+with its stick dropping down into the lane — the same shape as the thumbnail mark on the Main App's
+timeline, so it needs no learning. Two of them, not one, because a span with a single handle is a
+span whose extent the user can only guess at.
+
+**Editing it.**
+1. **Drag either popsicle** — resizes from that end. The opposite edge stays exactly where it was.
+2. **Drag either edge of the band** — the same resize, from the grips directly beneath the markers.
+3. **Drag the band's body** — moves the whole freeze to a different moment of gameplay, length
+   unchanged.
+4. **Arrow keys** — with the END marker focused they trim the hold one frame at a time; otherwise
+   they slide the whole freeze one frame at a time.
+A hold is bounded to 0.2s–10s. The presets stop at 3s; dragging is the advanced path and gets more
+room, but not unbounded — one careless sweep should not add a minute to the export.
+
+**It reaches the exported file.** Every edit flows down one chain with no second copy of the logic:
+the editor's freeze time and duration -> the Main App -> a Speed=0 speed segment synthesised at
+export time -> the FFmpeg worker. An arbitrary dragged duration such as 1.83s survives to the render
+unrounded. Each drag also ends by seeking the preview to the new mark, so what the user sees and what
+FFmpeg produces cannot disagree.
+
+**Edge Cases:**
+* **Edge Case A (Freeze Inside A Speed Block):** the band is drawn on top of whatever block it sits
+  in and is therefore tested for a grab first, or it would be visible but unreachable. The block
+  underneath stays grabbable everywhere the band is not.
+* **Edge Case B (Very Short Holds):** the grab zones are proportional, capped at a third of the span
+  each, so a narrow hold still offers a start third, a middle third and an end third rather than one
+  zone swallowing the other two.
+* **Edge Case C (Moving A Hold):** the grab point is not pinned under the cursor during a whole-span
+  move. Dragging left, the leading edge tracks the pointer; dragging right, the trailing edge does.
+  This is deliberate — a held frame occupies no gameplay time at all, so "40% into the span" has no
+  equivalent to preserve — and it matches how the camera marker has always behaved.
+
+**Examples:**
+* *Example 1:* User freezes a frame for 1.0s, then drags the END popsicle to the right. The band
+  widens, the ❄ label updates to FROZEN 1.60s live, the ruler grows by the extra 0.6s, and the
+  exported video is 0.6s longer than before the drag.
+* *Example 2:* User drags the START popsicle to the left. The hold's end stays pinned exactly where
+  it was and the freeze simply begins earlier — the frame that gets held is a different one.
+* *Example 3:* User grabs the middle of the blue band and slides it to a different moment. The hold
+  keeps its length; only the gameplay instant it interrupts changes. On release the preview jumps to
+  the newly chosen frame so the user can confirm it.
+* *Example 4:* User selects the END popsicle and taps the Right arrow ten times. The hold grows by
+  exactly ten frames (10/60 s), which is the frame-accurate control the preset buttons cannot give.

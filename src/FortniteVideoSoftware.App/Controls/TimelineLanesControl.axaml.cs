@@ -69,6 +69,24 @@ public partial class TimelineLanesControl : UserControl
     public Panel? LaneBHost => this.FindControl<Panel>("LaneBHostPanel");
 
     /// <summary>
+    /// MARKER_01 — the floating marker layer: above both seek surfaces, below the caret.
+    ///
+    /// <para>
+    /// For markers that belong ON TOP OF the timeline rather than inside a lane — a camera head
+    /// floating above the ruler with its stick dropping down through the lanes. Its width matches
+    /// the lanes exactly, so an X computed against a lane canvas transfers here unchanged; its
+    /// origin is the TOP OF THE RULER, so a marker that should float above the timeline is placed
+    /// at a NEGATIVE Canvas.Top.
+    /// </para>
+    /// <para>
+    /// ⚠️ Put ONLY markers here, and never give this canvas a Background. It is non-hit-testable
+    /// where it is empty precisely so ordinary clicks fall through to the seek surfaces beneath;
+    /// a background would make the entire timeline unclickable in one stroke.
+    /// </para>
+    /// </summary>
+    public Canvas? MarkerOverlayHost => this.FindControl<Canvas>("MarkerOverlayCanvas");
+
+    /// <summary>
     /// Whether clicking the UPPER lane seeks. OFF for Granular, whose upper lane runs its own
     /// pointer pipeline (block move, edge resize, drag-to-create) and must not be shadowed.
     /// </summary>

@@ -27,8 +27,15 @@
              VoiceOverWindow (260/340) and CropToolWindow (180/300). -->
         <Grid Grid.Row="0" ColumnDefinitions="*, Auto">
 
-            <!-- LEFT: Video preview + timeline -->
-            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto, Auto" Margin="12">
+            <!-- LEFT: Video preview + timeline
+                 LAYOUT_01 — WAS FIVE ROWS. The old ROW 1 was a full-width "action ribbon" holding
+                 nothing but the freeze cluster on the left and one ZOOM-IN button on the right —
+                 a whole band of vertical space for two controls, taken straight off the video
+                 preview, which is the one thing in this window that actually needs the height.
+                 Both clusters moved into the transport row (now row 2), which had a centred group
+                 of three buttons and two empty flanks doing nothing. Same controls, one fewer
+                 band. Do not reintroduce a dedicated toolbar row here. -->
+            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
 
                 <!-- Video preview -->
                 <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
@@ -152,45 +159,7 @@
                     </Grid>
                 </Border>
 
-                <!-- ROW 1: ACTION RIBBON (Contextual Tools) -->
-                <Border Grid.Row="1" Background="{DynamicResource AppPanelBrush}" CornerRadius="6" Padding="10" Margin="10,10,10,5">
-                    <Grid ColumnDefinitions="*, *">
-                        <!-- LEFT: Freeze Controls -->
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                            <Button Name="FreezeImageToggle" Classes="Primary" MinWidth="120" ToolTip.Tip="Freeze frame at current playhead" AutomationProperties.Name="Toggle Freeze Frame">
-                                <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <!-- ISSUE_06 (audit round 4): token-sized icon (was fixed 16px) and no more
-                                         translateY(5px) alignment hack — VerticalAlignment=Center does the job at every font scale -->
-                                    <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform" VerticalAlignment="Center" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
-                                    <TextBlock Name="FreezeImageToggleText" Text=" FREEZE IMAGE " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="4,0,4,0" />
-                                </StackPanel>
-                            </Button>
-                            <Border Width="1" Background="{DynamicResource AppBorderBrush}" Margin="2,4" Opacity="0.5" />
-                            <TextBlock Text="DURATION" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" VerticalAlignment="Center" Margin="2,0"/>
-                            <StackPanel Name="FreezePresetsPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze for 0.5s" Cursor="Hand"/>
-                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze for 1.0s" Cursor="Hand"/>
-                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze for 1.5s" Cursor="Hand"/>
-                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze for 2.0s" Cursor="Hand"/>
-                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze for 2.5s" Cursor="Hand"/>
-                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s" Cursor="Hand"/>
-                            </StackPanel>
-                        </StackPanel>
-                        <!-- RIGHT: Zoom Controls
-                             IDEA_6: the "ANIMATION Slow|Instant" pair that used to live here has
-                             MOVED into `ZoomStylePanel`, under the video, where the zoom is
-                             actually being drawn. It is no longer a permanent piece of toolbar
-                             the user must decode before they know what it affects.
-                             IDEA_3: ZOOM-IN is now always visible (was IsVisible="False" until a
-                             block was selected) — pressing it creates its own container block. -->
-                        <Panel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" MinHeight="30" MinWidth="240">
-                            <Button Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="120" HorizontalAlignment="Right"
-                                    ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
-                        </Panel>
-                    </Grid>
-                </Border>
-
-                <!-- ROW 2: Timeline — now the SHARED TimelineLanesControl (LANES_03).
+                <!-- ROW 1: Timeline — now the SHARED TimelineLanesControl (LANES_03).
                      The ruler, gridlines, caret, both clocks and every click-to-seek surface
                      live in that control and are shared with Music Wizard phase 3. This window
                      supplies only its two lane CONTENTS from code-behind:
@@ -199,13 +168,55 @@
                      ⚠️ LaneASeekable stays FALSE: the upper lane runs its own pointer pipeline
                      (block move, edge resize, drag-to-create) and a seek surface over it would
                      swallow all of that. -->
-                <Border Grid.Row="2" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,5,10,10" ClipToBounds="False">
+                <Border Grid.Row="1" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,5,10,10" ClipToBounds="False">
                     <controls:TimelineLanesControl Name="GranularLanes" ClipToBounds="False"/>
                 </Border>
 
-                <!-- ROW 3: Transport -->
-                <Grid Grid.Row="3" Margin="0,5,0,10" HorizontalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- ROW 2: Transport, with the freeze cluster on the left and ZOOM-IN on the right.
+                     LAYOUT_01 — the three transport buttons used to sit alone in a centred group
+                     with wide empty flanks on both sides, while the freeze and zoom controls had a
+                     whole band of their own above the timeline. The flanks now carry them.
+
+                     ⚠️ THE COLUMNS ARE `*, Auto, *` AND NOT `Auto, *, Auto`. With Auto flanks the
+                     centre column absorbs the slack, so MARK START / PLAY / MARK END would drift
+                     off true centre by half the difference between the freeze cluster's width and
+                     the zoom button's — and the freeze cluster is far the wider of the two. Two
+                     equal star flanks pin the transport to the real centre of the window whatever
+                     the side clusters measure. -->
+                <Grid Grid.Row="2" Margin="10,5,10,10" ColumnDefinitions="*, Auto, *">
+
+                    <!-- LEFT FLANK: freeze -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                                HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Button Name="FreezeImageToggle" Classes="Primary" MinWidth="120" ToolTip.Tip="Freeze frame at current playhead" AutomationProperties.Name="Toggle Freeze Frame">
+                            <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <!-- ISSUE_06 (audit round 4): token-sized icon (was fixed 16px) and no more
+                                     translateY(5px) alignment hack — VerticalAlignment=Center does the job at every font scale -->
+                                <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform" VerticalAlignment="Center" Data="M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5" />
+                                <TextBlock Name="FreezeImageToggleText" Text=" FREEZE IMAGE " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="4,0,4,0" />
+                            </StackPanel>
+                        </Button>
+                        <Border Width="1" Background="{DynamicResource AppBorderBrush}" Margin="0,4" Opacity="0.5" />
+                        <!-- LAYOUT_01: six presets in ONE row was the widest thing in the old ribbon.
+                             Folded into two rows of three, same shape and same `SpeedPresetRows`
+                             spacing as the speed presets on the row below, so the two blocks read as
+                             siblings instead of two unrelated widgets. -->
+                        <StackPanel Name="FreezePresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Name="FreezePreset05" Classes="SpeedPreset" Content="0.5s" ToolTip.Tip="Freeze for 0.5s" Cursor="Hand"/>
+                                <Button Name="FreezePreset10" Classes="SpeedPreset" Content="1.0s" ToolTip.Tip="Freeze for 1.0s" Cursor="Hand"/>
+                                <Button Name="FreezePreset15" Classes="SpeedPreset" Content="1.5s" ToolTip.Tip="Freeze for 1.5s" Cursor="Hand"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Name="FreezePreset20" Classes="SpeedPreset" Content="2.0s" ToolTip.Tip="Freeze for 2.0s" Cursor="Hand"/>
+                                <Button Name="FreezePreset25" Classes="SpeedPreset" Content="2.5s" ToolTip.Tip="Freeze for 2.5s" Cursor="Hand"/>
+                                <Button Name="FreezePreset30" Classes="SpeedPreset" Content="3.0s" ToolTip.Tip="Freeze for 3.0s" Cursor="Hand"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- CENTRE: transport -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Button Name="MarkStartBtn" Classes="Secondary" Content="MARK START" MinWidth="90" Margin="0,0,30,0" ToolTip.Tip="Mark the beginning of your clip"/>
                         <Button Name="GranularPlayPause" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video" Margin="0,0,30,0">
                             <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
@@ -215,10 +226,21 @@
                         </Button>
                         <Button Name="MarkEndBtn" Classes="Secondary" Content="MARK END" MinWidth="90" ToolTip.Tip="Mark the end of your clip"/>
                     </StackPanel>
+
+                    <!-- RIGHT FLANK: zoom
+                         IDEA_6: the "ANIMATION Slow|Instant" pair that used to sit beside this has
+                         MOVED into `ZoomStylePanel`, under the video, where the zoom is actually
+                         being drawn. It is no longer a permanent piece of toolbar the user must
+                         decode before they know what it affects.
+                         IDEA_3: ZOOM-IN is always visible (was IsVisible="False" until a block was
+                         selected) — pressing it creates its own container block. -->
+                    <Button Grid.Column="2" Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="120"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
                 </Grid>
 
-                <!-- ROW 4: Speed presets + slider -->
-                <Grid Grid.Row="4" Margin="0,10,0,0">
+                <!-- ROW 3: Speed presets + slider -->
+                <Grid Grid.Row="3" Margin="0,10,0,0">
 
                     <!-- Center: Speed presets + slider -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">

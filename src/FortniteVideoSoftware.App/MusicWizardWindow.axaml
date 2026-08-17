@@ -66,7 +66,7 @@
                                     </ComboBox>
                                     <TextBlock Grid.Column="3" Name="MusicResultCountText" Text="0 songs" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </Grid>
-                                <Grid Grid.Row="2">
+                                <Grid Grid.Row="2" Grid.Column="0">
                                     <ListBox Name="MusicListBox" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
                                         <ListBox.Styles>
                                             <Style Selector="ListBoxItem">
@@ -118,7 +118,7 @@
                                     <StackPanel Grid.Row="3" Spacing="0">
                                         <Grid VerticalAlignment="Center" MinHeight="66" RowDefinitions="20,14,32" ClipToBounds="False">
                                             <Canvas Name="TimelineScaleCanvas" Grid.Row="1" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" Height="14" ZIndex="10000" />
-                                            <Grid Grid.Row="2" Height="32" ClipToBounds="False" ZIndex="10001">
+                                            <Grid Grid.Row="2" Grid.Column="0" Height="32" ClipToBounds="False" ZIndex="10001">
                                                 <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
                                             </Grid>
                                             <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
@@ -195,17 +195,37 @@
                             </ScrollViewer>
 
                             <!-- STEP 3: Final Review Summary -->
-                            <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto" ClipToBounds="False">
-                                <StackPanel Grid.Row="0" Margin="0,0,0,10" Spacing="3">
-                                    <TextBlock Text="CONFIRM MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}"/>
-                                    <TextBlock Name="FinalPlacementLabel" Text="The video and music preview will end together at the video end." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
-                                    <TextBlock Name="Phase3StatusLabel" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize10}"/>
+                            <!-- LAYOUT_02: two columns now. Column 0 is the existing vertical stack (header,
+                                 video, lanes); column 1 is the vertical MIX strip, sized to content so it takes
+                                 only the width it needs. Row 3 is left in place but is now EMPTY — it collapses
+                                 to zero height, which is exactly the space handed back to the video in row 1. -->
+                            <Grid Name="Step3Panel" IsVisible="False" RowDefinitions="Auto, *, Auto, Auto" ColumnDefinitions="*, Auto" ClipToBounds="False">
+                                <!-- ═══════════════════════════════════════════════════════════════════════
+                                     LAYOUT_01 — THREE STACKED TEXT LINES COLLAPSED INTO ONE ROW.
+                                     Phase 3's row heights are `Auto, *, Auto, Auto`, so the video is the ONLY
+                                     elastic row — every pixel any other row takes comes straight out of the
+                                     picture. This header used to be a 4-item StackPanel: a title, a permanent
+                                     explanatory sentence, and a status line that is EMPTY almost always but
+                                     still reserved its line height.
+                                     Now one row: title + an ⓘ carrying the explanation on hover, and the status
+                                     text only occupies space when it actually has something to say (its
+                                     IsVisible is driven by the text being non-empty in code-behind).
+                                     ⚠️ Phase3StatusLabel and ProblemFlagsPanel are still here and still found by
+                                     name — only their arrangement changed. Do not remove them.
+                                     ═══════════════════════════════════════════════════════════════════════ -->
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Spacing="3">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Text="CONFIRM MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center"/>
+                                        <TextBlock Name="FinalPlacementLabel" Text="ⓘ" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Cursor="Help"
+                                                   ToolTip.Tip="The video and music preview will end together at the video end."/>
+                                        <TextBlock Name="Phase3StatusLabel" Text="" IsVisible="False" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
                                     <Border Name="ProblemFlagsPanel" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="8,5" IsVisible="False">
                                         <TextBlock Name="ProblemFlagsText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                     </Border>
                                 </StackPanel>
 
-                                <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid Grid.Row="1" Grid.Column="0" Margin="0,0,0,10">
                                     <Border Name="VideoHostBorder" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
                                     </Border>
 
@@ -244,7 +264,7 @@
                                      shared control at construction. That keeps every existing FindControl in the
                                      code-behind working untouched - recreating 13 named controls in code would have
                                      been far more churn for no benefit. -->
-                                <Grid Grid.Row="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False">
+                                <Grid Grid.Row="2" Grid.Column="0" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False">
                                     <controls:TimelineLanesControl Name="Phase3Lanes" ClipToBounds="False"/>
 
                                     <Panel Name="Phase3LaneContentHolder" IsVisible="False">
@@ -302,51 +322,65 @@
                                      separate caption row and the separate label row - roughly 45px back.
                                      The labels are also short ("Video 100%" not "Video Volume: 100%") so they steal
                                      as little width as possible from the sliders. -->
-                                <StackPanel Grid.Row="3" ZIndex="20" Orientation="Horizontal" HorizontalAlignment="Center"
-                                            VerticalAlignment="Center" Spacing="14" Margin="0,0,0,4" ClipToBounds="False">
+                                <!-- ═══════════════════════════════════════════════════════════════════════
+                                     LAYOUT_02 — THE MIX LEVELS ROW IS GONE. THE SLIDERS ARE NOW VERTICAL,
+                                     IN A COLUMN TO THE RIGHT OF THE WHOLE PHASE.
 
-                                    <Border Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
-                                            BorderThickness="1" CornerRadius="8" Padding="14,2,14,2" ClipToBounds="False">
-                                        <Grid ColumnDefinitions="Auto,10,Auto,*,16,Auto,*" VerticalAlignment="Center" ClipToBounds="False">
+                                     Phase 3 is starved of HEIGHT and has plenty of WIDTH. Two horizontal
+                                     sliders in a framed card cost a full bottom row (~60px) purely to move
+                                     two values that only need one dimension. Rotated 270 degrees they cost
+                                     ~90px of width — which was going spare — and give that height back to
+                                     the video, the only elastic row in the panel.
 
-                                            <TextBlock Grid.Column="0" Text="MIX LEVELS" Foreground="{DynamicResource AppTextMutedBrush}"
-                                                       FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"
-                                                       VerticalAlignment="Center"/>
+                                     ⚠️ THE SLIDERS ARE THE SAME CONTROLS WITH THE SAME NAMES. VideoVolSlider
+                                     and MusicVolSlider are still found by FindControl, still 0-100, still
+                                     wired to the same handlers. ONLY the orientation and position changed.
+                                     ⚠️ ClipToBounds="False" IS LOAD-BEARING (SLIDER_02/04). The 52px thumb
+                                     paints outside its own track at 0% and 100%; a clipping parent shears the
+                                     knob off at the extremes. Do not "tidy" it away.
+                                     ⚠️ The ducking toggle that used to sit beside these is now in Settings —
+                                     see AUDIO_09.
+                                     ═══════════════════════════════════════════════════════════════════════ -->
+                                <Border Grid.Row="0" Grid.RowSpan="4" Grid.Column="1" ZIndex="20"
+                                        HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                        Margin="12,0,0,0" Padding="10,8,10,8"
+                                        Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                        BorderThickness="1" CornerRadius="8" ClipToBounds="False">
+                                    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="Auto,14,Auto" ClipToBounds="False">
 
-                                            <TextBlock Grid.Column="2" Text="Video 100%" Name="VideoVolLabel"
-                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
-                                                       FontSize="{DynamicResource AppFontSize11}" Margin="0,0,6,0"/>
-                                            <!-- ISSUE_07 (audit round 5): fixed Height 30 -> MinHeight 44, because the global
-                                                 Slider thumb must not exceed its own track. SLIDER_04 sizes that thumb 52 wide so
-                                                 the knob can no longer paint outside the slider at 0%/100%, which is what made it
-                                                 look cut off - so no horizontal padding is needed here any more. -->
-                                            <Slider Grid.Column="3" Name="VideoVolSlider" Minimum="0" Maximum="100" Value="100"
-                                                    HorizontalAlignment="Stretch" MinWidth="200" MinHeight="44"
-                                                    ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
-                                                    ToolTip.Tip="Volume of the original video audio"/>
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="MIX" HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                                   FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Margin="0,0,0,6"/>
 
-                                            <TextBlock Grid.Column="5" Text="Music 100%" Name="MusicVolLabel"
-                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
-                                                       FontSize="{DynamicResource AppFontSize11}" Margin="0,0,6,0"/>
-                                            <Slider Grid.Column="6" Name="MusicVolSlider" Minimum="0" Maximum="100" Value="100"
-                                                    HorizontalAlignment="Stretch" MinWidth="200" MinHeight="44"
-                                                    ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
-                                                    ToolTip.Tip="Volume of the background music"/>
-                                        </Grid>
-                                    </Border>
+                                        <Slider Grid.Row="1" Grid.Column="0" Name="VideoVolSlider" Orientation="Vertical"
+                                                Minimum="0" Maximum="100" Value="100"
+                                                VerticalAlignment="Stretch" MinHeight="120" MinWidth="44"
+                                                ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                ToolTip.Tip="Volume of the original video audio"/>
 
-                                    <Button Name="DuckingCompareBtn" Content="Export Ducking ON" Classes="Primary" MinWidth="130"
-                                            VerticalAlignment="Center" HorizontalContentAlignment="Center"
-                                            ToolTip.Tip="Toggle whether FFmpeg applies ducking during export."/>
-                                    <TextBlock Name="DuckingCompareLabel" Text="Export Ducking" IsVisible="False"/>
-                                </StackPanel>
+                                        <Slider Grid.Row="1" Grid.Column="2" Name="MusicVolSlider" Orientation="Vertical"
+                                                Minimum="0" Maximum="100" Value="100"
+                                                VerticalAlignment="Stretch" MinHeight="120" MinWidth="44"
+                                                ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                ToolTip.Tip="Volume of the background music"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Name="VideoVolLabel" Text="Video 100%"
+                                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                   FontSize="{DynamicResource AppFontSize9}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="2" Name="MusicVolLabel" Text="Music 100%"
+                                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                   FontSize="{DynamicResource AppFontSize9}"/>
+                                    </Grid>
+                                </Border>
                             </Grid>
 
                         </Panel>
                     </Border>
 
                     <!-- Navigation -->
-                    <Grid Grid.Row="2" Margin="0,15,0,0">
+                    <Grid Grid.Row="2" Grid.Column="0" Margin="0,15,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />

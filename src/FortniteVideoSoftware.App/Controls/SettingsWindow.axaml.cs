@@ -56,6 +56,7 @@ public partial class SettingsWindow : Window
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
             AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
             AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening,
+            AudioProtection = SettingsManager.Instance.Defaults.AudioProtection,   // AUDIO_09
             RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes,
             DefaultZoomSlow = SettingsManager.Instance.Defaults.DefaultZoomSlow,
             DefaultFreezeDurationS = SettingsManager.Instance.Defaults.DefaultFreezeDurationS
@@ -101,6 +102,13 @@ public partial class SettingsWindow : Window
         get => _pendingDefaults.AutoVoiceNormalization;
         set => _pendingDefaults.AutoVoiceNormalization = value;
     }
+    /// <summary>AUDIO_09 — master switch for sidechain ducking AND EQ carving.</summary>
+    public bool AudioProtection
+    {
+        get => _pendingDefaults.AudioProtection;
+        set => _pendingDefaults.AudioProtection = value;
+    }
+
     public bool AutoSpikeFlattening
     {
         get => _pendingDefaults.AutoSpikeFlattening;
@@ -504,7 +512,7 @@ public partial class SettingsWindow : Window
         {
             btnFolder.Click += async (s, e) =>
             {
-                string startPath = string.IsNullOrWhiteSpace(_pendingMusicFolder) ? Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) : _pendingMusicFolder;
+                string startPath = string.IsNullOrWhiteSpace(_pendingMusicFolder) ? Infrastructure.MemeDirectory.GetMusicRoot() : _pendingMusicFolder;   // SANDBOX_01
                 var folder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
                 
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions

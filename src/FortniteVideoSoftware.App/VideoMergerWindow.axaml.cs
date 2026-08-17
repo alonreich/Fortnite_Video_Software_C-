@@ -1446,8 +1446,8 @@ public partial class VideoMergerWindow : Window
 
                     worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
                     {
-                        ["ducking_threshold"] = _musicResult.EnableDucking ? 0.15 : 1.0,
-                        ["ducking_ratio"] = _musicResult.EnableDucking ? 2.5 : 1.0,
+                        ["ducking_threshold"] = _musicResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedThreshold : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassThreshold,
+                        ["ducking_ratio"] = _musicResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedRatio : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassRatio,
                         ["main_vol"] = currentMainVol,
                         ["music_vol"] = _musicResult.MusicVolume,
                         ["carving_enabled"] = _musicResult.EnableCarving,

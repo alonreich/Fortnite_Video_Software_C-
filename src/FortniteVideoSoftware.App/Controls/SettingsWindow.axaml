@@ -82,6 +82,10 @@
                                     <!-- ===== 2. Voice over ===== -->
                                     <TextBlock Text="Voice Over" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
                                     <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Match my recorded voice to the game's volume" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="Keeps your voice sitting at the same level as the gameplay instead of being much louder or quieter than it." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
+                                    <!-- AUDIO_09: moved here from a per-export button in Music Wizard phase 3. It is a
+                                         set-once preference, and phase 3 could not demonstrate its effect anyway (the
+                                         preview does not simulate ducking). Default ON; OFF removes ALL protection. -->
+                                    <CheckBox Name="AudioProtectionCheckbox" Content="Protect game sounds from the music (ducking + smooth blend)" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="ON: the music automatically steps back whenever gunshots or game sounds get loud, and its frequencies are shaped so the two do not clash. OFF: the music plays at a fixed level over everything and your game sounds get no protection at all." IsChecked="{Binding AudioProtection, Mode=TwoWay}" />
 
                                     <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
 

@@ -77,6 +77,14 @@ public class ProcessWorker : IDisposable
     public int QualityLevel { get; set; } = 2;
     public bool EnableFades { get; set; } = true;
     public string? MemeFile { get; set; }
+
+    /// <summary>
+    /// MEME_03 — every meme in this export, each at its own moment. When this list is EMPTY the
+    /// legacy <see cref="MemeFile"/> + <see cref="MemeAtStart"/> pair is used instead, so payloads
+    /// written before multi-meme support still export identically. When it is non-empty it is
+    /// authoritative and the legacy fields are ignored.
+    /// </summary>
+    public List<MemePlacement> MemePlacements { get; set; } = new();
     public string? PortraitText { get; set; }
     public JsonObject? MusicConfig { get; set; }
     public List<SpeedSegment>? SpeedSegments { get; set; }
@@ -87,6 +95,13 @@ public class ProcessWorker : IDisposable
     public double VolumeNormalizeDb { get; set; }
     public double IntroStillSec { get; set; }
     public double? IntroAbsTimeMs { get; set; }
+
+    /// <summary>
+    /// MEME_02 — true when the meme should play BEFORE the gameplay instead of after it.
+    /// ⚠️ Even when true the frozen thumbnail frame stays FIRST — see the concat block that
+    /// consumes this. Default false keeps every existing caller on the historical behaviour.
+    /// </summary>
+    public bool MemeAtStart { get; set; }
     public bool KeepMusicDuringMeme { get; set; }
 
     /// <summary>
@@ -158,6 +173,64 @@ public class ProcessWorker : IDisposable
     private sealed record LoudnormMeasurement(
         double InputI, double InputTp, double InputLra, double InputThresh, double TargetOffset);
 
+    /// <summary>
+    /// MEME_05 — ONE MEME, FULLY RESOLVED: probed, levelled, given an FFmpeg input slot, a pair of
+    /// filter-graph labels and the exact moment of the rendered stream it cuts into.
+    ///
+    /// <para>
+    /// ⚠️ <see cref="CutOutputSec"/> IS NOT <see cref="AtSourceSecRelative"/> CONVERTED NAIVELY. It
+    /// is a position in <c>[v_render_out]</c> — the stream that has ALREADY had speed changes,
+    /// freezes and the thumbnail intro applied but NOT the memes. Computed in any other clock, in
+    /// particular one that already counts earlier memes, every meme after the first drifts later by
+    /// the sum of the ones before it. See the block that fills this in.
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="SlotIndex"/> is the position in the final concat: 0 means "ahead of the first
+    /// piece of rendered video", <c>n</c> means "between piece n-1 and piece n", and the last slot
+    /// means "after everything".
+    /// </para>
+    /// </summary>
+    private sealed class ResolvedMeme
+    {
+        public string Id = "meme";
+        public string FilePath = "";
+        public double AtSourceSecRelative;
+        public double DurationSec;
+        public bool IsImage;
+        public bool HasAudio;
+        public double LoudnessGainDb;
+        public bool LoudnessMeasured;
+        public int InputIndex;
+        public double CutOutputSec;
+        public int SlotIndex;
+
+        public string VLabel => $"[{Id}_v]";
+        public string ALabel => $"[{Id}_a]";
+    }
+
+    /// <summary>
+    /// MEME_05 — an FFmpeg filter label may only contain letters, digits and underscores. Meme
+    /// placements carry generated ids, but a payload written by hand — or recovered from an older
+    /// crash file — could carry anything, and one stray bracket or comma silently corrupts the whole
+    /// graph. Anything unexpected falls back to the positional name.
+    /// </summary>
+    private static string SanitizeMemeLabel(string? raw, int index)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return MemePlacement.NewId(index);
+
+        var chars = new List<char>(raw.Length);
+        foreach (char c in raw)
+            if (char.IsAsciiLetterOrDigit(c) || c == '_') chars.Add(c);
+
+        if (chars.Count == 0 || char.IsAsciiDigit(chars[0])) return MemePlacement.NewId(index);
+        return new string(chars.ToArray());
+    }
+
+    /// <summary>MEME_05 — cut times are trim arguments; six decimals is well under a frame at 60fps.</summary>
+    private static string CutSec(double seconds) =>
+        Math.Max(0, seconds).ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+
     public ProcessWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
@@ -184,7 +257,17 @@ public class ProcessWorker : IDisposable
     public void Cancel()
     {
         _isCanceled = true;
-        CoreLogger.Info("Process", "Cancellation requested by user. Terminating FFmpeg process tree.");
+
+        // LOG_03: Cancel() is also called on normal app shutdown, long AFTER a successful export.
+        // It used to log "Cancellation requested by user. Terminating FFmpeg process tree."
+        // unconditionally, so a perfectly clean run ended with a line claiming the user cancelled
+        // and that FFmpeg was killed — neither of which happened. In a log that is meant to be the
+        // source of truth, a false statement is worse than no statement. Say what is actually true.
+        bool encoding = _currentProcess is { HasExited: false };
+        CoreLogger.Info("Process", encoding
+            ? "Cancellation requested by user. Terminating FFmpeg process tree."
+            : "Export worker released on shutdown (no encode was running).");
+
         if (_currentProcess != null)
         {
             try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
@@ -250,7 +333,7 @@ public class ProcessWorker : IDisposable
             Directory.CreateDirectory(tempJobDir);
 
             CoreLogger.Info("Process", $"Input Video: {Path.GetFileName(InputPath)}");
-            CoreLogger.Debug("Process", $"Input Path: {InputPath}");
+            CoreLogger.Info("Process", $"Input Path: {InputPath}");
             CoreLogger.Info("Process", $"Start Time: {StartTimeMs} ms, End Time: {EndTimeMs} ms");
             CoreLogger.Info("Process", $"Base Speed Factor: {SpeedFactor}");
             CoreLogger.Info("Process", $"Is Mobile Format: {IsMobileFormat}, Portrait Text: {PortraitText ?? "None"}");
@@ -270,7 +353,7 @@ public class ProcessWorker : IDisposable
                 foreach (var track in MusicTracks)
                 {
                     CoreLogger.Info("Process", $"Music Selected: {Path.GetFileName(track.Path)} | Start Time: {track.Offset}s | Duration: {track.Duration}s");
-                    CoreLogger.Debug("Process", $"Music Path: {track.Path}");
+                    CoreLogger.Info("Process", $"Music Path: {track.Path}");
                 }
                 if (MusicConfig != null)
                 {
@@ -333,36 +416,173 @@ public class ProcessWorker : IDisposable
                 if (padEndHumanSec < minPadSec) padEndHumanSec = 0;
                 double sourcePadEndSec = padEndHumanSec * SpeedFactor;
 
-                double memeDuration = 0;
-                int memeWidth = 0;
-                int memeHeight = 0;
-                bool memeIsImage = false;
-                bool memeHasAudio = false;
-                if (!string.IsNullOrEmpty(MemeFile))
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MEME_05 — RESOLVE EVERY MEME IN THIS EXPORT, NOT JUST ONE.
+                //
+                // `MemePlacements` is authoritative when it is non-empty. When it is empty the
+                // legacy `MemeFile` + `MemeAtStart` pair is projected into a single placement so
+                // that a payload written before multi-meme support produces the SAME graph it
+                // always did:
+                //   * MemeAtStart=false -> placed at the end of the trimmed clip  -> appended
+                //   * MemeAtStart=true  -> placed at 0                            -> leads the
+                //     gameplay, and still lands AFTER the frozen thumbnail head (see the concat).
+                // The legacy entry deliberately keeps the id "meme", so the emitted labels remain
+                // [meme_v] / [meme_a] exactly as before.
+                //
+                // The duration is PROBED here rather than trusted from the placement: the graph's
+                // trims, the bitrate budget and the `-t` ceiling all depend on it, and the file on
+                // disk is the only honest answer.
+                // ─────────────────────────────────────────────────────────────────────────────
+                var memes = new List<ResolvedMeme>();
                 {
-                    if (!File.Exists(MemeFile)) MemeFile = null;
-                    else {
-                    string memeExt = Path.GetExtension(MemeFile).ToLowerInvariant();
-                    memeIsImage = memeExt is ".png" or ".jpg" or ".jpeg";
-
-                    var memeProber = new MediaProber(_ffprobePath, MemeFile);
-                    var res = await memeProber.GetResolutionAsync();
-                    memeWidth = res.width;
-                    memeHeight = res.height;
-
-                    if (!memeIsImage)
+                    var requested = new List<(string path, double atRel, string? id)>();
+                    if (MemePlacements != null && MemePlacements.Count > 0)
                     {
-                        memeDuration = await memeProber.GetDurationAsync();
-                        if (memeDuration <= 0.0) memeIsImage = true;
-                        else memeHasAudio = await memeProber.HasAudioAsync();
+                        foreach (var p in MemePlacements)
+                        {
+                            if (p == null || string.IsNullOrWhiteSpace(p.FilePath)) continue;
+                            requested.Add((p.FilePath, p.AtSourceSecRelative, p.Id));
+                        }
+                    }
+                    else if (!string.IsNullOrEmpty(MemeFile))
+                    {
+                        double clipLenSec = Math.Max(0, (EndTimeMs - StartTimeMs) / 1000.0);
+                        requested.Add((MemeFile, MemeAtStart ? 0.0 : clipLenSec, "meme"));
                     }
 
-                    if (memeIsImage) memeDuration = 4.0;
+                    var usedIds = new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < requested.Count; i++)
+                    {
+                        var (path, atRel, rawId) = requested[i];
+                        if (!File.Exists(path))
+                        {
+                            CoreLogger.Fail("Meme",
+                                $"Meme file no longer exists and was skipped: '{Path.GetFileName(path)}'.");
+                            continue;
+                        }
 
-                    padEndHumanSec = 0;
-                    sourcePadEndSec = 0;
+                        string id = SanitizeMemeLabel(rawId, i);
+                        while (!usedIds.Add(id)) id += "_d";
+
+                        var m = new ResolvedMeme
+                        {
+                            Id = id,
+                            FilePath = path,
+                            AtSourceSecRelative = atRel
+                        };
+
+                        string memeExt = Path.GetExtension(path).ToLowerInvariant();
+                        m.IsImage = memeExt is ".png" or ".jpg" or ".jpeg";
+
+                        var memeProber = new MediaProber(_ffprobePath, path);
+                        if (!m.IsImage)
+                        {
+                            m.DurationSec = await memeProber.GetDurationAsync();
+                            if (m.DurationSec <= 0.0) m.IsImage = true;
+                            else m.HasAudio = await memeProber.HasAudioAsync();
+                        }
+
+                        if (m.IsImage) m.DurationSec = MemePlacement.StillImageDurationSec;
+
+                        // ─────────────────────────────────────────────────────────────────────
+                        // MEME_01 — MEASURE THIS MEME'S LOUDNESS, IF IT HAS ANY SOUND AT ALL.
+                        //
+                        // Memes are third-party clips ripped from anywhere, so their loudness is
+                        // wild — the measured spread across the shipped set is 15.9 dB, with one
+                        // clipping at +0.75 dBTP. The body of the video is normalised to
+                        // TargetLufs, so each meme is aimed at the SAME figure: it then sits at the
+                        // same perceived loudness as everything around it, whatever its source was.
+                        //
+                        // ⚠️ THIS IS PER MEME AND MUST STAY PER MEME. N memes are N independent
+                        // measurements; a single shared gain would level one of them and leave the
+                        // rest wherever they happened to be.
+                        //
+                        // Image memes and silent clips are skipped entirely — there is nothing to
+                        // measure, and the graph already substitutes `anullsrc` for them.
+                        // A failed measurement leaves the gain at 0 dB and falls back to the older
+                        // proportional shift, so this can never block an export.
+                        // ─────────────────────────────────────────────────────────────────────
+                        if (m.HasAudio && !m.IsImage)
+                        {
+                            try
+                            {
+                                var memeReading = await AudioLoudnessProbe
+                                    .MeasureAsync(_ffmpegPath, path, cancellationToken).ConfigureAwait(false);
+                                if (memeReading != null)
+                                {
+                                    m.LoudnessGainDb = Math.Clamp(
+                                        AudioLoudnessProbe.TargetLufs - memeReading.IntegratedLufs,
+                                        AudioLoudnessProbe.MinMusicGainDb,
+                                        AudioLoudnessProbe.MaxMusicGainDb);
+                                    m.LoudnessMeasured = true;
+                                    CoreLogger.Info("Audio",
+                                        $"MEME LEVEL PLAN: '{Path.GetFileName(path)}' measured " +
+                                        $"{memeReading.IntegratedLufs:F2} LUFS -> target {AudioLoudnessProbe.TargetLufs:F1} LUFS " +
+                                        $"= {m.LoudnessGainDb:+0.00;-0.00} dB, then a peak limiter to clamp off-the-chart spikes.");
+                                }
+                                else
+                                {
+                                    CoreLogger.Info("Audio",
+                                        $"Meme level could not be measured for '{Path.GetFileName(path)}' — leaving it as recorded.");
+                                }
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                CoreLogger.Info("Audio", $"Meme level measurement skipped: {ex.Message}");
+                            }
+                        }
+
+                        memes.Add(m);
+                    }
+
+                    if (memes.Count == 0)
+                    {
+                        // Nothing survived: the legacy field must not keep claiming a meme exists.
+                        MemeFile = null;
+                    }
+                    else
+                    {
+                        // ─────────────────────────────────────────────────────────────────────
+                        // MEME_05 — THE CLOSING FADE PAD IS DROPPED ONLY WHEN A MEME ACTUALLY
+                        // ENDS THE VIDEO.
+                        //
+                        // The pad buys a second of footage past MARK END to fade the gameplay out
+                        // over. That is pointless when a meme plays last — hence the original
+                        // unconditional `padEndHumanSec = 0`. But "a meme exists" and "a meme is
+                        // last" stopped being the same statement the moment memes could land
+                        // mid-video: with every meme inside the clip the GAMEPLAY is still last,
+                        // and dropping the pad robs the export of its closing fade for no reason.
+                        //
+                        // ⚠️ THIS ALSO CORRECTS THE LEGACY MemeAtStart CASE, which zeroed the pad
+                        // even though the meme played FIRST and the gameplay still ended the
+                        // video. That was always wrong; it simply never mattered while "meme" and
+                        // "meme at the end" were nearly synonymous. A legacy start-meme export
+                        // therefore gains its closing fade back — a deliberate behaviour change,
+                        // recorded in MEME_TIMELINE_PLAN.txt.
+                        //
+                        // The test is in SOURCE time on purpose: it has to be answered here, before
+                        // the extract range is fixed, and the output-time cut positions do not
+                        // exist yet.
+                        // ─────────────────────────────────────────────────────────────────────
+                        double clipLenSec = Math.Max(0, (EndTimeMs - StartTimeMs) / 1000.0);
+                        bool aMemeEndsTheVideo = memes.Any(m => m.AtSourceSecRelative >= clipLenSec - 0.001);
+                        if (aMemeEndsTheVideo)
+                        {
+                            padEndHumanSec = 0;
+                            sourcePadEndSec = 0;
+                        }
+                        else
+                        {
+                            CoreLogger.Info("Meme",
+                                "Every meme lands inside the clip, so the gameplay still ends the video — " +
+                                "its closing fade pad is kept.");
+                        }
                     }
                 }
+
+                double memeTotalDuration = 0;
+                foreach (var m in memes) memeTotalDuration += m.DurationSec;
 
                 double actualExtractStartMs = StartTimeMs - (sourcePadStartSec * 1000.0);
                 double actualExtractEndMs = EndTimeMs + (sourcePadEndSec * 1000.0);
@@ -396,7 +616,7 @@ public class ProcessWorker : IDisposable
                 }
 
                 double introDurationSec = Math.Max(0, IntroStillSec);
-                double budgetDurationSec = gDur + introDurationSec + memeDuration;
+                double budgetDurationSec = gDur + introDurationSec + memeTotalDuration;
 
                 int audioKbps = MediaProber.ChooseAudioBitrate(sourceAudioKbps, budgetDurationSec, targetMb);
                 int? videoBitrateKbps;
@@ -422,29 +642,209 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                bool mixMusicAfterMeme = KeepMusicDuringMeme && memeDuration > 0 && musicTracks.Count > 0;
-                if (mixMusicAfterMeme)
-                {
-                    for (int i = 0; i < musicTracks.Count; i++)
-                    {
-                        musicTracks[i] = musicTracks[i] with { Duration = musicTracks[i].Duration + memeDuration };
-                    }
-                }
+                // AUDIO_03: measure the music BEFORE the graph is built, so every track can be put
+                // at a proper bed level rather than arriving at whatever loudness its label chose.
+                var musicBedGains = musicTracks.Count > 0
+                    ? await MeasureMusicBedGainsAsync(musicTracks, cancellationToken)
+                    : new Dictionary<string, double>();
+
+                bool mixMusicAfterMeme = KeepMusicDuringMeme && memeTotalDuration > 0 && musicTracks.Count > 0;
+                // ⚠️ The music tracks are ADJUSTED further down, not here — their start delays have
+                // to be shifted by the meme time in front of them, and that is not known until the
+                // cut times are computed. See the `mixMusicAfterMeme` block after MemeTimeInsertedBefore.
 
                 int? introInputIndex = introDurationSec > 0.001 ? 1 + musicTracks.Count : null;
                 string? textInputLabel = textPngPath != null
                     ? $"[{1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0)}:v]"
                     : null;
                 
-                int? memeInputIndex = MemeFile != null
-                    ? 1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0) + (textPngPath != null ? 1 : 0)
-                    : null;
+                // MEME_05 — EACH MEME IS ITS OWN FFMPEG INPUT, in list order. The order here and the
+                // order the `-i` arguments are emitted in below MUST stay identical, and the
+                // voice-over base index below must skip all of them.
+                int memeInputBase = 1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0) + (textPngPath != null ? 1 : 0);
+                for (int i = 0; i < memes.Count; i++) memes[i].InputIndex = memeInputBase + i;
 
                 double renderDurationSec = gDur + introDurationSec;
 
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MEME_05 — WHERE EACH MEME CUTS INTO THE RENDERED STREAM.
+                //
+                // ⚠️⚠️ THE SINGLE EASIEST THING TO GET WRONG IN THIS WHOLE FEATURE. ⚠️⚠️
+                // `AtSourceSecRelative` is CLIP-RELATIVE SOURCE time — a moment of gameplay,
+                // measured from the trim-in point. The stream being cut, `[v_render_out]`, has
+                // ALREADY had the speed changes, the freezes and the thumbnail intro applied, and
+                // has NOT yet had any meme spliced into it. So the cut time is:
+                //
+                //     introDurationSec + <source -> output mapping of the moment>
+                //
+                // and the mapping MUST be the pre-meme one. `granularTimeMapper` is exactly that:
+                // OutputTimeline.SourceToOutput built WITHOUT insertions (see
+                // GranularSpeedBuilder.Build). Feeding a timeline that already knows about the memes
+                // would count every earlier meme's duration into this number, and each meme after
+                // the first would drift later by the sum of the ones before it. This is the same
+                // mapper the voice-over positions use, so meme cuts and voice-over starts cannot
+                // disagree.
+                //
+                // ⚠️ THE FROZEN THUMBNAIL HEAD STAYS FIRST (MEME_02). The lower clamp is
+                // introDurationSec, not 0, so a meme placed at the very beginning lands AFTER the
+                // chosen still and WhatsApp never grabs a meme's black opening frame.
+                //
+                // ⚠️ EVERY CUT IS SNAPPED TO THE FRAME GRID. `trim` can only cut on a frame
+                // boundary but `atrim` is sample-accurate, so an arbitrary cut time makes the video
+                // piece and the audio piece different lengths — up to half a frame each, and N seams
+                // accumulate. Snapping first makes both sides land on the same instant: at 60fps and
+                // 48kHz a frame is exactly 800 samples, so the seam is exact rather than merely
+                // close. This codebase has already been bitten by A/V drift at concat seams (see the
+                // VFR negative-timestamp and implicit-split entries in the changelog).
+                //
+                // ⚠️ THIS RUNS HERE, BEFORE THE VOICE-OVER BLOCK, NOT DOWN AT THE CONCAT. The
+                // voice-over needs `MemeTimeInsertedBefore` to place its takes on the KeepMusic
+                // path — see the comment there. Moving it back down reintroduces that defect.
+                // ─────────────────────────────────────────────────────────────────────────────
+                double fpsValue = double.TryParse(targetFps, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsedFps) && parsedFps > 0
+                    ? parsedFps
+                    : 60.0;
+
+                foreach (var m in memes)
+                {
+                    double absSourceSec = StartTimeMs / 1000.0 + m.AtSourceSecRelative;
+                    double bodyOutSec = granularTimeMapper != null
+                        ? granularTimeMapper(absSourceSec)
+                        : (absSourceSec - actualExtractStartMs / 1000.0) / SpeedFactor;
+
+                    // A meme asked for AT (or before) the trim-in point LEADS the gameplay. It must
+                    // not be dropped in after the fade-in, because that lead-in is footage from
+                    // BEFORE the trim-in point and the mapper reports it as positive time.
+                    if (m.AtSourceSecRelative <= 0.0005) bodyOutSec = 0;
+
+                    double cut = Math.Clamp(introDurationSec + bodyOutSec, introDurationSec, renderDurationSec);
+                    m.CutOutputSec = Math.Clamp(Math.Round(cut * fpsValue) / fpsValue, 0, renderDurationSec);
+                }
+                memes.Sort((a, b) => a.CutOutputSec.CompareTo(b.CutOutputSec));
+
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MEME_05 — CUT THE RENDERED STREAM INTO PIECES.
+                //
+                // A cut at 0 or at the very end is not a cut at all: those memes simply lead or
+                // trail. Everything else becomes an interior cut point, and N interior cuts produce
+                // N+1 pieces.
+                //
+                // ⚠️ MinPieceSec EXISTS BECAUSE AN EMPTY TRIM KILLS concat. Two cut points a
+                // fraction of a frame apart would leave a piece with no frames in it, and the graph
+                // fails to configure. Cuts that close are merged onto the earlier one, so the memes
+                // simply stack at the same seam — which is the correct outcome anyway: they are at
+                // the same moment.
+                // ─────────────────────────────────────────────────────────────────────────────
+                const double MinPieceSec = 0.05;
+                var memeCuts = new List<double>();
+                {
+                    var trailing = new List<ResolvedMeme>();
+                    foreach (var m in memes)
+                    {
+                        // Trails everything — no cut needed, it is simply concatenated last.
+                        if (m.CutOutputSec >= renderDurationSec - MinPieceSec)
+                        {
+                            m.CutOutputSec = renderDurationSec;
+                            trailing.Add(m);
+                            continue;
+                        }
+
+                        // Leads everything. ⚠️ ONLY LEGAL WHEN THERE IS NO THUMBNAIL HEAD TO
+                        // PROTECT. With an intro present the head must stay first (MEME_02), so a
+                        // meme at the beginning becomes a real cut at the intro boundary instead —
+                        // which is exactly the shipped 3-way split.
+                        if (introDurationSec <= 0.001 && m.CutOutputSec <= MinPieceSec)
+                        {
+                            m.CutOutputSec = 0;
+                            m.SlotIndex = 0;
+                            continue;
+                        }
+
+                        // An interior cut. The thumbnail head is deliberately short (0.1s) and is
+                        // exempt from the merge rule — it is the FIRST cut, so there is nothing
+                        // before it to merge onto, and it must survive as its own piece.
+                        if (memeCuts.Count > 0 && m.CutOutputSec - memeCuts[^1] < MinPieceSec)
+                            m.CutOutputSec = memeCuts[^1];
+                        else
+                            memeCuts.Add(m.CutOutputSec);
+
+                        m.SlotIndex = memeCuts.Count;
+                    }
+                    foreach (var m in trailing) m.SlotIndex = memeCuts.Count + 1;
+                }
+                int memePieceCount = memeCuts.Count + 1;
+
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MEME_05 — HOW MUCH MEME TIME SITS IN FRONT OF A GIVEN MOMENT OF THE RENDERED
+                // STREAM. This is the ONLY honest way to convert a position in the pre-meme clock
+                // into a position in the FINISHED video, and anything mixed in AFTER the concat
+                // needs it.
+                //
+                // The boundary is inclusive on purpose: a meme sitting exactly on the instant in
+                // question plays BEFORE that instant (the rendered stream is cut there and resumes
+                // after the meme), so its duration counts.
+                // ─────────────────────────────────────────────────────────────────────────────
+                // <paramref name="landsAfter"/> decides what happens to something sitting EXACTLY on
+                // a meme's instant. A voice-over take is locked to a moment of gameplay, and that
+                // gameplay resumes AFTER the meme, so the take must move with it (true). Music on
+                // the KeepMusicDuringMeme path is explicitly meant to play THROUGH memes, so a cue
+                // on that instant starts WITH the meme, not after it (false). Getting this backwards
+                // for music would make a track whose start delay is 0 begin after a leading meme —
+                // silence over the very meme the flag exists to keep music under.
+                double MemeTimeInsertedBefore(double renderedOutSec, bool landsAfter)
+                {
+                    double acc = 0;
+                    foreach (var m in memes)
+                    {
+                        bool before = landsAfter
+                            ? m.CutOutputSec <= renderedOutSec + 1e-9
+                            : m.CutOutputSec < renderedOutSec - 1e-9;
+                        if (before) acc += m.DurationSec;
+                    }
+                    return acc;
+                }
+
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MEME_05 — MUSIC ON THE KEEP-MUSIC PATH LIVES IN THE FINISHED CLOCK, TOO.
+                //
+                // When KeepMusicDuringMeme is on, AudioFilterChain runs AFTER the meme concat, so
+                // the stream it lays music over already contains every meme. Extending each track's
+                // Duration by the meme total — all this block used to do — keeps the music playing
+                // to the end, but a track that STARTS partway in was still delayed by a body-clock
+                // figure, so it came in early by the length of every meme before it. That is the
+                // same defect fixed for the voice-over, and the same fix applies.
+                //
+                // ⚠️ `Duration` IS LEFT ALONE APART FROM THE ORIGINAL `+ memeTotalDuration`.
+                // AudioFilterChain sequences consecutive tracks with `accumProjectSec += Duration`
+                // AND adds TimelineStartDelay on top, so Duration is not purely a length — trimming
+                // it by the shift would drag every LATER track's start with it. Overshooting the
+                // end is harmless (the `-t` ceiling and the tail fade both bound it); undershooting
+                // would leave silence. Leave it long.
+                //
+                // ⚠️ THE INTRO OFFSET IS DELIBERATELY NOT CORRECTED HERE. On this path the stream's
+                // t=0 is the thumbnail intro, so the music is also introDurationSec early — one
+                // frame at the default 0.1s. That error predates memes, and correcting it moves the
+                // music tail fade the Music Wizard's markers were tuned against. It is a Music
+                // Wizard decision, not a meme decision; recorded in MEME_TIMELINE_PLAN.txt.
+                // ─────────────────────────────────────────────────────────────────────────────
+                if (mixMusicAfterMeme)
+                {
+                    for (int i = 0; i < musicTracks.Count; i++)
+                    {
+                        double shift = MemeTimeInsertedBefore(
+                            introDurationSec + musicTracks[i].TimelineStartDelay, landsAfter: false);
+                        musicTracks[i] = musicTracks[i] with
+                        {
+                            Duration = musicTracks[i].Duration + memeTotalDuration,
+                            TimelineStartDelay = musicTracks[i].TimelineStartDelay + shift
+                        };
+                    }
+                }
+
                 {
                     long estimatedBytes = DiskSpaceGuard.EstimateOutputBytes(
-                        renderDurationSec + memeDuration, videoBitrateKbps, targetMb);
+                        renderDurationSec + memeTotalDuration, videoBitrateKbps, targetMb);
                     string plannedOutputDir = ResolveOutputDirectory();
                     var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);
                     if (!space.Ok)
@@ -478,11 +878,11 @@ public class ProcessWorker : IDisposable
                         if (Math.Abs(extra) > 1e-6) costSpans.Add((os, oe, extra));
                     }
                 }
-                if (memeDuration > 0.001) costSpans.Add((bodyEnd, bodyEnd + memeDuration, 1.0));
+                if (memeTotalDuration > 0.001) costSpans.Add((bodyEnd, bodyEnd + memeTotalDuration, 1.0));
                 double totalCostW = costSpans.Sum(sp => sp.w * (sp.e - sp.s));
                 double EncodeFraction(double outSec)
                 {
-                    if (totalCostW <= 1e-6) return Math.Clamp(outSec / Math.Max(1e-6, bodyEnd + memeDuration), 0, 1);
+                    if (totalCostW <= 1e-6) return Math.Clamp(outSec / Math.Max(1e-6, bodyEnd + memeTotalDuration), 0, 1);
                     double acc = 0;
                     foreach (var sp in costSpans)
                     {
@@ -565,7 +965,7 @@ public class ProcessWorker : IDisposable
                         }
                     }
 
-                    int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + (MemeFile != null ? 1 : 0);
+                    int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + memes.Count;
 
                     var secondPassFilter = BuildLoudnormSecondPassFilter();
                     hasSecondPass = !string.IsNullOrEmpty(secondPassFilter);
@@ -575,10 +975,25 @@ public class ProcessWorker : IDisposable
                         aPreparedPad = "[a_master_leveled]";
                     }
 
-                    double gameLufsForVoice =
-                        _loudnorm?.InputI
-                        ?? SourceMeasuredLufs
-                        ?? (-14.0 - VolumeNormalizeDb);
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // AUDIO_02 — AIM THE VOICE AT WHERE THE GAME ENDS UP, NOT WHERE IT STARTED.
+                    //
+                    // This used to target `_loudnorm.InputI` — the game's loudness BEFORE
+                    // normalisation. But the game bus is levelled to TargetLufs a few lines above,
+                    // so on a quiet clip the voice was aimed at the old, quieter number and ended
+                    // up sitting that many dB underneath the gameplay it was supposed to match.
+                    // The quieter the source, the further the voice fell behind — the opposite of
+                    // "everything keeps its proportions".
+                    //
+                    // When the game bus is normalised, aim the voice at the SAME target so the two
+                    // land together. Only when no measurement exists (nothing to normalise
+                    // against) does it fall back to the measured/raw loudness as before.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    double gameLufsForVoice = hasSecondPass
+                        ? AudioLoudnessProbe.TargetLufs
+                        : (_loudnorm?.InputI
+                           ?? SourceMeasuredLufs
+                           ?? (AudioLoudnessProbe.TargetLufs - VolumeNormalizeDb));
                     gameLufsForVoice = Math.Clamp(gameLufsForVoice, -70.0, -5.0);
                     string voLoudnorm = AutoVoiceNormalization
                         ? $"loudnorm=I={gameLufsForVoice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5"
@@ -605,7 +1020,36 @@ public class ProcessWorker : IDisposable
                                 voStartOutSec = 0;
                             }
 
-                            int delayMs = Math.Max(0, (int)Math.Round(voStartOutSec * 1000.0));
+                            // ─────────────────────────────────────────────────────────────────
+                            // MEME_05 / D5 — WHICH CLOCK THIS DELAY IS MEASURED IN DEPENDS ON
+                            // WHERE THE VOICE-OVER GETS MIXED, AND THE TWO ANSWERS ARE DIFFERENT.
+                            //
+                            // NORMAL PATH (mixMusicAfterMeme == false): the voice is mixed into the
+                            // body audio BEFORE the thumbnail intro is prepended and BEFORE the
+                            // memes are spliced in. `voStartOutSec` — the pre-meme body clock — is
+                            // therefore exactly right, and D5 falls out for free: the atrim that
+                            // cuts the rendered audio at a meme seam cuts the voice with it, so a
+                            // take straddling a meme splits and RESUMES, and a take after a meme
+                            // slides later intact. Nothing to do.
+                            //
+                            // KEEP-MUSIC PATH (mixMusicAfterMeme == true): the voice is mixed AFTER
+                            // the concat, onto a stream whose t=0 is the start of the thumbnail
+                            // intro and which already contains every meme. A delay in the body
+                            // clock is then wrong twice over — early by the intro, and early by the
+                            // total length of every meme that plays before the take. With memes
+                            // only ever at the very end that never showed; with a meme mid-video a
+                            // take can land seconds out of place.
+                            //
+                            // ⚠️ The ducking pulse above deliberately keeps the BODY clock: it acts
+                            // on `aPreparedPad`, which is the pre-intro, pre-meme audio. Do not
+                            // "fix" it to match this.
+                            // ─────────────────────────────────────────────────────────────────
+                            double voDelaySec = voStartOutSec;
+                            if (mixMusicAfterMeme)
+                                voDelaySec += introDurationSec
+                                            + MemeTimeInsertedBefore(introDurationSec + voStartOutSec, landsAfter: true);
+
+                            int delayMs = Math.Max(0, (int)Math.Round(voDelaySec * 1000.0));
                             string delayLabel = $"[vo_delayed_{t}]";
                             
                             coreFilters.Add($"[{inputIdx}:a]aresample=48000:async=1,{voLoudnorm},{trimFilter}adelay={delayMs}|{delayMs}{delayLabel}");
@@ -627,8 +1071,34 @@ public class ProcessWorker : IDisposable
                 }
                 else
                 {
-                    // Calculate hasSecondPass even if effectiveTakes is empty, so we pass correct args to AudioFilterChain
-                    hasSecondPass = !string.IsNullOrEmpty(BuildLoudnormSecondPassFilter());
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // AUDIO_02 — THE GAME BUS WAS SKIPPING ITS NORMALISATION WHENEVER THERE WAS
+                    // NO VOICE-OVER.
+                    //
+                    // This branch used to ONLY set the flag, with a comment saying it did so "so
+                    // we pass correct args to AudioFilterChain" — and that is exactly the trap.
+                    // `hasSecondPass = true` tells the mixer "the game is already levelled, do not
+                    // apply the flat fallback gain" (see the `hasSecondPass ? 0.0` arguments), and
+                    // the music still receives its matching follow-gain. But the filter that was
+                    // supposed to do the levelling was never added to the graph on this path.
+                    //
+                    // Net effect on every export WITHOUT a voice-over: game +0 dB, music +4.4 dB.
+                    // The proof is in the exported filter graph — `[a_prepared_base]anull[a_main_raw]`
+                    // and no `loudnorm` anywhere, while the music carried `volume=1.6672`.
+                    //
+                    // ⚠️ THE TWO BRANCHES MUST APPLY THE SAME FILTER. If you touch the voice-over
+                    // path above, mirror it here. A flag that claims work was done, without the
+                    // work, is worse than no flag.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    var secondPassFilterNoVoice = BuildLoudnormSecondPassFilter();
+                    hasSecondPass = !string.IsNullOrEmpty(secondPassFilterNoVoice);
+                    if (sourceHasAudio && hasSecondPass)
+                    {
+                        coreFilters.Add($"{aPreparedPad}{secondPassFilterNoVoice},aresample=48000[a_master_leveled]");
+                        aPreparedPad = "[a_master_leveled]";
+                        CoreLogger.Info("Audio",
+                            $"Game bus normalised to {AudioLoudnessProbe.TargetLufs:F1} LUFS (no voice-over on this export).");
+                    }
                 }
 
                 // If we didn't have effective takes but still need the variable
@@ -655,7 +1125,8 @@ public class ProcessWorker : IDisposable
                         musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
-                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null);
+                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
+                        musicBedGainDb: musicBedGains);   // AUDIO_03
 
                     foreach (var part in built.chains)
                     {
@@ -765,7 +1236,7 @@ public class ProcessWorker : IDisposable
                 string vOutputFinal = "[v_render_out]";
                 string aOutputFinal = currentALabel;
 
-                if (memeInputIndex.HasValue)
+                if (memes.Count > 0)
                 {
                     string canvas;
                     if (IsMobileFormat)
@@ -781,31 +1252,217 @@ public class ProcessWorker : IDisposable
                     }
                     CoreLogger.Info("FFmpeg", $"Meme canvas sized to {canvas.Replace(':', 'x')} to match the video output.");
 
-                    string memeScale =
-                        $"scale={canvas}:force_original_aspect_ratio=decrease," +
-                        $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
-                        $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1,fps={targetFps}:start_time=0:round=near";
-
-                    string memeAudio = "aresample=48000:async=1";
-
-                    if (EnableFades && memeDuration >= 0.5)
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // MEME_05 — PREPARE EVERY MEME'S OWN VIDEO AND AUDIO BRANCH.
+                    //
+                    // ⚠️ THIS LOOP IS PER MEME, DELIBERATELY. Memes are unrelated third-party rips:
+                    // different resolutions, different frame rates, different levels, some silent,
+                    // some still images. Every one of them has to be brought onto the SAME canvas,
+                    // the SAME frame rate and the SAME sample format before concat will accept it,
+                    // and each needs its own measured gain (MEME_01). Nothing here may be hoisted
+                    // out of the loop and shared.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    foreach (var m in memes)
                     {
-                        double memeFadeDur = Math.Min(1.0, memeDuration / 2.0);
-                        double memeFadeStart = Math.Max(0, memeDuration - memeFadeDur);
-                        memeScale += $",fade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+                        string memeScale =
+                            $"scale={canvas}:force_original_aspect_ratio=decrease," +
+                            $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
+                            $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1,fps={targetFps}:start_time=0:round=near";
 
-                        if (!mixMusicAfterMeme && memeHasAudio)
+                        // ─────────────────────────────────────────────────────────────────────
+                        // AUDIO_02 — THE MEME RIDES THE SAME LOUDNESS CHANGE AS EVERYTHING ELSE.
+                        //
+                        // A meme is concatenated into the finished stream, so it never passes
+                        // through the game bus and receives none of its normalisation. On a quiet
+                        // clip the body was lifted toward the target while the meme stayed where it
+                        // was — so the meme arrived jarringly loud by comparison.
+                        //
+                        // Shift it by the SAME dB the rest of the mix moved. This is deliberately a
+                        // relative shift, not a normalisation: the meme keeps its own character and
+                        // its relationship to the body is preserved, which is the whole point.
+                        // ─────────────────────────────────────────────────────────────────────
+                        string memeAudio = "aresample=48000:async=1";
+
+                        // ─────────────────────────────────────────────────────────────────────
+                        // MEME_01 — LEVEL THE MEME, THEN CLAMP ITS SPIKES.
+                        //
+                        // Two different jobs, and they need to happen in this order:
+                        //   1. `volume` puts the whole clip at the same loudness as the rest of the
+                        //      video, so it no longer arrives louder or quieter than its neighbours.
+                        //   2. `alimiter` catches the individual bangs. Meme rips are full of
+                        //      clipped screams and explosions that sit far above their own average,
+                        //      and a loudness match alone does nothing about those — matching the
+                        //      AVERAGE can even push a spiky clip's peaks higher. The limiter is
+                        //      what stops the "off the chart" moments, and it is deliberately a
+                        //      touch below the master ceiling so a meme can never be the loudest
+                        //      thing in the export.
+                        //
+                        // When the measurement failed we fall back to the previous behaviour —
+                        // shift by the same dB as the rest of the mix — so a meme is never left
+                        // un-levelled just because ffprobe could not read it.
+                        // ─────────────────────────────────────────────────────────────────────
+                        if (m.LoudnessMeasured && Math.Abs(m.LoudnessGainDb) > 0.01)
                         {
-                            memeAudio += $",afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+                            double g = Math.Pow(10, m.LoudnessGainDb / 20.0);
+                            memeAudio += $",volume={g.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}";
+                        }
+                        else if (!m.LoudnessMeasured && Math.Abs(VolumeNormalizeDb) > 0.01)
+                        {
+                            double memeGain = Math.Pow(10, VolumeNormalizeDb / 20.0);
+                            memeAudio += $",volume={memeGain.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}";
+                            CoreLogger.Info("Audio",
+                                $"Meme audio shifted {VolumeNormalizeDb:+0.00;-0.00} dB (unmeasured) to stay in proportion with the mix.");
+                        }
+
+                        if (m.HasAudio)
+                        {
+                            memeAudio += ",alimiter=limit=-2.0dB:level_in=1:level_out=1";
+                        }
+
+                        // ─────────────────────────────────────────────────────────────────────
+                        // MEME_05 — A MEME FADES OUT ONLY WHERE THERE IS SOMETHING TO FADE INTO.
+                        //
+                        // The fade was unconditional, from when a meme was always the last thing on
+                        // screen. Whether it helps or hurts depends entirely on WHAT FOLLOWS:
+                        //
+                        //   TRAILING meme  -> the video ends. Fading to black is the ending. KEEP.
+                        //   LEADING meme   -> the gameplay that follows opens with its own
+                        //                     `fade=t=in` over the lead-in pad, so the meme's fade
+                        //                     to black and the gameplay's fade up form one clean
+                        //                     transition. KEEP. (This is also what the shipped
+                        //                     MemeAtStart export does, preserved exactly.)
+                        //   INTERIOR meme  -> the gameplay resumes mid-render with NO fade-in, so a
+                        //                     fade to black is followed by a hard cut out of black.
+                        //                     That is the jarring case. SKIP IT — a mid-video meme
+                        //                     hard-cuts on both sides, the classic cutaway.
+                        //
+                        // Owner's decision, 2026-08-16.
+                        // ─────────────────────────────────────────────────────────────────────
+                        bool memeTrails = m.SlotIndex == memePieceCount;
+                        bool memeLeads = m.CutOutputSec <= introDurationSec + 1e-9;
+                        bool fadeThisMeme = memeTrails || memeLeads;
+
+                        if (EnableFades && fadeThisMeme && m.DurationSec >= 0.5)
+                        {
+                            double memeFadeDur = Math.Min(1.0, m.DurationSec / 2.0);
+                            double memeFadeStart = Math.Max(0, m.DurationSec - memeFadeDur);
+                            memeScale += $",fade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+
+                            if (!mixMusicAfterMeme && m.HasAudio)
+                            {
+                                memeAudio += $",afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}";
+                            }
+                        }
+
+                        coreFilters.Add($"[{m.InputIndex}:v]{memeScale}{m.VLabel}");
+                        if (m.HasAudio)
+                            coreFilters.Add($"[{m.InputIndex}:a]{memeAudio}{m.ALabel}");
+                        else
+                            // ⚠️ A SILENT OR IMAGE MEME STILL NEEDS AN AUDIO PAD. concat with a=1
+                            // demands one audio stream per segment; without this the whole graph
+                            // fails to configure.
+                            coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={m.DurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS{m.ALabel}");
+                    }
+
+                    // The cut times, the piece boundaries and each meme's slot were all computed
+                    // further up, BEFORE the voice-over block, because the voice-over needs them to
+                    // place its takes on the KeepMusicDuringMeme path. Do not move them back here.
+                    var cuts = memeCuts;
+                    int pieceCount = memePieceCount;
+
+                    var vPieces = new List<string>();
+                    var aPieces = new List<string>();
+
+                    if (pieceCount == 1)
+                    {
+                        // Nothing lands inside the video, so there is nothing to cut. This is the
+                        // historical prepend/append graph, reproduced exactly.
+                        vPieces.Add("[v_render_out]");
+                        aPieces.Add(aOutputFinal);
+                    }
+                    else
+                    {
+                        // ⚠️ EXPLICIT split / asplit, NEVER an implicit one. Handing the same label
+                        // to several filters lets FFmpeg improvise the duplication, and this
+                        // codebase has already lost a full second of video to that (see the
+                        // implicit-split A/V desync entry in the changelog). An explicit split
+                        // clones the buffers in lockstep.
+                        var vSrc = new List<string>(pieceCount);
+                        var aSrc = new List<string>(pieceCount);
+                        for (int i = 0; i < pieceCount; i++)
+                        {
+                            vSrc.Add($"[v_cut{i}_src]");
+                            aSrc.Add($"[a_cut{i}_src]");
+                        }
+                        coreFilters.Add($"[v_render_out]split={pieceCount}{string.Join("", vSrc)}");
+                        coreFilters.Add($"{aOutputFinal}asplit={pieceCount}{string.Join("", aSrc)}");
+
+                        for (int i = 0; i < pieceCount; i++)
+                        {
+                            string startArg = i == 0 ? "0" : CutSec(cuts[i - 1]);
+                            string endArg = i == pieceCount - 1 ? "" : $":end={CutSec(cuts[i])}";
+                            coreFilters.Add($"[v_cut{i}_src]trim=start={startArg}{endArg},setpts=PTS-STARTPTS[v_cut{i}]");
+                            coreFilters.Add($"[a_cut{i}_src]atrim=start={startArg}{endArg},asetpts=PTS-STARTPTS[a_cut{i}]");
+                            vPieces.Add($"[v_cut{i}]");
+                            aPieces.Add($"[a_cut{i}]");
+                        }
+
+                        if (pieceCount > 8)
+                        {
+                            CoreLogger.Fail("Meme",
+                                $"HIGH CUT COUNT: {cuts.Count} meme insertion point(s) means {pieceCount} parallel " +
+                                "branches off the rendered stream. FFmpeg buffers frames on every branch concat has " +
+                                "not reached yet, so peak RAM grows with this number.");
                         }
                     }
 
-                    coreFilters.Add($"[{memeInputIndex}:v]{memeScale}[meme_v]");
-                    if (memeHasAudio)
-                        coreFilters.Add($"[{memeInputIndex}:a]{memeAudio}[meme_a]");
-                    else
-                        coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[meme_a]");
-                    coreFilters.Add($"[v_render_out]{aOutputFinal}[meme_v][meme_a]concat=n=2:v=1:a=1[v_final][a_final_before_music]");
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // MEME_05 — THE N-WAY CONCAT.
+                    //
+                    // Slot 0 is ahead of the first piece, slot i sits between piece i-1 and piece i,
+                    // and the last slot trails everything. ⚠️ THE VIDEO AND AUDIO LABELS OF EACH
+                    // SEGMENT MUST STAY ADJACENT AND IN [v][a][v][a] ORDER — concat reads its
+                    // inputs positionally, and one transposed pair silently welds the wrong audio
+                    // to the wrong picture.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    var concatOrder = new List<string>();
+                    int concatSegments = 0;
+                    for (int slot = 0; slot <= pieceCount; slot++)
+                    {
+                        foreach (var m in memes)
+                        {
+                            if (m.SlotIndex != slot) continue;
+                            concatOrder.Add(m.VLabel);
+                            concatOrder.Add(m.ALabel);
+                            concatSegments++;
+                        }
+                        if (slot < pieceCount)
+                        {
+                            concatOrder.Add(vPieces[slot]);
+                            concatOrder.Add(aPieces[slot]);
+                            concatSegments++;
+                        }
+                    }
+
+                    coreFilters.Add($"{string.Join("", concatOrder)}concat=n={concatSegments}:v=1:a=1[v_final][a_final_before_music]");
+
+                    foreach (var m in memes)
+                    {
+                        string where =
+                            m.SlotIndex == 0 ? "leading the gameplay"
+                            : m.SlotIndex == pieceCount ? "at the very end"
+                            : $"cutting in at {m.CutOutputSec:F3}s of the rendered video";
+                        CoreLogger.Info("Meme",
+                            $"'{Path.GetFileName(m.FilePath)}' ({m.DurationSec:F2}s) {where} " +
+                            $"— placed at {m.AtSourceSecRelative:F3}s of the clip.");
+                    }
+                    CoreLogger.Info("Meme",
+                        $"{memes.Count} meme(s) spliced into {pieceCount} piece(s) of rendered video " +
+                        $"(concat=n={concatSegments}); the finished video grows by {memeTotalDuration:F3}s. " +
+                        (introDurationSec > 0.001
+                            ? "The frozen thumbnail frame stays FIRST, so the share thumbnail is still the frame you chose."
+                            : "No thumbnail intro on this export."));
+
                     vOutputFinal = "[v_final]";
                     aOutputFinal = "[a_final_before_music]";
                 }
@@ -823,14 +1480,15 @@ public class ProcessWorker : IDisposable
                         48000,
                         musicTracks,
                         1,
-                        gDur + memeDuration,
+                        gDur + memeTotalDuration,
                         aOutputFinal,
                         hasSecondPass ? 0.0 : VolumeNormalizeDb,
                         null,
                         musicFollowGainDb: _loudnorm != null ? VolumeNormalizeDb : 0.0,
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
-                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null);
+                        voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
+                        musicBedGainDb: musicBedGains);   // AUDIO_03
 
                     foreach (var part in built.chains)
                     {
@@ -838,27 +1496,96 @@ public class ProcessWorker : IDisposable
                     }
                     aOutputFinal = built.finalLabel;
                     
-                    if (EnableFades && memeDuration >= 0.5)
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // MEME_05 — THIS IS THE MUSIC'S TAIL FADE, SO IT IS SIZED BY WHATEVER IS LAST
+                    // ON SCREEN — AND THAT IS ONLY A MEME IF A MEME ACTUALLY TRAILS.
+                    //
+                    // `memes` is sorted by cut position, so `memes[^1]` is the last meme to appear
+                    // — but with every meme mid-video the last THING is the gameplay, which already
+                    // carries its own closing fade from the pad above. Sizing a music fade off a
+                    // meme that plays in the middle would start the fade in the wrong place and
+                    // duck the music under footage that is not ending.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    double lastMemeDuration =
+                        memes.Count > 0 && memes[^1].SlotIndex == memePieceCount ? memes[^1].DurationSec : 0;
+                    if (EnableFades && lastMemeDuration >= 0.5)
                     {
-                        double memeFadeDur = Math.Min(1.0, memeDuration / 2.0);
-                        double totalOutDur = gDur + introDurationSec + memeDuration;
+                        double memeFadeDur = Math.Min(1.0, lastMemeDuration / 2.0);
+                        double totalOutDur = renderDurationSec + memeTotalDuration;
                         double memeFadeStart = Math.Max(0, totalOutDur - memeFadeDur);
                         coreFilters.Add($"{aOutputFinal}afade=t=out:st={memeFadeStart.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}:d={memeFadeDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}[a_final_music_faded]");
                         aOutputFinal = "[a_final_music_faded]";
                     }
                 }
 
-                coreFilters.Add($"{aOutputFinal}loudnorm=I=-23:TP=-1.5:LRA=11[a_mastered]");
-                aOutputFinal = "[a_mastered]";
+                // ─────────────────────────────────────────────────────────────────────────────
+                // AUDIO_01 — REMOVED: a SECOND, BLIND loudnorm over the finished mix.
+                //
+                // This line used to sit here:
+                //     {aOutputFinal}loudnorm=I=-23:TP=-1.5:LRA=11[a_mastered]
+                //
+                // ⚠️ NEVER PUT IT BACK. It looks harmless — same target as the game pass — but it
+                // supplies NO measured values and NO `linear=true`, and FFmpeg's loudnorm only
+                // applies a single fixed gain when all five measured_* parameters are present.
+                // Without them it runs in DYNAMIC mode: a continuously-acting automatic gain
+                // control over the whole mix. See GetLoudnormFilter() below, which does it
+                // correctly with linear=true + measured_I/TP/LRA/thresh, and whose own comment
+                // spells out that this is what separates a real two-pass from a guess.
+                //
+                // WHAT IT ACTUALLY DID: a dynamic AGC follows whatever is loudest, and a
+                // commercial music master (~-8 to -10 LUFS) is far louder than gameplay. So the
+                // MUSIC drove the gain of the ENTIRE mix — every swell pulled the gunshots and
+                // effects down with it, every dip pushed them back up. The sidechain ducking and
+                // the carving EQ above were computed correctly and then silently overridden by
+                // this one line, producing the exact inverse of the intended effect: game audio
+                // being modulated by the music instead of the other way around.
+                //
+                // It was also UNCONDITIONAL, so exports with no music at all were squashed by the
+                // same AGC for no reason.
+                //
+                // The game audio is already linear-normalised with real measured values, the music
+                // sits beneath it via sidechaincompress, and the alimiter below remains as the peak
+                // safety net. A second normalisation pass over the mix is not needed and cannot be
+                // done honestly here — it would require measuring the MIXED audio first.
+                // ─────────────────────────────────────────────────────────────────────────────
 
                 if (AutoSpikeFlattening)
                 {
-                    coreFilters.Add($"{aOutputFinal}alimiter=limit=-1.5dB:level_in=1:level_out=1[a_flattened]");
+                    // LOG_04: the loudness "cutoff" stage — say it is on and at what ceiling.
+                    // AUDIO_07 (#7): -1.5 dB -> -1.0 dB. loudnorm already guarantees a -1.5 dBTP
+                    // true-peak ceiling, so a limiter at the SAME -1.5 dB could only ever act on
+                    // material that had already been handled — contributing distortion risk and
+                    // nothing else. Held slightly higher it becomes what it should be: a genuine
+                    // emergency catch for the rare case where music and game peaks coincide.
+                    CoreLogger.Info("Audio",
+                        "PEAK LIMITER ON: alimiter ceiling -1.0 dB (safety net above the -1.5 dBTP " +
+                        "loudnorm ceiling). Only momentary peaks are held back; it does not change " +
+                        "the overall level set by the normalisation plan.");
+                    coreFilters.Add($"{aOutputFinal}alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]");
                     aOutputFinal = "[a_flattened]";
+                }
+                else
+                {
+                    CoreLogger.Info("Audio", "PEAK LIMITER OFF: no ceiling applied (Auto Spike Flattening is disabled).");
                 }
 
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
-                CoreLogger.Debug("FFmpeg", $"Filter Script Content:\n{filterScript}");
+                // ─────────────────────────────────────────────────────────────────────────────
+                // LOG_02 — THE FILTER GRAPH IS THE STORY. IT MUST BE AT INFO.
+                //
+                // The logged "Executing Final Pipeline Command" line looks complete but is NOT:
+                // the graph is handed to FFmpeg as `-filter_complex_script <file>`, so the command
+                // shows only a PATH. That file is written into tempJobDir and deleted with it when
+                // the job ends — so after any finished export, every filter that actually shaped
+                // the video and audio was gone, and the log could not answer the one question
+                // worth asking: what did we really do to this footage?
+                //
+                // This is where the scale/crop/pad geometry, the zoom ramps, the HUD compositing
+                // and the ENTIRE audio chain live — carving EQ, the sidechain ducking values, the
+                // 150 Hz bass split. Debugging "the music ducks too hard" or "the crop is off"
+                // without this line means reproducing the export just to see the graph.
+                // ─────────────────────────────────────────────────────────────────────────────
+                CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
@@ -885,7 +1612,7 @@ public class ProcessWorker : IDisposable
                 // back to plain -pass 1/-pass 2 over the filter graph, which costs ~2x but needs
                 // no extra disk. HasRoomFor never fails an export; it only answers yes/no.
                 bool twoPassFastRoute = DiskSpaceGuard.HasRoomFor(
-                    tempJobDir, DiskSpaceGuard.EstimateTwoPassMasterBytes(renderDurationSec + memeDuration));
+                    tempJobDir, DiskSpaceGuard.EstimateTwoPassMasterBytes(renderDurationSec + memeTotalDuration));
 
                 bool success = false;
                 string lastError = "Render failed.";
@@ -968,18 +1695,20 @@ public class ProcessWorker : IDisposable
                         if (textPngPath != null)
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
-                        if (MemeFile != null)
+                        // MEME_05 — one `-i` per meme, in the SAME order the input indices were
+                        // handed out above. Reordering either side silently swaps the memes.
+                        foreach (var m in memes)
                         {
-                            if (memeIsImage)
+                            if (m.IsImage)
                             {
                                 // Still image — intentionally NO hwaccel.
-                                ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", memeDuration.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", MemeFile]);
+                                ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", m.DurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", m.FilePath]);
                             }
                             else
                             {
                                 // G04: video meme — needs its own decode flags.
                                 ffmpegArgs.AddRange(decodeFlags);
-                                ffmpegArgs.AddRange(["-i", MemeFile]);
+                                ffmpegArgs.AddRange(["-i", m.FilePath]);
                             }
                         }
 
@@ -988,7 +1717,7 @@ public class ProcessWorker : IDisposable
                             ffmpegArgs.AddRange(["-i", voTake.Path]);
 
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
-                        double totalOutputDurationSec = renderDurationSec + memeDuration;
+                        double totalOutputDurationSec = renderDurationSec + memeTotalDuration;
 
                         // ── T01: what this FFmpeg invocation actually produces ───────────────
                         // FAST two-pass  -> the near-lossless master; passes 1+2 follow separately.
@@ -1067,7 +1796,56 @@ public class ProcessWorker : IDisposable
                                 ? "two-pass SLOW (pass 1 over the filter graph — not enough temp disk for a master)"
                                 : "single-pass";
                         CoreLogger.Info("FFmpeg", $"Starting encode: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={routeLabel}, attempt={attemptNum}.");
-                        CoreLogger.Debug("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+                        CoreLogger.Info("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
+
+                        // ─────────────────────────────────────────────────────────────────────
+                        // LOG_05 — ONE FINAL, SELF-CONTAINED, RUNNABLE COMMAND.
+                        //
+                        // The line above is what was literally executed, but it is NOT reproducible
+                        // on its own: the whole filter graph hides behind
+                        // `-filter_complex_script <path>`, and that file lives in tempJobDir, which
+                        // is deleted the moment the job ends. So after any finished export the log
+                        // could describe the encode but never REPLAY it.
+                        //
+                        // This second line substitutes the script back inline as `-filter_complex`,
+                        // producing a single command that can be pasted into a terminal and re-run
+                        // verbatim. That is what makes the log the source of truth rather than a
+                        // summary of it: every filter, every audio value, every path, in one place.
+                        //
+                        // Safe to quote with double quotes — the graph uses single quotes
+                        // internally (weights='1 1', volume='...'), never double.
+                        // ─────────────────────────────────────────────────────────────────────
+                        try
+                        {
+                            // Rebuild the script token EXACTLY as FormatForLog rendered it — it only
+                            // quotes an argument that is empty or contains a space or a quote. Assuming
+                            // the unquoted form would silently fail to match the day the temp path
+                            // lands somewhere with a space in it, and the "final command" would then
+                            // still point at a file that no longer exists.
+                            string scriptToken = filterScriptPath.Length == 0
+                                                 || filterScriptPath.Contains(' ')
+                                                 || filterScriptPath.Contains('"')
+                                ? "\"" + filterScriptPath.Replace("\"", "\\\"") + "\""
+                                : filterScriptPath;
+
+                            string needle = $"-filter_complex_script {scriptToken}";
+                            if (cmdLine.Contains(needle))
+                            {
+                                string inlineCmd = cmdLine.Replace(needle, $"-filter_complex \"{filterScript}\"");
+                                CoreLogger.Info("FFmpeg",
+                                    "FINAL COMMAND (filter graph inlined — copy/paste runnable, this is exactly what happened):\n" +
+                                    $"\"{_ffmpegPath}\" {inlineCmd}");
+                            }
+                            else
+                            {
+                                CoreLogger.Info("FFmpeg",
+                                    "FINAL COMMAND: this attempt used no filter script, so the command logged above is already complete.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            CoreLogger.Debug("FFmpeg", $"Could not build the inlined command for the log: {ex.Message}");
+                        }
 
                         var psi = new ProcessStartInfo
                         {
@@ -1485,7 +2263,30 @@ public class ProcessWorker : IDisposable
                 if (ThumbnailPosMs > 0)
                 {
                     EmitProgress(2, "Generating Thumbnail", 98);
-                    string thumbnailOutput = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
+                    // ─────────────────────────────────────────────────────────────────────────
+                    // TEMP_01 — THE THUMBNAIL IS SCRATCH, NOT A DELIVERABLE. KEEP IT OUT OF THE
+                    // USER'S FOLDER.
+                    //
+                    // This used to be `Path.Combine(outputDir, ...)`, which dropped a
+                    // `<video>_thumbnail.jpg` right next to the exported video — in Downloads, or
+                    // wherever the user sends their exports. It was the ONLY thing in the whole
+                    // pipeline that wrote anything other than the finished video into that folder,
+                    // and it was never cleaned up: the delete below only fires for a ZERO-BYTE
+                    // file, so every successful export left one more .jpg behind, for ever.
+                    //
+                    // It now lands in this job's own `tempJobDir` under
+                    // %TMP%\Fortnite_Video_Software\, which is deleted wholesale in the finally
+                    // block at the end of this method — so cleanup is automatic and cannot be
+                    // forgotten, exactly like the two-pass master and the filter scripts.
+                    //
+                    // ⚠️ NOTHING IN THE APP READS THIS FILE. It is produced, validated, logged and
+                    // discarded. The thumbnail MARKER still does real work regardless — the same
+                    // `ThumbnailPosMs` is assigned to `IntroAbsTimeMs` in MainMediaController, and
+                    // that is what freezes the chosen frame at the head of the exported video. If
+                    // you ever want the user to KEEP this picture, surface it deliberately (a
+                    // "Save thumbnail" action); do not send it back to `outputDir` by default.
+                    // ─────────────────────────────────────────────────────────────────────────
+                    string thumbnailOutput = Path.Combine(tempJobDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
                     double extractTargetSec = granularTimeMapper != null
                         ? Math.Max(0.0, granularTimeMapper(ThumbnailPosMs / 1000.0))
                         : Math.Max(0.0, (ThumbnailPosMs - actualExtractStartMs) / 1000.0 / Math.Max(0.001, SpeedFactor));
@@ -1493,6 +2294,14 @@ public class ProcessWorker : IDisposable
                     {
                         extractTargetSec += introDurationSec;
                     }
+
+                    // ⚠️ MEME_05 — THIS SEEKS THE FINISHED FILE, WHICH CONTAINS THE MEMES. Every
+                    // term above is in the PRE-MEME clock, so without this the grab lands early by
+                    // the total length of every meme before the chosen moment — far enough, with a
+                    // mid-video meme, to grab a frame of the meme instead of the gameplay the user
+                    // picked. Same shift as the voice-over: the chosen frame is a moment of
+                    // gameplay, and that gameplay resumes AFTER any meme sitting on it.
+                    extractTargetSec += MemeTimeInsertedBefore(extractTargetSec, landsAfter: true);
                     string targetStr = extractTargetSec.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
 
                     var thumbArgs = new List<string>
@@ -1578,7 +2387,10 @@ public class ProcessWorker : IDisposable
                     }
                 }
                 pipelineStopwatch.Stop();
-                CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {Path.GetFileName(finalOutput)}");
+                // LOG_01: the FULL destination, not just the file name. "Output: Fortnite-Video-1.mp4"
+                // told you nothing about WHERE it landed — Downloads, a custom folder, or the
+                // fallback picked when the chosen one was unwritable. The log is the story teller.
+                CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {finalOutput}");
                 EmitProgress(2, "Complete", 100);
                 EmitFinished(true, finalOutput);
             }
@@ -1886,14 +2698,23 @@ public class ProcessWorker : IDisposable
     {
         try
         {
-            double targetLufs = -14.0;
+            // AUDIO_02: single source of truth — the same target the user is judged against in the
+            // "your video is too quiet" prompt, and the same one the export masters to.
+            double targetLufs = AudioLoudnessProbe.TargetLufs;
             var args = new List<string>
             {
                 "-y", "-hide_banner",
                 "-ss", (measureStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-t", ((measureEndMs - measureStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-i", InputPath,
-                "-af", "loudnorm=I=-23:TP=-1.5:LRA=11:print_format=json",
+                // AUDIO_02: the measurement pass MUST declare the same target as the second pass.
+                // input_i/tp/lra/thresh describe the source and do not depend on the target, but
+                // `target_offset` does — and that offset is handed straight to the second pass.
+                // Measuring against -23 and then rendering against -14 fed the second pass an
+                // offset computed for a different target, skewing the very gain it was supposed
+                // to make exact.
+                "-af", $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}" +
+                       $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",
                 "-f", "null", "-"
             };
@@ -1981,6 +2802,18 @@ public class ProcessWorker : IDisposable
                         CoreLogger.Info("Loudnorm",
                             $"Pass 1 complete. I={inputI:F2} LUFS, TP={inputTp:F2} dBTP, LRA={inputLra:F2} LU, " +
                             $"thresh={inputThresh:F2}, offset={targetOffset:F2}. Second pass will run in linear mode.");
+
+                        // ─────────────────────────────────────────────────────────────────────
+                        // LOG_04 — SAY WHAT THE NORMALISATION IS ABOUT TO DO, IN FULL.
+                        // The measurement line above only reported what was MEASURED. It never
+                        // stated the target, the resulting gain, or which streams would move with
+                        // it — so a mix that came out wrong could not be diagnosed from the log.
+                        // ─────────────────────────────────────────────────────────────────────
+                        CoreLogger.Info("Loudnorm",
+                            $"NORMALISATION PLAN: measured {inputI:F2} LUFS -> target {targetLufs:F1} LUFS " +
+                            $"= {VolumeNormalizeDb:+0.00;-0.00} dB, true-peak ceiling {AudioLoudnessProbe.PeakCeilingDbtp:F1} dBTP. " +
+                            $"Applied to the game bus via linear loudnorm; the SAME {VolumeNormalizeDb:+0.00;-0.00} dB " +
+                            $"is applied to music, voice-over and meme so every element keeps its relative balance.");
                         return;
                     }
 
@@ -2023,12 +2856,77 @@ public class ProcessWorker : IDisposable
     /// range-squashing single-pass behaviour, and it backs that gain off if it would breach the
     /// true-peak ceiling.
     /// </summary>
+    /// <summary>
+    /// AUDIO_03 — measure every music file once and work out how far each is from the bed level.
+    ///
+    /// Runs at most once per distinct path per export, and only when music is actually present. A
+    /// failed or impossible measurement yields NO entry, which downstream means "0 dB correction" —
+    /// identical to the old behaviour. This must never be able to fail an export.
+    /// </summary>
+    private async Task<Dictionary<string, double>> MeasureMusicBedGainsAsync(
+        List<MusicTrack> tracks, CancellationToken cancellationToken)
+    {
+        var gains = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var track in tracks)
+        {
+            if (string.IsNullOrWhiteSpace(track.Path) || gains.ContainsKey(track.Path)) continue;
+            try
+            {
+                var reading = await AudioLoudnessProbe.MeasureAsync(_ffmpegPath, track.Path, cancellationToken)
+                                                      .ConfigureAwait(false);
+                if (reading == null)
+                {
+                    CoreLogger.Info("Audio",
+                        $"Music level could not be measured for '{Path.GetFileName(track.Path)}' — leaving it untouched.");
+                    continue;
+                }
+
+                double raw = AudioLoudnessProbe.MusicBedLufs - reading.IntegratedLufs;
+                double clamped = Math.Clamp(raw, AudioLoudnessProbe.MinMusicGainDb, AudioLoudnessProbe.MaxMusicGainDb);
+                gains[track.Path] = clamped;
+
+                CoreLogger.Info("Audio",
+                    $"MUSIC BED PLAN: '{Path.GetFileName(track.Path)}' measured {reading.IntegratedLufs:F2} LUFS -> " +
+                    $"bed target {AudioLoudnessProbe.MusicBedLufs:F1} LUFS = {clamped:+0.00;-0.00} dB" +
+                    (Math.Abs(raw - clamped) > 0.01 ? $" (clamped from {raw:+0.00;-0.00} dB)" : "") +
+                    ". The music slider is applied on top of this.");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                CoreLogger.Info("Audio",
+                    $"Music level measurement skipped for '{Path.GetFileName(track.Path)}': {ex.Message}");
+            }
+        }
+        return gains;
+    }
+
     private string? BuildLoudnormSecondPassFilter()
     {
         if (_loudnorm is null) return null;
 
         var ci = CultureInfo.InvariantCulture;
-        return "loudnorm=I=-23:TP=-1.5:LRA=11:linear=true" +
+
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        // AUDIO_02 — ONE LOUDNESS TARGET FOR THE WHOLE APP. THIS USED TO SAY I=-23.
+        //
+        // -23 LUFS is EBU R128, the BROADCAST television standard. Every platform this app
+        // actually exports for — YouTube, TikTok, Reels, Shorts — normalises to about -14 LUFS
+        // and will simply turn anything louder back down. Mastering to -23 meant shipping a file
+        // roughly 9 dB quieter than the platform target for no benefit.
+        //
+        // ⚠️ THE REAL DAMAGE WAS THE MISMATCH, NOT THE NUMBER. The music's "follow" gain is
+        // derived from VolumeNormalizeDb = TargetLufs - measured, i.e. against -14, while THIS
+        // filter pushed the game bus toward -23. On a -18.4 LUFS clip that is +4.4 dB on the music
+        // and -4.6 dB on the game: the two moved in OPPOSITE directions, roughly 9 dB apart, every
+        // single export. That is what buried the gunshots under the music.
+        //
+        // Both now read the same constants, so the number the user is judged against in the
+        // "your video is too quiet" prompt is the number the export actually delivers.
+        // ⚠️ DO NOT hardcode a target here again — change AudioLoudnessProbe.TargetLufs instead.
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        return $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", ci)}" +
+               $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", ci)}:LRA=11:linear=true" +
                $":measured_I={_loudnorm.InputI.ToString("F2", ci)}" +
                $":measured_TP={_loudnorm.InputTp.ToString("F2", ci)}" +
                $":measured_LRA={_loudnorm.InputLra.ToString("F2", ci)}" +

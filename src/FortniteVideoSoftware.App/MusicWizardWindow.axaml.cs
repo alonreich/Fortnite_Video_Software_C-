@@ -225,11 +225,9 @@ public partial class MusicWizardWindow : Window
         // UXQA_01: phase 3 builds its player asynchronously, so this window genuinely spends a few
         // seconds with nothing to detach. Say so in the phase-3 status line rather than ignoring
         // the click.
-        _previewDetach.DetachUnavailable += why =>
-        {
-            var status = this.FindControl<TextBlock>("Phase3StatusLabel");
-            if (status != null) status.Text = why;
-        };
+        // LAYOUT_01: route through SetPhase3Status so the line's visibility stays in step with its
+        // text. Setting .Text directly here would leave a collapsed label holding a real message.
+        _previewDetach.DetachUnavailable += why => SetPhase3Status(why);
 
         btn.Click += (_, _) => _previewDetach.Toggle();
         _previewDetach.SyncButton(btn);
@@ -538,16 +536,8 @@ public partial class MusicWizardWindow : Window
         if (smartFitBtn != null)
             smartFitBtn.Click += async (s, e) => await ApplySmartFitAsync(smartFitBtn);
 
-        var duckingCompareBtn = this.FindControl<Button>("DuckingCompareBtn");
-        if (duckingCompareBtn != null)
-        {
-            duckingCompareBtn.Click += (s, e) =>
-            {
-                var check = this.FindControl<CheckBox>("DuckingCheckBox");
-                if (check != null)
-                    check.IsChecked = !(check.IsChecked ?? true);
-            };
-        }
+        // AUDIO_09: the DuckingCompareBtn handler lived here. The toggle now lives in Settings as
+        // `AudioProtection` and governs BOTH ducking and carving — see MusicResult construction.
 
         var downloadSongsBtn = this.FindControl<Button>("DownloadSongsBtn");
         if (downloadSongsBtn != null)
@@ -576,7 +566,7 @@ public partial class MusicWizardWindow : Window
 
             {
 
-                var musicPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+                var musicPath = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
 
                 try
                 {
@@ -1982,6 +1972,7 @@ public partial class MusicWizardWindow : Window
 
             var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
             var carvingCheck = this.FindControl<CheckBox>("CarvingCheckBox");
+            bool audioProtection = Infrastructure.SettingsManager.Instance.Defaults.AudioProtection;   // AUDIO_09
             var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             double timelineStartSec = _trimStartMs / 1000.0;
@@ -1998,8 +1989,12 @@ public partial class MusicWizardWindow : Window
                 OffsetSeconds = _songStartSeconds,
                 TimelineStartSeconds = timelineStartSec,
                 TimelineEndSeconds = timelineEndSec,
-                EnableDucking = duckingCheck?.IsChecked ?? true,
-                EnableCarving = carvingCheck?.IsChecked ?? true,
+                // AUDIO_09: ONE master switch in Settings now governs both. The per-wizard
+                // checkboxes remain as a per-video override, but Settings can veto them outright —
+                // OFF there means no ducking and no carving at all, i.e. no protection whatsoever
+                // for the game audio. Default is ON.
+                EnableDucking = audioProtection && (duckingCheck?.IsChecked ?? true),
+                EnableCarving = audioProtection && (carvingCheck?.IsChecked ?? true),
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
                 MusicVolume = (musicVolSlider?.Value ?? 100.0) / 100.0,
                 MusicDurationSeconds = _trackDuration,
@@ -2485,92 +2480,51 @@ public partial class MusicWizardWindow : Window
         return Math.Max(0.1, duration);
     }
 
+    /// <summary>
+    /// TIME_01 - how long phase 3's video actually runs for once speed changes and freezes have
+    /// stretched it.
+    ///
+    /// <para>
+    /// THIS METHOD USED TO BE WRONG. Its hand-written loop advanced its cursor past a freeze
+    /// (`cursor = Math.Max(cursor, segEnd)`), i.e. it believed a held frame REPLACED the footage
+    /// underneath it. The exported graph does the opposite - `GranularSpeedBuilder` holds the frame
+    /// and then carries on playing from the same spot, so a 1.5 second freeze makes the finished
+    /// video 1.5 seconds LONGER and skips nothing. Measured against the export as ground truth this
+    /// method under-reported by the whole freeze duration every time: 63.000s reported as 60.000s
+    /// for a single 3 second freeze, 33.000s as 31.500s at base speed 2x. Music was therefore
+    /// positioned against a length the finished video never had.
+    /// </para>
+    /// <para>
+    /// It now delegates to <see cref="FortniteVideoSoftware.Core.Media.OutputTimeline"/>, the single
+    /// shared model, so it cannot disagree with the export again.
+    /// </para>
+    /// </summary>
     private double CalculatePhase3EffectiveDurationSeconds(double sourceDurationSec)
     {
-        double trimStartMs = _trimStartMs;
-        double trimEndMs = trimStartMs + sourceDurationSec * 1000.0;
-        if (_phase3SpeedSegments.Count == 0)
-            return sourceDurationSec / Math.Max(0.001, _phase3BaseSpeed);
-
-        double totalMs = 0.0;
-        double cursor = trimStartMs;
-        var sortedSegments = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_phase3SpeedSegments);
-        sortedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
-
-        foreach (var seg in sortedSegments)
-        {
-            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
-            double segEnd = Math.Min(trimEndMs, seg.EndMs);
-            if (segEnd <= segStart) continue;
-
-            if (segStart > cursor)
-                totalMs += (segStart - cursor) / Math.Max(0.001, _phase3BaseSpeed);
-
-            totalMs += Math.Abs(seg.Speed) < 0.001
-                ? segEnd - segStart
-                : (segEnd - segStart) / Math.Max(0.001, seg.Speed);
-
-            cursor = Math.Max(cursor, segEnd);
-        }
-
-        if (cursor < trimEndMs)
-            totalMs += (trimEndMs - cursor) / Math.Max(0.001, _phase3BaseSpeed);
-
-        return Math.Max(0.001, totalMs / 1000.0);
+        var timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+            sourceDurationSec * 1000.0, _phase3SpeedSegments, _phase3BaseSpeed, _trimStartMs);
+        return Math.Max(0.001, timeline.TotalOutputSeconds);
     }
 
+    /// <summary>
+    /// TIME_01 - a moment in the FINISHED video to the source moment showing at that instant,
+    /// measured from the trim-in point.
+    ///
+    /// <para>
+    /// Carried the same freeze error as <see cref="CalculatePhase3EffectiveDurationSeconds"/> and is
+    /// fixed the same way, by delegating to the shared
+    /// <see cref="FortniteVideoSoftware.Core.Media.OutputTimeline"/>. Inside a held frame the answer
+    /// is deliberately lossy - every moment of the freeze shows the same source instant, so that
+    /// instant is what comes back.
+    /// </para>
+    /// </summary>
     private double MapPhase3OutputToSourceRelativeSeconds(double outputRelativeSec)
     {
         double sourceDurationSec = GetPhase3SourceDurationSeconds();
-        double trimStartMs = _trimStartMs;
-        double trimEndMs = trimStartMs + sourceDurationSec * 1000.0;
-        double targetMs = Math.Clamp(outputRelativeSec, 0, GetPhase3VideoDurationSeconds()) * 1000.0;
-        double outCursorMs = 0.0;
-
-        var sortedSegments = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_phase3SpeedSegments);
-        sortedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
-
-        double cursor = trimStartMs;
-        foreach (var seg in sortedSegments)
-        {
-            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
-            double segEnd = Math.Min(trimEndMs, seg.EndMs);
-            if (segEnd <= segStart) continue;
-
-            if (segStart > cursor)
-            {
-                double chunkOutMs = (segStart - cursor) / Math.Max(0.001, _phase3BaseSpeed);
-                if (targetMs <= outCursorMs + chunkOutMs)
-                    return Math.Clamp((cursor - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * _phase3BaseSpeed) / 1000.0, 0, sourceDurationSec);
-                outCursorMs += chunkOutMs;
-            }
-
-            if (Math.Abs(seg.Speed) < 0.001)
-            {
-                double freezeOutMs = segEnd - segStart;
-                if (targetMs <= outCursorMs + freezeOutMs)
-                    return Math.Clamp((segStart - trimStartMs) / 1000.0, 0, sourceDurationSec);
-                outCursorMs += freezeOutMs;
-            }
-            else
-            {
-                double chunkOutMs = (segEnd - segStart) / Math.Max(0.001, seg.Speed);
-                if (targetMs <= outCursorMs + chunkOutMs)
-                    return Math.Clamp((segStart - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * seg.Speed) / 1000.0, 0, sourceDurationSec);
-                outCursorMs += chunkOutMs;
-            }
-
-            cursor = Math.Max(cursor, segEnd);
-        }
-
-        if (cursor < trimEndMs)
-        {
-            double chunkOutMs = (trimEndMs - cursor) / Math.Max(0.001, _phase3BaseSpeed);
-            if (targetMs <= outCursorMs + chunkOutMs)
-                return Math.Clamp((cursor - trimStartMs) / 1000.0 + ((targetMs - outCursorMs) * _phase3BaseSpeed) / 1000.0, 0, sourceDurationSec);
-        }
-
-        return sourceDurationSec;
+        var timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+            sourceDurationSec * 1000.0, _phase3SpeedSegments, _phase3BaseSpeed, _trimStartMs);
+        double clamped = Math.Clamp(outputRelativeSec, 0, GetPhase3VideoDurationSeconds());
+        return timeline.OutputToSourceRelative(clamped);
     }
 
     private double GetPhase3PreviewSpeedAtSourceRelativeSeconds(double sourceRelativeSec)
@@ -2883,6 +2837,9 @@ public partial class MusicWizardWindow : Window
 
         if (forceReload || segmentChanged)
         {
+            // PREVIEW_01: match this track's level to what the export will do with it. Cached per
+            // path, so switching back and forth between tracks measures each one only once.
+            await EnsureMusicBedGainAsync(segment.Path);
             await _audioIpcClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
             await _audioIpcClient.SendCommandAsync("loadfile", targetPath, "replace");
             _phase3PreviewMusicPath = targetPath;
@@ -2909,25 +2866,127 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    /// <summary>
+    /// AUDIO_09 — kept as a no-op rather than deleted, because it had FOUR call sites scattered
+    /// through the wizard's state-refresh paths (502, 900, 1030, 1542). Removing the method would
+    /// have meant touching all four in a change that is otherwise about layout, and each is on a
+    /// different refresh trigger. The button it used to drive now lives in Settings as
+    /// `AudioProtection`, so there is nothing left to update here.
+    /// ⚠️ If you are cleaning up: delete this AND its four call sites together, or not at all.
+    /// </summary>
     private void UpdateDuckingCompareButton()
     {
-        var btn = this.FindControl<Button>("DuckingCompareBtn");
-        if (btn == null) return;
-
-        bool duckingEnabled = this.FindControl<CheckBox>("DuckingCheckBox")?.IsChecked ?? true;
-        btn.Content = duckingEnabled ? "Export Ducking ON" : "Export Ducking OFF";
-        btn.Classes.Clear();
-        btn.Classes.Add(duckingEnabled ? "Primary" : "Secondary");
-        ToolTip.SetTip(btn, duckingEnabled
-            ? "FFmpeg will apply sidechain ducking during export; preview uses the volume sliders only."
-            : "FFmpeg will export without sidechain ducking; preview uses the volume sliders only.");
+        // Intentionally empty — see the summary above.
     }
 
     private double GetPreviewVideoVolume(double? masterVolume = null)
     {
         double videoVolume = this.FindControl<Slider>("VideoVolSlider")?.Value ?? 100.0;
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
-        return Math.Clamp(videoVolume * master / 100.0, 0.0, 100.0);
+        videoVolume = videoVolume * master / 100.0;
+
+        // PREVIEW_03: the export normalises the game bus, so the preview must too — otherwise the
+        // music sits the wrong distance from it and every balance judgement made here is wrong.
+        if (Math.Abs(PreviewVideoGainDb) > 0.01)
+            videoVolume *= Math.Pow(10, PreviewVideoGainDb / 20.0);
+
+        return Math.Clamp(videoVolume, 0.0, 100.0);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // PREVIEW_01 — MAKE THE PREVIEW'S MUSIC LEVEL MATCH THE EXPORT'S.
+    //
+    // The export measures every music file and drops it to a background bed level
+    // (AudioLoudnessProbe.MusicBedLufs) BEFORE the user's slider is applied. The preview did not:
+    // it played the file at whatever loudness its label mastered it to. Commercial masters run
+    // -8 to -10 LUFS against a -14 LUFS game bus, so with both sliders at 100 the preview was
+    // roughly 5 dB music-heavy compared with the file the user would actually get.
+    //
+    // That is why tuning by ear never transferred: the preview was not a quiet version of the
+    // export, it was a DIFFERENT BALANCE. This applies the same bed correction so the two agree.
+    //
+    // ⚠️ THIS IS THE LEVEL ONLY. Ducking and carving still are NOT simulated here — they cannot
+    // be, because the preview plays video and music through two SEPARATE mpv processes and a
+    // sidechain needs both signals inside one filter graph. Do not let this fix create the
+    // impression that the preview is now fully faithful; it closes the biggest gap, not all of it.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private double _musicBedGainDb;
+    private string? _musicBedMeasuredPath;
+
+    /// <summary>
+    /// PREVIEW_03 — the source clip's measured loudness, handed over by the Main App which already
+    /// measured it on upload. Null means "not measured", and every preview gain falls back to the
+    /// raw behaviour.
+    /// </summary>
+    public double? SourceMeasuredLufs { get; set; }
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // PREVIEW_03 — MIRROR THE EXPORT'S BALANCE WITHOUT RUNNING OUT OF HEADROOM.
+    //
+    // The export puts the game at TargetLufs and the music at MusicBedLufs, so the music ends up a
+    // fixed distance BELOW the game. To hear that same relationship here, both have to move.
+    //
+    // ⚠️ THE OBVIOUS IMPLEMENTATION DOES NOT WORK. mpv's `volume` is a 0-100 percentage, and the
+    // common case is a QUIET clip that needs a BOOST to reach the target — there is no room above
+    // 100 to give it. Raising the video is impossible exactly when it is most needed.
+    //
+    // So the whole preview is shifted DOWN instead. A single offset, equal to whatever boost the
+    // video would have needed, is subtracted from every element. The video then sits at unity
+    // (nothing to raise), the music sits the correct distance beneath it, and the ONLY difference
+    // from the export is that the entire preview plays quieter — which the system volume solves.
+    // The relative balance, which is the thing being judged, is exact.
+    //
+    // Worked example, source -18.44 LUFS and a -9.20 LUFS pop master:
+    //     video wants  -14.00 - (-18.44) = +4.44 dB  -> offset = -4.44
+    //     video gain   = +4.44 - 4.44 =  0.00 dB     (plays raw, no ceiling problem)
+    //     music gain   = -10.80 - 4.44 = -15.24 dB
+    //     resulting gap = 6.00 dB, identical to the export. ✓
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private double PreviewHeadroomOffsetDb =>
+        SourceMeasuredLufs.HasValue
+            ? -Math.Max(0.0, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value)
+            : 0.0;
+
+    private double PreviewVideoGainDb =>
+        SourceMeasuredLufs.HasValue
+            ? (FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value) + PreviewHeadroomOffsetDb
+            : 0.0;
+
+    private double PreviewMusicGainDb => _musicBedGainDb + PreviewHeadroomOffsetDb;
+
+    /// <summary>
+    /// Measures the chosen track once and caches how far it sits from the bed target. Failures
+    /// leave the gain at 0 dB, i.e. exactly the old behaviour — this must never block the preview.
+    /// </summary>
+    private async Task EnsureMusicBedGainAsync(string musicPath)
+    {
+        if (string.IsNullOrWhiteSpace(musicPath)) return;
+        if (string.Equals(_musicBedMeasuredPath, musicPath, StringComparison.OrdinalIgnoreCase)) return;
+
+        _musicBedMeasuredPath = musicPath;
+        _musicBedGainDb = 0.0;
+        try
+        {
+            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
+                .MeasureAsync(ResolveFfmpegPath(), musicPath).ConfigureAwait(true);
+            if (reading == null) return;
+
+            _musicBedGainDb = Math.Clamp(
+                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MusicBedLufs - reading.IntegratedLufs,
+                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MinMusicGainDb,
+                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MaxMusicGainDb);
+
+            RuntimeLog.Info("MUSIC_WIZARD",
+                $"Preview music matched to the export: measured {reading.IntegratedLufs:F2} LUFS -> " +
+                $"bed {FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MusicBedLufs:F1} LUFS " +
+                $"= {_musicBedGainDb:+0.00;-0.00} dB applied under the slider.");
+
+            ApplyPreviewMusicVolume();
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Info("MUSIC_WIZARD", $"Preview music level could not be matched: {ex.Message}");
+        }
     }
 
     private double GetPreviewMusicVolume(double? masterVolume = null)
@@ -2935,6 +2994,13 @@ public partial class MusicWizardWindow : Window
         double musicVolume = this.FindControl<Slider>("MusicVolSlider")?.Value ?? 100.0;
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         musicVolume = musicVolume * master / 100.0;
+
+        // PREVIEW_01/03: the bed correction PLUS the shared headroom offset, so the music keeps the
+        // exact distance below the game that the export gives it. See PreviewHeadroomOffsetDb.
+        double gain = PreviewMusicGainDb;
+        if (Math.Abs(gain) > 0.01)
+            musicVolume *= Math.Pow(10, gain / 20.0);
+
         return Math.Clamp(musicVolume, 0.0, 100.0);
     }
 
@@ -2993,10 +3059,19 @@ public partial class MusicWizardWindow : Window
         text.Text = string.Join(Environment.NewLine, flags.Select(flag => $"WARNING: {flag}"));
     }
 
+    /// <summary>
+    /// LAYOUT_01 — the status line now COLLAPSES when it has nothing to say.
+    ///
+    /// It used to be a permanent row in the header stack, holding a full line of height open on a
+    /// screen whose only elastic row is the video. It is empty the overwhelming majority of the
+    /// time, so it was paying rent for a message that rarely arrives.
+    /// </summary>
     private void SetPhase3Status(string message)
     {
         var status = this.FindControl<TextBlock>("Phase3StatusLabel");
-        if (status != null) status.Text = message;
+        if (status == null) return;
+        status.Text = message;
+        status.IsVisible = !string.IsNullOrWhiteSpace(message);
     }
 
     private static string FormatSeconds(double seconds)
@@ -3138,6 +3213,8 @@ public partial class MusicWizardWindow : Window
             string targetPath = _selectedTrack!.FilePath.Replace("\\", "/");
             if (_lastLoadedTrackPath != targetPath)
             {
+                // PREVIEW_01: same bed match on the phase 1/2 audition path.
+                await EnsureMusicBedGainAsync(_selectedTrack!.FilePath);
                 await audioClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await audioClient.SendCommandAsync("loadfile", targetPath, "replace");
                 _lastLoadedTrackPath = targetPath;
@@ -3854,7 +3931,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
 
-        return Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+        return Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
     }
 
     private void LoadMusicDirectory()
@@ -3885,7 +3962,7 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            targetDir = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+            targetDir = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
 
         }
 

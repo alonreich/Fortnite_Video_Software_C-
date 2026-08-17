@@ -68,12 +68,96 @@ public partial class GranularSpeedEditorWindow : Window
     private double _freezeTimeMs = -1;
     private double _freezeDurationS = 1.0;
     private double _selectedFreezePresetS = -1.0;
-    private double _lastFreezeTriggerAbsMs = -10000;
+    /// <summary>
+    /// FREEZE_ARM — true when the playhead is BEHIND the freeze point and the hold is therefore
+    /// still owed. Set the moment the playhead is seen before the freeze, cleared the moment the
+    /// hold fires.
+    ///
+    /// <para>
+    /// ⚠️ THIS REPLACED A DISTANCE GUARD, AND THE DISTANCE GUARD IS WHY THE FREEZE PLAYED ONCE AND
+    /// THEN SOMETIMES NOT AGAIN. The old test was
+    /// <c>Math.Abs(currentAbsMs - _lastFreezeTriggerAbsMs) &gt; 500</c>, with
+    /// <c>_lastFreezeTriggerAbsMs</c> set to the freeze point after firing. It was trying to say
+    /// "do not immediately re-fire the hold we just finished" — but what it actually asks is "is
+    /// the playhead more than half a second away from the freeze point", and on the SECOND pass the
+    /// playhead crosses that point again at a distance of ~0. So the guard, which cannot tell a
+    /// re-entry from an echo, silently suppressed the freeze. Whether it fired depended on how far
+    /// the tick happened to land past the mark: near it, suppressed; a slow frame that overshot by
+    /// more than 500ms, fired. Hence "sometimes".
+    /// </para>
+    /// <para>
+    /// Arming is the right question. "Have we approached the mark from before it since the last
+    /// time it fired?" has one answer, the same answer every pass, and it re-arms itself for free
+    /// on a rewind, a seek backwards or a replay.
+    /// </para>
+    /// </summary>
+    private bool _freezeArmed = true;
     private double _prevFreezeTickAbsMs = -1;
+
+    // ── FREEZE_DRAG: the frozen span is an editable object, not a read-only marker ────────────
+    // Every speed block on this lane can be moved and resized by its edges. The freeze — the one
+    // element that actually LENGTHENS the finished video — could only be nudged whole by its camera
+    // marker, and its duration could only be set by picking one of six preset buttons. It now
+    // answers to the same three gestures as everything else beside it.
+    private enum FreezeDragMode { None, Move, ResizeStart, ResizeEnd }
+    private FreezeDragMode _freezeDragMode = FreezeDragMode.None;
+
+    /// <summary>Which end of the hold a popsicle marker represents — and which one has focus.</summary>
+    private enum FreezeMarkerEnd { None, Start, End }
+
+    /// <summary>
+    /// FOCUS_01 — which freeze marker is currently in focus, or None.
+    ///
+    /// <para>
+    /// The hold has TWO popsicles now, one per edge, so "the freeze is selected" is no longer
+    /// enough to know which set of marching ants to run. Focus is cleared by Esc, by a right-click
+    /// anywhere, or by selecting any other object — see <see cref="ClearTimelineSelection"/>.
+    /// </para>
+    /// </summary>
+    private FreezeMarkerEnd _freezeFocus = FreezeMarkerEnd.None;
+
+    /// <summary>
+    /// FOCUS_01 — every marching-ants rectangle belonging to the freeze markers, rebuilt on each
+    /// redraw. A list rather than two named fields because there are now two markers with two
+    /// rectangles each, and the animation timer does not care which is which.
+    /// </summary>
+    private readonly List<Avalonia.Controls.Shapes.Rectangle> _freezeMarkerAnts = new();
+    private double _freezeDragGrabOffsetSec;   // where in the span the grab landed, in BASE output sec
+    private double _freezeDragFixedEndOutSec;  // ResizeStart pins the far edge; this is where
+
+    /// <summary>A hold shorter than this is not a freeze, it is a stutter.</summary>
+    private const double MinFreezeDurationS = 0.2;
+
+    /// <summary>Ceiling on a dragged hold. The presets stop at 3s; drag is the advanced path, so it
+    /// gets more room — but not unbounded, or one careless sweep adds a minute to the export.</summary>
+    private const double MaxFreezeDurationS = 10.0;
+
+    /// <summary>
+    /// MARKER_01 — LaneABorder's BorderThickness. The marker overlay spans the whole grid cell
+    /// while the lane's content sits INSIDE that 2px border, so an X measured against the segment
+    /// canvas is 2px left of the same moment on the overlay. Two pixels is small enough to look
+    /// like sloppiness rather than a bug, which is exactly why it is named rather than inlined.
+    /// </summary>
+    private const double LaneBorderInsetPx = 2.0;
+
+    /// <summary>
+    /// MARKER_01 — where the freeze popsicle hangs, measured from the TOP OF THE RULER.
+    ///
+    /// <para>
+    /// The camera control is 52x103: head at y 28..56, stick at 56..103. At -52 the head bottom
+    /// lands at 4 — just clear of the ruler — and the stick runs from 4 down to 51, straight
+    /// through the ruler and into the upper lane where the frozen band is drawn. So the head floats
+    /// ABOVE the timeline and the stick points at the exact instant, which is the whole shape of
+    /// the Main App's thumbnail mark.
+    /// </para>
+    /// </summary>
+    private const double FreezeMarkerOverlayTop = -52.0;
     private bool _isCurrentlyFrozen = false;
     private DateTime _freezeStartTime;
     private bool _isFreezeCameraSelected = false;
-    private bool _isDraggingFreezeCamera = false;
+    // FOCUS_01 — `_isDraggingFreezeCamera` lived here. The marker drag is now one of the
+    // FreezeDragMode gestures run by the lane canvas, so `_freezeDragMode != None` IS that flag and
+    // a second copy could only ever fall out of step with it.
     private int _draggingSegmentIndex = -1;
     private enum SegDragMode { None, Move, ResizeStart, ResizeEnd }
     private SegDragMode _segDragMode = SegDragMode.None;
@@ -116,8 +200,10 @@ public partial class GranularSpeedEditorWindow : Window
     /// <summary>Y of the zoom grab handles (magnifiers), centred on the zoom bar.</summary>
     private const double LaneZoomMarkerY = 34.0;
 
-    /// <summary>Y of the freeze marker inside the lane.</summary>
-    private const double LaneFreezeMarkerY = 34.0;
+    // MARKER_01 — `LaneFreezeMarkerY = 34.0` used to live here, positioning the freeze camera
+    // INSIDE this 60px lane. A 103px-tall popsicle does not fit in a 60px lane: the head landed on
+    // top of the blocks and the stick ran out of the bottom. The marker now hangs off the shared
+    // overlay above the ruler instead — see FreezeMarkerOverlayTop.
 
     /// <summary>
     /// LANES_01 — playhead position in ms relative to the trim start.
@@ -128,6 +214,28 @@ public partial class GranularSpeedEditorWindow : Window
     /// also fires change notifications while the user drags it.
     /// </summary>
     private double _playheadMs;
+
+    /// <summary>
+    /// FREEZE_CARET — the caret's OUTPUT position, when the source position cannot supply it.
+    ///
+    /// <para>
+    /// Everywhere else the caret is derived: <c>SourceToOutput(_playheadMs)</c>. That works because
+    /// the map is one-to-one — except across a held frame, where it is deliberately many-to-one.
+    /// Every output moment of a 1.5s freeze maps to the SAME source instant, and
+    /// <c>SourceToOutput</c> of that instant is defined to already include the WHOLE hold. So while
+    /// the freeze plays, a derived caret sits pinned at the far edge of the hold: it leaps the
+    /// frozen seconds in one step at the moment the freeze begins and then does not move for 1.5
+    /// seconds. The ruler grew by the freeze — correctly, TIME_02 — but the caret refused to walk
+    /// across the space it added.
+    /// </para>
+    ///
+    /// <para>
+    /// The source position simply does not carry the answer during a hold, so it is supplied
+    /// directly instead. Non-null ONLY while the caret is inside a held span; every path that moves
+    /// the playhead by ordinary means clears it. See <see cref="UpdateCaret"/>.
+    /// </para>
+    /// </summary>
+    private double? _holdCaretOutSec;
 
     // ── LANES_02: drag-across-the-upper-lane to create a segment ─────────────────────────────
     // Splitting the timeline into two lanes is what made this safe to add. Previously a drag on
@@ -170,8 +278,169 @@ public partial class GranularSpeedEditorWindow : Window
         var c = ZoomColor();
         return new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(alpha, c.R, c.G, c.B));
     }
-    private Avalonia.Controls.Shapes.Rectangle? _freezeCameraIconAntsRef;
-    private Avalonia.Controls.Shapes.Rectangle? _freezeCameraLineAntsRef;
+
+    /// <summary>
+    /// FREEZE_VIS — the one blue every part of a freeze is drawn in.
+    /// <para>
+    /// Identical to what <c>GetSegmentOverlayColor</c> returns for a Speed≈0 segment. It is pulled
+    /// out here because the frozen span is now drawn in THREE places — the block on the upper lane,
+    /// the wash over the thumbnails, and the edge posts on both — and three hand-typed copies of
+    /// the same literal is how a colour quietly drifts apart.
+    /// </para>
+    /// </summary>
+    private static Avalonia.Media.SolidColorBrush FreezeBrush(byte alpha = 255)
+        => new(Avalonia.Media.Color.FromArgb(alpha, 96, 165, 250));
+
+    /// <summary>
+    /// FREEZE_VIS — MAKES A HELD SPAN LOOK HELD.
+    ///
+    /// <para>
+    /// The thumbnail lane already stretched the frozen frame across the whole hold (TIME_02/F4),
+    /// which is literally what the exported file shows — and that is exactly why it was not
+    /// readable. A stretched frame looks like ordinary footage that happens to be slow, or like a
+    /// rendering glitch. Nothing said "time is stopped here".
+    /// </para>
+    ///
+    /// <para>
+    /// Four cues, each doing a different job, because one alone is ambiguous:
+    /// <list type="number">
+    ///   <item><description>A cool blue WASH — the same blue as the freeze block above it, so the
+    ///   two read as one object spanning both lanes rather than a marker and some odd footage.</description></item>
+    ///   <item><description>Diagonal HATCHING — the universal "this region is not normal content"
+    ///   cue. It also survives where colour alone does not: over a blue-ish frame, over a blown-out
+    ///   white one, and for a colour-blind user.</description></item>
+    ///   <item><description>Solid POSTS at both ends — the wash says "something here", the posts
+    ///   say exactly WHERE it starts and stops, which is the thing being asked of the timeline.</description></item>
+    ///   <item><description>A centred ❄ LABEL with the duration, when there is room for it. Removes
+    ///   the last of the guesswork; suppressed on narrow spans rather than clipped to mush.</description></item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// Everything added here is <c>IsHitTestVisible = false</c>. The upper lane runs its own pointer
+    /// pipeline for block move, edge resize and drag-to-create; a decoration that swallowed a press
+    /// would break editing over every freeze.
+    /// </para>
+    /// </summary>
+    private void DecorateFrozenSpan(Avalonia.Controls.Canvas host, double x, double spanW, double h,
+                                    bool withLabel, bool withGrips = false)
+    {
+        if (spanW <= 1 || h <= 0) return;
+
+        var wash = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Width = spanW,
+            Height = h,
+            Fill = FreezeBrush(0x3A),
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(wash, x);
+        Avalonia.Controls.Canvas.SetTop(wash, 0);
+        host.Children.Add(wash);
+
+        // Hatching. Drawn into its own clipping canvas so the 45° lines stop dead at the span's
+        // edges instead of leaning out over the live footage on either side.
+        var hatchHost = new Avalonia.Controls.Canvas
+        {
+            Width = spanW,
+            Height = h,
+            ClipToBounds = true,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(hatchHost, x);
+        Avalonia.Controls.Canvas.SetTop(hatchHost, 0);
+
+        const double HatchStep = 11.0;
+        var hatchBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(0x26, 255, 255, 255));
+        // Start a full height to the LEFT so the first stripes still cross the visible top-left
+        // corner — a 45° line entering at x=0 only touches the very bottom pixel.
+        for (double hx = -h; hx < spanW; hx += HatchStep)
+        {
+            hatchHost.Children.Add(new Avalonia.Controls.Shapes.Line
+            {
+                StartPoint = new Avalonia.Point(hx, h),
+                EndPoint = new Avalonia.Point(hx + h, 0),
+                Stroke = hatchBrush,
+                StrokeThickness = 2,
+                IsHitTestVisible = false
+            });
+        }
+        host.Children.Add(hatchHost);
+
+        // The posts. On the interactive lane they double as the visible affordance for the resize
+        // grips — a span you can drag by its edges has to LOOK like one, or the gesture is a secret.
+        double postW = withGrips ? 4 : 2;
+        foreach (double postX in new[] { x, x + spanW - postW })
+        {
+            var post = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Width = postW,
+                Height = h,
+                Fill = FreezeBrush(0xE6),
+                IsHitTestVisible = false
+            };
+            Avalonia.Controls.Canvas.SetLeft(post, postX);
+            Avalonia.Controls.Canvas.SetTop(post, 0);
+            host.Children.Add(post);
+
+            if (!withGrips || h < 20) continue;
+
+            // Two short notches on each post, the standard "grab me" texture. Centred vertically so
+            // they read as a handle rather than as part of the hatching.
+            for (int n = -1; n <= 1; n++)
+            {
+                var notch = new Avalonia.Controls.Shapes.Rectangle
+                {
+                    Width = 8,
+                    Height = 2,
+                    Fill = FreezeBrush(0xFF),
+                    IsHitTestVisible = false
+                };
+                Avalonia.Controls.Canvas.SetLeft(notch, postX + postW / 2.0 - 4);
+                Avalonia.Controls.Canvas.SetTop(notch, h / 2.0 - 1 + n * 5);
+                host.Children.Add(notch);
+            }
+        }
+
+        if (!withLabel || h < 18) return;
+
+        string label = $"❄ FROZEN {_freezeDurationS:0.0}s";
+
+        // ⚠️ ESTIMATED, NOT MEASURED, ON PURPOSE. `Measure()` on a control that is not yet in the
+        // visual tree is the obvious way to size this, but the upper lane's copy of this call runs
+        // inside RedrawTimeline, which has no try/catch around it — a throw there takes the whole
+        // timeline redraw with it, for a decoration. An estimate that is a few pixels out only
+        // shifts the pill slightly off centre, which nobody can see.
+        double pillW = label.Length * 6.2 + 12;
+        const double PillH = 15;
+
+        // A clipped half-word reads as a rendering fault, and the wash, hatch and posts already
+        // carry the meaning on their own — so below this width the label is dropped, not squeezed.
+        if (pillW > spanW - 6) return;
+
+        var pill = new Border
+        {
+            Width = pillW,
+            Height = PillH,
+            Background = FreezeBrush(0xF0),
+            CornerRadius = new Avalonia.CornerRadius(3),
+            IsHitTestVisible = false,
+            Child = new TextBlock
+            {
+                Text = label,
+                FontSize = 10,
+                FontWeight = Avalonia.Media.FontWeight.Bold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(12, 20, 34))
+            }
+        };
+        Avalonia.Controls.Canvas.SetLeft(pill, x + (spanW - pillW) / 2.0);
+        Avalonia.Controls.Canvas.SetTop(pill, Math.Max(0, (h - PillH) / 2.0));
+        host.Children.Add(pill);
+    }
+    // FOCUS_01 — the two `_freezeCamera*AntsRef` fields lived here, back when there was exactly one
+    // freeze marker. There are two now, so the ants live in `_freezeMarkerAnts` instead.
     private Avalonia.Controls.Shapes.Rectangle? _selectedSegmentBorderRef;
     private DispatcherTimer? _freezePulseTimer;
 
@@ -210,12 +479,41 @@ public partial class GranularSpeedEditorWindow : Window
             zoomContainer.Height = _isMobileFormat ? 1280 : 1080;
         }
 
+        // FOCUS_01 — RIGHT-CLICK ANYWHERE DROPS FOCUS.
+        // Tunnel, so it is seen on the way DOWN to whatever was clicked. On the way up a handler
+        // that marked the event handled would eat it, and "anywhere" would quietly become
+        // "anywhere except the controls that matter".
+        this.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent, (s, e) =>
+        {
+            if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed) ClearTimelineSelection();
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
         this.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, (s, e) =>
         {
             if (_isCanvasScrubbing)
             {
                 _isCanvasScrubbing = false;
                 e.Pointer.Capture(null);
+            }
+
+            // FREEZE_DRAG: settle a move or a resize of the hold.
+            if (_freezeDragMode != FreezeDragMode.None)
+            {
+                var finished = _freezeDragMode;
+                _freezeDragMode = FreezeDragMode.None;
+                e.Pointer.Capture(null);
+                HideDragReadout();
+                ClampFreezeIntoClip();
+                RedrawTimeline();
+
+                // Parks the preview on the new mark so the user sees the frame they just chose.
+                // FREEZE_ARM is re-armed inside that call — it leaves the playhead sitting on the
+                // freeze, so the hold is owed on the next Play.
+                SeekGranularPreviewToFreezeMarker();
+                RuntimeLog.Info("Granular",
+                    $"Freeze settled: {FormatMs(_freezeTimeMs - _trimStartMs)} for {_freezeDurationS:0.00}s ({finished}).");
+                SetStatus($"Freeze at {FormatMs(_freezeTimeMs - _trimStartMs)}, held for {_freezeDurationS:0.00}s.");
+                return;
             }
 
             // LANES_02: resolve the armed press. Moved => create the block it swept out;
@@ -266,12 +564,6 @@ public partial class GranularSpeedEditorWindow : Window
                         _ = SeekInternal(seekRelSec);
                     }
                 }
-            }
-            if (_isDraggingFreezeCamera)
-            {
-                _isDraggingFreezeCamera = false;
-                RefreshSegmentList();
-                RedrawTimeline();
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble);
 
@@ -341,11 +633,11 @@ public partial class GranularSpeedEditorWindow : Window
         _marchingAntsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         _marchingAntsTimer.Tick += (_, _) => {
             _marchingAntsOffset = (_marchingAntsOffset + 1) % 8;
-            if (_isDraggingFreezeCamera && _freezeCameraIconAntsRef != null && _freezeCameraLineAntsRef != null)
-            {
-                _freezeCameraIconAntsRef.StrokeDashOffset = _marchingAntsOffset;
-                _freezeCameraLineAntsRef.StrokeDashOffset = _marchingAntsOffset;
-            }
+            // FOCUS_01: the ants used to crawl only WHILE DRAGGING, so a marker that was selected
+            // and sitting still showed a static dashed outline — which reads as a border, not as
+            // "this has focus". They now run for as long as the marker holds focus, which is the
+            // whole signal the user is being given.
+            foreach (var ant in _freezeMarkerAnts) ant.StrokeDashOffset = _marchingAntsOffset;
             if (_selectedSegmentBorderRef != null)
             {
                 _selectedSegmentBorderRef.StrokeDashOffset = _marchingAntsOffset;
@@ -451,10 +743,26 @@ public partial class GranularSpeedEditorWindow : Window
 
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
 
+        // FOCUS_01: Esc drops focus. Handled ONLY when something is actually selected, so Esc keeps
+        // whatever meaning it has elsewhere in this window whenever the timeline has nothing in focus.
+        if (e.Key == Avalonia.Input.Key.Escape
+            && (_isFreezeCameraSelected || _selectedSegmentIndex >= 0))
+        {
+            ClearTimelineSelection();
+            e.Handled = true;
+            return;
+        }
+
         if (_isFreezeCameraSelected && _freezeTimeMs >= 0 && e.Key is Avalonia.Input.Key.Left or Avalonia.Input.Key.Right)
         {
             int frames = e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Control) || e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? 10 : 1;
-            MoveFreezeCameraByFrames(e.Key == Avalonia.Input.Key.Left ? -frames : frames);
+            int dir = e.Key == Avalonia.Input.Key.Left ? -frames : frames;
+            // FOCUS_01: the arrow keys act on WHICH MARKER HAS FOCUS. With the end marker selected
+            // they trim the hold a frame at a time; otherwise they slide the whole freeze, as they
+            // always have. Frame-accurate nudging is the reason to select a marker with the
+            // keyboard at all.
+            if (_freezeFocus == FreezeMarkerEnd.End) NudgeFreezeDurationByFrames(dir);
+            else MoveFreezeCameraByFrames(dir);
             e.Handled = true;
             return;
         }
@@ -573,8 +881,11 @@ public partial class GranularSpeedEditorWindow : Window
                 double w = canvas.Bounds.Width;
                 if (w <= 0) return;
                 double totalMs = dur * 1000.0;
+                // TIME_02: a pixel is no longer a fixed number of source ms, so the pointer is
+                // mapped through the shared timeline. msPerPx survives ONLY as an average, used for
+                // the 8px grab tolerance where exactness does not matter.
                 double msPerPx = totalMs / w;
-                double pointerMs = Math.Clamp(e.GetPosition(canvas).X * msPerPx, 0, totalMs);
+                double pointerMs = Math.Clamp(XToSrcMs(e.GetPosition(canvas).X, w), 0, totalMs);
                 double edgeMs = 8.0 * msPerPx;
 
                 // ─────────────────────────────────────────────────────────────────────────────
@@ -600,6 +911,49 @@ public partial class GranularSpeedEditorWindow : Window
                 // narrow blocks would not: the pointer would then land on a block that answers
                 // to nothing at all at its own edge.
                 // ─────────────────────────────────────────────────────────────────────────────
+                // ─────────────────────────────────────────────────────────────────────────────
+                // FREEZE_DRAG — THE FROZEN SPAN IS TESTED FIRST.
+                //
+                // It is drawn on top of whatever speed block it sits in, so it has to be grabbable
+                // on top of it too; resolving segments first would make a freeze inside a block
+                // permanently unreachable. It gets the same three-zone treatment as a speed block
+                // (see HITBOX_01 below): grab-near-an-edge resizes, grab-in-the-body moves, and the
+                // edge zone is capped at a third of the span so all three stay reachable however
+                // narrow the hold is drawn.
+                // ─────────────────────────────────────────────────────────────────────────────
+                if (_freezeTimeMs >= 0 && _freezeDurationS > 0)
+                {
+                    double outSecAtPress = OutXToOutSec(e.GetPosition(canvas).X, w);
+                    double holdStart = FreezeHoldStartOutSec();
+                    double holdEnd = holdStart + _freezeDurationS;
+                    double gripSec = Math.Min(8.0 * (OutDurationSec() / w), _freezeDurationS / 3.0);
+
+                    if (outSecAtPress >= holdStart - gripSec && outSecAtPress <= holdEnd + gripSec)
+                    {
+                        var fm = FreezeDragMode.Move;
+                        if (Math.Abs(outSecAtPress - holdStart) <= gripSec) fm = FreezeDragMode.ResizeStart;
+                        else if (Math.Abs(outSecAtPress - holdEnd) <= gripSec) fm = FreezeDragMode.ResizeEnd;
+
+                        _freezeDragMode = fm;
+                        _freezeDragFixedEndOutSec = holdEnd;
+                        _freezeDragGrabOffsetSec = Math.Max(0,
+                            OutXToBaseOutSec(e.GetPosition(canvas).X, w) - holdStart);
+                        _isFreezeCameraSelected = true;
+                        _selectedSegmentIndex = -1;
+                        UpdateDeleteButtonVisibility();
+                        e.Pointer.Capture(canvas);
+                        SetStatus(fm switch
+                        {
+                            FreezeDragMode.ResizeStart => "Dragging the freeze START — release to set.",
+                            FreezeDragMode.ResizeEnd => "Dragging the freeze END — release to set.",
+                            _ => "Moving the freeze — release to set."
+                        });
+                        RedrawTimeline();
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
                 int hitIdx = -1;
                 SegDragMode mode = SegDragMode.None;
                 double bestEdgeDist = double.MaxValue;
@@ -623,6 +977,11 @@ public partial class GranularSpeedEditorWindow : Window
 
                 if (hitIdx >= 0 && mode != SegDragMode.None)
                 {
+                    // FOCUS_01: grabbing a block is "selecting something else", so the freeze
+                    // markers surrender focus. Focus is exclusive across the whole timeline.
+                    _isFreezeCameraSelected = false;
+                    _freezeFocus = FreezeMarkerEnd.None;
+
                     _selectedSegmentIndex = hitIdx;
                     var seg = _segments[hitIdx];
                     _pendingSpeed = seg.Speed;
@@ -648,10 +1007,12 @@ public partial class GranularSpeedEditorWindow : Window
                     return;
                 }
 
+                // FOCUS_01: a press on empty lane space is a press on "something else", so the
+                // freeze loses focus exactly as the rule says it should.
                 if (_isFreezeCameraSelected)
                 {
                     _isFreezeCameraSelected = false;
-                    _isDraggingFreezeCamera = false;
+                    _freezeFocus = FreezeMarkerEnd.None;
                 }
                 if (_selectedSegmentIndex >= 0)
                 {
@@ -684,12 +1045,83 @@ public partial class GranularSpeedEditorWindow : Window
                 double w = canvas.Bounds.Width;
                 if (w <= 0) return;
                 double totalMs = dur * 1000.0;
+                // TIME_02: mapped through the shared timeline, see PointerPressed.
                 double msPerPx = totalMs / w;
-                double pointerMs = Math.Clamp(e.GetPosition(canvas).X * msPerPx, 0, totalMs);
+                double pointerMs = Math.Clamp(XToSrcMs(e.GetPosition(canvas).X, w), 0, totalMs);
 
                 if (_isCanvasScrubbing)
                 {
                     SetPlayheadFromScrub(pointerMs);
+                    e.Handled = true;
+                    return;
+                }
+
+                // ─────────────────────────────────────────────────────────────────────────────
+                // FREEZE_DRAG — MOVE / RESIZE THE HOLD.
+                //
+                // Two frames of reference, and mixing them up is the whole difficulty:
+                //   * the FULL ruler, which contains the hold — the only place its END edge exists,
+                //     because in the freeze-free timeline the hold has no width at all;
+                //   * the FREEZE-FREE ruler, which is where a hold START has to be expressed,
+                //     because a start is a moment of GAMEPLAY and gameplay is what the hold is
+                //     pinned to.
+                // Read each edge in the frame it actually lives in and both gestures are one line.
+                // ─────────────────────────────────────────────────────────────────────────────
+                if (_freezeDragMode != FreezeDragMode.None)
+                {
+                    double px = e.GetPosition(canvas).X;
+                    double holdStartNow = FreezeHoldStartOutSec();
+
+                    switch (_freezeDragMode)
+                    {
+                        case FreezeDragMode.ResizeEnd:
+                            // The start is pinned, so the pointer's distance past it IS the length.
+                            _freezeDurationS = Math.Clamp(
+                                OutXToOutSec(px, w) - holdStartNow, MinFreezeDurationS, MaxFreezeDurationS);
+                            break;
+
+                        case FreezeDragMode.ResizeStart:
+                        {
+                            // The END is pinned at where it stood when the drag began, so pulling
+                            // the start earlier lengthens the hold and pushing it later shortens it.
+                            //
+                            // ⚠️ NOT `newStart`. The segment-drag code further down this same lambda
+                            // declares a `newStart` of its own, and C# scopes a local to the WHOLE
+                            // enclosing block — including the part above where it is written — so
+                            // the two collide even though neither can see the other's value
+                            // (CS0136). The name says which timeline it belongs to as well, which
+                            // is worth having here regardless: these seconds are on the FREEZE-FREE
+                            // ruler, while the segment drag's `newStart` is in source ms.
+                            double newHoldStartSec = Math.Clamp(OutXToBaseOutSec(px, w),
+                                0, Math.Max(0, _freezeDragFixedEndOutSec - MinFreezeDurationS));
+                            SetFreezeStartFromBaseOutSec(newHoldStartSec);
+                            _freezeDurationS = Math.Clamp(
+                                _freezeDragFixedEndOutSec - newHoldStartSec, MinFreezeDurationS, MaxFreezeDurationS);
+                            break;
+                        }
+
+                        default:
+                            // Whole-span move: the length is untouched and only the gameplay moment
+                            // it interrupts changes.
+                            //
+                            // The grab point is NOT preserved under the pointer, and that is a
+                            // deliberate trade. A hold has zero width on the freeze-free ruler, so
+                            // "40% into the span" has no equivalent there to preserve — every
+                            // formula that tries to keep it ends up feeding the hold's own new
+                            // position back into the reading that placed it. What this does instead
+                            // is stable and converges in one step: drag left and the leading edge
+                            // tracks the pointer, drag right and the trailing edge does, and
+                            // holding still never jitters. It is also exactly what dragging the
+                            // camera marker has always done, so the two gestures agree.
+                            SetFreezeStartFromBaseOutSec(OutXToBaseOutSec(px, w) - _freezeDragGrabOffsetSec);
+                            break;
+                    }
+
+                    _freezeDurationS = Math.Round(_freezeDurationS, 2);
+                    ClampFreezeIntoClip();
+                    UpdateDragReadout(_freezeTimeMs - _trimStartMs,
+                                      _freezeTimeMs - _trimStartMs + _freezeDurationS * 1000.0);
+                    RedrawTimeline();
                     e.Handled = true;
                     return;
                 }
@@ -1198,7 +1630,8 @@ public partial class GranularSpeedEditorWindow : Window
                     _freezeTimeMs = -1;
                     _selectedFreezePresetS = -1.0;
                     _isFreezeCameraSelected = false;
-                    _isDraggingFreezeCamera = false;
+                    _freezeFocus = FreezeMarkerEnd.None;
+                    _freezeDragMode = FreezeDragMode.None;
                     var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
                     var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
                     if (icon != null) icon.Text = "📸";
@@ -1365,7 +1798,35 @@ public partial class GranularSpeedEditorWindow : Window
 
         _pendingStartMs = start;
         _pendingEndMs = end;
+
+        int before = _segments.Count;
         AddPendingSegment();   // <- shared validation + insert + status text
+
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        // FOCUS_01 — A BLOCK YOU JUST DREW IS SELECTED. IT IS NOT A NEW BLOCK OTHERWISE.
+        //
+        // Sweeping out a rubber band used to leave the block unselected, so the very next thing
+        // the user wanted to do to it — set a speed, add a zoom, delete it — needed a second,
+        // separate click on the thing they were already pointing at. That reads as the drag having
+        // half-failed. Nobody draws a block in order to look at it.
+        //
+        // ⚠️ Resolved by SEARCH, not by `_segments.Count - 1`. AddPendingSegment SORTS the list
+        // after inserting, so a block drawn to the left of an existing one is not last — the index
+        // would select the wrong block, which is worse than selecting none.
+        // AddPendingSegment also refuses overlapping or too-close blocks, hence the count check:
+        // when nothing was added there is nothing to select and the status text explains why.
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        if (_segments.Count > before)
+        {
+            int newIdx = _segments.FindIndex(sg => sg.StartMs == start && sg.EndMs == end);
+            if (newIdx >= 0)
+            {
+                SelectSegment(newIdx);
+                SetStatus($"Segment #{newIdx + 1} added and selected: {FormatMs(start)} – {FormatMs(end)} @ {_segments[newIdx].Speed:0.0}x.");
+                return;
+            }
+        }
+
         RefreshSegmentList();
         UpdateDeleteButtonVisibility();
     }
@@ -1553,79 +2014,156 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 
-    private void AttachFreezeCameraMarkerInteractions(Control marker, Canvas timelineCanvas, double durationSeconds)
+    /// <summary>
+    /// FOCUS_01 — grabbing a freeze popsicle takes focus and starts the matching edge drag.
+    ///
+    /// <para>
+    /// ⚠️ THE PRESS CAPTURES THE LANE CANVAS, NOT THE MARKER. This looks wrong and is the only
+    /// thing that works: <see cref="RedrawTimeline"/> rebuilds the whole marker overlay on every
+    /// drag step, so a pointer captured by the marker is captured by a control that is destroyed
+    /// microseconds later — the drag dies on the first frame. The canvas outlives every redraw, and
+    /// its existing PointerMoved / the window's PointerReleased already know how to run a
+    /// <see cref="FreezeDragMode"/> to completion. So this handler's whole job is to set the mode,
+    /// take focus, and hand the gesture over.
+    /// </para>
+    /// <para>
+    /// Start marker resizes from the start, end marker resizes from the end — matching the band's
+    /// own edge grips exactly, so grabbing the popsicle and grabbing the edge beneath it do the
+    /// same thing. Moving the hold whole is the band's BODY, as it is for every speed block.
+    /// </para>
+    /// </summary>
+    private void AttachFreezeMarkerInteractions(Control marker, FreezeMarkerEnd which, Canvas timelineCanvas)
     {
         marker.PointerEntered += (_, _) => MainWindow.SetTimelineCameraHover(marker, true);
         marker.PointerExited += (_, _) =>
         {
-            if (!_isDraggingFreezeCamera)
-            {
-                MainWindow.SetTimelineCameraHover(marker, false);
-            }
+            if (_freezeDragMode == FreezeDragMode.None) MainWindow.SetTimelineCameraHover(marker, false);
         };
         marker.PointerPressed += (_, e) =>
         {
-            if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed)
-            {
-                return;
-            }
+            var props = e.GetCurrentPoint(marker).Properties;
+            if (props.IsRightButtonPressed) { ClearTimelineSelection(); e.Handled = true; return; }
+            if (!props.IsLeftButtonPressed) return;
 
-            _isFreezeCameraSelected = true;
-            _isDraggingFreezeCamera = true;
-            if (_freezeCameraIconAntsRef != null) _freezeCameraIconAntsRef.IsVisible = true;
-            if (_freezeCameraLineAntsRef != null) _freezeCameraLineAntsRef.IsVisible = true;
+            double w = timelineCanvas.Bounds.Width;
+            if (w <= 0 || _freezeTimeMs < 0) return;
+
+            FocusFreezeMarker(which);
+
+            _freezeDragMode = which == FreezeMarkerEnd.Start
+                ? FreezeDragMode.ResizeStart
+                : FreezeDragMode.ResizeEnd;
+            _freezeDragFixedEndOutSec = FreezeHoldStartOutSec() + _freezeDurationS;
+            _freezeDragGrabOffsetSec = 0;
+
             marker.Focus();
             MainWindow.SetTimelineCameraHover(marker, true);
-            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
-            e.Pointer.Capture(marker);
-            e.Handled = true;
-        };
-        marker.PointerMoved += (_, e) =>
-        {
-            if (!_isDraggingFreezeCamera)
-            {
-                return;
-            }
-
-            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: false);
-            e.Handled = true;
-        };
-        marker.PointerReleased += (_, e) =>
-        {
-            if (!_isDraggingFreezeCamera)
-            {
-                return;
-            }
-
-            MoveFreezeCameraToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
-            _isDraggingFreezeCamera = false;
-            _isFreezeCameraSelected = true;
-            e.Pointer.Capture(null);
-            MainWindow.SetTimelineCameraHover(marker, false);
+            e.Pointer.Capture(timelineCanvas);
+            SetStatus(which == FreezeMarkerEnd.Start
+                ? "Dragging the freeze START — release to set."
+                : "Dragging the freeze END — release to set.");
             RedrawTimeline();
-            SetStatus($"Freeze moved to {FormatMs(_freezeTimeMs - _trimStartMs)}.");
             e.Handled = true;
         };
     }
 
-    private void MoveFreezeCameraToCanvasX(double canvasX, Canvas timelineCanvas, double durationSeconds, Control marker, bool seekPreview)
+    /// <summary>
+    /// FOCUS_01 — gives one freeze marker focus, taking it away from everything else.
+    /// Focus is exclusive across the whole timeline: one object at a time, always.
+    /// </summary>
+    private void FocusFreezeMarker(FreezeMarkerEnd which)
     {
-        double width = timelineCanvas.Bounds.Width;
-        if (durationSeconds <= 0 || width <= 0)
+        _isFreezeCameraSelected = which != FreezeMarkerEnd.None;
+        _freezeFocus = which;
+        if (_selectedSegmentIndex >= 0)
         {
-            return;
+            _selectedSegmentIndex = -1;
+            RefreshSegmentList();
         }
-
-        double clampedX = Math.Clamp(canvasX, 0, width);
-        double relMs = (clampedX / width) * durationSeconds * 1000.0;
-        _freezeTimeMs = _trimStartMs + relMs;
-        Avalonia.Controls.Canvas.SetLeft(marker, MainWindow.ClampTimelineCameraLeft(clampedX, width));
-
-        if (seekPreview)
-        {
-            SeekGranularPreviewToFreezeMarker();
-        }
+        UpdateDeleteButtonVisibility();
     }
+
+    /// <summary>
+    /// FOCUS_01 — DROPS FOCUS FROM EVERYTHING ON THE TIMELINE.
+    ///
+    /// <para>
+    /// A selected object stays selected until the user says otherwise, and there are exactly three
+    /// ways to say it: Esc, a right-click anywhere, or selecting something else. All three land
+    /// here, so they cannot drift apart — and any object added to this lane later has one obvious
+    /// place to be cleared from.
+    /// </para>
+    /// </summary>
+    private void ClearTimelineSelection()
+    {
+        bool hadSomething = _isFreezeCameraSelected
+                            || _freezeFocus != FreezeMarkerEnd.None
+                            || _selectedSegmentIndex >= 0;
+
+        _isFreezeCameraSelected = false;
+        _freezeFocus = FreezeMarkerEnd.None;
+        _selectedSegmentIndex = -1;
+        _freezeDragMode = FreezeDragMode.None;
+
+        if (!hadSomething) return;
+
+        UpdateDeleteButtonVisibility();
+        RefreshSegmentList();
+        RedrawTimeline();
+        SetStatus("Nothing selected.");
+    }
+
+    /// <summary>
+    /// FOCUS_01 — selects a speed block and syncs every control that reflects the selection.
+    ///
+    /// <para>
+    /// Extracted because the click path did all of this inline and the drag-to-create path did
+    /// none of it, which is exactly why a freshly swept-out block came back unselected: the block
+    /// existed, but nothing had told the slider, the delete button or the marching ants about it.
+    /// </para>
+    /// </summary>
+    private void SelectSegment(int index)
+    {
+        if (index < 0 || index >= _segments.Count) return;
+
+        _isFreezeCameraSelected = false;
+        _freezeFocus = FreezeMarkerEnd.None;
+        _selectedSegmentIndex = index;
+
+        var seg = _segments[index];
+        _pendingSpeed = seg.Speed;
+
+        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
+        var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+        if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
+        if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
+
+        UpdateDeleteButtonVisibility();
+        SyncZoomModeChecksFromSegment();
+        RefreshSegmentList();
+        RedrawTimeline();
+    }
+
+    /// <summary>
+    /// FREEZE_DRAG — keeps the hold inside the clip and inside its own legal length.
+    /// Called after every drag step, so a sweep off the end of the timeline parks at the end
+    /// instead of storing a freeze the exporter would have to guess about.
+    /// </summary>
+    private void ClampFreezeIntoClip()
+    {
+        if (_freezeTimeMs < 0) return;
+        double dur = GetDuration();
+        if (dur <= 0) return;
+
+        _freezeDurationS = Math.Clamp(_freezeDurationS, MinFreezeDurationS, MaxFreezeDurationS);
+        _freezeTimeMs = Math.Clamp(_freezeTimeMs, _trimStartMs, _trimStartMs + dur * 1000.0);
+    }
+
+    // FOCUS_01 — `MoveFreezeCameraToCanvasX` lived here. It existed only for the old marker drag,
+    // which owned its own pointer loop; that loop is gone and the marker now hands the gesture to
+    // the lane canvas, which runs the same FreezeDragMode maths as the band's edge grips. Two code
+    // paths for "where did the user drop the freeze" is exactly how the two answers drift apart.
+    // (It also still carried the pre-TIME_02 source-linear mapping, so it was wrong on any clip
+    // with a speed segment — see the note in ClampFreezeIntoClip's neighbours.)
 
     private void MoveFreezeCameraByFrames(int frameDelta)
     {
@@ -1645,6 +2183,21 @@ public partial class GranularSpeedEditorWindow : Window
         SetStatus($"Freeze moved to {FormatMs(_freezeTimeMs - _trimStartMs)}.");
     }
 
+    /// <summary>
+    /// FOCUS_01 — trims or extends the hold a frame at a time, for when the end marker has focus.
+    /// The start stays where it is; only how long the frame is held changes.
+    /// </summary>
+    private void NudgeFreezeDurationByFrames(int frameDelta)
+    {
+        if (_freezeTimeMs < 0) return;
+
+        const double Fps = 60.0;
+        _freezeDurationS = Math.Round(
+            Math.Clamp(_freezeDurationS + frameDelta / Fps, MinFreezeDurationS, MaxFreezeDurationS), 3);
+        RedrawTimeline();
+        SetStatus($"Freeze held for {_freezeDurationS:0.00}s.");
+    }
+
     private void SeekGranularPreviewToFreezeMarker()
     {
         if (_videoHost?.IpcClient == null || _freezeTimeMs < 0)
@@ -1653,7 +2206,9 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         _isCurrentlyFrozen = false;
-        _lastFreezeTriggerAbsMs = -10000;
+        _holdCaretOutSec = null;
+        // FREEZE_ARM: this parks the preview ON the freeze mark, so the next play must hold there.
+        _freezeArmed = true;
         _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
         _ = _videoHost.IpcClient.SendCommandAsync(
             "seek",
@@ -1672,8 +2227,8 @@ public partial class GranularSpeedEditorWindow : Window
         double dur = GetDuration();
         if (dur <= 0 || w <= 0) return;
         
-        double x1 = (newStartMs / 1000.0 / dur) * w;
-        double x2 = (newEndMs / 1000.0 / dur) * w;
+        double x1 = SrcMsToX(newStartMs, w);   // TIME_02
+        double x2 = SrcMsToX(newEndMs, w);     // TIME_02
         double segW = Math.Max(2, x2 - x1);
         
         foreach (Avalonia.Controls.Control child in canvas.Children)
@@ -1772,10 +2327,24 @@ public partial class GranularSpeedEditorWindow : Window
 
         // The shared caret and every seek surface report here; this is the ONE place the editor
         // learns "the user moved the playhead".
-        lanes.SeekRequested += sec =>
+        lanes.SeekRequested += outSec =>
         {
-            _playheadMs = sec * 1000.0;
-            _ = SeekInternal(sec);
+            // TIME_02: the shared ruler speaks OUTPUT seconds now. mpv only understands source
+            // time, so convert before seeking. Inside a freeze this correctly returns the held
+            // instant, so scrubbing across a freeze parks on the frozen frame.
+            var tl = OutTimeline();
+            double srcSec = tl.OutputToSourceRelative(outSec);
+
+            // FREEZE_CARET: the FRAME to show is the held instant — that part was already right.
+            // The CARET is a separate question. Deriving it back from the held instant would send
+            // it to the far edge of the hold, so clicking anywhere in a frozen span visibly kicked
+            // the caret to the right and left the user pointing at one place and looking at
+            // another. Inside a hold, where the user clicked IS the answer; keep it.
+            _holdCaretOutSec = tl.IsHoldingFrameAt(outSec) ? outSec : (double?)null;
+
+            _playheadMs = srcSec * 1000.0;
+            UpdateCaret();
+            _ = SeekInternal(srcSec);
         };
     }
 
@@ -1807,6 +2376,7 @@ public partial class GranularSpeedEditorWindow : Window
                                        && _pendingStartMs < 0 && !_createDragActive;
 
             UpdateCaret();
+            RelayoutFrameLane();   // TIME_02/F4: segments or freeze changed -> frames must move too
             double dur = GetDuration();
             double w = canvas.Bounds.Width;
             double h = Math.Max(canvas.Bounds.Height, LaneBlockHeight);
@@ -1816,8 +2386,8 @@ public partial class GranularSpeedEditorWindow : Window
             for (int i = 0; i < _segments.Count; i++)
             {
                 var seg = _segments[i];
-                double x1 = (seg.StartMs / 1000.0 / dur) * w;
-                double x2 = (seg.EndMs   / 1000.0 / dur) * w;
+                double x1 = SrcMsToX(seg.StartMs, w);   // TIME_02
+                double x2 = SrcMsToX(seg.EndMs,   w);   // TIME_02
                 bool isSelected = i == _selectedSegmentIndex;
 
                 var rect = new Avalonia.Controls.Shapes.Rectangle
@@ -1837,8 +2407,8 @@ public partial class GranularSpeedEditorWindow : Window
                     double zsMs = seg.ZoomStartMs ?? seg.StartMs;
                     double zeMs = seg.ZoomEndMs ?? seg.EndMs;
                     
-                    double zx1 = (zsMs / 1000.0 / dur) * w;
-                    double zx2 = (zeMs / 1000.0 / dur) * w;
+                    double zx1 = SrcMsToX(zsMs, w);   // TIME_02
+                    double zx2 = SrcMsToX(zeMs, w);   // TIME_02
 
                     var zLine = new Avalonia.Controls.Shapes.Line
                     {
@@ -1906,8 +2476,8 @@ public partial class GranularSpeedEditorWindow : Window
             // it reads as "not committed yet" against the solid colours of real blocks.
             if (_createDragActive)
             {
-                double ax = (Math.Min(_createDragStartMs, _createDragCurrentMs) / 1000.0 / dur) * w;
-                double bx = (Math.Max(_createDragStartMs, _createDragCurrentMs) / 1000.0 / dur) * w;
+                double ax = SrcMsToX(Math.Min(_createDragStartMs, _createDragCurrentMs), w);   // TIME_02
+                double bx = SrcMsToX(Math.Max(_createDragStartMs, _createDragCurrentMs), w);   // TIME_02
                 var ghost = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = Math.Max(1, bx - ax),
@@ -1925,7 +2495,7 @@ public partial class GranularSpeedEditorWindow : Window
 
             if (_pendingStartMs >= 0)
             {
-                double px = (_pendingStartMs / 1000.0 / dur) * w;
+                double px = SrcMsToX(_pendingStartMs, w);   // TIME_02
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
@@ -1938,7 +2508,7 @@ public partial class GranularSpeedEditorWindow : Window
 
             if (_pendingEndMs >= 0)
             {
-                double px = (_pendingEndMs / 1000.0 / dur) * w;
+                double px = SrcMsToX(_pendingEndMs, w);   // TIME_02
                 var line = new Avalonia.Controls.Shapes.Rectangle
                 {
                     Width = 2, Height = h,
@@ -1949,27 +2519,80 @@ public partial class GranularSpeedEditorWindow : Window
                 canvas.Children.Add(line);
             }
 
+            // MARKER_01: the floating layer is this window's to manage, and it is rebuilt from
+            // scratch on every redraw exactly like the lane beneath it.
+            var markerOverlay = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes")?.MarkerOverlayHost;
+            markerOverlay?.Children.Clear();
+            // FOCUS_01: the ants list points at controls that are about to be thrown away. Clearing
+            // it here rather than trusting each branch to do so is what stops the animation timer
+            // walking a list of dead rectangles that will never be seen again.
+            _freezeMarkerAnts.Clear();
+
             if (_freezeTimeMs >= 0)
             {
                 double freezeRelMs = Math.Clamp(_freezeTimeMs - _trimStartMs, 0, dur * 1000.0);
-                double freezeX = (freezeRelMs / (dur * 1000.0)) * w;
-                var freezeCam = MainWindow.CreateTimelineCameraIcon(
-                    _isFreezeCameraSelected || _isDraggingFreezeCamera,
-                    _marchingAntsOffset,
-                    out var iconAnts,
-                    out var lineAnts);
-                _freezeCameraIconAntsRef = iconAnts;
-                _freezeCameraLineAntsRef = lineAnts;
-                ToolTip.SetTip(freezeCam, $"Freeze: {_freezeDurationS}s");
-                Avalonia.Controls.Canvas.SetTop(freezeCam, LaneFreezeMarkerY);
-                Avalonia.Controls.Canvas.SetLeft(freezeCam, MainWindow.ClampTimelineCameraLeft(freezeX, w));
-                AttachFreezeCameraMarkerInteractions(freezeCam, canvas, dur);
-                canvas.Children.Add(freezeCam);
-            }
-            else
-            {
-                _freezeCameraIconAntsRef = null;
-                _freezeCameraLineAntsRef = null;
+                // TIME_02 / F3: SrcMsToX already INCLUDES the whole hold, so it returns the moment
+                // the held frame ENDS. The marker belongs where the hold BEGINS, else it sits on the
+                // replayed footage after the freeze instead of on the freeze itself.
+                double freezeHoldPx = (_freezeDurationS / OutDurationSec()) * w;
+                double freezeX = SrcMsToX(freezeRelMs, w) - freezeHoldPx;
+
+                // FREEZE_VIS: the hold used to be represented on this lane by the camera icon
+                // ALONE — a marker at a point, for something that occupies a span. Every speed
+                // segment beside it is drawn as a block, so the one element that stretches the
+                // finished video was the only one with no visible extent at all. It gets the same
+                // treatment as the thumbnail lane below, so the two line up as one object crossing
+                // both lanes, plus edge grips because here the span is draggable.
+                // No label on this lane: the camera marker above carries the duration.
+                DecorateFrozenSpan(canvas, freezeX, freezeHoldPx, h, withLabel: false, withGrips: true);
+
+                // ─────────────────────────────────────────────────────────────────────────────
+                // MARKER_01 — THE FREEZE POPSICLE NOW HANGS ABOVE THE TIMELINE.
+                //
+                // It used to be dropped INTO this lane at y=34, which put a 103px-tall marker
+                // inside a 60px lane: the camera head landed in the middle of the blocks and the
+                // stick ran out of the bottom. Worse, anything parented in the lane sits below the
+                // ruler's seek surface (ZIndex 100), so the part of the head that did poke up was
+                // both hard to see and impossible to click.
+                //
+                // It goes on the shared marker overlay instead (ZIndex 150) at a NEGATIVE top, so
+                // the head floats clear above the ruler and the stick drops through it into the
+                // lane — the same shape as the thumbnail mark on the Main App's timeline, which is
+                // the thing users already know.
+                //
+                // ⚠️ +LaneBorderInsetPx: the overlay spans the whole grid cell, the lane's content
+                // sits inside LaneABorder's 2px border. Without it the stick misses the band it is
+                // pointing at by two pixels.
+                // ─────────────────────────────────────────────────────────────────────────────
+                // TWO popsicles, one per edge — the hold is a SPAN, and a span with one handle is a
+                // span you can only guess the extent of. Grabbing either one resizes from that end,
+                // matching the band's own edge grips directly beneath them.
+                Control BuildFreezeMarker(FreezeMarkerEnd which, double laneX, string tip)
+                {
+                    var cam = MainWindow.CreateTimelineCameraIcon(
+                        _isFreezeCameraSelected && _freezeFocus == which,
+                        _marchingAntsOffset,
+                        out var iconAnts,
+                        out var lineAnts);
+                    _freezeMarkerAnts.Add(iconAnts);
+                    _freezeMarkerAnts.Add(lineAnts);
+                    ToolTip.SetTip(cam, tip);
+                    Avalonia.Controls.Canvas.SetTop(cam, FreezeMarkerOverlayTop);
+                    Avalonia.Controls.Canvas.SetLeft(cam,
+                        MainWindow.ClampTimelineCameraLeft(laneX + LaneBorderInsetPx, w));
+                    AttachFreezeMarkerInteractions(cam, which, canvas);
+                    return cam;
+                }
+
+                string held = $"Freeze at {FormatMs(freezeRelMs)}, held {_freezeDurationS:0.00}s.";
+                var startCam = BuildFreezeMarker(FreezeMarkerEnd.Start, freezeX,
+                    held + "\nDrag to move where the hold begins. Drag the band's body to move the whole freeze.");
+                var endCam = BuildFreezeMarker(FreezeMarkerEnd.End, freezeX + freezeHoldPx,
+                    held + "\nDrag to change how long the frame is held.");
+
+                var markerParent = markerOverlay ?? canvas;   // no overlay: in the lane beats nowhere
+                markerParent.Children.Add(startCam);
+                markerParent.Children.Add(endCam);
             }
         });
     }
@@ -3108,13 +3731,26 @@ public partial class GranularSpeedEditorWindow : Window
         double prevFreezeTickAbsMs = _prevFreezeTickAbsMs;
         _prevFreezeTickAbsMs = currentAbsMs;
 
-        if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
+        // FREEZE_ARM: standing behind the mark re-owes the hold. One line, and it covers every way
+        // the playhead can end up there — a rewind, a backwards seek, a click on the ruler, a
+        // second play of the same clip. 40ms of slack keeps a tick that lands a hair short of the
+        // mark from re-arming a hold that just finished.
+        if (_freezeTimeMs >= 0 && currentAbsMs < _freezeTimeMs - 40) _freezeArmed = true;
+
+        if (_freezeTimeMs >= 0 && _freezeArmed && !_isCurrentlyFrozen && !_videoHost.IpcClient.IsPaused)
         {
-            if (prevFreezeTickAbsMs >= 0 && prevFreezeTickAbsMs < _freezeTimeMs && currentAbsMs >= _freezeTimeMs
-                && Math.Abs(currentAbsMs - _lastFreezeTriggerAbsMs) > 500)
+            // The crossing test allows the previous tick to be AT the mark, not strictly before it.
+            // Clicking the freeze marker parks the preview exactly on that instant; with a strict
+            // `<` the very next Play could never satisfy "was before, now at or past", so pressing
+            // Play while sitting on the freeze silently skipped it. `_freezeArmed` is what makes
+            // the loose bound safe — it is cleared on fire, so this can still only fire once per
+            // approach.
+            if (prevFreezeTickAbsMs >= 0
+                && prevFreezeTickAbsMs <= _freezeTimeMs + 60
+                && currentAbsMs >= _freezeTimeMs)
             {
                 _isCurrentlyFrozen = true;
-                _lastFreezeTriggerAbsMs = _freezeTimeMs;
+                _freezeArmed = false;
                 _freezeStartTime = DateTime.UtcNow;
                 _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", (_freezeTimeMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -3123,13 +3759,37 @@ public partial class GranularSpeedEditorWindow : Window
         }
         else if (_isCurrentlyFrozen)
         {
-            if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= _freezeDurationS)
+            double heldFor = (DateTime.UtcNow - _freezeStartTime).TotalSeconds;
+            if (heldFor >= _freezeDurationS)
             {
                 _isCurrentlyFrozen = false;
+                _holdCaretOutSec = null;      // FREEZE_CARET: back to the derived position
                 _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
             }
             else
             {
+                // ─────────────────────────────────────────────────────────────────────────────
+                // FREEZE_CARET — WALK THE CARET ACROSS THE FROZEN SECONDS.
+                //
+                // mpv is parked on one frame for the whole hold, so the source clock does not move
+                // and a caret derived from it cannot move either. TIME_02 made the ruler longer by
+                // the freeze; without this the caret leapt that whole span in a single step the
+                // instant the freeze began and then sat still for 1.5 seconds — the ruler said the
+                // finished video had 1.5 more seconds in it and the caret refused to cross them.
+                //
+                // The hold runs in REAL time (that is what _freezeStartTime measures), and it
+                // occupies exactly _freezeDurationS of OUTPUT time, so elapsed wall-clock IS the
+                // offset into the hold. One is the other, no conversion.
+                //
+                // ⚠️ This block used to be a bare `return`. Keep the return — the speed, icon and
+                // playhead code below is all about MOVING footage and must not run while the
+                // picture is held — but the caret has to be updated before it.
+                // ─────────────────────────────────────────────────────────────────────────────
+                if (!_isCanvasScrubbing)
+                {
+                    _holdCaretOutSec = FreezeHoldStartOutSec() + Math.Clamp(heldFor, 0, _freezeDurationS);
+                    UpdateCaret();
+                }
                 return;
             }
         }
@@ -3161,6 +3821,10 @@ public partial class GranularSpeedEditorWindow : Window
         // caret would fight the pointer — the old slider needed the same guard via IsPointerOver.
         if (trimDurSec > 0 && !_isCanvasScrubbing)
         {
+            // FREEZE_CARET: the picture is moving again, so the derived position is authoritative
+            // once more. Leaving the override set here would pin the caret inside the old hold for
+            // the rest of playback.
+            _holdCaretOutSec = null;
             _playheadMs = relTime * 1000.0;
             UpdateCaret();
         }
@@ -3176,6 +3840,10 @@ public partial class GranularSpeedEditorWindow : Window
         double dur = GetDuration();
         if (dur <= 0) return;
 
+        // FREEZE_CARET: a drag on the upper lane is expressed in SOURCE ms, which carries no
+        // information about where inside a hold it landed, so the derived position is the only
+        // honest answer here. Clear the override rather than leaving a stale one to pin the caret.
+        _holdCaretOutSec = null;
         _playheadMs = Math.Clamp(msFromTrimStart, 0, dur * 1000.0);
         UpdateCaret();
 
@@ -3194,6 +3862,8 @@ public partial class GranularSpeedEditorWindow : Window
 
     private string? _thumbStripFile;
     private CancellationTokenSource? _thumbCts;
+    private Avalonia.Media.Imaging.Bitmap? _thumbBitmap;   // TIME_02/F4
+    private Avalonia.Controls.Canvas? _frameLaneHost;      // TIME_02/F4
 
     private async Task BuildFrameLaneAsync()
     {
@@ -3229,14 +3899,16 @@ public partial class GranularSpeedEditorWindow : Window
             DeleteThumbStrip();
             _thumbStripFile = strip;
 
+            // TIME_02 / F4: the generator samples frames EVENLY ACROSS SOURCE TIME, but this lane
+            // sits under an OUTPUT-TIME ruler. Stretching the strip whole would leave the frames
+            // out of step with the blocks above them on any clip with a freeze or a speed segment.
+            // The strip is instead re-laid out chunk by chunk — see RelayoutFrameLane.
+            _thumbBitmap = new Avalonia.Media.Imaging.Bitmap(strip);
+            _frameLaneHost = new Avalonia.Controls.Canvas { ClipToBounds = true };
             laneGrid.Children.Clear();
-            laneGrid.Children.Add(new Avalonia.Controls.Image
-            {
-                Source = new Avalonia.Media.Imaging.Bitmap(strip),
-                Stretch = Avalonia.Media.Stretch.Fill,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
-            });
+            laneGrid.Children.Add(_frameLaneHost);
+            _frameLaneHost.SizeChanged += (_, _) => RelayoutFrameLane();
+            RelayoutFrameLane();
         }
         catch (OperationCanceledException) { }
         catch (System.Exception ex)
@@ -3254,8 +3926,118 @@ public partial class GranularSpeedEditorWindow : Window
         }
     }
 
+    /// <summary>
+    /// TIME_02 / F4 — lays the SOURCE-LINEAR thumbnail strip out along the OUTPUT-TIME axis.
+    ///
+    /// <para>
+    /// One slot per <see cref="FortniteVideoSoftware.Core.Media.OutputTimeline"/> chunk. Each slot is
+    /// a clipping Canvas placed at the chunk's OUTPUT position and width; inside it the strip is
+    /// scaled and offset so that exactly the chunk's SOURCE window fills the slot. A half-speed
+    /// segment therefore shows its frames spread over twice the width, and a freeze shows the held
+    /// frame stretched across the whole hold — which is what the exported file looks like.
+    /// </para>
+    /// <para>
+    /// A freeze chunk covers a hair of source time by construction, so scaling by its true source
+    /// width would blow the image up astronomically. One frame's worth of source time is estimated
+    /// from the strip geometry instead (frames are laid out at the strip's own height and a 16:9
+    /// aspect), which shows the frozen frame rather than a smear.
+    /// </para>
+    /// <para>
+    /// Degrades safely: on ANY failure the lane falls back to the plain stretched strip, because a
+    /// mis-drawn background must never block editing.
+    /// </para>
+    /// </summary>
+    private void RelayoutFrameLane()
+    {
+        var host = _frameLaneHost;
+        var bmp = _thumbBitmap;
+        if (host == null || bmp == null) return;
+
+        try
+        {
+            host.Children.Clear();
+            double w = host.Bounds.Width, h = host.Bounds.Height;
+            if (w <= 0 || h <= 0) return;
+
+            double srcDur = Math.Max(0.001, GetDuration());
+            double outDur = OutDurationSec();
+            var chunks = OutTimeline().Chunks;
+            if (chunks.Count == 0) return;
+
+            double stripPxW = Math.Max(1, bmp.PixelSize.Width);
+            double stripPxH = Math.Max(1, bmp.PixelSize.Height);
+            double frameSec = Math.Max(0.02, srcDur * (stripPxH * 16.0 / 9.0) / stripPxW);
+
+            double accOut = 0;
+            foreach (var ch in chunks)
+            {
+                double outLen = ch.OutputLengthSec;
+                double x = (accOut / outDur) * w;
+                double slotW = (outLen / outDur) * w;
+                accOut += outLen;
+                if (slotW <= 0.5) continue;
+
+                double s1, s2;
+                if (ch.IsFreeze)
+                {
+                    s1 = Math.Clamp(ch.SourceStartSec, 0, Math.Max(0, srcDur - frameSec));
+                    s2 = Math.Min(srcDur, s1 + frameSec);
+                }
+                else { s1 = ch.SourceStartSec; s2 = ch.SourceEndSec; }
+
+                double srcSpan = Math.Max(0.001, s2 - s1);
+                double scaledFullW = slotW * (srcDur / srcSpan);
+
+                var slot = new Avalonia.Controls.Canvas { Width = slotW, Height = h, ClipToBounds = true };
+                Avalonia.Controls.Canvas.SetLeft(slot, x);
+                Avalonia.Controls.Canvas.SetTop(slot, 0);
+
+                var img = new Avalonia.Controls.Image
+                {
+                    Source = bmp,
+                    Stretch = Avalonia.Media.Stretch.Fill,
+                    Width = scaledFullW,
+                    Height = h
+                };
+                Avalonia.Controls.Canvas.SetLeft(img, -(s1 / srcDur) * scaledFullW);
+                Avalonia.Controls.Canvas.SetTop(img, 0);
+
+                slot.Children.Add(img);
+                host.Children.Add(slot);
+
+                // FREEZE_VIS: the held frame is stretched across the hold above, which is exactly
+                // what the export does — and on its own it just looks like slow footage. The
+                // treatment is what makes it legible as a STOP. Drawn onto the lane host rather
+                // than into the slot so the label is never clipped by the slot's own bounds.
+                if (ch.IsFreeze) DecorateFrozenSpan(host, x, slotW, h, withLabel: true);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Fail("Granular", $"Frame lane re-layout failed, falling back to a linear strip: {ex.Message}");
+            try
+            {
+                host.Children.Clear();
+                host.Children.Add(new Avalonia.Controls.Image
+                {
+                    Source = bmp,
+                    Stretch = Avalonia.Media.Stretch.Fill,
+                    Width = host.Bounds.Width,
+                    Height = host.Bounds.Height
+                });
+            }
+            catch (System.Exception inner) { System.Diagnostics.Debug.WriteLine(inner.ToString()); }
+        }
+    }
+
     private void DeleteThumbStrip()
     {
+        // TIME_02/F4: the decoded strip is held for the whole window lifetime now (it is re-sliced
+        // on every relayout), so it must be released here or each rebuild leaks a full bitmap.
+        try { _thumbBitmap?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        _thumbBitmap = null;
+        _frameLaneHost = null;
+
         if (string.IsNullOrEmpty(_thumbStripFile)) return;
         try { if (File.Exists(_thumbStripFile)) File.Delete(_thumbStripFile); }
         catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
@@ -3277,9 +4059,32 @@ public partial class GranularSpeedEditorWindow : Window
         var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes");
         if (lanes == null) return;
 
-        double dur = GetDuration();
-        if (Math.Abs(lanes.DurationSeconds - dur) > 0.001) lanes.DurationSeconds = dur;
-        lanes.PositionSeconds = _playheadMs / 1000.0;
+        // TIME_02: the ruler is drawn against the FINISHED length, so a 1.5s freeze adds 1.5s to it
+        // and slow motion stretches it. The playhead is a SOURCE position and must be mapped.
+        double outDur = OutDurationSec();
+        if (Math.Abs(lanes.DurationSeconds - outDur) > 0.001) lanes.DurationSeconds = outDur;
+
+        // FREEZE_CARET: inside a held frame the source position cannot say WHERE in the hold we
+        // are — it is the same instant throughout — so the caller supplies the output position and
+        // it wins. Everywhere else the derived value is exact and is used unchanged.
+        double outSec = _holdCaretOutSec ?? OutTimeline().SourceToOutput(_playheadMs / 1000.0);
+        lanes.PositionSeconds = Math.Clamp(outSec, 0, outDur);
+    }
+
+    /// <summary>
+    /// FREEZE_CARET — output seconds at which the current freeze's hold BEGINS.
+    ///
+    /// <para>
+    /// <c>SourceToOutput</c> of the freeze instant already counts the whole hold (documented
+    /// boundary behaviour in <see cref="FortniteVideoSoftware.Core.Media.OutputTimeline"/>, and the
+    /// reason F3 exists), so it returns the moment the hold ENDS. Subtracting the hold gives the
+    /// moment it starts. This is the same correction the freeze marker uses when it is drawn.
+    /// </para>
+    /// </summary>
+    private double FreezeHoldStartOutSec()
+    {
+        double freezeRelSec = Math.Max(0, (_freezeTimeMs - _trimStartMs) / 1000.0);
+        return Math.Max(0, OutTimeline().SourceToOutput(freezeRelSec) - _freezeDurationS);
     }
 
     /// <summary>
@@ -3325,6 +4130,143 @@ public partial class GranularSpeedEditorWindow : Window
                 return i;
         }
         return null;
+    }
+
+    // TIME_02 - THIS WINDOW'S X AXIS IS **OUTPUT TIME**, NOT SOURCE TIME.
+    //
+    // Everything STORED here (_segments, _playheadMs, _freezeTimeMs) is still SOURCE time. What
+    // changed is the DRAWING: a pixel no longer represents a fixed number of source milliseconds.
+    // Slow motion makes a segment occupy MORE pixels, fast motion fewer, and a freeze inserts
+    // pixels with no source footage under them at all - which is the point, because that is
+    // exactly what the exported file does.
+    //
+    // F1 - THE FREEZE IS NOT IN `_segments`. This window keeps it in the separate `_freezeTimeMs`
+    // / `_freezeDurationS` fields, and only MainWindow.axaml.cs:2538 ever turns it into a Speed=0
+    // SpeedSegment. A timeline built from `_segments` alone is therefore BLIND to the freeze and
+    // would under-report the finished length by the whole hold - the precise bug TIME_01 removed
+    // from the Music Wizard, reappearing one layer up. It is synthesised below.
+    //
+    // `_segments` are TRIM-RELATIVE ms; `_freezeTimeMs` is ABSOLUTE. Hence the subtraction.
+
+    private FortniteVideoSoftware.Core.Media.OutputTimeline? _outTimeline;
+    private string _outTimelineSig = "";
+
+    private FortniteVideoSoftware.Core.Media.OutputTimeline OutTimeline()
+    {
+        double durSec = Math.Max(0.001, GetDuration());
+        var segs = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_segments);
+        if (_freezeTimeMs >= 0 && _freezeDurationS > 0)
+        {
+            double relStart = _freezeTimeMs - _trimStartMs;
+            segs.Add(new FortniteVideoSoftware.Core.Media.SpeedSegment(
+                relStart, relStart + _freezeDurationS * 1000.0, 0.0));
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
+        foreach (var s in segs)
+            sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
+        string sig = sb.ToString();
+
+        if (_outTimeline == null || sig != _outTimelineSig)
+        {
+            // Base speed stays 1.0 on purpose: this window has never applied a global speed factor
+            // to its own ruler, so 1.0 keeps behaviour identical except for the segment and freeze
+            // stretching that TIME_02 is adding.
+            _outTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(durSec * 1000.0, segs, 1.0, 0);
+            _outTimelineSig = sig;
+        }
+        return _outTimeline;
+    }
+
+    /// <summary>Length of the FINISHED video in seconds - what the ruler is drawn against.</summary>
+    private double OutDurationSec() => Math.Max(0.001, OutTimeline().TotalOutputSeconds);
+
+    private FortniteVideoSoftware.Core.Media.OutputTimeline? _baseTimeline;
+    private string _baseTimelineSig = "";
+
+    /// <summary>
+    /// FREEZE_DRAG — the timeline WITHOUT the freeze spliced in.
+    ///
+    /// <para>
+    /// Dragging the freeze cannot be done in the timeline the freeze is part of, because that
+    /// timeline moves as you drag it. Ask "which gameplay moment is under this pixel" of a ruler
+    /// that already contains the hold and, inside the hold, every pixel answers with the SAME
+    /// instant — the frozen one — so the freeze pins itself in place and will not move. Worse,
+    /// as the duration changes under a resize, every position past the hold shifts, so the pointer
+    /// and the edge it is dragging chase each other.
+    /// </para>
+    /// <para>
+    /// This timeline holds only the speed segments, so it is fixed for the whole gesture and the
+    /// hold occupies zero width in it. That makes the drag arithmetic simple and, more importantly,
+    /// stable: the answer to "where did the user point" does not depend on the edit in progress.
+    /// </para>
+    /// </summary>
+    private FortniteVideoSoftware.Core.Media.OutputTimeline BaseTimeline()
+    {
+        double durSec = Math.Max(0.001, GetDuration());
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
+        foreach (var s in _segments)
+            sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
+        string sig = sb.ToString();
+
+        if (_baseTimeline == null || sig != _baseTimelineSig)
+        {
+            _baseTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+                durSec * 1000.0, _segments, 1.0, 0);
+            _baseTimelineSig = sig;
+        }
+        return _baseTimeline;
+    }
+
+    /// <summary>
+    /// FREEZE_DRAG — an X on the output-time canvas -> seconds on the FREEZE-FREE timeline.
+    ///
+    /// <para>
+    /// Pixels before the hold pass through untouched; pixels inside it collapse onto its start; and
+    /// pixels after it shift back by the hold, because that much of the ruler is time the freeze
+    /// itself inserted. The result is "where would this pixel be if the freeze did not exist",
+    /// which is the only frame of reference in which moving the freeze is a well-posed question.
+    /// </para>
+    /// </summary>
+    private double OutXToBaseOutSec(double x, double w)
+    {
+        if (w <= 0) return 0;
+        double outSec = Math.Clamp((x / w) * OutDurationSec(), 0, OutDurationSec());
+        if (_freezeTimeMs < 0 || _freezeDurationS <= 0) return outSec;
+
+        double holdStart = FreezeHoldStartOutSec();
+        if (outSec <= holdStart) return outSec;
+        return Math.Max(holdStart, outSec - Math.Min(_freezeDurationS, outSec - holdStart));
+    }
+
+    /// <summary>FREEZE_DRAG — an X on the output-time canvas -> seconds on the FULL ruler.</summary>
+    private double OutXToOutSec(double x, double w)
+        => w <= 0 ? 0 : Math.Clamp((x / w) * OutDurationSec(), 0, OutDurationSec());
+
+    /// <summary>
+    /// FREEZE_DRAG — commits a new hold START, expressed on the freeze-free timeline, back into the
+    /// SOURCE instant the rest of the app stores.
+    /// </summary>
+    private void SetFreezeStartFromBaseOutSec(double baseOutSec)
+    {
+        double relSec = BaseTimeline().OutputToSourceRelative(
+            Math.Clamp(baseOutSec, 0, BaseTimeline().TotalOutputSeconds));
+        _freezeTimeMs = _trimStartMs + relSec * 1000.0;
+    }
+
+    /// <summary>TRIM-RELATIVE source ms -> an X pixel on the output-time canvas.</summary>
+    private double SrcMsToX(double srcRelMs, double w)
+        => (OutTimeline().SourceToOutput(srcRelMs / 1000.0) / OutDurationSec()) * w;
+
+    /// <summary>An X pixel on the output-time canvas -> TRIM-RELATIVE source ms.</summary>
+    private double XToSrcMs(double x, double w)
+    {
+        if (w <= 0) return 0;
+        double outSec = Math.Clamp(x, 0, w) / w * OutDurationSec();
+        return OutTimeline().OutputToSourceRelative(outSec) * 1000.0;
     }
 
     private double GetDuration()

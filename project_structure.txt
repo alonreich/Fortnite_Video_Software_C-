@@ -4,6 +4,12 @@ FORTNITE VIDEO SOFTWARE (.NET 9 NativeAOT + Avalonia UI)
 ==============================================================================
 
 CRITICAL MANDATES FOR ALL AI AGENTS:
+*** WORK IN PROGRESS — READ MEME_TIMELINE_PLAN.txt IN THE PROJECT ROOT BEFORE TOUCHING THE
+TIMELINE, THE MEME SYSTEM, OR ProcessWorker's CONCAT. It carries the locked decisions (D1-D9), the
+traps already paid for (F1-F4, B1, B2), what is DONE (TIME_01, TIME_02, MEME_03, MEME_04, MEME_05)
+and what is left (VO_01, then MEME_06). MEME_05 is written but NOT yet compiled or exported — the
+plan file lists the four verification items still owed. ***
+
 1. NO CACHING ALLOWED FOR VIDEO PIPELINES: Do not implement any memory caches, disk caches, or memoization for FFmpeg exports or media generation. (Exception: UI state persistence via JSON and internal libmpv decoding buffers are explicitly allowed and required).
    *** T01 CARVE-OUT (owner-approved, narrow — read before deleting anything) ***
    SINGLE-JOB STAGING FILES INSIDE THE JOB'S OWN TEMP DIRECTORY ARE PERMITTED. The two-pass
@@ -206,8 +212,20 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
       is: 20px tick ruler, then a 60px UPPER lane (speed blocks, freezes, zoom bar + magnifiers —
       ALL of it inside the lane) stacked directly on a 60px LOWER lane of film frames covering the
       trimmed range, with ONE caret and one seek surface spanning both. Y offsets live ONLY in
-      `LaneBlockHeight` / `LaneZoomBarY` / `LaneZoomMarkerY` / `LaneFreezeMarkerY`; the old
-      float-above-the-canvas offsets (-40 / -79 / -80) are gone. The playhead model is the
+      `LaneBlockHeight` / `LaneZoomBarY` / `LaneZoomMarkerY`; the old float-above-the-canvas
+      offsets (-40 / -79 / -80) are gone for LANE CONTENT.
+      ⚠️ MARKER_01 CARVE-OUT — FLOATING MARKERS ARE BACK, BUT ONLY ON THEIR OWN LAYER. The freeze
+      camera "popsicles" hang from `TimelineLanesControl.MarkerOverlayHost`, a canvas spanning all
+      three rows at ZIndex 150 (above both seek surfaces at 100, below the caret at 200), and are
+      placed at a NEGATIVE `Canvas.Top` (`FreezeMarkerOverlayTop = -52`) so the camera head floats
+      clear above the ruler and its stick drops through into the upper lane. `LaneFreezeMarkerY`
+      is GONE: a 103px popsicle never fitted inside a 60px lane, and anything parented in a lane
+      sits BELOW the seek surfaces, so the part of the head that poked out was unclickable —
+      Avalonia's ZIndex orders siblings only, so no value on the marker itself could fix that.
+      The overlay has NO Background on purpose (an empty Canvas is not hit-testable, so ordinary
+      clicks fall through to the seek surfaces); giving it one makes the whole timeline unclickable.
+      Markers are offset by `LaneBorderInsetPx` (2) because the overlay spans the whole grid cell
+      while lane content sits inside `LaneABorder`'s 2px border. The playhead model is the
       `_playheadMs` field — it used to be the slider's 0-1000 Value, which is why removing the
       slider touched four unrelated places. Both lanes MUST share one X mapping (left = trim
       start, right = trim end); the frames are generated once on open because the trim cannot
@@ -580,6 +598,255 @@ which made this documented format wrong for half the suite. Keep them in lockste
   ✗ Do NOT change the NVENC preset/multipass/lookahead values (G06 / 5C.3).
   ✗ Do NOT restore `pad=iw+…` in `PadFilterNode` (G05 / Section 9).
   ✗ Do NOT let the two-pass scratch master survive a job (Mandate #1 carve-out).
+  ✗ Do NOT add a second loudnorm over the finished mix (AUDIO_01 / 5D.1).
+
+5D. THE AUDIO PIPELINE — EXPORT vs PREVIEW
+------------------------------------------------------------------------------
+FILES: `Media/AudioFilterChain.cs` (the whole music/game/voice mix) ·
+       `Media/AudioLoudnessProbe.cs` (targets + measurement) ·
+       `Media/ProcessWorker.cs` (game bus, meme, limiter, second pass) ·
+       `Media/FilterGraphBuilder.cs` (SidechainCompressNode defaults) ·
+       `MusicWizardWindow.axaml.cs` + `VoiceOverWindow.axaml.cs` (the PREVIEW side)
+
+⚠️⚠️ THE ONE THING TO UNDERSTAND BEFORE TOUCHING ANY OF THIS ⚠️⚠️
+THE PREVIEW AND THE EXPORT ARE TWO DIFFERENT ENGINES. The export is an FFmpeg filter
+graph. The preview is mpv, and mpv is driven ONLY through the `volume` property — there
+is not a single `af` (audio filter) call anywhere in the application. So the preview can
+reproduce LEVELS and can never reproduce DYNAMICS. Everything below follows from that.
+
+5D.0 — THE TABLE. WHAT IS APPLIED WHERE.
+------------------------------------------------------------------------------
+| Stage                     | EXPORT (FFmpeg)                                    | PREVIEW (mpv/NAudio)                          |
+|---------------------------|----------------------------------------------------|-----------------------------------------------|
+| Loudness normalisation    | YES — game bus, linear `loudnorm`, two-pass with   | SIMULATED — video `volume` scaled by          |
+| (the game/video bus)      | measured values. I=-14 LUFS, TP=-1.5 dBTP.         | (-14 - measured) + headroom offset.           |
+|                           | `AudioLoudnessProbe.TargetLufs/PeakCeilingDbtp`.   | NO filter is used. Raw before PREVIEW_03.     |
+| Music bed level           | YES — each track measured, normalised to           | SIMULATED — same dB applied to the music      |
+|                           | -20 LUFS (`MusicBedLufs`), clamped +12/-24 dB,     | player's `volume`, plus the headroom offset.  |
+|                           | THEN the user's slider.                            | Cached per file path.                         |
+| Voice-over level match    | YES — normalised to -14 LUFS so it lands with the  | SIMULATED — NAudio `Reader.Volume`, same      |
+|                           | game bus (only when the bus is normalised).        | target plus the offset. Async, cached.        |
+| Meme audio                | YES — shifted by the SAME dB as the rest of the    | NOT PREVIEWED AT ALL — the meme is not part   |
+|                           | mix (a relative shift, NOT a normalisation).       | of any preview surface.                       |
+| EQ carving                | YES — music only, always on when `carving_enabled`:| ✗ NO. Not simulated. Cannot be.               |
+|                           | `equalizer=f=2000:width_type=h:width=1800:g=-4`    |                                               |
+| Sidechain ducking         | YES — see 5D.2 for the full chain and values.      | ✗ NO. Not simulated. Cannot be.               |
+| Peak limiter              | YES — `alimiter=limit=-1.0dB` when Auto Spike      | ✗ NO. Not simulated.                          |
+|                           | Flattening is on. Off = no ceiling at all.         |                                               |
+
+⚠️ THE TWO "CANNOT BE" ROWS ARE NOT LAZINESS. Ducking needs the game and the music inside
+ONE filter graph so one can listen to the other. The preview plays the video and the music
+through TWO SEPARATE mpv PROCESSES (`WizardVideoHost` and `_audioIpcClient`). Two processes
+cannot hear each other. Simulating it would mean either pre-analysing the game audio and
+riding the music `volume` from a 30 Hz timer (an approximation that sounds stepped on rapid
+gunfire), or rebuilding the preview onto a single player with a real filter chain.
+SO: TRUST THE PREVIEW FOR BALANCE, NEVER FOR DYNAMICS.
+
+5D.1 — LOUDNESS: ONE TARGET, TWO PASSES, NO AGC
+------------------------------------------------------------------------------
+  * `AudioLoudnessProbe.TargetLufs = -14.0`, `PeakCeilingDbtp = -1.5`, `MusicBedLufs = -20.0`.
+    -14 LUFS is the YouTube / TikTok / Reels / Shorts figure; platforms turn ANYTHING louder
+    back down, so it is the ceiling of useful loudness, not an aggressive setting.
+  * ⚠️ EVERY loudness number in the app now reads those constants. The measurement pass, the
+    second pass and the "your video is too quiet" prompt used to disagree — the probe judged
+    against -14 while the export mastered to -23 (EBU R128 BROADCAST), so the user was warned
+    against one number and shipped another 9 dB away. DO NOT hardcode a target anywhere.
+  * ⚠️ THE MEASUREMENT PASS MUST DECLARE THE SAME TARGET AS THE SECOND PASS. `input_i/tp/lra/
+    thresh` describe the source and do not care, but `target_offset` DOES — and that offset is
+    handed straight to the second pass.
+  * ⚠️ NEVER add a `loudnorm` over the finished mix (AUDIO_01). One used to sit there with no
+    measured values and no `linear=true`, which makes FFmpeg run its DYNAMIC mode — a
+    continuously-acting AGC over the whole mix. Because a commercial music master (~-9 LUFS)
+    is the loudest thing present, the MUSIC drove the gain of everything: every swell pulled
+    the gunshots down, every dip pushed them back up. The ducking below was computed correctly
+    and then silently overridden, producing the exact inverse of the intended effect.
+  * PROPORTIONALITY: when the game bus is lifted, music, voice-over and meme are shifted by the
+    SAME dB, so the balance the user set with the sliders survives normalisation intact.
+
+5D.2 — THE DUCKING CHAIN, IN ORDER
+------------------------------------------------------------------------------
+  1. Trigger source  : game bus AFTER the voice-over is mixed in, via `asplit`. So your voice
+                       ducks the music too, which is what anyone would expect.
+  2. Trigger shaping : `highpass=f=200,lowpass=f=3500` then
+                       `agate=threshold=0.05:attack=5:release=100` then
+                       `equalizer=f=1000:t=q:w=2:g=10`.
+                       It listens for voice/action, not rumble, and is deaf to room tone.
+  3. Music split     : `acrossover=split=250[mus_low][mus_high]`.
+                       ⚠️ ONLY THE HIGH BAND IS DUCKED. Everything below 250 Hz is a permanent
+                       shelter, which is what stops a ducked track going limp. This was 150 Hz
+                       and covered the band where a gunshot's WEIGHT lives (~80-250 Hz), so the
+                       music's body kept masking shots that the treble had politely made room
+                       for. 250-300 Hz is the useful range; higher starts thinning the music.
+  4. Ducker          : `sidechaincompress=threshold=0.15:ratio=8:attack=1:release=800:
+                       detection=peak`  (`FilterGraphBuilder.SidechainCompressNode` defaults).
+                       - ratio was 2.5 (a mix-glue setting; ~6 dB of reduction, inaudible as a
+                         duck). 8:1 gives ~8.75 dB at the same overshoot.
+                       - detection was `rms`, which AVERAGES — exactly wrong for gunfire, the
+                         short sharp sounds that matter most. `peak` catches transients.
+                       - release was 400 ms, so music surged back between individual shots and
+                         "breathed". `sidechaincompress` has no hold parameter, so 800 ms
+                         stands in for one. attack=1 ms was already correct.
+  5. Reconstruct     : `[mus_low][mus_high_ducked]amix=weights='1 1':normalize=0`.
+  6. Final mix       : game + reconstructed music, `weights='1 1':normalize=0`.
+  ⚠️ TUNE IN THIS ORDER if it over-ducks: Ratio, then Release, then MusicBedLufs. Threshold
+  LAST — it interacts with the bed level, so moving it first makes the other two unreadable.
+
+5D.3 — WHY THE PREVIEW SHIFTS EVERYTHING DOWN (PREVIEW_03)
+------------------------------------------------------------------------------
+mpv's `volume` is a 0-100 PERCENTAGE. The common case is a quiet clip needing a BOOST to
+reach -14, and there is no room above 100 to give it — raising the video is impossible
+exactly when it is most needed. So the preview subtracts a single common offset, equal to
+whatever boost the video was missing, from EVERY element. The video then plays at unity, the
+music sits the correct distance beneath it, and the only difference from the export is that
+the whole preview is quieter (the system volume solves that). The RELATIVE balance — the
+thing actually being judged — is exact.
+  Worked example, source -18.44 LUFS with a -9.20 LUFS pop master:
+      video wants  -14.00 - (-18.44) = +4.44 dB   ->  offset = -4.44
+      video gain   = +4.44 - 4.44 =  0.00 dB      (plays raw, no ceiling problem)
+      music gain   = -10.80 - 4.44 = -15.24 dB
+      resulting gap = 6.00 dB — identical to the export.
+Verified across a quiet clip, an already-loud clip and a very quiet clip with a quiet track:
+the preview gap matched the export gap to 0.00 dB in all three.
+  ⚠️ `SourceMeasuredLufs` is measured ONCE by the Main App on upload and handed to the Music
+  Wizard and the Voice Over window. Do not re-measure inside those windows — it costs seconds
+  for a number that already exists. Null means "not measured" and every gain falls back to raw.
+
+5E. THE OUTPUT TIMELINE — THE ONE PLACE THAT KNOWS HOW LONG THE FINISHED VIDEO IS
+------------------------------------------------------------------------------
+`FortniteVideoSoftware.Core.Media.OutputTimeline` (TIME_01) is the SINGLE SOURCE OF TRUTH for
+converting between SOURCE time (a position in the original file) and OUTPUT time (a position in
+the finished, exported video). Nothing else in the codebase is permitted to re-derive this.
+
+THREE FRAMES OF REFERENCE — mixing them up is the classic bug here:
+  * ABSOLUTE SOURCE seconds     — position in the original file, trim offset included.
+  * CLIP-RELATIVE SOURCE seconds— measured from the trim-in point, so the clip starts at 0.
+  * OUTPUT seconds              — position in the finished video, AFTER speed and freezes stretch it.
+`SourceToOutput()` takes ABSOLUTE source seconds. `OutputToSourceRelative()` returns CLIP-RELATIVE
+source seconds. That asymmetry is not a design choice, it is the contract the existing callers rely
+on and it was preserved deliberately.
+
+⚠️ A FREEZE IS AN INSERTION, NOT A REPLACEMENT. This is the single most misunderstood rule in the
+codebase. When the user freezes 5s-8s, the exported graph holds the frame at 5s for 3 seconds and
+THEN CARRIES ON PLAYING FROM 5s. Nothing is skipped, and the finished video is 3 seconds LONGER.
+In `GranularSpeedBuilder` this is the line `sourceCursor = fStart;` (NOT fEnd). Any future code that
+advances a cursor past a freeze is wrong.
+
+HISTORY — WHY THIS TYPE EXISTS. The same mathematics was previously hand-written in THREE places:
+`GranularSpeedBuilder.CreateTimeMapper`, `GranularSpeedBuilder.Build`'s local `TimeMapper`, and
+`MusicWizardWindow.MapPhase3OutputToSourceRelativeSeconds`. They drifted. The Music Wizard's copy
+advanced its cursor past freezes (`cursor = Math.Max(cursor, segEnd)`), i.e. it believed a freeze
+replaced the footage under it, so it under-reported the finished length by the whole freeze every
+time. Measured, with the exported graph as ground truth:
+
+  scenario                    EXPORT truth   Wizard said       ERROR
+  no segments                     60.000s      60.000s     +0.000s
+  slow-mo 10-20s @0.5x            70.000s      70.000s     +0.000s
+  FREEZE 5-8s (3s)                63.000s      60.000s     -3.000s
+  FREEZE 1.5s @20s                61.500s      60.000s     -1.500s
+  two freezes                     63.000s      60.000s     -3.000s
+  freeze + slow-mo                73.000s      70.000s     -3.000s
+  base 2x + freeze                33.000s      31.500s     -1.500s
+  fast 3x + 2 freezes             50.667s      46.667s     -4.000s
+
+Slow motion always agreed; ONLY freezes diverged. Music was therefore being positioned against a
+length the finished video never had. All three copies now delegate to `OutputTimeline`.
+
+REVERSE MAPPING IS DELIBERATELY LOSSY INSIDE A FREEZE, AND THAT IS CORRECT. While a frame is held,
+every moment of finished video shows the SAME source instant, so `OutputToSourceRelative()` returns
+that instant. Callers that need to know whether the playhead is inside a held frame must ask
+`IsHoldingFrameAt()` — do not try to infer it from the returned value.
+
+⚠️ MPV PLAYS THE SOURCE FILE AND CANNOT PLAY THE FINISHED TIMELINE. Any ruler drawn in OUTPUT time
+is therefore an app-driven clock backed by mpv: the app converts the scrub position to source time
+and seeks mpv there. During a freeze the clock advances while mpv sits on one frame. This is not a
+stall and must not be "fixed" by resynchronising the ruler to mpv's reported time.
+
+PERFORMANCE NOTE: `OutputTimeline.Create()` allocates a small chunk list per call, and the Music
+Wizard currently builds one per playhead update. This is comparable to the per-call list copy + sort
+it replaced, but if a ruler is ever driven at frame rate the instance should be cached and rebuilt
+only when the segment list, base speed or trim points change.
+
+
+TIME_02 — THE GRANULAR EDITOR'S X AXIS IS NOW OUTPUT TIME. Everything the window STORES
+(`_segments`, `_playheadMs`, `_freezeTimeMs`) is still SOURCE time; only the DRAWING changed. All 12
+source->pixel conversions go through `SrcMsToX()` / `XToSrcMs()`, which route through a cached
+`OutputTimeline` rebuilt only when the segment list, freeze or duration signature changes.
+  ⚠️ THE EDITOR SYNTHESISES ITS OWN FREEZE SEGMENT. `_freezeTimeMs`/`_freezeDurationS` live OUTSIDE
+  `_segments` and only become a Speed=0 SpeedSegment in MainWindow.axaml.cs:2538. A timeline built
+  from `_segments` alone is BLIND to the freeze. `OutTimeline()` adds it. `_segments` are
+  TRIM-RELATIVE, `_freezeTimeMs` is ABSOLUTE — hence the `- _trimStartMs`.
+  ⚠️ THE FREEZE MARKER IS DRAWN AT `SrcMsToX(f) - holdPx`, NOT `SrcMsToX(f)`. The forward map
+  already includes the whole hold, so the raw value is where the freeze ENDS. Drawing it there puts
+  the camera icon on the replayed footage instead of on the freeze.
+  THE FILM-FRAME LANE IS RE-LAID OUT, NOT REGENERATED. `ThumbnailStripGenerator` still samples
+  evenly across SOURCE time; `RelayoutFrameLane()` then places ONE CLIPPING SLOT PER TIMELINE CHUNK
+  at that chunk's OUTPUT position and width, with the strip scaled and offset inside the slot so the
+  chunk's source window exactly fills it. Half speed spreads its frames over twice the width; a
+  freeze shows the held frame stretched across the whole hold. A freeze chunk spans only a hair of
+  source time by construction, so one frame's source duration is ESTIMATED from the strip geometry
+  (strip height x 16:9 against strip width) rather than using the true span, which would magnify the
+  image astronomically. The whole pass is wrapped in a try/catch that falls back to the plain
+  stretched strip — a mis-drawn background must never block editing. The decoded bitmap is held for
+  the window's lifetime (it is re-sliced on every relayout) and is disposed in `DeleteThumbStrip`.
+
+FREEZE_CARET — THE CARET WALKS THE FROZEN SECONDS INSTEAD OF STEPPING OVER THEM. `SourceToOutput` of
+the freeze instant is DEFINED to already include the whole hold, and every output moment of the hold
+maps back to that same source instant, so a caret derived from `_playheadMs` sat pinned at the far
+edge of the hold: it leapt the frozen span in one step the moment the freeze began and then did not
+move for the whole duration. TIME_02 made the ruler longer by the freeze; the caret refused to cross
+the space it added. The source position simply does not carry the answer during a hold, so it is
+supplied directly through `_holdCaretOutSec` (non-null ONLY inside a held span; every path that
+moves the playhead by ordinary means clears it). `PlaybackTimer_Tick` sets it to
+`FreezeHoldStartOutSec() + elapsed` — the hold runs in REAL time and occupies exactly
+`_freezeDurationS` of OUTPUT time, so elapsed wall-clock IS the offset into it, no conversion.
+  ⚠️ THE `return` IN THE FROZEN BRANCH STAYS. The speed, icon and playhead code below it is all
+  about MOVING footage and must not run while the picture is held — but the caret has to be updated
+  BEFORE it.
+  ⚠️ CLICKING INSIDE A FROZEN SPAN KEEPS THE CLICK POSITION. Deriving the caret back from the held
+  instant sent it to the far edge, so the user pointed at one place and looked at another. Inside a
+  hold (`IsHoldingFrameAt`), where the user clicked IS the answer.
+
+FREEZE_ARM — WHY THE FREEZE PLAYED ONCE AND THEN SOMETIMES NOT AGAIN. The re-trigger guard was
+`Math.Abs(currentAbsMs - _lastFreezeTriggerAbsMs) > 500` with the last trigger recorded as the freeze
+point. It meant to say "do not re-fire the hold we just finished"; what it actually asks is "is the
+playhead more than half a second from the mark", and on the SECOND pass the playhead crosses that
+mark again at a distance of ~0, so the guard suppressed the freeze. Whether it fired depended on how
+far the tick happened to overshoot — near the mark, suppressed; a slow frame that overshot by more
+than 500ms, fired. Hence "sometimes". Replaced by `_freezeArmed`: "have we approached the mark from
+behind it since it last fired?" has ONE answer, the same every pass, and it re-arms itself for free
+on a rewind, a backwards seek or a replay. The crossing test also allows the previous tick to be AT
+the mark (`prev <= freeze + 60`), because clicking the freeze marker parks the preview exactly on
+that instant and a strict `<` meant the next Play could never satisfy "was before, now at or past" —
+pressing Play while sitting on the freeze silently skipped it. `_freezeArmed` is what makes the loose
+bound safe: it is cleared on fire, so this still fires only once per approach.
+
+FREEZE_DRAG — THE FROZEN SPAN IS AN EDITABLE OBJECT, AND THE DRAG MATHS RUNS ON A FREEZE-FREE RULER.
+`BaseTimeline()` is `OutputTimeline` over `_segments` ONLY. Dragging the freeze cannot be done in the
+timeline the freeze is part of: inside the hold every pixel answers with the SAME source instant, so
+the freeze pins itself and will not move, and as the duration changes under a resize every position
+past the hold shifts so the pointer and the edge it is dragging chase each other. In the freeze-free
+ruler the hold has zero width and the frame of reference is fixed for the whole gesture.
+`OutXToBaseOutSec(x,w)` converts a pixel by passing pixels before the hold through untouched,
+collapsing pixels inside it onto its start, and shifting pixels after it back by the hold.
+  Gestures (resolved BEFORE speed blocks, because the band is drawn on top of whatever block it sits
+  in and would otherwise be unreachable there): edge grips resize, body moves, three-zone hit
+  resolution capped at a third of the span exactly as HITBOX_01 does for blocks. ResizeEnd reads the
+  FULL ruler (the hold's END edge exists only there); ResizeStart reads the FREEZE-FREE ruler and
+  pins the end at where it stood on press. Bounds 0.2s–10s.
+  ⚠️ MARKER PRESSES CAPTURE THE LANE CANVAS, NOT THE MARKER. `RedrawTimeline` rebuilds the marker
+  overlay on every drag step, so a pointer captured by a marker belongs to a control destroyed
+  microseconds later and the drag dies on frame one. The canvas outlives every redraw.
+  ⚠️ A BODY MOVE DOES NOT PRESERVE THE GRAB POINT, deliberately: a hold has zero width on the
+  freeze-free ruler so there is nothing there to preserve, and every formula that tries feeds the
+  hold's own new position back into the reading that placed it. What ships is stable and converges in
+  one step — drag left and the leading edge tracks the pointer, drag right and the trailing edge
+  does, holding still never jitters — and it matches what dragging the camera marker always did.
+  FIXED IN PASSING: `MoveFreezeCameraToCanvasX` still used `(x / width) * durationSeconds`, a
+  SOURCE-LINEAR reading of an axis that has been OUTPUT time since TIME_02 — wrong every time it ran,
+  by however much the timeline was stretched to the left of the pointer, so dragging the camera
+  dropped the freeze somewhere the user had not pointed. That method is now deleted outright; the
+  marker feeds the same `FreezeDragMode` pipeline as the band's grips, because two code paths for
+  "where did the user drop the freeze" is exactly how two answers drift apart.
 
 6. CURRENT CORE LOGIC & FEATURES
 ------------------------------------------------------------------------------
@@ -589,7 +856,7 @@ which made this documented format wrong for half the suite. Keep them in lockste
 - Music Wizard & Audio (MusicWizardWindow.axaml.cs & MainWindow.axaml.cs): Audio waveform rendering, track synchronization, visual phase 3 preview, and persistent volume settings that remember user adjustments between sessions. MP3 background music directories are permanently remembered using native string-path Avalonia overloads (bypassing strict Windows URI formatting bugs). Music previews run concurrently through an isolated `MpvIpcClient` instance (replacing legacy ffplay.exe) which allows the main App Volume Slider to scale both video and music volumes smoothly, simultaneously, and proportionally without altering final FFmpeg exports.
 - Window Management & Persistence (WindowBoundsHelper.cs — `Track()`): The Avalonia UI strictly decouples window spawn locations from XAML (removing `WindowStartupLocation="CenterOwner"` from all secondary windows) to allow the native `WindowManager` to handle precise absolute positioning, size, and display screen persistence via the `Bounds.json` / `SessionState.json` cache located in `%APPDATA%\Roaming\FortniteVideoSoftware\Settings`. This ensures that every window remembers exactly where it was last opened, even between dual-monitor setups (falling back to the main display if the external monitor is disconnected). `WindowBoundsHelper.Track(window, key)` is wired into ALL 8 persisted windows (Main, Merger, Crop, Granular, Music Wizard, Voice Over, Settings, Preview Monitor): it loads saved bounds at construction, RE-APPLIES the position right after `Opened` (the per-monitor-DPI handshake can silently move a freshly shown window — this was the root cause of "windows keep resetting"), and saves continuously (700ms debounce) on every move/resize/state change so bounds survive crashes and force-kills, not only clean closes. Windows spanning multiple displays (e.g. 70% on display 1, 30% on display 2) are preserved exactly; bounds are only recentered when the window would be COMPLETELY off every connected screen.
 - Custom Title Bar Interactions: Standardized custom XAML title bars (`TitleBarBorder`) across all tools (Crop, Merge, Granular, Settings, Music) with explicit `DoubleTapped` event handlers that reliably toggle window maximization. Mouse drag events strictly require `e.ClickCount < 2` before invoking `BeginMoveDrag` to prevent the OS window manager from swallowing the double-click sequence. Borderless windows (FinishedDialog, DeploymentProgress) implement whole-background drag instead (see UI rules).
-- Granular Speed Editor (GranularSpeedEditorWindow.axaml.cs): Segmented timeline speed mapping. Window sizing/position is handled entirely by `WindowBoundsHelper.Track()` (no hardcoded default size in code): first open uses the OS default constrained by the `MinWidth=900`/`MinHeight=600` floor, and `WindowStartupLocation="Manual"` lets saved bounds rigidly enforce position memory across sessions. Features a highly optimized timeline engine with completely decoupled animations (e.g. pure XAML blinking "PICK FREEZE TIME" indicators and a decoupled `StrokeDashOffset` timer for marching ants). This prevents infinite layout passes, eradicates mouse hover jitter/stutter, and completely avoids redundant timeline canvas clearing loops. Control layout (current): the transport row is a 3-zone `Auto,*,Auto` grid — `FREEZE IMAGE` + its six duration presets (single horizontal row) on the LEFT, `MARK START`/Play/`MARK END` centered, and the `ZOOM-IN` button (renamed from `SET ZOOM`) on the RIGHT; `DELETE SEGMENT` (top) and `CLEAR ALL SEGMENTS` (bottom) are stacked at the bottom-right; the scrubber timeline now sits on a semi-transparent black backdrop (`AppOverlayBrush`) for tick-grid parity with the Main App. CRITICAL close fix: `OnClosing` now sets `_isSafeToClose=true` and reposts `Close` (like every sibling window) — previously it only cancelled the close and hid the window, so `ShowDialog` never returned and ALL granular edits (segments, freezes, zoom) were silently dropped at export; the editor's mpv preview host is now disposed on close instead of leaking.
+- Granular Speed Editor (GranularSpeedEditorWindow.axaml.cs): Segmented timeline speed mapping. Window sizing/position is handled entirely by `WindowBoundsHelper.Track()` (no hardcoded default size in code): first open uses the OS default constrained by the `MinWidth=900`/`MinHeight=600` floor, and `WindowStartupLocation="Manual"` lets saved bounds rigidly enforce position memory across sessions. Features a highly optimized timeline engine with completely decoupled animations (e.g. pure XAML blinking "PICK FREEZE TIME" indicators and a decoupled `StrokeDashOffset` timer for marching ants). This prevents infinite layout passes, eradicates mouse hover jitter/stutter, and completely avoids redundant timeline canvas clearing loops. Control layout (current, LAYOUT_01): the window is now FOUR rows, not five — the full-width "action ribbon" that held only the freeze cluster and one ZOOM-IN button was deleted and both clusters moved into the transport row, which had a centred group of three buttons and two empty flanks doing nothing. That reclaims a whole band of vertical space for the video preview, which is the one thing in this window that needs the height; DO NOT reintroduce a dedicated toolbar row. The transport row is a 3-zone `*,Auto,*` grid — `FREEZE IMAGE` + its six duration presets (TWO rows of three, on the same `SpeedPresetRows` spacing as the speed presets below so the two blocks read as siblings) on the LEFT, `MARK START`/Play/`MARK END` centered, and the `ZOOM-IN` button (renamed from `SET ZOOM`) on the RIGHT. ⚠️ THE FLANKS ARE `*`, NOT `Auto`: with Auto flanks the centre column absorbs the slack and the transport drifts off true centre by half the width difference between the two clusters — and the freeze cluster is far the wider. The standalone "DURATION" label was dropped to buy that width; the preset buttons are self-describing. `DELETE SEGMENT` (top) and `CLEAR ALL SEGMENTS` (bottom) are stacked at the bottom-right; the scrubber timeline now sits on a semi-transparent black backdrop (`AppOverlayBrush`) for tick-grid parity with the Main App. CRITICAL close fix: `OnClosing` now sets `_isSafeToClose=true` and reposts `Close` (like every sibling window) — previously it only cancelled the close and hid the window, so `ShowDialog` never returned and ALL granular edits (segments, freezes, zoom) were silently dropped at export; the editor's mpv preview host is now disposed on close instead of leaking.
   * Selected-Segment Edge Markers: When a speed segment is selected, Main-App-style grabbable START/END trim markers (24px hitbox, 3px SeaGreen stick, SizeWestEast cursor, hover highlight — `AddSegmentEdgeMarker`) render at its edges so the segment's total length AND position are directly editable. Marker drags route into the SAME drag pipeline as block-edge resizing (ResizeStart/ResizeEnd with canvas pointer capture), so the 1000ms neighbor gap, 200ms minimum width, RuntimeLog "settled" entries, status text, segment list refresh, live preview speed mapping, recovery persistence and FFmpeg export all share one code path.
   * Playhead-Follow Rule: On segment marker/edge drag release while PAUSED, the preview seeks to the edited edge (start for ResizeStart/Move, end for ResizeEnd). During playback, drags never interrupt.
 - Smart Text Overlays (TextOverlayGenerator.cs): SkiaSharp-based PNG generator for Mobile portrait videos. Dynamically calculates line wrapping, iteratively shrinks font sizes to fit within a strict 150px height, and includes an intelligent Bidirectional (BIDI) text tokenizer to correctly reverse Hebrew/RTL string blocks for LTR Skia rendering.
@@ -689,6 +956,148 @@ When the app is freshly installed and no config exists, the default upload video
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- AUDIO_02..07 — THE AUDIO CHAIN WAS INVERTING ITSELF. FULL SPEC NOW IN SECTION 5D.
+  Reported as "the gunshots sound swallowed into the music, almost the other way around". Four
+  separate faults compounded, and the export filter graph (now logged at INFO) proved each one:
+  * AUDIO_02a — THE GAME BUS SKIPPED NORMALISATION ENTIRELY WITHOUT A VOICE-OVER. The `else`
+    branch set `hasSecondPass = true` but never added the filter to the graph. That flag then told
+    the mixer "the game is already levelled, do not apply the fallback gain", while the music still
+    received its matching follow-gain. Proof in the graph: `[a_prepared_base]anull[a_main_raw]`,
+    no `loudnorm` anywhere, and `volume=1.6672` on the music. Game +0 dB, music +4.4 dB.
+    ⚠️ BOTH BRANCHES MUST APPLY THE SAME FILTER. A flag claiming work was done, without the work,
+    is worse than no flag.
+  * AUDIO_02b — THE TWO SIDES AIMED AT DIFFERENT TARGETS. Music follow-gain was computed against
+    -14 while the game's `loudnorm` targeted -23. On a -18.4 LUFS clip that is +4.4 dB on the music
+    and -4.6 dB on the game — roughly 9 dB apart, in OPPOSITE directions, every export.
+  * AUDIO_02c — THE MEASUREMENT PASS MEASURED AGAINST -23 and handed its `target_offset` to a
+    second pass declaring -14, skewing the one gain that was supposed to be exact.
+  * AUDIO_02d — VOICE-OVER AIMED AT THE PRE-BOOST LOUDNESS (`_loudnorm.InputI`), so on a quiet clip
+    it sat exactly as far under the gameplay as the boost the game was about to receive.
+  * AUDIO_02e — MEME AUDIO RECEIVED NOTHING. It is concatenated after the body and never passed
+    through the game bus, so on a quiet clip the body was lifted and the meme was not — arriving
+    jarringly loud at the very end. It is now shifted by the SAME dB (a relative shift, NOT a
+    normalisation, so it keeps its own character).
+  * AUDIO_03 — MUSIC IS NOW MEASURED. New `ProcessWorker.MeasureMusicBedGainsAsync` runs
+    `AudioLoudnessProbe` per track and normalises to `MusicBedLufs` (-20 LUFS), clamped +12/-24 dB,
+    BEFORE the user's slider. Previously music went in at whatever loudness its label mastered it
+    to — a commercial master (~-9 LUFS) against a -14 game bus meant "slider 1.0 vs slider 1.0"
+    actually started the music ~5 dB AHEAD, and every ducking parameter was tuned to claw that back.
+  * AUDIO_04 — DUCKER RETUNED: ratio 2.5 -> 8 (2.5:1 is a mix-glue setting, ~6 dB of reduction,
+    inaudible as a duck); detection `rms` -> `peak` (RMS AVERAGES, which is exactly wrong for the
+    short sharp cracks of gunfire); release 400 -> 800 ms (`sidechaincompress` has no hold
+    parameter, so the longer release stands in for one and stops the music surging back between
+    individual shots). attack stays 1 ms — that was already correct.
+  * AUDIO_05 — CARVING: two narrow notches (-5 dB @1500, -3 dB @3000, width 500 Hz = Q~3 and Q~6)
+    replaced by one honest scoop, `equalizer=f=2000:width_type=h:width=1800:g=-4`. The old pair were
+    too narrow to create real space yet applied PERMANENTLY, including through silence.
+  * AUDIO_06 — CROSSOVER 150 -> 250 Hz. Everything below the split is never ducked; at 150 Hz that
+    shelter covered the band where a gunshot's WEIGHT lives (~80-250 Hz), so the music's body kept
+    masking shots the treble had already made room for.
+  * AUDIO_07 — LIMITER -1.5 -> -1.0 dB. `loudnorm` already guarantees a -1.5 dBTP ceiling, so a
+    limiter at the SAME value could only ever act on material already handled.
+  ⚠️ TUNE IN THIS ORDER if it over-ducks: Ratio, then Release, then MusicBedLufs. Threshold LAST.
+- PREVIEW_01..03 — THE PREVIEW NOW MIRRORS THE EXPORT'S BALANCE (`MusicWizardWindow`,
+  `VoiceOverWindow`, `MainWindow`). Full spec in Section 5D.3.
+  * The preview had NO loudness handling of any kind — not one `af` call exists in the application.
+    Music played at its master's loudness, voice-over at unity, video raw. So tuning by ear never
+    transferred: the preview was not a quieter version of the export, it was a DIFFERENT BALANCE.
+  * PREVIEW_01: music measured and matched to `MusicBedLufs`, cached per file path, on both the
+    phase 1/2 audition path and the phase 3 preview.
+  * PREVIEW_02: each voice-over take measured and previewed at the level the export will give it.
+    Measurement is async and players are built on a timer tick, so the gain comes from a cache — an
+    unmeasured take previews at 1.0 (old behaviour) and corrects itself once the measurement lands.
+  * PREVIEW_03: the video is matched too, via a shared headroom offset. ⚠️ mpv's `volume` is a
+    0-100 PERCENTAGE and the common case is a quiet clip needing a BOOST — there is no room above
+    100. So the whole preview shifts DOWN by the boost the video was missing. Verified: the preview
+    gap matched the export gap to 0.00 dB across a quiet clip, an already-loud clip, and a very
+    quiet clip with a quiet track.
+  * `SourceMeasuredLufs` is measured ONCE by the Main App on upload and handed to both windows.
+    Do not re-measure inside them.
+  ⚠️ DUCKING AND CARVING REMAIN EXPORT-ONLY AND CANNOT BE SIMULATED — see 5D.0.
+- CROPCHK_01 — THE CROP-CONFIG CHECK HAD NEVER RUN, ON ANY EXPORT (`HudConfig.cs`).
+  `IsCurrentSpace` read `config["schema_version"]?.GetValue<long>()`, and System.Text.Json REFUSES
+  to widen an Int32 node to Int64 — `GetValue<T>` demands the exact stored type. The config stores
+  an Int32 (the "CROP CONFIG READY - schema=4" log line is that value), so it threw every time.
+  `HudConfig.Validate` threw with it, `VideoConfig.cs:74-77` caught it, logged at INFO and carried
+  on. Every export printed "Crop configuration check could not run" and nobody read it — so the
+  protection added specifically because a nonsense crop config once reached export unnoticed has
+  been dead since the day it was written. Now parsed off the raw text: Int32, Int64 and a quoted
+  "4" all work, and a malformed value degrades to 0 rather than throwing.
+  ⚠️ THE IDENTICAL TRAP WAS ALREADY FIXED ONCE in HardwareCapability (`GetValue<bool>`). Do not
+  reintroduce a typed `GetValue<T>` on a JSON number that other code writes.
+- TEMP_01/02 — JUNK LEFT ON THE USER'S DISK.
+  * TEMP_01 — EVERY EXPORT WITH A THUMBNAIL MARKER LEFT A .JPG IN THE OUTPUT FOLDER FOREVER
+    (`ProcessWorker.cs`). It was written to `outputDir` — Downloads, or wherever exports go — and
+    the only delete fired for a ZERO-BYTE file, i.e. the failure case. A successful thumbnail was
+    always kept. It now lands in the job's own `tempJobDir`, removed wholesale by the existing
+    cleanup, so it rides proven teardown rather than needing its own.
+    ⚠️ NOTHING IN THE APP READS THIS FILE. The marker's real effect is `IntroAbsTimeMs`, the frozen
+    frame at the head of the video. Do not send it back to `outputDir` thinking you are restoring
+    a lost feature.
+  * TEMP_02 — THE INSTALLER LEFT ONE DLL-FILLED FOLDER PER RUN (`Program.cs`), named
+    `FortniteVideoSoftware_SetupUI_<PID>`. ⚠️ IT CANNOT BE DELETED WHEN THE WORKER FINISHES, AND
+    THAT IS NOT AN OVERSIGHT: `SetDllDirectory` causes those DLLs to be LOADED into the running
+    process, and Windows holds a handle on every loaded module — a process cannot delete its own
+    DLLs while alive, in a finally block or anywhere else. The only moment they are unlocked is
+    after the owning process is gone, so the sweep runs at the START of the NEXT worker. A folder
+    whose PID belongs to a live process of the same executable is skipped (concurrent workers are
+    safe); PID reuse is covered by also matching the process name; anything still locked is retried
+    next run. Best-effort by design — it must never block or fail an installation.
+- LOG_01..05 — THE LOG IS NOW THE SOURCE OF TRUTH, NOT A SUMMARY OF IT.
+  * LOG_01 — full paths promoted from DEBUG to INFO: input video, EVERY music track, and the
+    destination. The completion line logged `Output: Fortnite-Video-1.mp4` — a bare filename — so
+    it was impossible to tell WHERE a file landed (Downloads, a custom folder, or the fallback
+    picked when the preferred one was unwritable).
+    ⚠️ THIS DELIBERATELY REVERSES AN EARLIER PRIVACY HARDENING (see the "Logging Hardening" entry
+    below, which demoted these to DEBUG). Production logs now contain real user paths — scrub
+    before posting one publicly.
+  * LOG_02 — THE FILTER GRAPH AT INFO. The "Executing Final Pipeline Command" line looks complete
+    but is not: the graph is passed as `-filter_complex_script <file>`, so the command shows only
+    a PATH, and that file dies with `tempJobDir`. Every filter that actually shaped the video and
+    audio was written to disk and destroyed.
+  * LOG_03 — STOP LYING AT SHUTDOWN. `Cancel()` also runs on normal app close, and logged
+    "Cancellation requested by user. Terminating FFmpeg process tree." unconditionally — so a
+    clean, successful export ended with a line claiming the user cancelled and FFmpeg was killed.
+    It now reports what actually happened. In a log meant to be the source of truth, a false
+    statement is worse than no statement.
+  * LOG_04 — THE NORMALISATION PLAN AND THE LIMITER STATE. The measurement line only reported what
+    was MEASURED, never the target, the resulting gain, or which streams move with it. A
+    "NORMALISATION PLAN" line now states all of it, and the limiter announces ON (with its ceiling)
+    or OFF — so silence is never ambiguous.
+  * LOG_05 — ONE FINAL, RUNNABLE COMMAND. A second line substitutes the filter script back inline
+    as `-filter_complex "..."`, producing a single copy/paste-reproducible command. The script
+    token is rebuilt using the same quoting rule `FormatForLog` uses, so it cannot silently stop
+    matching if the temp path ever contains a space; if there is no filter script it says so rather
+    than printing a misleading command.
+- DEAD CODE REMOVAL — 90 lines across 7 files, plus 2 junk paths. Eleven private methods whose
+  identifiers appeared EXACTLY ONCE across all `.cs` AND all 22 `.axaml` files (the `.axaml` sweep
+  is what rules out XAML event wiring): `SpeakerIcon_KeyDown`, `InitializeMpvInstanceAsync`,
+  `OpenVideoMerger` (MainWindow); `HandlePhase3SeekKeyDown`, `GetAudibleMusicDurationSeconds`
+  (MusicWizard); `CreateAppOverlayBrush`, `HasMuteSelection` (VoiceOver); `FormatSec`,
+  `FormatClockSec` (Granular); `RoundPixel` (CropTool); `Gcd` (CoordinateMath). Plus the empty
+  `D3D_FEATURE_LEVEL` placeholder struct in `GpuCapabilityProbe.cs`. Deleted `build.log` and the
+  orphaned root `obj/` (created by Build.cmd, no root .csproj exists).
+  ⚠️ TWO METHODS BECAME DEAD AS A RESULT and were deliberately LEFT: `SeekPhase3Relative`
+  (MusicWizard) and `GetAppColor` (VoiceOver) — all their callers were inside the removed blocks.
+  ⚠️ AUDIT METHOD NOTE: an absence claim requires a completed search. `FontScaleExtensions` and
+  `MobileFilterBuilderExtensions` were initially flagged and then CLEARED — their extension methods
+  are invoked as `.ToMultiplier()` and `.RegisterLayer()`, which never name the containing class.
+- BUILD.CMD NOW PUBLISHES THE RELEASE. On a successful build only, it replaces the one-and-only
+  GitHub release with what it just compiled. Seven probes, each printing [OK] or stopping with the
+  fix. Nothing is hardcoded: the repo comes from the local git remote via `gh repo view`, the tag
+  is `vYYYY.MM.DD` derived through PowerShell (NOT `%DATE%`, which is locale-dependent), and every
+  existing release is enumerated and deleted so "latest and only" stays true with no version
+  tracking.
+  ⚠️ STEP 7 VERIFIES BY HASH, NOT EXIT CODE. `gh release upload` reported success while the asset
+  attached was a two-day-old binary; the SHA256 of the local exe is now compared against the digest
+  GitHub reports back.
+  ⚠️ PAUSING HAPPENS ONLY IN THE OUTER INVOCATION — the inner run is piped through `Tee-Object`,
+  and a `pause` inside a pipe prompts into the pipe and looks like a hang. Exit codes carry the
+  verdict: 0 = fine, 1 = BUILD FAILED (nothing published, release untouched), 2 = build OK but
+  publish did not complete. `--no-publish` compiles and leaves GitHub alone.
+- README — the clone URL pointed at `alonreich/FortniteVideoSoftware.git`, which does not match the
+  remote (`Fortnite_Video_Software_C-`), so anyone following the build instructions got a 404. The
+  DOWNLOAD link on line 16 was already correct.
 - LEAK_01 — THE MAIN APP NEVER TORE DOWN ITS mpv / D3D11 / OpenGL PIPELINE (`MainWindow.axaml.cs`).
   It was the ONLY window that never disposed its `MpvVideoView`; Granular, Voice Over, the Merger
   and the Music Wizard all did. It mattered most here because this class leaves the process through
@@ -1341,6 +1750,15 @@ When the app is freshly installed and no config exists, the default upload video
 - UI/UX Stability & Bug Fixes: (1) Fixed Granular Speed Editor playhead snapping - clicking a segment no longer disrupts the playhead unless the block is dragged. (2) Relocated Granular zoom tutorial banner to Y:40 (out of the center focus) and reduced timer to 1.5s. (3) Re-engineered Main App and Granular Editor MARK START / MARK END logic to strictly control playback states: MARK START explicitly forces playback (pause: no), and MARK END explicitly forces a pause (pause: yes). (4) Fixed crash when dragging Granular Speed Segment end-markers rapidly by enforcing boundary `Math.Clamp` against `SegMinWidthMs`. (5) Silenced transient `0x80070057` COMException logging inside `MpvVideoView.cs` (D3D11 frame buffer switching noise) that flooded the logs. (6) Eliminated raw hardware `0xc0000005` Segfault Access Violations inside NVIDIA's OpenGL driver (`nvoglv64.dll`) upon Granular Speed Editor window close by rigorously enforcing proper unmanaged DLL teardown ordering (`mpv_terminate_destroy` must now fire to release the render context before `NativeLibrary.Free` unloads `opengl32.dll` from the Avalonia host). (7) Rewired FFmpeg graph order (`zoom filter` -> `setpts` -> `fps=targetFps`) to prevent the camera ramp from freezing the video or fighting the speed modifier. Also rigidly forced `fps=targetFps:round=near:start_time=0` on *all* non-zoomed video chunks before concatenation; anchoring `start_time=0` ensures the frame grids start at 0.0s, permanently resolving severe A/V micro-desyncs caused by the VFR decoder injecting negative timestamps. (8) FIXED FATAL 100% MEMORY EXHAUSTION CRASH: Eradicated the extremely buggy FFmpeg `zoompan` filter from the codebase entirely; it was secretly caching entire uncompressed videos to RAM. It has been replaced by a mathematically pure, zero-leak per-frame evaluator chain using `scale=eval=frame` combined with dynamic `crop` coordinates. (9) FIXED PORTRAIT ZOOM UI DRIFT: Re-mapped the portrait rubberband boundaries in `GranularSpeedEditorWindow` to use `(2.0 / 3.0)` logic, perfectly matching the 720px surviving horizontal width of the "Portrait Canvas Trick" backend math, eliminating all vertical drawing restriction bugs. (10) FIXED SLOW ZOOM OVER-ZOOM/CRASH: Updated the FFmpeg slow-zoom engine's scale ceiling mathematically to `Math.Min(1920/W, 1080/H)` identical to the instant-zoom's `force_original_aspect_ratio=decrease`, preventing 2.66x over-zooming. Pre-padded the source frame with 1920px of black space to allow dynamic pan-crops to the very edges of the screen safely without throwing FFmpeg out-of-bounds `crop` crashes. (11) FIXED SEVERE FFmpeg IMPLICIT SPLIT A/V DESYNC: when no speed segments were used, the exact same `[v_with_intro]` stream was passed to `MobileFilterBuilder` as both the background canvas and the HUD-overlay cutout source, causing FFmpeg to perform an implicit stream split. Because the background path was heavy (`scale=1280... flags=lanczos`) and the HUD path was light, FFmpeg's internal buffer panicked and permanently dropped the first ~60 frames (1 full second) of the background video to conserve memory. This skipped the 1-second `fade=t=in` sequence (causing the video to pop in fully bright) and permanently destroyed 1 second of video frames, throwing the entire rest of the video out of sync with the audio track by 1 second. FIXED by manually injecting a `split=2` filter to explicitly clone the stream before `MobileFilterBuilder` receives it, forcing FFmpeg to cleanly duplicate the buffers in lockstep without dropping frames. (12) FIXED HUD ELEMENT FADE DESYNC: HUD cutout overlays were previously bypassing both the thumbnail-intro and the video fade-in passes because the `gVHud` source bypassed the `fade` filter graph block. The engine now detects `gVHud` and symmetrically applies the exact same `fade` sequences and exact same 0.1s source-frame intro prepend to it. Both streams now arrive at `MobileFilterBuilder` perfectly synchronized, so the HUD elements fade in perfectly with the main video instead of popping in instantly over black.
 - UX/UI Architecture & Accessibility Resolution (13 Critical/High/Med/Low Fixes): (01) Wizard step indicator classes (`WizDot*`, `WizLabel*`, `WizIcon*`) promoted from local `CropToolWindow` styles to global `AvaloniaApp.axaml` styles and applied across `MusicWizardWindow` for uniform theme adaptive contrast. (02) Video Merger UI status text layouts (`EstimatedSizeText`, `NormalizeInfoText`) updated with explicit margin spacing and text wrapping to prevent label overlaps on long descriptions. (03) Wide-screen layout constraints removed from `VideoMergerWindow` preview containers via unconstrained `HorizontalAlignment="Stretch"` and `VerticalAlignment="Stretch"`. (04) Standard button dimensions (`MinHeight="{DynamicResource AppButtonMinHeight}"`) enforced across Merger queue operation controls (`AddVideoButton`, `AddMusicButton`, `RemoveVideoButton`). (05) Finish dialog (`FinishedDialogWindow`) action buttons upgraded with assistive `ToolTip.Tip`, `Cursor="Hand"`, and screen-reader `AutomationProperties.Name` metadata. (06 & 07) Comprehensive assistive tab navigation and accessibility descriptions (`KeyboardNavigation.IsTabStop="True"`, `AutomationProperties.Name`) added to timeline scrub sliders and seek surfaces in `VideoMergerWindow` and `CropToolWindow`. (08) Eliminated window resizing layout stutter in `CropToolWindow` by assigning explicit `HorizontalAlignment="Center"` and `VerticalAlignment="Center"` to the composer `Viewbox` container. (09 & 10) Enforced OS High-Contrast accessibility style focus overrides (`:focus-visible` border brush) within `AvaloniaApp.axaml`. (11) Fixed Main App playhead caret scaling hover/drag state by explicitly wiring `TimelineKnob` to `TimelineOverlay` instead of the starved canvas. (12 & 13) Forced `ClipToBounds="False"` across all slider parent containers in `MainWindow` and `MusicWizardWindow` to explicitly prevent scaled thumb visual cutoff near 0%/100% boundary extremes.
 - UX/UI Structural Audit Fixes (Round 4, 6 issues): (01) CPU Fallback Render Obscuration: replaced the opaque "IsSoftwareFallbackActive" overlay in `MainWindow.axaml` with a non-obstructive warning badge so the CPU preview remains visible. (02) Hardcoded Mockup Fragmentation: replaced the redundant, hardcoded phone shells in `CropToolWindow.axaml` with the central `PhoneFrameMockup` control. (03) Flyout Thrashing: removed unreliable `Flyout` controls in `CropToolWindow.axaml` and replaced them with inline `StackPanel` visibility toggles. (04) MVVM Refactoring: removed phantom bindings and updated manual `INotifyPropertyChanged` properties to native `StyledProperty<T>`. (05) PhoneFrameMockup Host-Clipping Paradox (WARNING TO FUTURE AI): The fake mobile frame in `PhoneFrameMockup.axaml` MUST use `Height="1080"` for its inner grid. If you attempt to make it 1280 units high to "perfectly overflow" the top/bottom bezels outside the 1080 video bounds (as the geometry math seems to suggest), the Avalonia host `MainVideoGrid` (which enforces `ClipToBounds="True"`) will brutally clip the overhanging 100-unit bezels. This completely deletes both the fake mobile graphics and the generated portrait text overlay from the screen. The bezels and text MUST be drawn inside the visible 1080 area to survive the host clipping pass. (06) Zoom FFmpeg Crash Fix: forced `"0.000000"` decimal precision on filter graph calculations in `GranularSpeedBuilder.cs` to prevent scientific notation from breaking FFmpeg parses on extremely tiny sub-pixel values.
+- TIME_01 — Single Source of Truth For Output Time (`OutputTimeline.cs`, NEW in `FortniteVideoSoftware.Core/Media/`): the source<->output time mathematics was hand-written in THREE places (`GranularSpeedBuilder.CreateTimeMapper`, `GranularSpeedBuilder.Build`'s local `TimeMapper`, and `MusicWizardWindow.MapPhase3OutputToSourceRelativeSeconds`) and had DRIFTED. The Music Wizard's copy advanced its cursor past a freeze (`cursor = Math.Max(cursor, segEnd)`), treating a held frame as REPLACING the footage underneath it, while the exported graph inserts the held frame and then carries on playing from the same spot (`sourceCursor = fStart`). Consequence, measured against the export as ground truth: a single 3-second freeze made the finished video 63.000s while the Wizard reported 60.000s; at base speed 2x, 33.000s reported as 31.500s; slow-motion always agreed, ONLY freezes diverged — so music was positioned against a length the finished video never had. All three now delegate to `OutputTimeline`, which owns source->output, output->source, total output duration and (for the planned meme work) insertions. VERIFICATION: the new chunk construction and forward map were diffed statement-by-statement against the original `CreateTimeMapper` after undoing renames — 51 vs 51 normalised statements, ZERO algorithmic difference, so every `CreateTimeMapper` consumer is bit-identical; the NEW inverse was exercised at 54,000 sample points across 9 scenarios (worst round-trip error outside freezes 0.000000000s, correct frozen instant returned inside every freeze, playhead never runs backwards). The Music Wizard's numbers change DELIBERATELY, by exactly the amounts above. `Build`'s chunk list is additionally subdivided at zoom-phase boundaries, which provably cannot change the mapping: splitting (a,b,speed) into (a,m,speed)+(m,b,speed) sums to the identical output length and freeze chunks are never subdivided by a zoom. See Section 5E.
+- TIME_02 — Granular Speed Editor Ruler Now Shows FINISHED-VIDEO Time: all 12 source->pixel conversions in `GranularSpeedEditorWindow.axaml.cs` (segment blocks, zoom lollipops, freeze camera marker, create-drag ghost, MARK START/END pending lines, drag preview, both canvas hit-tests, the shared ruler's SeekRequested, and `UpdateCaret`) now route through new `SrcMsToX()`/`XToSrcMs()` helpers backed by a cached `OutputTimeline`. A 1.5s freeze adds 1.5s to the ruler and slow motion stretches it, matching the exported file. THREE TRAPS RECORDED IN SECTION 5E: (1) the editor keeps its freeze OUTSIDE `_segments` so the timeline must synthesise it or be blind to it; (2) `_segments` are TRIM-RELATIVE while `_freezeTimeMs` is ABSOLUTE; (3) the freeze marker must be drawn at `SrcMsToX(f) - holdPx` because the forward map already contains the hold. The film-frame lane was ALSO converted: `RelayoutFrameLane()` places one clipping slot per timeline chunk at its output position, scaling and offsetting the source-linear strip inside each slot, so frames stay under their blocks through slow motion and a freeze shows the held frame stretched across the hold (with a safe fallback to the plain stretched strip, and the decoded bitmap now disposed in `DeleteThumbStrip`).
+- MEME_05 — N-Way Meme Concat In The Export (`ProcessWorker.cs`): the export graph could splice in exactly ONE meme, and only at the very end or — via the fixed 3-way split added by MEME_02 — immediately after the frozen thumbnail head. It now splices ANY NUMBER of memes at ANY moment. The single-meme scalars (`memeDuration`, `memeIsImage`, `memeHasAudio`, `memeLoudnessGainDb`, `memeLoudnessMeasured`, `memeInputIndex`) are replaced by a list of `ResolvedMeme`, each carrying its own probed duration, its own MEME_01 loudness measurement (N memes = N independent measurements; the shipped set spans 15.9 dB), its own FFmpeg input and its own `[<id>_v]`/`[<id>_a]` labels; only the SUM survives as a scalar, and it drives the bitrate budget, the disk estimate and the `-t` ceiling. `MemePlacements` is authoritative when non-empty, otherwise the legacy `MemeFile`+`MemeAtStart` pair is projected into one placement that keeps the id "meme" so the emitted labels are unchanged. THE CUT TIME IS THE WHOLE FEATURE: `AtSourceSecRelative` is clip-relative SOURCE time while the stream being cut (`[v_render_out]`) has already had speed, freezes and the thumbnail intro applied but NOT the memes, so the cut is `introDurationSec + granularTimeMapper(StartTimeMs/1000 + AtSourceSecRelative)` — the mapper being `OutputTimeline.SourceToOutput` built WITHOUT insertions, the same one the voice-over positions use. Feeding it a timeline that already knows the memes would make every meme after the first drift later by the sum of the ones before it; omitting the `introDurationSec` term would put a meme placed at 0 IN FRONT of the frozen thumbnail head and hand WhatsApp a black share thumbnail, the exact bug MEME_02 exists to prevent (the lower clamp is `introDurationSec` for the same reason). Cuts are SNAPPED TO THE FRAME GRID (`round(t*fps)/fps`) because `trim` cuts only on frame boundaries while `atrim` is sample-accurate — at 60fps/48kHz a frame is exactly 800 samples, so a snapped seam is exact on both sides instead of drifting up to half a frame per seam; this is stricter than the shipped 3-way split and must not be removed. N interior cuts produce N+1 explicit `split`/`asplit` branches (never an implicit split — see the implicit-split A/V desync entry above) trimmed into disjoint pieces, and the memes are interleaved as ADJACENT `[v][a]` pairs because concat reads positionally. Cuts closer than 0.05s merge onto the earlier one so no piece is ever empty (an empty trim makes the graph fail to configure). VERIFIED by simulating the emitter: all four shipped legacy forms are reproduced exactly (only label names differ, so output bytes cannot change), 3 memes at 0/30s/end give 3 pieces and `concat=n=6`, 10 mid-video memes give 11 pieces and `concat=n=21`. COMPILES CLEAN (`FortniteVideoSoftware.Core` built successfully this session); NOT YET EXPORTED — see MEME_TIMELINE_PLAN.txt for the five verification items still owed, all of which need a real render on Windows. VOICE-OVER PLACEMENT IS FIXED HERE RATHER THAN DEFERRED, because MEME_05 is what makes mid-video memes reachable: on the ordinary path the voice is mixed into the body audio BEFORE the concat, so the atrim at each meme seam cuts it too and decision D5 falls out for free (a take straddling a meme splits and RESUMES; a take after one slides later intact). On the `KeepMusicDuringMeme` path the voice is mixed AFTER the concat, onto a stream whose t=0 is the thumbnail intro and which already contains every meme, while the `adelay` was still in the body clock — every take was early by the intro AND by the total length of every meme before it (invisible while memes only ever sat at the end, seconds out of place with one mid-video). The delay now adds `introDurationSec + MemeTimeInsertedBefore(...)`, the latter summing every meme whose cut is at or before that instant (inclusive: a meme on that exact instant plays before it). The ducking pulse deliberately KEEPS the body clock — it acts on the pre-intro, pre-meme `aPreparedPad`, and matching it to the delay would move the duck off the voice. This is why the cut times, piece boundaries and slots are computed immediately after `renderDurationSec` and not at the concat that consumes them; moving them back down reintroduces the defect. A follow-up audit found the same class of defect in four more places, ALL FIXED HERE: (a) the THUMBNAIL GRAB seeks the finished file but computed its target in the pre-meme clock, so with a mid-video meme it grabbed a frame OF THE MEME instead of the chosen gameplay; (b) MUSIC START DELAY on the KeepMusicDuringMeme path had its `Duration` extended but its `TimelineStartDelay` left in the body clock (`Duration` is deliberately left long — AudioFilterChain sequences tracks with `accumProjectSec += Duration` AND adds the delay on top, so trimming it would drag every later track's start); (c) the CLOSING FADE PAD was zeroed whenever any meme existed, which is wrong once the gameplay can still be last — now dropped only when a meme actually ends the video, which DELIBERATELY changes the legacy `MemeAtStart` case (it zeroed the pad even though the meme played first, so such an export now regains its closing fade — the one respect in which a legacy payload is no longer byte-identical); (d) the MUSIC TAIL FADE was sized by `memes[^1]`, which after the sort-by-cut-position can be a clip playing in the MIDDLE — now only when that meme occupies the trailing slot. The shared helper `MemeTimeInsertedBefore(t, landsAfter)` carries a two-answer boundary rule: a voice-over take and the thumbnail frame are locked to a moment of GAMEPLAY that resumes AFTER a meme on that instant (`true`), while music on the KeepMusicDuringMeme path is meant to play THROUGH memes (`false`) — inverting it would make a track with start delay 0 begin after a leading meme, silence over the very meme the flag exists to keep music under. A meme's `fade=t=out` is now applied ONLY where something exists to fade into — a TRAILING meme (fading to black is the ending) or a LEADING one (the gameplay behind it opens with its own `fade=t=in` over the lead-in pad, so the two form one transition); an INTERIOR meme hard-cuts on both sides, because gameplay resumes mid-render with no fade-in and a fade to black would be followed by a hard cut OUT of black. Both legacy placements are either trailing or leading, so both shipped forms keep their fade unchanged and the rule only fires on a placement the old code could not express (owner's decision, 2026-08-16, as is keeping the (c) fade-pad correction). STILL OPEN BY CHOICE: the intro offset on the KeepMusicDuringMeme path for MUSIC only — pre-existing, one frame, and moving it moves the tail fade the Music Wizard's markers were tuned against, so it is a Wizard decision. NOT REACHABLE FROM THE UI YET: nothing populates `ExportPayload.MemePlacements`, so every export still takes the legacy branch. MEME_06 must also fix the meme-blind `OutputTimeline.Create` calls in MusicWizardWindow (phase-3 duration + output->source map) and GranularSpeedEditorWindow (`OutTimeline`), which will otherwise reproduce the F1/TIME_02 short-ruler bug for memes; fold `MainWindow.CalculateEffectiveDurationMs` (a FOURTH hand-written copy of the output-time maths that TIME_01 missed, and the source of the quality/bitrate estimate) into `OutputTimeline`; teach crash recovery to persist placements — today a session whose only edit is N placements evaluates `hasWork == false` and DELETES the recovery file; and rename the unrelated `App.Infrastructure.MemePlacement` Start/End enum, which now collides by simple name with `Core.Media.MemePlacement`.
+- LAYOUT_01 — Granular Editor Reclaims A Whole Band Of Vertical Space (`GranularSpeedEditorWindow.axaml`): the left column dropped from five rows to four. The full-width "action ribbon" (old Row 1) carried exactly two things — the freeze cluster on the left and one ZOOM-IN button on the right — while the transport row below it had a centred group of three buttons and two wide empty flanks. The ribbon is deleted and both clusters moved into those flanks, so the video preview gains the entire band. The transport row is now `ColumnDefinitions="*, Auto, *"`; ⚠️ the flanks are `*` and NOT `Auto`, because with Auto flanks the centre column absorbs the slack and MARK START/Play/MARK END drift off true centre by half the width difference between the two clusters (the freeze cluster is far the wider). The six freeze-duration presets were folded from one row of six into TWO ROWS OF THREE on the same `SpeedPresetRows` spacing as the speed presets directly below, so the two blocks read as siblings rather than two unrelated widgets; the standalone "DURATION" label was dropped to buy the width (the buttons are self-describing). No control was removed or renamed, so every code-behind `FindControl` lookup is unchanged.
+- FREEZE_VIS — A Held Span Now LOOKS Held (`GranularSpeedEditorWindow.axaml.cs`, `DecorateFrozenSpan`): TIME_02/F4 already stretched the frozen frame across the whole hold, which is literally what the exported file shows — and that is exactly why it was unreadable: a stretched frame looks like ordinary slow footage or a rendering glitch, and nothing said "time is stopped here". Four cues, each doing a different job because one alone is ambiguous: (1) a cool blue WASH in the same blue as the freeze block, so the upper lane and the thumbnail lane read as ONE object spanning both rather than a marker plus some odd footage; (2) diagonal HATCHING, the universal "this region is not normal content" cue, which also survives where colour alone does not — over a blue-ish frame, over a blown-out white one, and for a colour-blind user; (3) solid POSTS at both ends, because the wash says "something here" while the posts say exactly WHERE it starts and stops, which is the question being asked of a timeline; (4) a centred ❄ FROZEN <n>s pill, DROPPED rather than clipped when the span is narrow (a clipped half-word reads as a rendering fault). The pill's width is ESTIMATED, not `Measure()`d — the upper-lane call site runs inside `RedrawTimeline`, which has no try/catch, and a throw there would take the whole timeline redraw with it for the sake of a decoration. Everything added is `IsHitTestVisible = false` so the lane's own pointer pipeline (block move, edge resize, drag-to-create) is untouched. The upper lane additionally gets 4px edge posts with grab notches (`withGrips`), because a span you can drag by its edges has to LOOK like one.
+- FREEZE_CARET / FREEZE_ARM — The Freeze Plays Consistently And The Caret Crosses It (`GranularSpeedEditorWindow.axaml.cs`): two separate defects, both in Section 5E in full. (1) The caret leapt the frozen seconds in one step and then sat still for the duration, because `SourceToOutput` of the freeze instant already includes the whole hold and the source clock does not move while mpv is parked on one frame; `_holdCaretOutSec` now supplies the output position directly and the caret walks the hold in real time. Clicking INSIDE a frozen span also used to kick the caret to the span's right edge; where the user clicked is now the answer. (2) The freeze played on the first pass and then sometimes not again, because the re-trigger guard was a DISTANCE test (`> 500ms` from the last trigger point) being asked to do an ARMING job — on the second pass the playhead crosses the mark at a distance of ~0, so the guard suppressed the hold, and whether it fired depended on how far the tick happened to overshoot. Replaced by `_freezeArmed`, which asks "have we approached the mark from behind it since it last fired?" — one answer, the same every pass, self-re-arming on rewind/seek/replay. The crossing test now also accepts a previous tick AT the mark, because clicking the freeze marker parks the preview exactly there and a strict `<` meant pressing Play while sitting on the freeze silently skipped it.
+- MARKER_01 — Floating Marker Layer On The Shared Timeline (`Controls/TimelineLanesControl.axaml/.cs`, NEW `MarkerOverlayHost`): a Canvas spanning all three rows at ZIndex 150 — above both seek surfaces (100) so markers take the click, below the caret (200) so grabbing the playhead still wins. ⚠️ IT HAS TO LIVE IN THE CONTROL, NOT IN A LANE: Avalonia's ZIndex orders SIBLINGS only, so a marker parented inside `LaneABorder` can never rise above the seek surfaces however high its own ZIndex — drawn in a lane, its head was swallowed by the ruler's seek surface the instant it poked out, which to the user is not a z-order subtlety but a marker that cannot be grabbed. It has NO Background on purpose (an empty Canvas is not hit-testable, so ordinary clicks fall through to the seek surfaces); giving it one makes the entire timeline unclickable in a single stroke. Its origin is the TOP OF THE RULER, so a marker that floats above the timeline uses a NEGATIVE `Canvas.Top`. The Granular freeze markers are its first consumers; Music Wizard phase 3 inherits the layer for free.
+- FREEZE_DRAG — The Frozen Segment Is Draggable And Resizable Like Any Other Block (`GranularSpeedEditorWindow.axaml.cs`): previously the hold could only be nudged whole by its camera marker and its duration could only be set by picking one of six preset buttons — the one element that actually LENGTHENS the finished video was the only one on the lane with no editable extent. It now answers to the same three gestures as every speed block beside it (edge grips resize, body moves, three-zone hit resolution capped at a third of the span exactly as HITBOX_01 does), resolved BEFORE the blocks because the band is drawn on top of whatever block it sits in and would otherwise be unreachable there. Bounds 0.2s–10s. The maths runs on a FREEZE-FREE `BaseTimeline()` — full rationale and the two frames of reference are in Section 5E — and simulation confirms all three gestures: the end follows the pointer on ResizeEnd, the end stays pinned on ResizeStart, and a body move converges in one step with no jitter across repeated events. FIXED IN PASSING: `MoveFreezeCameraToCanvasX` still carried a pre-TIME_02 source-linear pixel mapping, wrong on every clip with a speed segment; it is deleted and the marker now feeds the same pipeline as the grips. BACKEND CHAIN VERIFIED END TO END, unchanged and already correct: `ResultFreezeTimeMs`/`ResultFreezeDurationS` -> `MainWindow._freezeTimeMs`/`_freezeDurationS` -> `BuildExportSpeedSegments()` synthesises `SpeedSegment(t, t + durationS*1000, 0.0)` -> `ExportPayload.SpeedSegments` -> `ProcessWorker` -> `GranularSpeedBuilder`, so an arbitrary dragged duration reaches FFmpeg unrounded (the only loss is `(int)` sub-millisecond truncation). Every drag also ends with a seek to the new mark, so the preview and the export agree.
+- FOCUS_01 — Exclusive Selection Focus On The Granular Timeline (`GranularSpeedEditorWindow.axaml.cs`): the hold now carries TWO popsicle markers, one per edge — a span with one handle is a span whose extent can only be guessed at — and grabbing either resizes from that end, matching the band's own edge grips directly beneath them (the band's BODY still moves the whole freeze). Focus is EXCLUSIVE across the timeline: one object at a time, released by Esc, by a right-click anywhere, or by selecting something else, all three routed through one `ClearTimelineSelection()` so they cannot drift apart. The right-click handler is a TUNNEL handler — on the way up, any handler marking the event handled would eat it and "anywhere" would quietly become "anywhere except the controls that matter" — and Esc is swallowed ONLY when something is actually selected. Marching ants now crawl for as long as a marker holds focus (`_freezeMarkerAnts`); they previously animated only WHILE DRAGGING, so a selected-but-still marker showed a static dashed outline, which reads as a border rather than as focus. With the END marker focused the arrow keys trim the hold a frame at a time instead of sliding the whole freeze. ALSO FIXED: a block swept out with the rubber band is now SELECTED on release. It previously came back unselected, so the very next thing the user wanted to do to it — set a speed, add a zoom, delete it — needed a second separate click on the thing they were already pointing at, which reads as the drag having half-failed. ⚠️ The new index is resolved by SEARCH, not `_segments.Count - 1`: `AddPendingSegment` SORTS after inserting, so a block drawn to the LEFT of an existing one is not last and the naive index would select the wrong block, which is worse than selecting none. Retired in the same pass: `_isDraggingFreezeCamera` (a second copy of `_freezeDragMode != None` that could only fall out of step with it) and the two `_freezeCamera*AntsRef` fields (there are two markers now).
 ==============================================================================
 
 10. ENHANCED MEME SYSTEM & HARDWARE GUARDRAILS

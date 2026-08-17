@@ -45,7 +45,8 @@ public class MainMediaController
 
                 if (success)
                 {
-                    RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {Path.GetFileName(message)}");
+                    // LOG_01: full path, not just the file name — see ProcessWorker's completion line.
+                    RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
                     tcs.TrySetResult(new ExportResult { Success = true, OutputPath = message, Warning = worker.CompletionWarning });
                 }
                 else
@@ -89,6 +90,11 @@ public class MainMediaController
             worker.ShowTeammates = payload.ShowTeammates;
             worker.ShowSpectating = payload.ShowSpectating;
             worker.MemeFile = payload.MemeFile;
+            worker.MemeAtStart = payload.MemeAtStart;   // MEME_02
+            // MEME_03: the list wins when present; the legacy pair above is the fallback for
+            // payloads (including crash-recovery state) written before multi-meme support.
+            if (payload.MemePlacements != null && payload.MemePlacements.Count > 0)
+                worker.MemePlacements = payload.MemePlacements;
             worker.PortraitText = payload.PortraitText;
             
             worker.QualityLevel = payload.QualityLevel;

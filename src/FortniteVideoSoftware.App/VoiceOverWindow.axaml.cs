@@ -104,10 +104,18 @@ public partial class VoiceOverWindow : Window
         public NAudio.Wave.WaveOutEvent Player { get; }
         public VoiceOverSession Session { get; }
 
-        public PreviewPlayer(VoiceOverSession session)
+        public PreviewPlayer(VoiceOverSession session, float previewGain = 1.0f)
         {
             Session = session;
             Reader = new NAudio.Wave.AudioFileReader(session.WavPath);
+
+            // PREVIEW_02: the export normalises every take to the game bus target, but this
+            // preview used to play the raw recording at unity. A take recorded quietly sounded
+            // buried here and then arrived correct in the export — or the reverse — so judging
+            // "is my voice loud enough?" from this window was guesswork. previewGain carries the
+            // same correction the exporter will apply. 1.0 means "unmeasured", i.e. old behaviour.
+            Reader.Volume = previewGain;
+
             Player = new NAudio.Wave.WaveOutEvent();
             Player.Init(Reader);
         }
@@ -119,6 +127,92 @@ public partial class VoiceOverWindow : Window
         }
     }
     private List<PreviewPlayer> _previewPlayers = new();
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // PREVIEW_02 — PREVIEW EACH TAKE AT THE LEVEL THE EXPORT WILL GIVE IT.
+    //
+    // The exporter normalises voice-over to the game bus target (AudioLoudnessProbe.TargetLufs)
+    // so the voice sits with the gameplay. This window played the raw .wav at unity gain, so a
+    // quietly-recorded take sounded too soft here and came out fine in the file — and a shouted
+    // one sounded fine here and came out hot. The user was being asked "is this level right?"
+    // against a level that was never going to ship.
+    //
+    // Measurement is asynchronous and players are created on a timer tick, so the gain is looked
+    // up from a cache that is filled in the background. An unmeasured take previews at 1.0 —
+    // exactly the old behaviour — and corrects itself once the measurement lands.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    private readonly Dictionary<string, float> _takePreviewGain = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _takeGainPending = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// PREVIEW_03 — the clip's measured loudness, supplied by the Main App.
+    ///
+    /// The export lifts the game bus to TargetLufs and aims the voice at the same figure, so the
+    /// two land together. This window plays the video RAW through mpv, so without this the voice
+    /// would be normalised against a game that had not moved — the voice would sound too loud here
+    /// by exactly the boost the export was going to apply, and the user would turn it down to
+    /// compensate for a problem that only exists in the preview.
+    ///
+    /// The offset shifts the VOICE down by whatever boost the video is missing, reproducing the
+    /// export's relationship. NAudio has no 0-100 ceiling, but going DOWN is still the right
+    /// direction: it keeps the preview honest without ever amplifying a noisy take.
+    /// </summary>
+    public double? SourceMeasuredLufs { get; set; }
+
+    private double VoicePreviewOffsetDb =>
+        SourceMeasuredLufs.HasValue
+            ? -Math.Max(0.0, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value)
+            : 0.0;
+
+    private float GetTakePreviewGain(VoiceOverSession session)
+    {
+        string path = session.WavPath;
+        if (string.IsNullOrWhiteSpace(path)) return 1.0f;
+        if (_takePreviewGain.TryGetValue(path, out float cached)) return cached;
+
+        if (_takeGainPending.Add(path))
+            _ = MeasureTakeGainAsync(path);
+
+        return 1.0f;   // until the measurement lands
+    }
+
+    private async Task MeasureTakeGainAsync(string wavPath)
+    {
+        try
+        {
+            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
+                .MeasureAsync(ResolveBinaryPath("ffmpeg.exe", "backend"), wavPath).ConfigureAwait(true);
+
+            float gain = 1.0f;
+            if (reading != null)
+            {
+                // Same target the exporter aims the voice at, clamped so a near-silent take cannot
+                // be amplified into a wall of hiss.
+                double db = Math.Clamp(
+                    FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - reading.IntegratedLufs,
+                    -24.0, 12.0);
+                db += VoicePreviewOffsetDb;   // PREVIEW_03: match the un-boosted preview video
+                gain = (float)Math.Pow(10, db / 20.0);
+                CoreLogger.Info("VoiceOver",
+                    $"Preview take '{System.IO.Path.GetFileName(wavPath)}' measured {reading.IntegratedLufs:F2} LUFS -> " +
+                    $"{db:+0.00;-0.00} dB applied so it previews at export level.");
+            }
+
+            _takePreviewGain[wavPath] = gain;
+
+            // Rebuild on the next tick so the new gain is actually heard.
+            StopPreviewPlayers();
+        }
+        catch (Exception ex)
+        {
+            _takePreviewGain[wavPath] = 1.0f;
+            CoreLogger.Info("VoiceOver", $"Preview take level could not be matched: {ex.Message}");
+        }
+        finally
+        {
+            _takeGainPending.Remove(wavPath);
+        }
+    }
 
     private Button? _micRecordButton;
     private Button? _playPauseButton;
@@ -338,7 +432,7 @@ public partial class VoiceOverWindow : Window
             {
                 if (System.IO.File.Exists(session.WavPath))
                 {
-                    try { _previewPlayers.Add(new PreviewPlayer(session)); } catch {}
+                    try { _previewPlayers.Add(new PreviewPlayer(session, GetTakePreviewGain(session))); } catch {}
                 }
             }
         }

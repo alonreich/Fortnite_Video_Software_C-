@@ -94,6 +94,30 @@ public static class AudioLoudnessProbe
     public const double PeakCeilingDbtp = -1.5;
 
     /// <summary>
+    /// AUDIO_03 — where BACKGROUND MUSIC should sit, in LUFS.
+    ///
+    /// ⚠️ THIS EXISTS BECAUSE MUSIC WAS NEVER MEASURED AT ALL. Gameplay is normalised to
+    /// <see cref="TargetLufs"/>, but a music file went in exactly as its label mastered it — and
+    /// commercial masters are LOUD, typically -8 to -10 LUFS. So with both sliders at 1.0, which
+    /// the user reasonably reads as "equal", the music actually arrived roughly 5 dB HOTTER than
+    /// the gameplay before ducking or carving got a chance to act. Every ducking parameter in the
+    /// chain was then being tuned to claw back a head start it should never have had.
+    ///
+    /// -20 LUFS puts music about 6 LU under the -14 game bus, which is the usual bed level for
+    /// music sitting beneath speech or action. The user's music slider is applied ON TOP of this,
+    /// so 1.0 now genuinely means "as loud as a background bed should be" instead of "however
+    /// loud this particular record happens to be".
+    /// </summary>
+    public const double MusicBedLufs = -20.0;
+
+    /// <summary>
+    /// Safety rail for the music match. A very quiet or badly-tagged file could otherwise ask for
+    /// a huge boost that turns its noise floor into a hiss bed, so the correction is clamped.
+    /// </summary>
+    public const double MaxMusicGainDb = 12.0;
+    public const double MinMusicGainDb = -24.0;
+
+    /// <summary>
     /// How far from <see cref="TargetLufs"/> a file may sit before the user is warned.
     ///
     /// Chosen deliberately: at +/-1 LU almost every gameplay capture trips the warning and the

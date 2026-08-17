@@ -67,6 +67,27 @@
                     ZIndex="100" IsVisible="False"
                     AutomationProperties.Name="Seek using the lower lane"/>
 
+            <!-- MARKER_01 — FLOATING MARKER LAYER.
+                 For markers that must sit ON TOP OF the timeline rather than inside a lane: a
+                 "popsicle" camera head above the ruler with its stick dropping down through the
+                 lanes, exactly like the thumbnail mark on the Main App's timeline.
+
+                 ⚠️ IT HAS TO LIVE HERE, NOT IN A LANE. Avalonia's ZIndex only orders SIBLINGS, so a
+                 marker parented inside LaneABorder can never rise above the seek surfaces at
+                 ZIndex 100 however high its own ZIndex is — its whole lane sits below them. Drawn
+                 in a lane, a marker had its head swallowed by the ruler's seek surface the instant
+                 it poked up out of that lane. To the user that is not a z-order subtlety, it is a
+                 marker that cannot be grabbed.
+
+                 150 is deliberate: above both seek surfaces so a marker takes the click, below the
+                 caret at 200 so grabbing the playhead still wins.
+
+                 NO Background on purpose — an empty Canvas is not hit-testable, so ordinary clicks
+                 fall straight through to the seek surfaces underneath and only real marker children
+                 take input. ClipToBounds=False lets a head float above row 0. -->
+            <Canvas Grid.Row="0" Grid.RowSpan="3" Name="MarkerOverlayCanvas"
+                    ZIndex="150" ClipToBounds="False"/>
+
             <!-- Caret: a wide invisible grab column carrying a thin visible line, plus the time
                  badge. Spans all three rows so the ruler, both lanes and the playhead always agree. -->
             <Panel Grid.Row="0" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"

@@ -27,6 +27,15 @@ public sealed class MemeItem
     /// <summary>Sentinel for the §4 "Download more memes..." action row (never exportable).</summary>
     public bool IsDownloadAction { get; init; }
 
+    /// <summary>
+    /// DOWNLOAD_01 — which library this action row fetches: "mp4" for video memes, "jpeg" for
+    /// image memes. Empty on a real meme. Songs have their own button in the Music Wizard.
+    /// The two used to be a SINGLE row that pulled both folders, so a user who wanted one more
+    /// reaction image had to download every video meme too, with no way to tell them apart while
+    /// it ran.
+    /// </summary>
+    public string DownloadCategory { get; init; } = "";
+
     public override string ToString() => FileName;
 }
 
@@ -147,6 +156,33 @@ public static class MemeCatalog
         CancellationToken cancellationToken = default)
         => SyncFoldersAsync(targetDirectory, MemeCloudFolders,
                             VideoExts.Concat(ImageExts).ToArray(), "Memes", progress, cancellationToken);
+
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // DOWNLOAD_01 — ONE BUTTON PER CATEGORY.
+    //
+    // The library ships in three kinds — video memes, image memes and songs — but downloading was
+    // wired as "memes AND images together" plus "songs". So a user who wanted one more reaction
+    // image had to pull every video meme as well, with no way to tell which was which while it ran.
+    //
+    // Three separate entry points now, each fetching exactly one repo folder. The shared engine is
+    // unchanged: it is a DELTA sync, so a file already present by name is skipped rather than
+    // overwritten — the user's own files and edits are never clobbered. That is what makes a
+    // "download everything again" button safe to press at any time.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>DOWNLOAD_01 — video memes only (repo `mp4\`).</summary>
+    public static Task<(int downloaded, string? error)> SyncVideoMemesAsync(
+        string targetDirectory,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+        => SyncFoldersAsync(targetDirectory, new[] { "mp4" }, VideoExts, "Video memes", progress, cancellationToken);
+
+    /// <summary>DOWNLOAD_01 — image memes only (repo `jpeg\`).</summary>
+    public static Task<(int downloaded, string? error)> SyncImageMemesAsync(
+        string targetDirectory,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+        => SyncFoldersAsync(targetDirectory, new[] { "jpeg" }, ImageExts, "Image memes", progress, cancellationToken);
 
     /// <summary>
     /// ISSUE_10 — downloads missing SONGS (mp3 folder) into the user's music directory.

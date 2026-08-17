@@ -101,8 +101,39 @@ public static class HudConfig
     private static bool IsCurrentSpace(JsonObject config)
     {
         string? space = config["coordinate_space"]?.ToString();
-        int version = (int)(config["schema_version"]?.GetValue<long>() ?? 0);
+        int version = ReadSchemaVersion(config);
         return space == HudCoordinateSpace && version >= HudSchemaVersion;
+    }
+
+    /// <summary>
+    /// CROPCHK_01 — READ THE VERSION WITHOUT CARING WHICH NUMERIC TYPE IT WAS STORED AS.
+    ///
+    /// This used to be <c>(int)(config["schema_version"]?.GetValue&lt;long&gt;() ?? 0)</c>, and it
+    /// threw on EVERY export: "A value of type 'System.Int32' cannot be converted to a
+    /// 'System.Int64'". <see cref="System.Text.Json"/> will not widen an Int32 node to Int64 —
+    /// <c>GetValue&lt;T&gt;</c> demands the exact stored type — and the config is written with an
+    /// Int32 schema_version (the log line "CROP CONFIG READY - schema=4" is that value).
+    ///
+    /// ⚠️ THE DAMAGE WAS SILENT AND TOTAL. <c>IsCurrentSpace</c> is reached from
+    /// <c>HudConfig.Validate</c>, whose only caller wraps it in a try/catch that logs at INFO and
+    /// carries on (VideoConfig.GetMobileCoordinatesAsync). So the crop-configuration check — added
+    /// specifically because a nonsense crop config used to reach export unnoticed — has never once
+    /// run. Every export logged "Crop configuration check could not run" and nobody read it.
+    ///
+    /// Parsed off the raw text instead, so Int32, Int64 and a quoted "4" all work and a malformed
+    /// value degrades to 0 (treated as out of date) rather than throwing.
+    ///
+    /// ⚠️ DO NOT reintroduce a typed GetValue&lt;T&gt; on a JSON number that other code writes.
+    /// The identical trap was already fixed once in HardwareCapability (GetValue&lt;bool&gt;).
+    /// </summary>
+    private static int ReadSchemaVersion(JsonObject config)
+    {
+        var node = config["schema_version"];
+        if (node == null) return 0;
+        return int.TryParse(node.ToString(), System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : 0;
     }
 
     /// <summary>
