@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -18,7 +18,7 @@ public static class WindowBoundsHelper
             var state = store.LoadSync();
             ApplyBounds(window, state, key);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public static class WindowBoundsHelper
                 appliedPosition = window.Position;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         bool opened = false;
         Avalonia.Threading.DispatcherTimer? debounce = null;
@@ -80,7 +80,7 @@ public static class WindowBoundsHelper
                     window.Position = appliedPosition.Value;
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             opened = true;
         };
 
@@ -92,7 +92,7 @@ public static class WindowBoundsHelper
         };
         window.Closing += (_, _) =>
         {
-            try { debounce?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { debounce?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             SaveBoundsSync(window, key);
         };
     }
@@ -107,7 +107,7 @@ public static class WindowBoundsHelper
                 ApplyBounds(window, state, key);
             });
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private static void ApplyBounds(Window window, JsonObject state, string key)
@@ -173,16 +173,49 @@ public static class WindowBoundsHelper
         }
     }
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// ⚠️ BOUNDS_01 — THE SNAPSHOT IS TAKEN **BEFORE** THE FIRST await. DO NOT MOVE IT DOWN.
+    ///
+    /// This method used to read the window AFTER `await store.LoadAsync().ConfigureAwait(false)`.
+    /// `ConfigureAwait(false)` deliberately abandons the UI SynchronizationContext, so everything
+    /// past that line runs on a thread-pool thread — and `WindowSnapshot.Capture` reads
+    /// `window.Width`, `window.Position` and `window.WindowState`, all of which are UI-thread-only.
+    /// The result was a guaranteed, every-single-time:
+    ///     InvalidOperationException: Call from invalid thread
+    ///        at Avalonia.Layout.Layoutable.get_Width()
+    ///        at WindowBoundsHelper.WindowSnapshot.Capture(Window)
+    ///
+    /// WHY NOBODY NOTICED FOR SO LONG. The throw was swallowed by a catch whose only body was a
+    /// `Debug.WriteLine`, which the compiler DELETES from Release builds — so in the shipped app
+    /// this failed in complete silence (see ISSUE_13). It only became visible once those catches
+    /// started reporting through `RuntimeLog.Swallowed`.
+    ///
+    /// WHAT IT ACTUALLY COST. Only the two windows that save asynchronously on close — the Main App
+    /// and the Video Merger — and only the CLOSE-time save. The 700ms debounced save (SaveSnapshot,
+    /// which correctly captures on the UI thread and only then hands a plain struct to Task.Run)
+    /// was unaffected, which is why positions mostly stuck and this looked like nothing was wrong.
+    /// What was lost is any change made in the final moments before closing: maximise, un-maximise,
+    /// or a nudge inside the last debounce window.
+    ///
+    /// The fix is one line in a new place, not a redesign: capture while we are still on the UI
+    /// thread, then hand the immutable struct to the same thread-safe builder every other path uses.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     public static async Task SaveBoundsAsync(Window window, string key)
     {
         try
         {
+            WindowSnapshot snapshot = Avalonia.Threading.Dispatcher.UIThread.CheckAccess()
+                ? WindowSnapshot.Capture(window)
+                : Avalonia.Threading.Dispatcher.UIThread.Invoke(() => WindowSnapshot.Capture(window));
+
             var store = new Core.Ipc.StateTransferStore();
             var state = await store.LoadAsync().ConfigureAwait(false);
-            var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
+            var updates = new JsonObject { [key] = BuildBoundsObj(snapshot, state, key) };
             await store.UpdatePropertiesAsync(updates).ConfigureAwait(false);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>
@@ -202,7 +235,7 @@ public static class WindowBoundsHelper
             var updates = new JsonObject { [key] = UpdateBoundsObj(window, state, key) };
             store.UpdatePropertiesSync(updates, default, timeout);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>
@@ -245,7 +278,7 @@ public static class WindowBoundsHelper
             var updates = new JsonObject { [key] = BuildBoundsObj(snapshot, state, key) };
             store.UpdatePropertiesSync(updates);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>
@@ -283,6 +316,10 @@ public static class WindowBoundsHelper
     /// <summary>
     /// UI-thread entry point: snapshots the window and defers to the single shared builder, so
     /// the debounced background save and the close-time save can never diverge.
+    /// ⚠️ BOUNDS_01 — THE NAME IS A PROMISE. This touches the Window, so it may ONLY be called
+    /// from the UI thread. `SaveBoundsAsync` used to call it after an await and crashed every time;
+    /// it now captures its own snapshot up front. `SaveBoundsSync` is the only caller left, and it
+    /// runs inside a close handler, on the UI thread, before any await.
     /// </summary>
     private static JsonObject UpdateBoundsObj(Window window, JsonObject state, string key)
     {

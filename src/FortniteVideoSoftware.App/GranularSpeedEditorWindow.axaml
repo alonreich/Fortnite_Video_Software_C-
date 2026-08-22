@@ -17,7 +17,10 @@
                 <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
                 </Border>
-                <Grid Grid.Row="1" RowDefinitions="*, Auto">
+                <!-- LAYOUT_02: ONE row now. The second row held the full-width bottom navigation bar
+                     (status line + CANCEL/APPLY); both moved into the right-hand inspector pane so
+                     the whole window gets that height back. -->
+                <Grid Grid.Row="1" RowDefinitions="*">
 
         <!-- MAIN BODY -->
         <!-- ISSUE_07: was ColumnDefinitions="*, 280" — a hardcoded absolute width in violation of
@@ -35,7 +38,7 @@
                  Both clusters moved into the transport row (now row 2), which had a centred group
                  of three buttons and two empty flanks doing nothing. Same controls, one fewer
                  band. Do not reintroduce a dedicated toolbar row here. -->
-            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12">
+            <Grid Grid.Column="0" RowDefinitions="*, Auto, Auto, Auto" Margin="12,10,12,8">
 
                 <!-- Video preview -->
                 <Border Name="GranularVideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
@@ -80,8 +83,17 @@
                                 Background="{DynamicResource AppOverlayBrush}" ZIndex="66"
                                 ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
 
-                        <!-- #10 Live drag readout: shows exact start / end / length while dragging a block -->
-                        <Border Name="DragReadoutBadge" IsVisible="False" ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,5" IsHitTestVisible="False">
+                        <!-- #10 Live drag readout: shows exact start / end / length while dragging a block.
+                             ⚠️ ISSUE_06 — ZINDEX AND ANCHOR ARE BOTH LOAD-BEARING. DO NOT "TIDY".
+                             This badge used to be ZIndex 60 and permanently bottom-anchored, which put it
+                             underneath AND behind `ZoomStylePanel` (ZIndex 65, also bottom-centred, Margin
+                             0,0,0,14). Whenever zoom mode was on, dragging a segment showed the numbers
+                             into a completely invisible box. It is now 68 — above ZoomStylePanel (65) and
+                             the detached watermark (65), still BELOW ZoomApplyBusyOverlay (70), which must
+                             cover everything while a zoom is being applied. `UpdateDragReadout` also flips
+                             the anchor to TOP while ZoomStylePanel is visible, so the two never share
+                             screen space even at large font scale. -->
+                        <Border Name="DragReadoutBadge" IsVisible="False" ZIndex="68" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,5" IsHitTestVisible="False">
                             <TextBlock Name="DragReadoutText" Text="" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold"/>
                         </Border>
                         
@@ -91,13 +103,11 @@
                                 <TextBlock Name="FreezeValidationText" Text="SELECT FREEZE DURATION" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" FontWeight="Bold" HorizontalAlignment="Center" />
                             </Border>
                         </Popup>
-                        <Popup Name="GranularFeedbackPopup" IsOpen="False" Placement="Top"
-                               IsLightDismissEnabled="False"
-                               IsHitTestVisible="False" ZIndex="11">
-                            <Border Name="GranularFeedbackPopupBorder" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="8" Padding="24,12" Opacity="0">
-                                <TextBlock Name="GranularFeedbackPopupText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize28}" FontWeight="Bold" HorizontalAlignment="Center" />
-                            </Border>
-                        </Popup>
+                        <!-- ISSUE_09: the GranularFeedbackPopup trio lived here. It is gone — this window
+                             now raises the SAME notice as every other screen through
+                             Controls/FloatingNotice.cs, which needs no XAML at all. Do not add a
+                             per-window feedback Popup back; that duplication is what made six screens
+                             speak in five different voices. -->
                         <!-- ══════════════════════════════════════════════════════════════════
                              IDEA_6 — ZOOM STYLE PICKER, SHOWN WHERE THE ZOOM IS BEING DRAWN.
                              This used to be two radio buttons labelled "ANIMATION: Slow | Instant"
@@ -168,7 +178,7 @@
                      ⚠️ LaneASeekable stays FALSE: the upper lane runs its own pointer pipeline
                      (block move, edge resize, drag-to-create) and a seek surface over it would
                      swallow all of that. -->
-                <Border Grid.Row="1" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,5,10,10" ClipToBounds="False">
+                <Border Grid.Row="1" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,4,10,4" ClipToBounds="False">
                     <controls:TimelineLanesControl Name="GranularLanes" ClipToBounds="False"/>
                 </Border>
 
@@ -183,7 +193,7 @@
                      the zoom button's — and the freeze cluster is far the wider of the two. Two
                      equal star flanks pin the transport to the real centre of the window whatever
                      the side clusters measure. -->
-                <Grid Grid.Row="2" Margin="10,5,10,10" ColumnDefinitions="*, Auto, *">
+                <Grid Grid.Row="2" Margin="10,2,10,2" ColumnDefinitions="*, Auto, *">
 
                     <!-- LEFT FLANK: freeze -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
@@ -239,14 +249,19 @@
                             ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
                 </Grid>
 
-                <!-- ROW 3: Speed presets + slider -->
-                <Grid Grid.Row="3" Margin="0,10,0,0">
+                <!-- ROW 3: Speed presets + slider
+                     LAYOUT_02: the margins in this column are deliberately tight. Every row here
+                     is a fixed-height band, so any padding they carry is taken directly off the
+                     video preview above — the only element that actually benefits from more
+                     height. Do not restore generous margins "for breathing room"; the breathing
+                     room comes from the preview being bigger. -->
+                <Grid Grid.Row="3" Margin="0,2,0,0">
 
                     <!-- Center: Speed presets + slider -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-                        <StackPanel Orientation="Vertical" Spacing="8" Margin="0,15,0,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
-                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="44" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
+                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="40" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
                             <TextBlock Name="PendingSpeedLabel" Text="1.1x" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
                         <!-- Speed preset buttons — two rows with vertical gap -->
@@ -270,7 +285,13 @@
 
             <!-- RIGHT: Segments List -->
             <Border Grid.Column="1" MinWidth="280" MaxWidth="360" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="12">
-                <Grid RowDefinitions="Auto, Auto, Auto, *, Auto">
+                <!-- LAYOUT_02: this pane is now a full INSPECTOR COLUMN — what is selected, what the
+                     colours mean, the segment list, the live status line, and finally every action.
+                     The full-width bottom navigation bar it replaced cost a whole horizontal band of
+                     height across the entire window to show one line of text and two buttons, and
+                     height is the scarce axis here while width is not. Rows: header / count /
+                     legend / list (fills) / STATUS / actions. -->
+                <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto">
                     <!-- Header: title + Help button (#8) -->
                     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,5">
                         <TextBlock Grid.Column="0" Text="SPEED SEGMENTS" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize13}" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -320,53 +341,124 @@
                             </ListBox.ItemsPanel>
                         </ListBox>
                     </Border>
-                    <StackPanel Grid.Row="4" Orientation="Vertical" Spacing="8" Margin="0,15,0,0" HorizontalAlignment="Stretch">
+                    <!-- LIVE STATUS. Moved here from the deleted bottom navigation bar.
+                         TextWrapping is the whole point of the move: down here it has a narrow
+                         column and unlimited vertical room to wrap into, instead of one clipped
+                         line stretched across the window. MaxHeight + a scroller means an unusually
+                         long message can never push the APPLY button off the bottom of the pane. -->
+                    <Border Grid.Row="4" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4"
+                            Padding="8,6" Margin="0,10,0,8">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="STATUS" Foreground="{DynamicResource AppTextMutedBrush}"
+                                       FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                            <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <TextBlock Name="BottomStatusLabel"
+                                           Text="Set speed, then press MARK END to create a segment. Start is auto-inferred."
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                           FontSize="{DynamicResource AppFontSize11}"
+                                           TextWrapping="Wrap"/>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Grid.Row="5" Orientation="Vertical" Spacing="8" Margin="0,0,0,0" HorizontalAlignment="Stretch">
+                        <!-- ══════════════════════════════════════════════════════════════════════
+                             ⚠️⚠️ ISSUE_01 — THESE TWO PROMPTS USED TO BE PURE DECORATION. ⚠️⚠️
+                             A Button that owns a Flyout opens that Flyout by itself AND still raises
+                             Click. Both buttons had a Click handler that destroyed the work outright,
+                             so the sequence a user actually experienced was: segments gone -> "are you
+                             sure?" -> a CONFIRM button wired to nothing at all. There is no undo in
+                             this window.
+                             THE RULE NOW (identical to Merger RemoveVideoButton and CropTool RESET):
+                             the Click handler acts ONLY when the user has switched the confirmation
+                             OFF in Settings > Confirmation Dialogs. Otherwise it does nothing and the
+                             flyout asks; the CONFIRM button is the ONLY path that destroys anything.
+                             ⚠️ NEVER put destructive work back into the outer button's Click handler.
+                             The dialog is also deliberately LARGE (MinWidth 380, 48px buttons, plain
+                             English, an explicit KEEP escape) — the old 8px-margin strip was easy to
+                             click straight through without reading.
+                             ══════════════════════════════════════════════════════════════════════ -->
+                        <!-- ZOOM_04: the ONLY way to change a zoom. ZOOM-IN refuses to reopen a block
+                             that already has one (owner's decision — a mis-drag on re-entry would
+                             silently overwrite coordinates that were already right), so editing is
+                             deliberately remove-then-redo. Visible only when the selected block
+                             actually carries a zoom. -->
+                        <Button Name="RemoveZoomBtn" Classes="ZoomAction" Content="🔍 REMOVE ZOOM" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Take the zoom off this block. The block itself and its speed stay exactly as they are."/>
                         <Button Name="DeleteSegmentBtn" Classes="Danger" Content="DELETE SEGMENT" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment">
                             <Button.Flyout>
-                                <Flyout Placement="Top">
-                                    <StackPanel Spacing="8" Margin="8">
-                                        <TextBlock Text="⚠️ Delete segment?" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                        <Button Name="ConfirmDeleteSegmentBtn" Classes="Danger" Content="CONFIRM DELETE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently delete this segment." />
+                                <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
+                                    <StackPanel Spacing="14" Margin="22" MinWidth="380" MaxWidth="440">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock Text="🗑" FontSize="{DynamicResource AppFontSize28}" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Delete this speed segment?" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Name="DeleteSegmentDetailText" Text="The selected segment will be removed." FontSize="{DynamicResource AppFontSize13}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                        <Border Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                                            <TextBlock Text="⚠️ This cannot be undone. There is no undo button in the Speed Editor." Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        </Border>
+                                        <Grid ColumnDefinitions="*,12,*">
+                                            <Button Grid.Column="0" Name="KeepSegmentBtn" Classes="Secondary" Content="KEEP IT" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Close this box and change nothing."/>
+                                            <Button Grid.Column="2" Name="ConfirmDeleteSegmentBtn" Classes="Danger" Content="DELETE IT" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Permanently delete this segment." />
+                                        </Grid>
                                     </StackPanel>
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
                         <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Remove all speed segments">
                             <Button.Flyout>
-                                <Flyout Placement="Top">
-                                    <StackPanel Spacing="8" Margin="8">
-                                        <TextBlock Text="⚠️ Clear all segments?" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                        <Button Name="ConfirmClearAllSegmentsBtn" Classes="Danger" Content="CONFIRM CLEAR" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently remove all speed segments." />
+                                <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
+                                    <StackPanel Spacing="14" Margin="22" MinWidth="380" MaxWidth="440">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock Text="🧹" FontSize="{DynamicResource AppFontSize28}" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Erase every segment?" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Name="ClearAllDetailText" Text="Every speed segment will be removed." FontSize="{DynamicResource AppFontSize13}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                        <Border Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                                            <TextBlock Text="⚠️ This cannot be undone. Every speed block and every zoom on the timeline is erased in one go." Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        </Border>
+                                        <Grid ColumnDefinitions="*,12,*">
+                                            <Button Grid.Column="0" Name="KeepAllSegmentsBtn" Classes="Secondary" Content="KEEP THEM" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Close this box and change nothing."/>
+                                            <Button Grid.Column="2" Name="ConfirmClearAllSegmentsBtn" Classes="Danger" Content="ERASE ALL" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Permanently remove every speed segment." />
+                                        </Grid>
                                     </StackPanel>
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
+
+                        <!-- The two window-level actions, moved off the deleted bottom bar. They sit
+                             below a divider and below the destructive segment buttons, so the pane
+                             reads top-to-bottom as "what is selected -> what I can do to it -> what
+                             I do with the whole window" — which is the order the user thinks in. -->
+                        <Border Height="1" Background="{DynamicResource AppBorderBrush}" Opacity="0.5" Margin="0,2,0,2"/>
+                        <!-- ⚠️ NO `ColumnSpacing` HERE. That property is WinUI/WPF; Avalonia's Grid
+                             does not have it and the compiler rejects the whole file (AVLN:0004).
+                             The 8px gutter is split as 4px of Margin on the facing edge of each
+                             button instead — which is also what every other two-up button row in
+                             this suite does. -->
+                        <Grid ColumnDefinitions="*,*">
+                            <Button Grid.Column="0" Name="CancelGranularBtn" Classes="Danger" Content="CANCEL"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Margin="0,0,4,0"
+                                    ToolTip.Tip="Discard changes and close">
+                                <Button.Flyout>
+                                    <Flyout Placement="Top">
+                                        <StackPanel Spacing="8" Margin="8">
+                                            <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                                            <Button Name="ConfirmCancelGranularBtn" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently discard changes and close." />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button Grid.Column="1" Name="AcceptGranularBtn" Classes="Success" Content="APPLY"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Margin="4,0,0,0"
+                                    ToolTip.Tip="Apply all speed segments and return"/>
+                        </Grid>
                     </StackPanel>
                 </Grid>
             </Border>
         </Grid>
 
-        <!-- BOTTOM NAVIGATION -->
-        <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" Padding="16,10" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*, Auto">
-                <TextBlock Grid.Column="0" Name="BottomStatusLabel"
-                           Text="Set speed, then press MARK END to create a segment. Start is auto-inferred."
-                           Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <Button Name="CancelGranularBtn" Classes="Danger" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close">
-                        <Button.Flyout>
-                            <Flyout Placement="Top">
-                                <StackPanel Spacing="8" Margin="8">
-                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                    <Button Name="ConfirmCancelGranularBtn" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently discard changes and close." />
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                    <Button Name="AcceptGranularBtn" Classes="Success" Content="APPLY" MinWidth="90" ToolTip.Tip="Apply all speed segments and return"/>
-                </StackPanel>
-            </Grid>
-        </Border>
                 </Grid>
             </Grid>
         </Border>
@@ -406,7 +498,13 @@
                     <TextBlock Text="2. Drag the colored blocks on the timeline to adjust their edges." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" />
                     <TextBlock Text="3. Select a block to change its speed, freeze it, or zoom in." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" />
 
-                    <Button Name="HelpCloseButton" Content="GOT IT" Classes="Primary" HorizontalAlignment="Center" MinWidth="140" Margin="0,20,0,0" ToolTip.Tip="Close the help guide"/>
+                    <!-- ISSUE_04: the static card is kept because it is a good at-a-glance reference,
+                         but reading is not the same as being shown. SHOW ME hands off to the animated
+                         walkthrough, which points at the real controls in this window. -->
+                    <Grid ColumnDefinitions="*,12,*" Margin="0,20,0,0">
+                        <Button Grid.Column="0" Name="HelpShowMeButton" Content="SHOW ME" Classes="Secondary" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Play the walkthrough that points at each control on this screen."/>
+                        <Button Grid.Column="2" Name="HelpCloseButton" Content="GOT IT" Classes="Primary" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Close the help guide"/>
+                    </Grid>
                 </StackPanel>
             </Border>
         </Grid>

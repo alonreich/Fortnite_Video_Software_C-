@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -66,7 +66,7 @@ public static class MaskOverlayManager
                             existingConfig = AtomicJsonFile.ReadObject(ApplicationPaths.CreateDefault().CropCoordinatesFile);
                         }
                     }
-                    catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
                     if (existingConfig != null)
                     {

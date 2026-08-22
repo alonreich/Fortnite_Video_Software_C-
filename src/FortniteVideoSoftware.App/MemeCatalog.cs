@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -157,18 +157,6 @@ public static class MemeCatalog
         => SyncFoldersAsync(targetDirectory, MemeCloudFolders,
                             VideoExts.Concat(ImageExts).ToArray(), "Memes", progress, cancellationToken);
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // DOWNLOAD_01 — ONE BUTTON PER CATEGORY.
-    //
-    // The library ships in three kinds — video memes, image memes and songs — but downloading was
-    // wired as "memes AND images together" plus "songs". So a user who wanted one more reaction
-    // image had to pull every video meme as well, with no way to tell which was which while it ran.
-    //
-    // Three separate entry points now, each fetching exactly one repo folder. The shared engine is
-    // unchanged: it is a DELTA sync, so a file already present by name is skipped rather than
-    // overwritten — the user's own files and edits are never clobbered. That is what makes a
-    // "download everything again" button safe to press at any time.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>DOWNLOAD_01 — video memes only (repo `mp4\`).</summary>
     public static Task<(int downloaded, string? error)> SyncVideoMemesAsync(
@@ -315,7 +303,7 @@ public static class MemeCatalog
 
                     if (IsLfsPointer(tmp) || new FileInfo(tmp).Length == 0)
                     {
-                        try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                        try { File.Delete(tmp); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                         failures++;
                         RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
                         continue;
@@ -329,12 +317,12 @@ public static class MemeCatalog
                 }
                 catch (OperationCanceledException)
                 {
-                    try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { File.Delete(tmp); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     throw;
                 }
                 catch (Exception exFile)
                 {
-                    try { File.Delete(tmp); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { File.Delete(tmp); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     failures++;
                     RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' failed: {exFile.Message}");
                 }

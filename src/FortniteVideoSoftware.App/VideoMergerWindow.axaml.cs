@@ -1,4 +1,4 @@
-using Avalonia.Input;
+﻿using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -103,6 +103,8 @@ public partial class VideoMergerWindow : Window
             _ffprobePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "ffprobe.exe");
         if (!System.IO.File.Exists(_ffprobePath)) _ffprobePath = "ffprobe.exe";
 
+        this.Loaded += (s, e) => Controls.CoachOverlay.Register(this, Controls.CoachTours.MergerKey, Controls.CoachTours.Merger);
+
         this.Loaded += async (s, e) => {
             InitializeMpv();
 
@@ -140,7 +142,7 @@ public partial class VideoMergerWindow : Window
                 }
                 UpdateQueueState();
                 UpdatePreviewAvailable();
-                UpdateTrimStatus();   // IDEA_8: readout follows the highlighted clip
+                UpdateTrimStatus();
             };
             videoList.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, VideoList_DragOver);
             videoList.AddHandler(Avalonia.Input.DragDrop.DragLeaveEvent, VideoList_DragLeave);
@@ -155,8 +157,6 @@ public partial class VideoMergerWindow : Window
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
 
-        // The seek canvas covers the slider and takes all pointer input, so it is the canvas that
-        // has to report hover/drag to the knob. See Controls/TimelineKnob.cs.
         Controls.TimelineKnob.Attach(canvas, timelineSlider);
 
         if (timelineSlider != null)
@@ -226,7 +226,10 @@ public partial class VideoMergerWindow : Window
         if (returnBtn != null) returnBtn.Click += (s, e) => ReturnToMainApp();
 
         var menuExit = this.FindControl<MenuItem>("MenuExit");
-        if (menuExit != null) menuExit.Click += (s, e) => { ShutdownVideoPipeline(); Environment.Exit(0); };   // LEAK_03
+        if (menuExit != null) menuExit.Click += (s, e) => { ShutdownVideoPipeline(); Environment.Exit(0); };
+
+        var mergerHelpBtn = this.FindControl<Button>("MergerHelpButton");
+        if (mergerHelpBtn != null) mergerHelpBtn.Click += (s, e) => Controls.CoachOverlay.Replay(this);
 
         var returnToMainBtn = this.FindControl<Button>("ReturnToMainAppButton");
         if (returnToMainBtn != null) returnToMainBtn.Click += (s, e) => ReturnToMainApp();
@@ -408,7 +411,6 @@ public partial class VideoMergerWindow : Window
         var mergeBtn = this.FindControl<Button>("MergeButton");
         if (mergeBtn != null) mergeBtn.Click += async (s, e) => await OnMergeClicked(mergeBtn);
 
-        // IDEA_8: per-clip in/out points.
         var setInBtn = this.FindControl<Button>("SetClipInButton");
         if (setInBtn != null) setInBtn.Click += (s, e) => SetClipIn();
         var setOutBtn = this.FindControl<Button>("SetClipOutButton");
@@ -534,8 +536,8 @@ public partial class VideoMergerWindow : Window
     private async void DebouncedQualityProbe()
     {
         int version = ++_probeVersion;
-        try { _probeCts?.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-        try { _probeCts?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _probeCts?.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        try { _probeCts?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         _probeCts = new System.Threading.CancellationTokenSource();
         var token = _probeCts.Token;
 
@@ -622,8 +624,6 @@ public partial class VideoMergerWindow : Window
         if (ffBtn != null) ffBtn.IsEnabled = hasVideo;
         if (fbBtn != null) fbBtn.IsEnabled = hasVideo;
 
-        // IDEA_8: the trim buttons read the preview playhead, so they only make sense while a clip
-        // is actually loaded and playable.
         foreach (string name in new[] { "SetClipInButton", "SetClipOutButton", "ClearClipTrimButton" })
         {
             var btn = this.FindControl<Button>(name);
@@ -834,7 +834,7 @@ public partial class VideoMergerWindow : Window
                 }
                 if (vbitrate > 0 && vbitrate < lowestBitrate) lowestBitrate = vbitrate;
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         if (lowestBitrate == double.MaxValue || lowestBitrate <= 0) lowestBitrate = 5000;
@@ -890,7 +890,7 @@ public partial class VideoMergerWindow : Window
                     var musicFi = new FileInfo(musicPath);
                     estimatedMB += musicFi.Length / (1024.0 * 1024.0);
                 }
-                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         }
 
@@ -956,7 +956,7 @@ public partial class VideoMergerWindow : Window
 
             volumeSlider.PointerReleased += (s, e) =>
             {
-                try { new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject { ["MainVolume"] = volumeSlider.Value }); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject { ["MainVolume"] = volumeSlider.Value }); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             };
         }
     }
@@ -1007,14 +1007,14 @@ public partial class VideoMergerWindow : Window
                 if (System.IO.Directory.Exists(sp)) startPath = sp;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         if (string.IsNullOrEmpty(startPath) || !System.IO.Directory.Exists(startPath))
             startPath = GetDownloadsPath();
 
         if (!string.IsNullOrEmpty(startPath) && Directory.Exists(startPath))
         {
-            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath)); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath)); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(options);
@@ -1027,7 +1027,7 @@ public partial class VideoMergerWindow : Window
                 if (!string.IsNullOrWhiteSpace(directory))
                     await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerUploadDirectory"] = directory });
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         int addedCount = 0;
@@ -1229,7 +1229,7 @@ public partial class VideoMergerWindow : Window
                 return true;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         sizeBytes = 0;
         lastWriteUtc = default;
@@ -1277,7 +1277,7 @@ public partial class VideoMergerWindow : Window
                 }
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>
@@ -1311,7 +1311,7 @@ public partial class VideoMergerWindow : Window
         var options = new FolderPickerOpenOptions { Title = "Choose Output Folder for Merged Videos", AllowMultiple = false };
         if (!string.IsNullOrEmpty(_outputDirectory))
         {
-            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(_outputDirectory)); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(new Uri(_outputDirectory)); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         var result = await topLevel.StorageProvider.OpenFolderPickerAsync(options);
@@ -1329,7 +1329,7 @@ public partial class VideoMergerWindow : Window
 
             _outputDirectory = picked;
 
-            try { await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerOutputDirectory"] = _outputDirectory }); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { await new StateTransferStore(_paths).UpdatePropertiesAsync(new System.Text.Json.Nodes.JsonObject { ["MergerOutputDirectory"] = _outputDirectory }); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             Infrastructure.SettingsManager.Instance.MergerOutputDirectory = _outputDirectory;
             Infrastructure.SettingsManager.Save();
 
@@ -1401,11 +1401,6 @@ public partial class VideoMergerWindow : Window
                 targetRatio = dialog.Result ? FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Portrait9x16 : FortniteVideoSoftware.Core.Media.MergerWorker.TargetAspectRatio.Landscape16x9;
             }
 
-            // ISSUE 2: the Merger resolves its encoder through the SAME shared code path as the
-            // Main App — Settings override, then the suite-wide boot-scan result the Main App
-            // published, then the "unknown, re-probe" sentinel. It used to hardcode "GPU", which
-            // ignored the user's Settings choice AND the boot scan, so the two apps could pick
-            // different encoders on the same machine. It never runs its own scan.
             string mergerStrategy = FortniteVideoSoftware.Core.Media.ExportEncoderStrategy.Resolve(
                 FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.VideoEncoderOverride,
                 bootScanResult: null,
@@ -1413,9 +1408,6 @@ public partial class VideoMergerWindow : Window
 
             var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening, HardwareStrategy = mergerStrategy };
 
-            // IDEA_8: build the trim list in the SAME order as InputFiles. The list is keyed by
-            // path rather than index because the queue can be drag-reordered, and it is rebuilt
-            // here — at merge time — so a reorder can never misalign a trim onto the wrong clip.
             worker.ClipTrims = BuildClipTrimList();
             _activeMergerWorker = worker;
 
@@ -1608,12 +1600,30 @@ public partial class VideoMergerWindow : Window
         UpdatePreviewAvailable();
     }
 
+    /// <summary>
+    /// ISSUE_09 — writes the queue status line AND floats the suite-wide notice.
+    /// The line stays because it is the durable record of the queue's state; the notice is what
+    /// makes a change register while the user is looking at the video, not at the list.
+    /// Every call site here is a discrete queue event, and FloatingNotice dedupes the one message
+    /// that RefreshActionButtons re-emits on every selection change.
+    ///
+    /// ISSUE_10 — the two literal hexes that used to be here (#fecaca / #94a3b8) are gone. They were
+    /// pale-on-dark by construction and unreadable on the Light theme's near-white panel.
+    /// </summary>
     private void SetQueueStatus(string message, bool isError)
     {
         var status = this.FindControl<TextBlock>("QueueStatusText");
-        if (status == null) return;
-        status.Text = message;
-        status.Foreground = isError ? Avalonia.Media.Brush.Parse("#fecaca") : Avalonia.Media.Brush.Parse("#94a3b8");
+        if (status != null)
+        {
+            status.Text = message;
+            status.Foreground = Infrastructure.ThemeResources.Brush(
+                                    status,
+                                    isError ? "AppDangerBrush" : "AppTextMutedBrush",
+                                    new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse(isError ? "#dc2626" : "#b6c2d0")));
+        }
+
+        Controls.FloatingNotice.Show(this, message,
+            isError ? Controls.NoticeKind.Error : Controls.NoticeKind.Info);
     }
 
     private void AttachTitleBarDrag()
@@ -1629,7 +1639,7 @@ public partial class VideoMergerWindow : Window
             };
             titleBar.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2) { try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2) { try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); } }
             };
         }
     }
@@ -1748,7 +1758,7 @@ public partial class VideoMergerWindow : Window
                         if (volSlider != null) volSlider.Value = volNode?.GetValue<double>() ?? 100.0;
                     }
                 }
-                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         }
     }
@@ -1763,15 +1773,12 @@ public partial class VideoMergerWindow : Window
     private void ReturnToMainApp()
     {
         _recovery.ReleaseLockOnly();
-        // LEAK_03: release the GPU BEFORE spawning the Main App, not after. This path never reaches
-        // OnClosing, so without this the render context is abandoned exactly as the sibling process
-        // starts claiming the same adapter.
         ShutdownVideoPipeline();
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)
         {
-            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } Environment.Exit(0); });
+            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); } Environment.Exit(0); });
         }
         else Environment.Exit(0);
     }
@@ -1783,23 +1790,6 @@ public partial class VideoMergerWindow : Window
         Close();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // LEAK_03 — ORDERED TEARDOWN OF THE MERGER'S mpv / D3D11 / OpenGL PIPELINE.
-    //
-    // Same defect the Main App had (LEAK_01), and for the same reason: this window also leaves the
-    // process through `Environment.Exit(0)`, which does NOT run finalizers. The only disposal used
-    // to live inside OnClosing — but TWO of the three exit paths never reach OnClosing at all:
-    //
-    //   • MenuExit                      -> Environment.Exit(0) directly.
-    //   • ReturnToMainApp()             -> starts the Main App, then Environment.Exit(0) from a
-    //                                      Task.Run. It never calls Close(), so OnClosing never runs.
-    //
-    // ReturnToMainApp is the dangerous one: it abandons the mpv render context, the WGL bridge and
-    // the D3D11 device WHILE THE MAIN APP IS BOOTING AND CLAIMING THE SAME GPU. That is exactly the
-    // condition behind the documented 0xc0000005 faults in `nvoglv64.dll`.
-    //
-    // ⚠️ CALL THIS BEFORE EVERY `Environment.Exit` IN THIS CLASS. Idempotent and cheap.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
     private bool _videoPipelineShutDown;
 
     private void ShutdownVideoPipeline()
@@ -1807,8 +1797,6 @@ public partial class VideoMergerWindow : Window
         if (_videoPipelineShutDown) return;
         _videoPipelineShutDown = true;
 
-        // DETACH_01: a popped-out preview is parented to the floating window. Bring it home so it
-        // is disposed from its own tree and the floating window does not outlive its surface.
         try { _previewDetach?.Attach(); }
         catch (Exception ex) { RuntimeLog.Fail("UI", $"Could not reattach the preview during shutdown: {ex.Message}"); }
 
@@ -1818,10 +1806,10 @@ public partial class VideoMergerWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
-        try { _playbackTimer?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _playbackTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         if (_isSafeToClose) { base.OnClosing(e); return; }
         e.Cancel = true;
-        try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         this.Hide();
         try
         {
@@ -1831,25 +1819,12 @@ public partial class VideoMergerWindow : Window
                 var timeoutTask = Task.Delay(2000);
                 await Task.WhenAny(stopTask, timeoutTask);
             }
-            // LEAK_03: was a bare _videoHost?.Dispose(). Routed through the shared method so the
-            // graceful close and the two Environment.Exit paths cannot drift apart.
             ShutdownVideoPipeline();
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         finally { _isSafeToClose = true; this.Close(); }
     }
 
-    // =====================================================================================
-    // IDEA_8 — PER-CLIP TRIM
-    // =====================================================================================
-    // Keyed by file PATH, not by queue index: the queue supports drag-reordering and multi-select
-    // removal, either of which would silently move a trim onto the wrong clip if indices were the
-    // key. BuildClipTrimList() converts to the index-aligned list MergerWorker wants, at merge
-    // time, from the live queue order.
-    //
-    // The same path appearing twice in the queue deliberately shares one trim — the user picked
-    // that clip once and set one in/out for it.
-    // =====================================================================================
 
     private readonly Dictionary<string, FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim> _clipTrims =
         new(StringComparer.OrdinalIgnoreCase);
@@ -1879,8 +1854,6 @@ public partial class VideoMergerWindow : Window
         _clipTrims.TryGetValue(path, out var existing);
         double end = existing.EndSec;
 
-        // An IN past the OUT is meaningless — clear the OUT rather than store an inverted window
-        // that MergerWorker would just reject.
         if (end > 0 && at >= end) end = 0;
 
         _clipTrims[path] = new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(at, end);
@@ -1943,7 +1916,12 @@ public partial class VideoMergerWindow : Window
         if (tb != null) tb.Text = text;
     }
 
-    protected override void OnClosed(EventArgs e) { base.OnClosed(e); }
+    protected override void OnClosed(EventArgs e)
+    {
+        Controls.CoachOverlay.Cancel(this);
+        Controls.FloatingNotice.Clear(this);
+        base.OnClosed(e);
+    }
 
     private Avalonia.Point? _videoDragStartPoint;
     private bool _isVideoDragging;
@@ -2138,14 +2116,15 @@ public partial class VideoMergerWindow : Window
     {
         var frame = this.FindControl<Border>("VideoListFrame");
         if (frame == null) return;
-        frame.Background = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppPanelBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!;
-        frame.BorderBrush = active ? (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")! : (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppBorderBrush")!;
+        frame.Background = active
+            ? Infrastructure.ThemeResources.Brush(frame, "AppPanelBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")))
+            : Infrastructure.ThemeResources.Brush(frame, "AppSurfaceBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#1e293b")));
+        frame.BorderBrush = active
+            ? Infrastructure.ThemeResources.Brush(frame, "AppFocusInnerBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8")))
+            : Infrastructure.ThemeResources.Brush(frame, "AppBorderBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#475569")));
 
 }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // DETACH_01 — pop-out preview. Shared mechanism, own remembered geometry.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private PreviewDetachController? _previewDetach;
 
     private void WirePreviewDetach()
@@ -2166,7 +2145,7 @@ public partial class VideoMergerWindow : Window
             _previewDetach!.SyncButton(btn);
         };
 
-        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);   // UXQA_01
+        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);
 
         btn.Click += (_, _) => _previewDetach.Toggle();
         _previewDetach.SyncButton(btn);

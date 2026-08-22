@@ -1,6 +1,8 @@
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
+
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -93,14 +95,6 @@ public class MobileFilterBuilder
 
                 int sx = sourceRect.x, sy = sourceRect.y, sw = sourceRect.w, sh = sourceRect.h;
 
-                // ISSUE_4: this block used to be a hand-copied duplicate of
-                // CoordinateMath.QuantizeBackendSize's body, computed in double precision through
-                // backendScale.ToDouble() (32/27 is not exactly representable in binary) and rounded
-                // with Math.Round's banker's rounding. The preview (CropToolWindow) and
-                // HudConfig.Sanitize called the real function instead, so the two sides agreed only
-                // because the copied expression happened to be identical — nothing enforced it, and
-                // any edit to one would have silently desynchronised export from preview.
-                // Both sides now call the same exact-rational quantizer. UiRect is [w, h, x, y].
                 Frac backendScale = CoordinateConstants.BackendScale;
                 Frac scaleFrac = Frac.FromDouble(layer.Scale);
                 var (rw, rh) = CoordinateMath.QuantizeBackendSizeInternal(
@@ -120,15 +114,6 @@ public class MobileFilterBuilder
                     Frac.Zero > lyRaw ? Frac.Zero :
                     (lyRaw > maxLy ? maxLy : lyRaw));
 
-                // ISSUE_5: the 2px pad is a bleed guard — it gives lanczos a margin so the layer's
-                // outermost columns are not resampled against undefined pixels, and the matching
-                // -2 on the overlay below puts the real content back at exactly (lx, ly).
-                // It used to be `color=black` on a stream with NO alpha plane, so overlay composited
-                // those 4 extra rows/columns as OPAQUE BLACK — a visible border drawn around every
-                // HUD element on top of the gameplay. Converting to yuva420p first and padding with
-                // a fully transparent black (`@0`) keeps the identical geometry while making the
-                // guard invisible. Do not drop the format conversion: pad cannot produce
-                // transparency on a format without an alpha plane.
                 parts.Add($"[v_layer_in_{i}]crop=w={sw}:h={sh}:x={sx}:y={sy}," +
                           $"scale=w={rw}:h={rh}:flags=lanczos,format=yuva420p," +
                           $"pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_{i}]");
@@ -196,15 +181,15 @@ internal static class MobileFilterBuilderExtensions
         double posX = 0, posY = CoordinateConstants.UIPaddingTop;
         if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
         {
-            try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
-            try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+            try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
+            try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
         }
 
         var zOrdersObj = coords["z_orders"]?.AsObject();
         int z = 50;
         if (zOrdersObj != null && zOrdersObj.ContainsKey(ovKey))
         {
-            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
 
         if (rect.Length >= 4 && rect[0] >= 1 && rect[1] >= 1)

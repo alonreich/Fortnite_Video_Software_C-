@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -132,9 +132,9 @@ public static class RuntimeLog
                 AppDomain.CurrentDomain.ProcessExit += (s, e) => {
                     SafeWrite($"{_appName} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] SHUTDOWN - Process exiting (PID: {Environment.ProcessId}, Session: {_sessionId})." + Environment.NewLine);
                     WriteExitSeparator();
-                    try { _logQueue.CompleteAdding(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { _logQueue.CompleteAdding(); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
                     _processTask?.Wait(3000);
-                    try { _globalMutex?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { _globalMutex?.Dispose(); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
                 };
                 _exitRegistered = true;
             }
@@ -181,10 +181,75 @@ public static class RuntimeLog
         Write("FAIL", step, detail);
     }
 
+    /// <summary>
+    /// ISSUE_13 — the App-side twin of <see cref="FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed"/>.
+    /// Read the long note on that method before changing either: they are one contract in two
+    /// assemblies, because Core cannot reference this class.
+    /// INFO gets the exception type, message and source location; the full stack is DEBUG (dev only),
+    /// per logging rule L8. Never throws (rule L3).
+    /// </summary>
+    public static void Swallowed(
+        Exception ex,
+        [System.Runtime.CompilerServices.CallerMemberName] string member = "",
+        [System.Runtime.CompilerServices.CallerFilePath] string file = "",
+        [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
+    {
+        try
+        {
+            string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
+            Info("SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}");
+            Debug("SWALLOWED", $"{where}{Environment.NewLine}{ex}");
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long LastTicks, int Suppressed)> _throttleState = new();
+    private static readonly long ThrottleTicks = TimeSpan.FromSeconds(30).Ticks;
+
+    public static void SwallowedThrottled(
+        Exception ex,
+        [System.Runtime.CompilerServices.CallerMemberName] string member = "",
+        [System.Runtime.CompilerServices.CallerFilePath] string file = "",
+        [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
+    {
+        try
+        {
+            string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
+            long now = DateTime.UtcNow.Ticks;
+
+            bool emit = false;
+            int suppressed = 0;
+            _throttleState.AddOrUpdate(
+                where,
+                _ => { emit = true; return (now, 0); },
+                (_, prev) =>
+                {
+                    if (now - prev.LastTicks >= ThrottleTicks)
+                    {
+                        emit = true;
+                        suppressed = prev.Suppressed;
+                        return (now, 0);
+                    }
+                    return (prev.LastTicks, prev.Suppressed + 1);
+                });
+
+            if (!emit) return;
+
+            string tail = suppressed > 0 ? $" (+{suppressed} identical in the last 30s)" : string.Empty;
+            Info("SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}{tail}");
+            Debug("SWALLOWED", $"{where}{Environment.NewLine}{ex}");
+        }
+        catch (Exception)
+        {
+        }
+    }
+
     public static void AppendRaw(string line)
     {
         SafeWrite(line + Environment.NewLine);
-        try { LogAppended?.Invoke(line); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { LogAppended?.Invoke(line); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
     }
 
     /// <summary>
@@ -206,7 +271,7 @@ public static class RuntimeLog
                 acquired = _globalMutex.WaitOne(500);
             }
             catch (AbandonedMutexException) { acquired = true; }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
 
             string? path = _cachedLogPath;
             if (path == null)
@@ -225,12 +290,12 @@ public static class RuntimeLog
             fs.Write(bytes, 0, bytes.Length);
             fs.Flush(true);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
         finally
         {
             if (acquired && _globalMutex != null)
             {
-                try { _globalMutex.ReleaseMutex(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { _globalMutex.ReleaseMutex(); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
             }
         }
     }
@@ -250,7 +315,7 @@ public static class RuntimeLog
 
         string line = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [{level}] {step} - {detail}{Environment.NewLine}";
         SafeWrite(line);
-        try { LogAppended?.Invoke(line.TrimEnd()); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { LogAppended?.Invoke(line.TrimEnd()); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
     }
 
     /// <summary>
@@ -268,7 +333,6 @@ public static class RuntimeLog
                 int originalBytes = Encoding.UTF8.GetByteCount(text);
                 if (originalBytes > MaxSingleEntryBytes)
                 {
-                    // Cut on characters, not bytes, so a multi-byte sequence is never split.
                     int keep = Math.Min(text.Length, MaxSingleEntryBytes / 4);
                     text = text[..keep] +
                            $"... [truncated {originalBytes - Encoding.UTF8.GetByteCount(text[..keep])} bytes]" +
@@ -279,7 +343,7 @@ public static class RuntimeLog
             if (!_logQueue.TryAdd(text))
                 Interlocked.Increment(ref _droppedCount);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
     }
 
     private static void ProcessLogQueue()
@@ -294,10 +358,6 @@ public static class RuntimeLog
             _globalMutex = new Mutex(false);
         }
         
-        // ISSUE_3: the retention sweep used to run ONLY from inside the rotation branch below, so a
-        // machine whose log never reached 10 MB never enforced the count / 50 MB / 14-day rules at
-        // all — stale .old and mpv_debug files simply lived forever. Sweeping once here runs it on
-        // every launch, on this background thread, so startup pays nothing.
         if (!_startupCleanupDone)
         {
             _startupCleanupDone = true;
@@ -308,10 +368,6 @@ public static class RuntimeLog
         {
             try
             {
-                // ISSUE_1: the drain is byte-bounded. It used to empty the whole 10,000-entry queue
-                // into this StringBuilder before anything checked the size, which made both the
-                // batch and the peak memory unbounded. Anything left over stays queued and is
-                // picked up by the next iteration, which re-runs the rotation check first.
                 var sb = new StringBuilder();
                 sb.Append(firstText);
                 long batchBytes = Encoding.UTF8.GetByteCount(firstText);
@@ -330,9 +386,6 @@ public static class RuntimeLog
                     combinedText = $"{_appName} [s:{_sessionId}] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [WARN] LOGGER - {dropped} log line(s) dropped due to queue saturation.{Environment.NewLine}" + combinedText;
                 }
 
-                // ISSUE_4: a disk error used to discard the batch in total silence, so a log that
-                // simply stopped updating was indistinguishable from a clean run. Report the loss
-                // on the first write that succeeds afterwards.
                 long failed = Interlocked.Exchange(ref _failedBatchCount, 0);
                 if (failed > 0)
                 {
@@ -369,7 +422,7 @@ public static class RuntimeLog
                                     CleanupOldLogs();
                                 }
                             }
-                            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                            catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
                         }
 
                         using var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
@@ -377,11 +430,6 @@ public static class RuntimeLog
                         sw.Write(combinedText);
                         _estimatedSize += incomingBytes;
 
-                        // ISSUE_1: the burst used to append up to 500 further entries with NO size
-                        // re-check, so the file could sail past 10 MB straight after the check that
-                        // was supposed to prevent exactly that. It now stops the moment the cap is
-                        // reached; whatever is still queued stays queued, and the next iteration
-                        // re-enters the rotation branch above.
                         int burstCount = 0;
                         while (burstCount < 500
                                && _estimatedSize < MaxLogSize
@@ -405,7 +453,7 @@ public static class RuntimeLog
                     }
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
         }
     }
 
@@ -416,11 +464,6 @@ public static class RuntimeLog
             var dir = Path.GetDirectoryName(LogPath);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
 
-            // ISSUE_5: the filter used to recognise only ".old" rotations and "mpv_debug_" files,
-            // so the two per-process fallbacks written when the shared lock cannot be taken —
-            // "<log>.crash.<pid>.log" (EmergencyWrite) and "<log>.<pid>.local.log"
-            // (ProcessLogQueue) — matched nothing and accumulated for the life of the machine.
-            // They are small, but their COUNT only ever grew. Both are now swept.
             bool IsRotatedLog(string f) =>
                 f.EndsWith(".old", StringComparison.OrdinalIgnoreCase) && f.Contains("Fortnite_Video_Software");
 
@@ -444,12 +487,6 @@ public static class RuntimeLog
                 FileInfo f = oldLogs[i];
                 runningTotal += f.Length;
 
-                // ISSUE_6: the count rule was `i >= MaxOldLogs * 2`, keeping 10 rotations while the
-                // constant and project_structure.txt both say 5. The doubling was undocumented.
-                // The count now means what it says, and — because the sweep above deliberately
-                // includes auxiliary files — it is applied ONLY to rotated .old logs, so a handful
-                // of dev mpv_debug files can no longer evict real rotation history. Auxiliary files
-                // are still bounded by the total-size and age rules below.
                 bool rotated = IsRotatedLog(f.FullName);
                 bool overCount = false;
                 if (rotated)
@@ -462,10 +499,10 @@ public static class RuntimeLog
                 bool tooOld = f.CreationTimeUtc < cutoff;
                 if (overCount || overSize || tooOld)
                 {
-                    try { f.Delete(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { f.Delete(); } catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
                 }
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception) { /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. Loss is surfaced by the _failedBatchCount warning instead. */ }
     }
 }

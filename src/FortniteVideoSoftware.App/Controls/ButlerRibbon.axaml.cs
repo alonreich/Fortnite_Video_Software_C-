@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -141,12 +141,6 @@ public partial class ButlerRibbon : UserControl
             string json = FortniteVideoSoftware.Core.Infrastructure.UiStateStore.ReadText(DismissalFile);
             if (string.IsNullOrWhiteSpace(json)) return;
 
-            // ISSUE_1: this was JsonSerializer.Deserialize<string[]>(json), which resolves the type
-            // by reflection. The shipped build is NativeAOT with TrimMode=full, which strips that
-            // machinery — so in the real EXE the call throws and the empty catch below ate it,
-            // meaning dismissed suggestions silently came back on every launch while dev builds
-            // looked fine. JsonNode.Parse needs no reflection and is what the rest of the codebase
-            // already uses (see AtomicJsonFile.ReadObject).
             var array = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsArray();
             if (array != null)
             {
@@ -159,7 +153,6 @@ public partial class ButlerRibbon : UserControl
         }
         catch (Exception ex)
         {
-            // ISSUE_2: was `catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }`. Still non-fatal, but a swallowed failure now leaves a trail.
             RuntimeLog.Debug("Butler", $"Dismissal list could not be read: {ex.Message}");
         }
     }
@@ -168,8 +161,6 @@ public partial class ButlerRibbon : UserControl
     {
         try
         {
-            // ISSUE_1: was JsonSerializer.Serialize(_dismissed) — same reflection problem as the
-            // read above. Building the array by hand needs no reflection and survives trimming.
             var array = new System.Text.Json.Nodes.JsonArray();
             foreach (string id in _dismissed) array.Add(id);
 
@@ -178,7 +169,6 @@ public partial class ButlerRibbon : UserControl
         }
         catch (Exception ex)
         {
-            // ISSUE_2: was `catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }`.
             RuntimeLog.Debug("Butler", $"Dismissal list could not be saved: {ex.Message}");
         }
     }

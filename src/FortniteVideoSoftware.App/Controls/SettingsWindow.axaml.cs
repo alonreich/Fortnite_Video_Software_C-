@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -56,7 +56,7 @@ public partial class SettingsWindow : Window
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
             AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
             AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening,
-            AudioProtection = SettingsManager.Instance.Defaults.AudioProtection,   // AUDIO_09
+            AudioProtection = SettingsManager.Instance.Defaults.AudioProtection,
             RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes,
             DefaultZoomSlow = SettingsManager.Instance.Defaults.DefaultZoomSlow,
             DefaultFreezeDurationS = SettingsManager.Instance.Defaults.DefaultFreezeDurationS
@@ -79,8 +79,11 @@ public partial class SettingsWindow : Window
         ConfirmVideoMergerClearAll = SettingsManager.Instance.ConfirmVideoMergerClearAll;
         ConfirmCropToolReset = SettingsManager.Instance.ConfirmCropToolReset;
         ConfirmCropToolDelete = SettingsManager.Instance.ConfirmCropToolDelete;
+        ConfirmGranularDeleteSegment = SettingsManager.Instance.ConfirmGranularDeleteSegment;
+        ConfirmGranularClearAll = SettingsManager.Instance.ConfirmGranularClearAll;
+        ConfirmMainAppCancel = SettingsManager.Instance.ConfirmMainAppCancel;
+        ConfirmMainAppSwitchTool = SettingsManager.Instance.ConfirmMainAppSwitchTool;
 
-        // AUDIO_06
         UiSoundsEnabled = SettingsManager.Instance.UiSoundsEnabled;
         UiSoundVolume = SettingsManager.Instance.UiSoundVolume;
         BuildUiSoundUi();
@@ -128,6 +131,12 @@ public partial class SettingsWindow : Window
     public bool ConfirmVideoMergerClearAll { get; set; }
     public bool ConfirmCropToolReset { get; set; }
     public bool ConfirmCropToolDelete { get; set; }
+
+    /// <summary>ISSUE_12 — pending values for the Speed Editor + Main App confirmations.</summary>
+    public bool ConfirmGranularDeleteSegment { get; set; }
+    public bool ConfirmGranularClearAll { get; set; }
+    public bool ConfirmMainAppCancel { get; set; }
+    public bool ConfirmMainAppSwitchTool { get; set; }
 
     /// <summary>AUDIO_06 — pending value for the UI sound master switch; committed by APPLY.</summary>
     public bool UiSoundsEnabled { get; set; } = true;
@@ -384,8 +393,6 @@ public partial class SettingsWindow : Window
                 _pendingVideoEncoder = VideoEncoderChoices[i].Value;
         };
 
-        // Show what FFmpeg can ACTUALLY do on this machine, probed live — so the user is never
-        // guessing, and so a broken boot scan is immediately visible here.
         if (status != null)
         {
             _ = Task.Run(() =>
@@ -407,7 +414,7 @@ public partial class SettingsWindow : Window
                 }
                 catch (System.Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine(ex.ToString());
+                    RuntimeLog.Swallowed(ex);
                     text = "Could not check this computer's graphics encoders.";
                 }
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => status.Text = text);
@@ -494,8 +501,6 @@ public partial class SettingsWindow : Window
         {
             if (System.IO.File.Exists(_paths.SessionStateFile))
             {
-                // ISSUE_1: reflection-free parse. JsonSerializer.Deserialize<JsonObject> needs the
-                // reflection resolver that NativeAOT + TrimMode=full removes from the shipped EXE.
                 var state = System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(_paths.SessionStateFile))?.AsObject();
                 if (state != null && state.ContainsKey("CustomMusicDirectory"))
                 {
@@ -503,7 +508,7 @@ public partial class SettingsWindow : Window
                 }
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         var txtFolder = this.FindControl<TextBox>("DefaultMusicFolderTextBox");
 
@@ -512,7 +517,7 @@ public partial class SettingsWindow : Window
         {
             btnFolder.Click += async (s, e) =>
             {
-                string startPath = string.IsNullOrWhiteSpace(_pendingMusicFolder) ? Infrastructure.MemeDirectory.GetMusicRoot() : _pendingMusicFolder;   // SANDBOX_01
+                string startPath = string.IsNullOrWhiteSpace(_pendingMusicFolder) ? Infrastructure.MemeDirectory.GetMusicRoot() : _pendingMusicFolder;
                 var folder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(startPath));
                 
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
@@ -675,8 +680,11 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmVideoMergerClearAll = ConfirmVideoMergerClearAll;
         SettingsManager.Instance.ConfirmCropToolReset = ConfirmCropToolReset;
         SettingsManager.Instance.ConfirmCropToolDelete = ConfirmCropToolDelete;
+        SettingsManager.Instance.ConfirmGranularDeleteSegment = ConfirmGranularDeleteSegment;
+        SettingsManager.Instance.ConfirmGranularClearAll = ConfirmGranularClearAll;
+        SettingsManager.Instance.ConfirmMainAppCancel = ConfirmMainAppCancel;
+        SettingsManager.Instance.ConfirmMainAppSwitchTool = ConfirmMainAppSwitchTool;
 
-        // AUDIO_06 — takes effect immediately; UiSoundEffect reads these on every play.
         SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
         SettingsManager.Instance.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);
 
@@ -692,8 +700,6 @@ public partial class SettingsWindow : Window
             MaskOverlayManager.ApplyProfile(_pendingMaskOverlay);
         }
 
-        // G03 — encoder override. Read by MainWindow.ResolveHardwareMode() and
-        // VideoMergerWindow on the NEXT export; nothing needs to restart.
         if (_pendingVideoEncoder != SettingsManager.Instance.VideoEncoderOverride)
         {
             RuntimeLog.Info("Settings", $"Video encoder override changed: {SettingsManager.Instance.VideoEncoderOverride} -> {_pendingVideoEncoder}");
@@ -710,7 +716,7 @@ public partial class SettingsWindow : Window
                     ["CustomMusicDirectory"] = _pendingMusicFolder
                 });
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         Close(true);
     }
@@ -765,7 +771,7 @@ public partial class SettingsWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                 }
             };
         }

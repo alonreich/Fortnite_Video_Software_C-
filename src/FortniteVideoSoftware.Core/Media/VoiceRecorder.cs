@@ -1,4 +1,4 @@
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using NAudio.Dsp;
 using System;
 using System.IO;
@@ -45,7 +45,7 @@ public class VoiceRecorder : IDisposable
                 devices.Add($"{i + 1}. {name}");
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
         return devices;
     }
@@ -139,28 +139,9 @@ public class VoiceRecorder : IDisposable
         {
             CoreLogger.Fail("VoiceRecorder", $"Capture stopped with an error: {e.Exception.Message}");
         }
-        try { _recordingStopped?.Set(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _recordingStopped?.Set(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
-    // =====================================================================================
-    // ISSUE_03 (audit round 6): PauseRecording() and ResumeRecording() lived here with zero
-    // call sites anywhere in the solution. They were NOT wired up, because resuming into the
-    // SAME open WAV is the wrong primitive for this app:
-    //
-    //   * WaveInEvent.StopRecording() is asynchronous — buffers already in flight keep
-    //     arriving after it returns — and StartRecording() has its own device spin-up. Each
-    //     pause/resume cycle would therefore splice in an unmeasured few tens of milliseconds.
-    //   * Those errors ACCUMULATE, because one continuous WAV carries a single start anchor.
-    //     Pause five times and the tail of the voiceover is late by the sum of five unknowns,
-    //     with nothing the user or the exporter can do to correct it.
-    //
-    // VoiceOverWindow implements pause/resume by TAKE-SPLITTING instead: pausing closes the
-    // current take, resuming opens a brand-new one that re-arms and re-anchors against the real
-    // video clock. Every segment carries its own independently measured StartSec, so error
-    // cannot accumulate. See the big sync-model comment in VoiceOverWindow.axaml.cs.
-    //
-    // Do not reintroduce these two methods. If you need pause/resume, use take-splitting.
-    // =====================================================================================
 
     public void StopRecording()
     {
@@ -181,8 +162,8 @@ public class VoiceRecorder : IDisposable
 
             _stopping = true;
 
-            try { waveIn.DataAvailable -= OnDataAvailable; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-            try { waveIn.RecordingStopped -= OnRecordingStopped; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { waveIn.DataAvailable -= OnDataAvailable; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            try { waveIn.RecordingStopped -= OnRecordingStopped; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             try { waveIn.Dispose(); }
             catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Disposing the capture device threw: {ex.Message}"); }
 
@@ -197,14 +178,14 @@ public class VoiceRecorder : IDisposable
         {
             if (_writer != null)
             {
-                try { _writer.Flush(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { _writer.Flush(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                 try { _writer.Dispose(); }
                 catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Closing the WAV writer threw: {ex.Message}"); }
                 _writer = null;
             }
         }
 
-        try { _recordingStopped?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _recordingStopped?.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         _recordingStopped = null;
     }
 
@@ -217,7 +198,7 @@ public class VoiceRecorder : IDisposable
                 File.Delete(_outputPath);
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public void Dispose()

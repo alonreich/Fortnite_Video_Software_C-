@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using NAudio.Wave;
@@ -84,7 +84,6 @@ public static class UiSoundEffect
         "UiSound.error.wav"
     };
 
-    // ---- Throttle (AUDIO_05) ---------------------------------------------------------
 
     /// <summary>Floor for the per-cue retrigger window. Below this a human cannot tell two
     /// plays apart anyway, and the 48 ms click would machine-gun.</summary>
@@ -105,7 +104,6 @@ public static class UiSoundEffect
 
     private static int _activeVoices;
 
-    // ---- Engine ----------------------------------------------------------------------
 
     private static readonly object _engineLock = new();
     private static WaveOutEvent? _output;
@@ -118,7 +116,6 @@ public static class UiSoundEffect
     /// <c>ToSampleProvider()</c> presents as IEEE-float 44.1 kHz mono.</summary>
     private static readonly WaveFormat MixFormat = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
-    // ---- Suppression (AUDIO_01) ------------------------------------------------------
 
     private static int _suppressionDepth;
 
@@ -149,7 +146,6 @@ public static class UiSoundEffect
         }
     }
 
-    // ---- Public API ------------------------------------------------------------------
 
     public static void PlayClick() => Play(UiCue.Click);
     public static void PlayMark() => Play(UiCue.Mark);
@@ -186,9 +182,6 @@ public static class UiSoundEffect
 
         if (!TryReadSettings(out float gain)) return;
 
-        // Per-cue throttle. Lock-free: the UI thread does one compare-and-swap and nothing else.
-        // _throttleMs[i] is 0 until the clip has been decoded once, in which case the floor is
-        // used as a provisional window.
         long now = DateTime.UtcNow.Ticks;
         double windowMs = _throttleMs[i] > 0 ? _throttleMs[i] : MinThrottleMs;
         long windowTicks = (long)(windowMs * TimeSpan.TicksPerMillisecond);
@@ -200,8 +193,6 @@ public static class UiSoundEffect
         Interlocked.Increment(ref _activeVoices);
         try
         {
-            // Explicit WaitCallback (not a bare lambda) so this can never bind to the generic
-            // UnsafeQueueUserWorkItem<TState> overload.
             ThreadPool.UnsafeQueueUserWorkItem(new WaitCallback(static state =>
             {
                 var s = (WorkItem)state!;
@@ -241,7 +232,7 @@ public static class UiSoundEffect
         }
         catch
         {
-            return true; // never let a settings problem crash or permanently silence the UI
+            return true;
         }
     }
 
@@ -269,9 +260,6 @@ public static class UiSoundEffect
         }
         finally
         {
-            // On the SUCCESS path the decrement happens in OnMixerInputEnded, when the clip
-            // actually finishes - that is what makes MaxConcurrentVoices a real concurrency cap.
-            // On every failure path we must release the slot here or the cap leaks to zero.
             if (!queued)
             {
                 if (Interlocked.Decrement(ref _activeVoices) < 0) Interlocked.Exchange(ref _activeVoices, 0);
@@ -295,8 +283,6 @@ public static class UiSoundEffect
 
             var sound = new CachedSound(stream);
 
-            // AUDIO_05: the retrigger window is derived from the clip's REAL decoded length, not
-            // a shared magic constant that happened to be 3% of it.
             _throttleMs[cueIndex] = Math.Clamp(sound.Duration.TotalMilliseconds, MinThrottleMs, MaxThrottleMs);
             _sounds[cueIndex] = sound;
             return sound;
@@ -316,7 +302,6 @@ public static class UiSoundEffect
 
         try
         {
-            // Real deployment targets include VMs and RDP sessions with audio redirection off.
             if (WaveOut.DeviceCount <= 0)
             {
                 _engineFailed = true;
@@ -363,14 +348,14 @@ public static class UiSoundEffect
 
     private static void TearDownLocked()
     {
-        try { _output?.Stop(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-        try { _output?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _output?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        try { _output?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         _output = null;
 
         if (_mixer != null)
         {
-            try { _mixer.MixerInputEnded -= OnMixerInputEnded; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-            try { _mixer.RemoveAllMixerInputs(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _mixer.MixerInputEnded -= OnMixerInputEnded; } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+            try { _mixer.RemoveAllMixerInputs(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         _mixer = null;
@@ -380,10 +365,9 @@ public static class UiSoundEffect
 
     private static void SafeLog(string message)
     {
-        try { RuntimeLog.Info("UiSound", message); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { RuntimeLog.Info("UiSound", message); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
-    // ---- Cached PCM ------------------------------------------------------------------
 
     /// <summary>
     /// A fully decoded clip held as float samples. Decoded ONCE per cue; every play wraps it in
@@ -402,8 +386,6 @@ public static class UiSoundEffect
             ISampleProvider source = reader.ToSampleProvider();
             WaveFormat = source.WaveFormat;
 
-            // 16-bit input -> exactly Length/2 samples. Guarded anyway; a wrong estimate only
-            // costs one array copy.
             int bytesPerSample = Math.Max(1, reader.WaveFormat.BitsPerSample / 8);
             int estimate = (int)Math.Max(1024, reader.Length / bytesPerSample);
             var data = new float[estimate];

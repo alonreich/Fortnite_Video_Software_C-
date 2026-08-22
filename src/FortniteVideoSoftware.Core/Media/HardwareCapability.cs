@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -73,9 +73,6 @@ public static class HardwareCapability
     public readonly record struct RenderCapability(
         bool UseHardwareAcceleration, string RendererName, string DriverVersion, string FailureReason);
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // READ
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Returns the suite-wide encoder answer, or null when the caller must probe for itself.
@@ -91,7 +88,6 @@ public static class HardwareCapability
         string mode = root["encoderMode"]?.ToString() ?? "";
         if (string.IsNullOrWhiteSpace(mode)) return null;
 
-        // A failed scan is deliberately never trusted — see the class remarks.
         if (mode == HardwareScanner.ScanFailed) return null;
 
         string recordedFingerprint = root["ffmpegFingerprint"]?.ToString() ?? "";
@@ -137,9 +133,6 @@ public static class HardwareCapability
 
             if (!TryReadBool(root, "renderRecorded", false)) return null;
 
-            // ⚠️ RDP GUARD. Windows blocks the GPU inside a remote session, so a result recorded
-            // in a different session says nothing about this one. Both the session id and the
-            // remote flag must match or we re-probe.
             string recordedSession = root["sessionKey"]?.ToString() ?? "";
             if (recordedSession.Length == 0 || recordedSession != CurrentSessionKey())
             {
@@ -180,13 +173,9 @@ public static class HardwareCapability
         catch { return fallback; }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // WRITE — merges into the existing record so the two halves never clobber each other.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     public static void SaveEncoder(string encoderMode, string ffmpegPath)
     {
-        // Publishing a failure would freeze a broken state across all three apps.
         if (string.IsNullOrWhiteSpace(encoderMode) || encoderMode == HardwareScanner.ScanFailed) return;
 
         var root = TryLoadRoot() ?? new JsonObject();
@@ -212,9 +201,6 @@ public static class HardwareCapability
         Write(root);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // INTERNALS
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     private static JsonObject? TryLoadRoot()
     {

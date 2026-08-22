@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -31,7 +31,6 @@ public partial class PhaseOverlayControl : UserControl
     private Rect _anchorProgressBar;
     private Rect _anchorLogBox;
     private Rect _anchorTelemetryBox;
-    // ISSUE_02: _spamClickCount and _wobbleTimer removed — see OnOverlayPointerPressed.
     private bool? _originalCanResize;
 
     public PhaseOverlayControl()
@@ -81,8 +80,6 @@ public partial class PhaseOverlayControl : UserControl
     {
         IsVisible = true;
 
-        // IDEA_3: indeterminate until the first real percentage lands, so the icon reacts the
-        // instant the export starts rather than sitting empty during the analysis pass.
         TaskbarProgress.SetState(HostWindowHandle, TaskbarProgress.State.Indeterminate);
 
         AmbientBubblesBackground.GloballySuspended = true;
@@ -93,17 +90,12 @@ public partial class PhaseOverlayControl : UserControl
         
         try
         {
-            // ISSUE_01: the previous monitor was killed but NEVER disposed before the field was
-            // overwritten, so every StartOverlay that ran without a matching StopOverlay leaked a
-            // Windows process handle (plus its redirected stdout pipe) for the life of the app.
-            // Kill AND Dispose, and null the field first so a throw below cannot leave a stale
-            // reference behind.
             if (_smiProcess != null)
             {
                 var previous = _smiProcess;
                 _smiProcess = null;
-                try { if (!previous.HasExited) previous.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-                try { previous.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { if (!previous.HasExited) previous.Kill(entireProcessTree: true); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+                try { previous.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
 
             _smiProcess = new Process
@@ -132,11 +124,11 @@ public partial class PhaseOverlayControl : UserControl
             };
             _smiProcess.Start();
 
-            try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(_smiProcess); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(_smiProcess); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
             _smiProcess.BeginOutputReadLine();
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         
         var txt = this.FindControl<TextBox>("LiveLogTextBox");
         if (txt != null) txt.Text = "Backend log stream attached.\n";
@@ -191,7 +183,7 @@ public partial class PhaseOverlayControl : UserControl
         _koA = _koB = false; _skitKind = "";
         _projActive = _projDouble = false; _moveKind = ""; _hitResolved = false;
         var glassR = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
-        if (glassR != null && Application.Current?.FindResource("AppPanelBrush") is IBrush pbR) glassR.Fill = pbR;
+        if (glassR != null) glassR.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
         foreach (var n in new[] { "Projectile", "Projectile2", "SuperFlash", "ImpactBurst", "ComicBubble", "ComicText", "TitleFlash", "DustA", "DustB", "Mushroom", "ShockRing",
                                    "Door", "Ladder", "Bulb", "ZapBolt", "StarsA", "StarsB" })
             SetVisible(n, false);
@@ -201,10 +193,9 @@ public partial class PhaseOverlayControl : UserControl
     {
         try
         {
-            if (Application.Current?.FindResource(key) is Color c) return c;
-            if (Application.Current?.FindResource(key) is ISolidColorBrush b) return b.Color;
+            return Infrastructure.ThemeResources.Colour(this, key, fallback);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         return fallback;
     }
 
@@ -222,9 +213,6 @@ public partial class PhaseOverlayControl : UserControl
     {
         IsVisible = false;
 
-        // IDEA_3: the job is over — clear the bar and flash the button. StopOverlay is the single
-        // exit point for success, cancel and failure alike, so the icon can never be left stuck
-        // showing progress for a job that has finished.
         IntPtr hwnd = HostWindowHandle;
         TaskbarProgress.Clear(hwnd);
         TaskbarProgress.Flash(hwnd);
@@ -269,7 +257,7 @@ public partial class PhaseOverlayControl : UserControl
             _smiProcess?.Dispose();
             _smiProcess = null;
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
     public void UpdateTimeRemaining(string timeRemaining)
     {
@@ -294,10 +282,6 @@ public partial class PhaseOverlayControl : UserControl
             _barTarget = Math.Max(_barTarget, Math.Clamp(progress, 0, 100));
             EnsureBarTimer();
 
-            // IDEA_3: mirror the real percentage onto the taskbar icon. Already on the UI thread
-            // here (Dispatcher.Post above), which is the only thread TaskbarProgress may be used
-            // from. Uses _barTarget rather than the animated _barValue so the icon tracks the true
-            // job state, not the easing animation.
             TaskbarProgress.SetProgress(HostWindowHandle, (int)Math.Round(_barTarget));
 
             ProcessEasterEggState(progress);
@@ -886,7 +870,7 @@ public partial class PhaseOverlayControl : UserControl
                 var zap = this.FindControl<Avalonia.Controls.Shapes.Path>("ZapBolt");
                 if (zap != null) { zap.IsVisible = true; Canvas.SetLeft(zap, vx + 8); Canvas.SetTop(zap, fightY - 42); }
                 var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
-                if (glass != null && Application.Current?.FindResource("AppWarningBrush") is IBrush wb) glass.Fill = wb;
+                if (glass != null) glass.Fill = Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", new SolidColorBrush(Color.Parse("#facc15")));
                 ShowImpact("BZZT!", vx + 15, fightY - 22);
                 _impactUntil = now + 0.6;
                 KnockOut(victimIsA, now, 1.7);
@@ -900,7 +884,7 @@ public partial class PhaseOverlayControl : UserControl
         var door = this.FindControl<Canvas>("Door");
         if (door != null) door.RenderTransform = null;
         var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
-        if (glass != null && Application.Current?.FindResource("AppPanelBrush") is IBrush pb) glass.Fill = pb;
+        if (glass != null) glass.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
         foreach (var n in new[] { "Door", "Ladder", "Bulb", "ZapBolt" }) SetVisible(n, false);
         _skitKind = ""; _moveKind = "";
         _nextSkitTime = now + 6 + _rand.NextDouble() * 6;
@@ -1038,7 +1022,7 @@ public partial class PhaseOverlayControl : UserControl
         if (proj == null) return;
         double sz = 12 + _rand.NextDouble() * 12;
         proj.Width = sz; proj.Height = sz;
-        if (Application.Current?.FindResource(s_projBrush[_rand.Next(s_projBrush.Length)]) is IBrush b) proj.Fill = b;
+        proj.Fill = Infrastructure.ThemeResources.Brush(this, s_projBrush[_rand.Next(s_projBrush.Length)], new SolidColorBrush(Color.Parse("#facc15")));
     }
 
     private void MoveProjectile(string name, Point s, Point e, double t, double arc, double yOff)
@@ -1130,7 +1114,7 @@ public partial class PhaseOverlayControl : UserControl
         var t = this.FindControl<TextBlock>("TitleFlash");
         if (t == null) return;
         t.Text = text;
-        if (Application.Current?.FindResource(brushKey) is IBrush b) t.Foreground = b;
+        t.Foreground = Infrastructure.ThemeResources.Brush(this, brushKey, new SolidColorBrush(Color.Parse("#ffffff")));
         t.IsVisible = true;
         Canvas.SetLeft(t, midX - text.Length * 18);
         Canvas.SetTop(t, y);

@@ -230,6 +230,50 @@
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#b0c4de" />
                 <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#475569" />
                 <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#334155" />
+
+                <!-- ══════════════════════════════════════════════════════════════════════════
+                     ISSUE_08 — PRESS-RIPPLE COLOUR. The ripple used to be hardcoded white in
+                     Controls/Tactile.cs, which is invisible on a light Secondary button, i.e. on
+                     most of the suite in the Light theme. Dark keeps the original white exactly.
+                     ══════════════════════════════════════════════════════════════════════════ -->
+                <Color x:Key="AppRippleColor">#ffffff</Color>
+
+                <!-- ══════════════════════════════════════════════════════════════════════════
+                     ISSUE_10 — THE TWO CUSTOM-DRAWN CONTROLS' CHROME.
+                     The quality/speed dial (SpinningWheelSlider) and the volume tube
+                     (FluidVolumeSlider) are the most eye-catching controls in the app and every
+                     colour in both was a hardcoded near-black hex in code-behind — a direct
+                     violation of the "NO RAW HEX IN STYLES" mandate in section 4, and completely
+                     unable to respond to the Light theme the Settings window offers.
+                     ⚠️ EVERY DARK VALUE BELOW IS BYTE-IDENTICAL TO THE OLD HARDCODED ONE. The
+                     default theme must look exactly as it did; only Light is new. If you change a
+                     Dark value here you are changing the shipped look of the app.
+                     Deliberately NOT tokenised: the liquid gradient (#00D2FF→#8A2BE2) and the red
+                     centre pointer. Those are the product's identity and read correctly on both.
+                     ══════════════════════════════════════════════════════════════════════════ -->
+                <Color x:Key="AppDialBezelEdgeColor">#15202b</Color>
+                <Color x:Key="AppDialBezelMidColor">#3e5871</Color>
+                <Color x:Key="AppDialRimColor">#0d1217</Color>
+                <Color x:Key="AppDialFaceStop0Color">#3a6b6b</Color>
+                <Color x:Key="AppDialFaceStop1Color">#1e313d</Color>
+                <Color x:Key="AppDialFaceStop2Color">#0f1a0f</Color>
+                <Color x:Key="AppDialFaceStop3Color">#080c08</Color>
+                <Color x:Key="AppDialTickActiveColor">#50ffef</Color>
+                <Color x:Key="AppDialTickIdleColor">#c5dcf2</Color>
+                <Color x:Key="AppDialTickActiveDisabledColor">#95a5a6</Color>
+                <Color x:Key="AppDialTickIdleDisabledColor">#7f8c8d</Color>
+                <Color x:Key="AppDialTickShadowColor">#000000</Color>
+                <Color x:Key="AppTubeGlassBaseColor">#0d0d12</Color>
+                <Color x:Key="AppTubeGlassEdgeColor">#000000</Color>
+                <Color x:Key="AppTubeInnerShadowColor">#a6000000</Color>
+
+                <!-- ISSUE_11: the Granular freeze-duration presets painted their SELECTED state with
+                     three raw hexes in code-behind (#14532d / #22c55e / #86efac) that happened to
+                     duplicate these very tokens. Same values, one name, and now theme-aware. -->
+                <SolidColorBrush x:Key="AppSelectedPresetBackground" Color="#14532d" />
+                <SolidColorBrush x:Key="AppSelectedPresetBorder" Color="#22c55e" />
+                <SolidColorBrush x:Key="AppSelectedPresetForeground" Color="#86efac" />
+
                 <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
                     <GradientStop Offset="0.00" Color="#1e293b" />
                     <GradientStop Offset="0.50" Color="#334155" />
@@ -259,6 +303,36 @@
                 <SolidColorBrush x:Key="AppDisabledForegroundBrush" Color="#64748b" />
                 <SolidColorBrush x:Key="AppDisabledBackgroundBrush" Color="#cbd5e1" />
                 <SolidColorBrush x:Key="AppDisabledBorderBrush" Color="#94a3b8" />
+
+                <!-- ISSUE_08: black ripple on light surfaces. White was invisible here. -->
+                <Color x:Key="AppRippleColor">#000000</Color>
+
+                <!-- ISSUE_10: the same two controls in brushed-light metal instead of near-black,
+                     so they sit inside the page instead of punching a hole in it. The geometry,
+                     physics and liquid are untouched — only the chrome changes. -->
+                <Color x:Key="AppDialBezelEdgeColor">#b9c3cf</Color>
+                <Color x:Key="AppDialBezelMidColor">#eef2f7</Color>
+                <Color x:Key="AppDialRimColor">#8b95a1</Color>
+                <Color x:Key="AppDialFaceStop0Color">#e8eef1</Color>
+                <Color x:Key="AppDialFaceStop1Color">#d6dee6</Color>
+                <Color x:Key="AppDialFaceStop2Color">#c2ccd7</Color>
+                <Color x:Key="AppDialFaceStop3Color">#b3bdc9</Color>
+                <Color x:Key="AppDialTickActiveColor">#0b7285</Color>
+                <Color x:Key="AppDialTickIdleColor">#1f2d3d</Color>
+                <Color x:Key="AppDialTickActiveDisabledColor">#94a3b8</Color>
+                <Color x:Key="AppDialTickIdleDisabledColor">#94a3b8</Color>
+                <!-- The tick shadow is a 1px offset copy behind the label. On a light face a BLACK
+                     shadow reads as a smudge, so it becomes white — same trick, inverted. -->
+                <Color x:Key="AppDialTickShadowColor">#ffffff</Color>
+                <Color x:Key="AppTubeGlassBaseColor">#dbe2ea</Color>
+                <Color x:Key="AppTubeGlassEdgeColor">#aab4c0</Color>
+                <Color x:Key="AppTubeInnerShadowColor">#59000000</Color>
+
+                <!-- ISSUE_11 -->
+                <SolidColorBrush x:Key="AppSelectedPresetBackground" Color="#bbf7d0" />
+                <SolidColorBrush x:Key="AppSelectedPresetBorder" Color="#15803d" />
+                <SolidColorBrush x:Key="AppSelectedPresetForeground" Color="#14532d" />
+
                 <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
                     <GradientStop Offset="0.00" Color="#969ca4" />
                     <GradientStop Offset="0.08" Color="#c2c7ce" />

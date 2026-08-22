@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -12,13 +12,6 @@ public interface IProcessJobTracker
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public partial class WindowsJobObjectTracker : IProcessJobTracker
 {
-    // G01: kernel32 exports CreateJobObjectW / CreateJobObjectA — there is NO unsuffixed
-    // "CreateJobObject" symbol. [LibraryImport] generates ExactSpelling=true stubs and performs
-    // NO A/W suffix probing (unlike legacy [DllImport] with CharSet.Unicode), so the unsuffixed
-    // name threw EntryPointNotFoundException from this type's static field initializer. That
-    // surfaced as "The type initializer for 'ChildProcessTracker' threw an exception" in
-    // HardwareScanner, which then reported the machine as CPU-only and silently disabled
-    // hardware encoding for the entire session. DO NOT drop the explicit EntryPoint.
     [LibraryImport("kernel32.dll", EntryPoint = "CreateJobObjectW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     private static partial IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
 
@@ -47,10 +40,6 @@ public partial class WindowsJobObjectTracker : IProcessJobTracker
         int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
 
-        // ISSUE_4: the free used to sit as a plain statement after the two calls below. If either
-        // StructureToPtr or SetInformationJobObject threw, the block was never returned. It is the
-        // only unmanaged allocation in the codebase without a guaranteed release — every other one
-        // (MpvVideoView, GpuCapabilityProbe, KnownFolders) already uses try/finally.
         try
         {
             Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
@@ -70,7 +59,7 @@ public partial class WindowsJobObjectTracker : IProcessJobTracker
             {
                 AssignProcessToJobObject(_jobHandle, process.Handle);
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 
@@ -125,11 +114,6 @@ public class NoOpJobTracker : IProcessJobTracker
 
 public static class ChildProcessTracker
 {
-    // G01: this initializer MUST NOT be able to throw. A TypeInitializationException here is
-    // unrecoverable for the whole process lifetime (the CLR caches the failure and rethrows on
-    // every subsequent touch of the type), and every caller of AddProcess is a media-pipeline
-    // call site. A job-object failure is cosmetic — losing child-process cleanup is acceptable;
-    // losing hardware encoding is not. Degrade to NoOpJobTracker instead.
     private static readonly IProcessJobTracker _tracker = CreateTracker();
 
     /// <summary>True when the real Windows Job Object tracker is active.</summary>
@@ -146,7 +130,8 @@ public static class ChildProcessTracker
         }
         catch (System.Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ChildProcessTracker] Job object unavailable, degrading to no-op: {ex}");
+            CoreLogger.Info("ChildProcessTracker", $"Job object unavailable, degrading to no-op: {ex.GetType().Name}: {ex.Message}");
+            CoreLogger.Swallowed(ex);
             IsJobObjectActive = false;
             return new NoOpJobTracker();
         }
@@ -155,6 +140,6 @@ public static class ChildProcessTracker
     public static void AddProcess(Process process)
     {
         try { _tracker.AddProcess(process); }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 }

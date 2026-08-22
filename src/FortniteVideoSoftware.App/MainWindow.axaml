@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -42,11 +42,26 @@
                         <MenuItem Name="MenuExit" Header="E_xit" ToolTip.Tip="Close the application." />
                     </MenuItem>
                     <MenuItem Header="_Edit">
-                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" ToolTip.Tip="Choose how you want to crop or resize your videos." />
-                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" ToolTip.Tip="Open a tool that lets you combine multiple videos into one." />
+                        <MenuItem Name="MenuCropSettings" Header="Crop Settings" ToolTip.Tip="Choose how you want to crop or resize your videos. This opens in place of the editor, so this window closes — your edits are saved first and come straight back." />
+                        <MenuItem Name="MenuVideoMerger" Header="Video Merger" ToolTip.Tip="Open a tool that lets you combine multiple videos into one. This opens in place of the editor, so this window closes — your edits are saved first and come straight back." />
                     </MenuItem>
                     <MenuItem Header="_View">
                         <MenuItem Name="MenuTogglePreviewMonitor" Header="Detach Preview Monitor" ToolTip.Tip="Pop out the video player into its own separate floating window so you can move it around." />
+                        <Separator />
+                        <!-- ISSUE_05: the "?" key alone was not a discoverable way in, and on keyboard
+                             layouts where ? is not on the OemQuestion key it does not fire at all.
+                             This menu item is the guaranteed route. Do not remove it in favour of the
+                             shortcut. -->
+                        <!-- ⚠️ NO `InputGesture` HERE, EVER. Avalonia parses that attribute with
+                             `KeyGesture.Parse`, which resolves the key name through `Enum.Parse<Key>`.
+                             "?" is not a member of the Key enum, so `InputGesture="?"` throws
+                             `ArgumentException: Requested value '?' was not found.` at XAML load —
+                             AFTER a clean build, so it presents as the app exiting with code 1 on
+                             startup rather than as a compile error. The hint lives in the header
+                             text instead. If you ever do want a real gesture here it must be a
+                             parseable name such as "OemQuestion" or "Ctrl+K". -->
+                        <MenuItem Name="MenuShowShortcuts" Header="Keyboard Shortcuts    ?" ToolTip.Tip="Show every keyboard shortcut, using your own key choices. Shortcut: press ?" />
+                        <MenuItem Name="MenuShowHelp" Header="Show Me Around" ToolTip.Tip="Replay the short walkthrough that points out what everything on this screen does." />
                     </MenuItem>
                 </Menu>
                 <Grid Grid.Row="2" ColumnDefinitions="*, Auto">
@@ -109,7 +124,7 @@
                                 </Border>
                                 <TextBlock Text="Drag &amp; drop your gameplay video here" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize18}" FontWeight="SemiBold" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                 <TextBlock Text="or" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" IsHitTestVisible="False" />
-                                <Button Name="CenterUploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Center" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing." Padding="20,10" controls:Tactile.IsRippleEnabled="True" />
+                                <Button Name="CenterUploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Center" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing." Padding="20,10" />
                                 <TextBlock Text="MP4 · MKV · AVI · MOV" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center" IsHitTestVisible="False" />
                                 <StackPanel Orientation="Horizontal" Spacing="24" HorizontalAlignment="Center" Margin="0,10,0,0" IsHitTestVisible="False">
                                     <StackPanel Spacing="4">
@@ -160,26 +175,17 @@
                             <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Margin="8,0,0,0" />
                         </Grid>
                     </Border>
-                    <!-- ISSUE_11 (audit round 5): Grid.RowSpan was 3 inside MainVideoGrid, which declares
-                         exactly TWO rows (see RowDefinitions above). The third row was silently discarded
-                         and encoded a wrong assumption about the player layout.
-                         ISSUE_10 (audit round 5): the dimmer is now IsHitTestVisible="False". This is a
-                         TRANSIENT toast that FloatingFeedback auto-closes after ~1.1s; it must never eat
-                         a click aimed at the timeline underneath. -->
-                    <!-- ISSUE_10 (audit round 5): was IsLightDismissEnabled="True" IsHitTestVisible="True".
-                         This Popup and GranularSpeedEditorWindow's GranularFeedbackPopup are driven by the
-                         SAME helper (FloatingFeedback.Show) yet had opposite dismiss semantics: the Main App
-                         swallowed the next click anywhere in the window, Granular passed it through. Both are
-                         now non-interactive, self-expiring toasts. Do not re-enable light dismiss here
-                         without changing Granular to match. -->
-                    <Popup Name="FeedbackPopup" IsOpen="False" PlacementMode="Center" PlacementTarget="{Binding #MainVideoGrid}"
-                           IsLightDismissEnabled="False" IsHitTestVisible="False" ZIndex="9999">
-                        <Border Name="FeedbackPopupBorder" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="8" Padding="24,12" Opacity="0" MaxWidth="600" MaxHeight="300">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                <TextBlock Name="FeedbackPopupText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize28}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-                            </ScrollViewer>
-                        </Border>
-                    </Popup>
+                    <!-- ══════════════════════════════════════════════════════════════════════
+                         ISSUE_09 — THE FEEDBACK POPUP LIVED HERE AND HAS BEEN REMOVED.
+                         It was a Popup + Border + TextBlock trio driven by FloatingFeedback.Show,
+                         and it was the ONLY nice notification in the whole suite precisely because
+                         it took three named XAML controls and an OS-level popup window to build —
+                         no other screen could reuse it, so five other screens each invented their
+                         own status line or hand-rolled toast instead.
+                         The same visual now comes from Controls/FloatingNotice.cs, which draws into
+                         OverlayCanvas further down this file and works in every window with no XAML.
+                         ⚠️ DO NOT re-add a per-window feedback Popup. That duplication is the bug.
+                         ══════════════════════════════════════════════════════════════════════ -->
 
                     <!-- IDEA_02: hidden until a video loads (pre-upload it silently no-ops and floats over the hero card) -->
                     <Button Name="DetachOverlayButton"
@@ -228,7 +234,7 @@
                 </StackPanel>
                 <!-- Upper Row -->
                 <Grid Grid.Row="1" Margin="0,0,0,8">
-                    <Button Name="SetThumbnailButton" Classes="Secondary" Padding="16,8" MinHeight="44" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Save the exact frame you are looking at right now to be the cover image for your video." controls:Tactile.IsRippleEnabled="True">
+                    <Button Name="SetThumbnailButton" Classes="Secondary" Padding="16,8" MinHeight="44" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Save the exact frame you are looking at right now to be the cover image for your video.">
                         <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize18}" Height="{DynamicResource AppFontSize18}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppImageIconGeometry}" />
                             <TextBlock Name="SetThumbnailText" Text=" SET THUMBNAIL " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="6,0,6,0" />
@@ -237,23 +243,23 @@
                     </Button>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Button Name="MarkStartButton" Classes="Secondary" Focusable="True" Content="MARK START" MinHeight="44" Padding="16,8" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Cut out everything before this point. The final video will start exactly here." controls:Tactile.IsRippleEnabled="True"/>
-                        <Button Name="PlayPauseButton" Classes="Primary" MinHeight="44" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Margin="0,0,30,0" controls:Tactile.IsRippleEnabled="True">
+                        <Button Name="MarkStartButton" Classes="Secondary" Focusable="True" Content="MARK START" MinHeight="44" Padding="16,8" Margin="0,0,30,0" IsEnabled="False" ToolTip.Tip="Cut out everything before this point. The final video will start exactly here."/>
+                        <Button Name="PlayPauseButton" Classes="Primary" MinHeight="44" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." Margin="0,0,30,0">
                             <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
                                 <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" />
                                 <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" />
                             </Panel>
                         </Button>
-                        <Button Name="MarkEndButton" Classes="Secondary" Focusable="True" Content="MARK END" MinHeight="44" Padding="16,8" IsEnabled="False" ToolTip.Tip="Cut out everything after this point. The final video will end exactly here." controls:Tactile.IsRippleEnabled="True"/>
+                        <Button Name="MarkEndButton" Classes="Secondary" Focusable="True" Content="MARK END" MinHeight="44" Padding="16,8" IsEnabled="False" ToolTip.Tip="Cut out everything after this point. The final video will end exactly here."/>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Name="GranularButton" Classes="Secondary" Content="GRANULAR SPEED" Padding="16,8" IsEnabled="False" ToolTip.Tip="Change the speed of specific parts of your video." controls:Tactile.IsRippleEnabled="True"/>
+                        <Button Name="GranularButton" Classes="Secondary" Content="GRANULAR SPEED" Padding="16,8" IsEnabled="False" ToolTip.Tip="Change the speed of specific parts of your video."/>
                     </StackPanel>
                 </Grid>
 
                 <Grid Grid.Row="2" Margin="0,8,0,0">
-                    <Button Name="VoiceOverButton" Classes="VoiceOverEntry" Padding="16,8" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Record your own voice over the video." controls:Tactile.IsRippleEnabled="True">
+                    <Button Name="VoiceOverButton" Classes="VoiceOverEntry" Padding="16,8" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ToolTip.Tip="Record your own voice over the video.">
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Path Fill="{DynamicResource AppOnAccentTextBrush}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppVoiceOverIconGeometry}"/>
                             <TextBlock Name="VoiceOverText" Text="VOICE OVER" FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -269,17 +275,31 @@
 
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,20,8">
                             <!-- Issue #13: Normalize to 42px standard -->
-                            <Button Name="CancelButton" Classes="Danger" Content="CANCEL" CornerRadius="10" IsVisible="False" ToolTip.Tip="Stop what you are doing right now and cancel it." Padding="20,10" controls:Tactile.IsRippleEnabled="True">
+                            <Button Name="CancelButton" Classes="Danger" Content="CANCEL" CornerRadius="10" IsVisible="False" ToolTip.Tip="Stop what you are doing right now and cancel it." Padding="20,10">
+                                <!-- ISSUE_12: matched to the Speed Editor's dialog — larger, plain English,
+                                     an explicit escape button, and skippable via Settings > Confirmation
+                                     Dialogs (ConfirmMainAppCancel). The outer CANCEL button acts ONLY when
+                                     that setting is off; otherwise this flyout is the only path out. -->
                                 <Button.Flyout>
                                     <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
-                                        <StackPanel Spacing="8" Margin="8">
-                                            <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                            <Button Name="ConfirmCancelButton" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently stop what you are doing right now." controls:Tactile.IsRippleEnabled="True" />
+                                        <StackPanel Spacing="14" Margin="22" MinWidth="380" MaxWidth="440">
+                                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                                <TextBlock Text="✖" FontSize="{DynamicResource AppFontSize28}" VerticalAlignment="Center" Foreground="{DynamicResource AppDangerBrush}"/>
+                                                <TextBlock Text="Close the app?" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Text="This stops what you are doing and closes the whole application." FontSize="{DynamicResource AppFontSize13}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                            <Border Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                                                <TextBlock Text="⚠️ Your edits are saved and restored next time you open the editor — but anything still running right now is stopped." Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            </Border>
+                                            <Grid ColumnDefinitions="*,12,*">
+                                                <Button Grid.Column="0" Name="KeepWorkingButton" Classes="Secondary" Content="KEEP WORKING" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Close this box and carry on."/>
+                                                <Button Grid.Column="2" Name="ConfirmCancelButton" Classes="Danger" Content="CLOSE APP" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Permanently stop what you are doing right now." />
+                                            </Grid>
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>
                             </Button>
-                            <Button Name="ProcessButton" Classes="Success" Content="PROCESS" CornerRadius="10" IsEnabled="False" ToolTip.Tip="Save and export your final edited video." Padding="20,10" controls:Tactile.IsRippleEnabled="True"/>
+                            <Button Name="ProcessButton" Classes="Success" Content="PROCESS" CornerRadius="10" IsEnabled="False" ToolTip.Tip="Save and export your final edited video." Padding="20,10"/>
                         </StackPanel>
 
                         <Grid Name="SpeedPanel" IsVisible="False" VerticalAlignment="Center" Margin="0,0,0,8" ColumnDefinitions="Auto,8,Auto">
@@ -292,13 +312,13 @@
                             
                             <!-- Presets Column -->
                             <Grid Grid.Column="2" Name="MainSpeedPresetsPanel" RowDefinitions="Auto,8,Auto" ColumnDefinitions="Auto,8,Auto,8,Auto" VerticalAlignment="Center">
-                                <Button Grid.Row="0" Grid.Column="0" Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x" ToolTip.Tip="Set speed to 0.1x" controls:Tactile.IsRippleEnabled="True"/>
-                                <Button Grid.Row="0" Grid.Column="2" Name="SpeedPreset10" Classes="SpeedPreset" Content="1.0x" ToolTip.Tip="Set speed to normal (1.0x)" controls:Tactile.IsRippleEnabled="True"/>
-                                <Button Grid.Row="0" Grid.Column="4" Name="SpeedPresetBase" Classes="SpeedPreset BaseSpeedPreset" Content="1.1x" ToolTip.Tip="Set speed to 1.1x" controls:Tactile.IsRippleEnabled="True"/>
+                                <Button Grid.Row="0" Grid.Column="0" Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x" ToolTip.Tip="Set speed to 0.1x"/>
+                                <Button Grid.Row="0" Grid.Column="2" Name="SpeedPreset10" Classes="SpeedPreset" Content="1.0x" ToolTip.Tip="Set speed to normal (1.0x)"/>
+                                <Button Grid.Row="0" Grid.Column="4" Name="SpeedPresetBase" Classes="SpeedPreset BaseSpeedPreset" Content="1.1x" ToolTip.Tip="Set speed to 1.1x"/>
                                 
-                                <Button Grid.Row="2" Grid.Column="0" Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x" ToolTip.Tip="Set speed to 2.0x" controls:Tactile.IsRippleEnabled="True"/>
-                                <Button Grid.Row="2" Grid.Column="2" Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x" ToolTip.Tip="Set speed to 3.0x" controls:Tactile.IsRippleEnabled="True"/>
-                                <Button Grid.Row="2" Grid.Column="4" Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x" ToolTip.Tip="Set speed to 4.0x" controls:Tactile.IsRippleEnabled="True"/>
+                                <Button Grid.Row="2" Grid.Column="0" Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x" ToolTip.Tip="Set speed to 2.0x"/>
+                                <Button Grid.Row="2" Grid.Column="2" Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x" ToolTip.Tip="Set speed to 3.0x"/>
+                                <Button Grid.Row="2" Grid.Column="4" Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x" ToolTip.Tip="Set speed to 4.0x"/>
                             </Grid>
                         </Grid>
                     </WrapPanel>
@@ -314,8 +334,8 @@
                     <!-- Row 0: File Ops -->
                     <StackPanel Grid.Row="0" Spacing="10" Margin="0,0,0,15">
                         <TextBlock Text="FILE OPERATIONS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
-                        <Button Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing." controls:Tactile.IsRippleEnabled="True"/>
-                        <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add a background song to play over your video." controls:Tactile.IsRippleEnabled="True">
+                        <Button Name="UploadButton" Classes="Primary" Content="UPLOAD VIDEO" HorizontalAlignment="Stretch" ToolTip.Tip="Click here to browse your computer and upload a video file to start editing."/>
+                        <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" IsEnabled="False" ToolTip.Tip="Add a background song to play over your video.">
                             <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <!-- ISSUE_06 (audit round 4): icons sized by AppFontSize14 token (were fixed 14px) so they scale with the label -->
                                 <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
@@ -416,8 +436,8 @@
             <StackPanel Grid.Row="1" Spacing="8" VerticalAlignment="Bottom">
                 <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,0,0,5"/>
                 <TextBlock Text="ADVANCED TOOLS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
-                <Button Name="VideoMergerButton" Classes="Secondary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" ToolTip.Tip="Open a tool that lets you combine multiple videos into one."/>
-                <Button Name="CropSettingsButton" Classes="Secondary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" ToolTip.Tip="Choose how you want to crop or resize your videos."/>
+                <Button Name="VideoMergerButton" Classes="Secondary" Content="VIDEO MERGER" HorizontalAlignment="Stretch" ToolTip.Tip="Open a tool that lets you combine multiple videos into one. This opens in place of the editor, so this window closes — your edits are saved first and come straight back."/>
+                <Button Name="CropSettingsButton" Classes="Secondary" Content="CROP SETTINGS" HorizontalAlignment="Stretch" ToolTip.Tip="Choose how you want to crop or resize your videos. This opens in place of the editor, so this window closes — your edits are saved first and come straight back."/>
             </StackPanel>
             </Grid>
         </Border>
@@ -440,7 +460,18 @@
                 <!-- Meme Wall (IDEA 008) -->
                 <controls:MemeWallControl x:Name="MemeWall" Grid.RowSpan="3" ZIndex="996"/>
 
-                <!-- Overlay Canvas for Pop-up Badges and Custom Floating Animations -->
+                <!-- ══════════════════════════════════════════════════════════════════════════
+                     ISSUE_14 — THIS ELEMENT WAS A GHOST FOR ITS ENTIRE LIFE. IT HAS A JOB NOW.
+                     Its comment promised "Pop-up Badges and Custom Floating Animations", and a
+                     search of the whole source tree found ZERO code that ever added a child to it.
+                     It is now the host surface for Controls/FloatingNotice.cs — the float-up-and-
+                     fade message that used to require a per-window Popup (ISSUE_09).
+                     ⚠️ KEEP IsHitTestVisible="False": notices float over the timeline and the
+                        transport buttons and must never swallow a click.
+                     ⚠️ ZIndex raised to int.MaxValue-1000 by FloatingNotice at run time so a notice
+                        sits above every overlay but BELOW the CoachOverlay walkthrough. The 999
+                        here is only the design-time value.
+                     ══════════════════════════════════════════════════════════════════════════ -->
                 <Canvas Name="OverlayCanvas" Grid.RowSpan="3" IsHitTestVisible="False" ZIndex="999"/>
 
                 <!-- IDEA_10: keyboard cheat sheet. Opens with "?" and closes with "?" or Escape.
@@ -461,10 +492,17 @@
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Name="ShortcutSheetRows" Spacing="8"/>
                             </ScrollViewer>
-                            <TextBlock Grid.Row="2" Text="Press ? or Esc to close. Change any key in Settings › Key Binds."
-                                       Foreground="{DynamicResource AppTextMutedBrush}"
-                                       FontSize="{DynamicResource AppFontSize11}" FontStyle="Italic"
-                                       TextWrapping="Wrap" TextAlignment="Center" Margin="0,16,0,0"/>
+                            <StackPanel Grid.Row="2" Spacing="12" Margin="0,16,0,0">
+                                <TextBlock Text="Press ? or Esc to close. Change any key in Settings › Key Binds."
+                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                           FontSize="{DynamicResource AppFontSize11}" FontStyle="Italic"
+                                           TextWrapping="Wrap" TextAlignment="Center"/>
+                                <!-- ISSUE_05: a keyboard-only escape from a panel a mouse user opened
+                                     from the View menu is not an escape. -->
+                                <Button Name="ShortcutSheetCloseButton" Classes="Primary" Content="GOT IT"
+                                        HorizontalAlignment="Center" MinWidth="160"
+                                        ToolTip.Tip="Close the shortcut list."/>
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </Grid>

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -249,32 +249,82 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnPointerExited(e);
         }
         
-        private static readonly System.Collections.Generic.Dictionary<(string, Color), (FormattedText normal, FormattedText shadow)> _textCache = new();
+        private static readonly System.Collections.Generic.Dictionary<(string, Color, Color), (FormattedText normal, FormattedText shadow)> _textCache = new();
         private static readonly Typeface _labelTypeface = new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold);
-        private static readonly LinearGradientBrush _rimGrad = new LinearGradientBrush
+        private LinearGradientBrush _rimGrad = BuildRimGrad(Color.Parse("#15202b"), Color.Parse("#3e5871"));
+        private RadialGradientBrush _faceGrad = BuildFaceGrad(Color.Parse("#3a6b6b"), Color.Parse("#1e313d"), Color.Parse("#0f1a0f"), Color.Parse("#080c08"));
+        private Pen _rimPen = new Pen(new SolidColorBrush(Color.Parse("#0d1217")), 1);
+        private Color _tickActive = Color.Parse("#50ffef");
+        private Color _tickIdle = Color.Parse("#c5dcf2");
+        private Color _tickActiveDisabled = Color.Parse("#95a5a6");
+        private Color _tickIdleDisabled = Color.Parse("#7f8c8d");
+        private Color _tickShadow = Color.Parse("#000000");
+
+        private static LinearGradientBrush BuildRimGrad(Color edge, Color mid) => new LinearGradientBrush
         {
             StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
             EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
             GradientStops = new GradientStops
             {
-                new GradientStop(Color.Parse("#15202b"), 0.0),
-                new GradientStop(Color.Parse("#3e5871"), 0.5),
-                new GradientStop(Color.Parse("#15202b"), 1.0)
+                new GradientStop(edge, 0.0),
+                new GradientStop(mid, 0.5),
+                new GradientStop(edge, 1.0)
             }
         };
-        private static readonly RadialGradientBrush _faceGrad = new RadialGradientBrush
+
+        private static RadialGradientBrush BuildFaceGrad(Color s0, Color s1, Color s2, Color s3) => new RadialGradientBrush
         {
             Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
             GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
             Radius = 0.7,
             GradientStops = new GradientStops
             {
-                new GradientStop(Color.Parse("#3a6b6b"), 0.0),
-                new GradientStop(Color.Parse("#1e313d"), 0.4),
-                new GradientStop(Color.Parse("#0f1a0f"), 0.8),
-                new GradientStop(Color.Parse("#080c08"), 1.0)
+                new GradientStop(s0, 0.0),
+                new GradientStop(s1, 0.4),
+                new GradientStop(s2, 0.8),
+                new GradientStop(s3, 1.0)
             }
         };
+
+        /// <summary>
+        /// ISSUE_10 — pulls every chrome colour for the CURRENT ThemeVariant. Any token that is
+        /// missing simply leaves the existing (Dark) value in place, so a broken resource
+        /// dictionary degrades to the old look rather than to an invisible control.
+        /// </summary>
+        private void RefreshThemeBrushes()
+        {
+            Color Tok(string key, Color fallback)
+                => this.TryFindResource(key, ActualThemeVariant, out object? v) && v is Color c ? c : fallback;
+
+            _rimGrad = BuildRimGrad(Tok("AppDialBezelEdgeColor", Color.Parse("#15202b")),
+                                    Tok("AppDialBezelMidColor", Color.Parse("#3e5871")));
+            _faceGrad = BuildFaceGrad(Tok("AppDialFaceStop0Color", Color.Parse("#3a6b6b")),
+                                      Tok("AppDialFaceStop1Color", Color.Parse("#1e313d")),
+                                      Tok("AppDialFaceStop2Color", Color.Parse("#0f1a0f")),
+                                      Tok("AppDialFaceStop3Color", Color.Parse("#080c08")));
+            _rimPen = new Pen(new SolidColorBrush(Tok("AppDialRimColor", Color.Parse("#0d1217"))), 1);
+            _tickActive = Tok("AppDialTickActiveColor", Color.Parse("#50ffef"));
+            _tickIdle = Tok("AppDialTickIdleColor", Color.Parse("#c5dcf2"));
+            _tickActiveDisabled = Tok("AppDialTickActiveDisabledColor", Color.Parse("#95a5a6"));
+            _tickIdleDisabled = Tok("AppDialTickIdleDisabledColor", Color.Parse("#7f8c8d"));
+            _tickShadow = Tok("AppDialTickShadowColor", Color.Parse("#000000"));
+            InvalidateVisual();
+        }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+            ActualThemeVariantChanged += OnThemeVariantChangedForDial;
+            RefreshThemeBrushes();
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            ActualThemeVariantChanged -= OnThemeVariantChangedForDial;
+            base.OnDetachedFromVisualTree(e);
+        }
+
+        private void OnThemeVariantChangedForDial(object? sender, EventArgs e) => RefreshThemeBrushes();
         private static readonly LinearGradientBrush _shadowGrad = new LinearGradientBrush
         {
             StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
@@ -299,7 +349,6 @@ namespace FortniteVideoSoftware.App.Controls
             }
         };
 
-        private static readonly Pen _rimPen = new Pen(new SolidColorBrush(Color.Parse("#0d1217")), 1);
         private static readonly Pen _innerPen = new Pen(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)), 1);
         private static readonly Pen _redPen = new Pen(new SolidColorBrush(Color.Parse("#ff4d4d")), 2);
         private static readonly Pen _focusPen = new Pen(new SolidColorBrush(Color.Parse("#38bdf8")), 2);
@@ -363,18 +412,18 @@ namespace FortniteVideoSoftware.App.Controls
                     int labelIndex = i - _range.min;
                     string txt = (labelIndex >= 0 && labelIndex < _labels.Count) ? _labels[labelIndex] : i.ToString();
                     
-                    Color baseColor = i == _value 
-                        ? (IsEnabled ? Color.Parse("#50ffef") : Color.Parse("#95a5a6"))
-                        : (IsEnabled ? Color.Parse("#c5dcf2") : Color.Parse("#7f8c8d"));
+                    Color baseColor = i == _value
+                        ? (IsEnabled ? _tickActive : _tickActiveDisabled)
+                        : (IsEnabled ? _tickIdle : _tickIdleDisabled);
                     
                     byte alpha = (byte)(255 * Math.Pow(opacity, 5.0));
                     
                     var typeface = _labelTypeface;
-                    var key = (txt, baseColor);
+                    var key = (txt, baseColor, _tickShadow);
                     if (!_textCache.TryGetValue(key, out var texts))
                     {
                         var brush = new SolidColorBrush(baseColor);
-                        var shadowBrush = new SolidColorBrush(Color.Parse("#000000"));
+                        var shadowBrush = new SolidColorBrush(_tickShadow);
                         texts.normal = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9, brush);
                         texts.shadow = new FormattedText(txt, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, 9, shadowBrush);
                         _textCache[key] = texts;

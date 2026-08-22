@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -73,10 +73,6 @@ public sealed class CropConfigStore
 
     private static bool IsUsableConfig(JsonObject config)
     {
-        // Compare against the MINIMUM readable version, never the current one — see
-        // CropConfigDefaults.MinimumUsableSchemaVersion. Comparing against the current version made
-        // every schema bump silently overwrite the user's saved masks with factory defaults.
-        // A config newer than this build is also accepted and left alone rather than destroyed.
         if (!TryGetInt(config["schema_version"], out int schemaVersion) ||
             schemaVersion < CropConfigDefaults.MinimumUsableSchemaVersion)
         {

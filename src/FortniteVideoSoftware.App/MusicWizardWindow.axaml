@@ -20,6 +20,11 @@
                 </Border>
                 <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" Margin="20">
 
+                    <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
+                                     The walkthrough auto-plays only on the first few opens; this button is
+                                     how a returning user gets it again. Every screen in the suite has one. -->
+                    <Button Grid.Row="0" Name="WizardHelpButton" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Top" ZIndex="5" AutomationProperties.Name="Show me around the music wizard" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
+
                     <!-- Step Progress Bar -->
                     <Grid Grid.Row="0" Margin="0,0,0,15" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
                         <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Center" Margin="50,0,50,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>

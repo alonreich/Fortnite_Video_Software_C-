@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -63,8 +63,6 @@ public static class ThumbnailStripGenerator
             string durationArg = durationSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
             string fpsArg = fps.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
 
-            // `tpad=stop_mode=clone` holds the last frame so a range that yields slightly fewer
-            // frames than requested still tiles to the full width instead of leaving a gap.
             string filter = $"fps=fps={fpsArg}:round=up,scale=-1:{StripHeightPx},tpad=stop_mode=clone:stop_duration=1,tile={frames}x1:margin=0:padding=0";
 
             var stripArgs = new[]

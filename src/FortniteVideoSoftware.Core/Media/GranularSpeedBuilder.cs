@@ -1,4 +1,4 @@
-
+﻿
 using System.Globalization;
 using System.Text;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -48,18 +48,6 @@ public class GranularSpeedBuilder
 
     private const double MaxZoomWorkingPixels = 100_000_000.0;
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // SLOW-ZOOM RAMP TIMING — THE SINGLE SOURCE OF TRUTH FOR BOTH THE EXPORT AND THE PREVIEW.
-    //
-    // A SLOW zoom does not ease inside the range the user marked. It BORROWS footage from either
-    // side: the glide-in happens in the seconds BEFORE the zoom start, the glide-out in the
-    // seconds AFTER the zoom end. The marked range itself is held at full zoom throughout.
-    //
-    // ⚠️ `GranularSpeedEditorWindow.UpdateLiveZoomCrop` MUST read these same two constants. The
-    // live mpv preview simulates this ramp 1:1, and if the two ever disagree the user is shown a
-    // zoom that is not the one that gets exported. That is the whole reason these are `public`
-    // rather than private — do NOT copy the numbers into the App layer.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// How long the glide lasts, in seconds, on a side that has room for it.
@@ -136,6 +124,69 @@ public class GranularSpeedBuilder
     {
         double needed = Math.Max(0.0, cropExtent) / 2.0 + 2.0;
         return EvenDim(Math.Ceiling(needed));
+    }
+
+
+    /// <summary>
+    /// DRIFT_01 — SNAPS THE ZOOM CROP WINDOW ONTO THE GRID FFMPEG ACTUALLY USES.
+    ///
+    /// THE BUG THIS FIXES (measured, 2560x1440 portrait, 134x202 box at X=1188):
+    /// `cropW = resW / targetZ` is almost never a whole number — here 359.1111 — and `cropX`
+    /// inherits that fraction (1257.4444). `vf_crop` does NOT honour either: it TRUNCATES both to
+    /// int and then masks them DOWN to the chroma grid (`&amp; ~1` for yuv420p). 359.1111 -> 358 and
+    /// 1257.4444 -> 1256, so the sampled window slid 2px LEFT of the box the user drew. The zoom
+    /// then magnifies that error by `targetZ` (~8x at the quality floor) and the portrait slice
+    /// magnifies it again, landing as ~15 OUTPUT px of sideways drift on the finished 1080-wide
+    /// file — the picture sits right of where it was framed and the right edge of the box is cut
+    /// off. Verified against the live mpv preview: markers at source 1188/1255/1322 land at output
+    /// 3.6/539.5/1075.4 in the preview but 17.4/556.4/off-frame in the export.
+    ///
+    /// WHY IT LOOKS PURELY SIDEWAYS: in portrait `targetZ` is always the HEIGHT ratio
+    /// (`resH / zc.H`), so `cropH = resH / targetZ` is exactly `zc.H` and `cropY` is exactly an
+    /// integer — vertical never rounds. Only the width is fractional. The drift is therefore
+    /// horizontal by construction, which is precisely how it was reported.
+    ///
+    /// THE FIX: emit a window that is ALREADY whole and chroma-aligned, so FFmpeg has nothing left
+    /// to snap. `cropW`/`cropH` go to a neighbouring EVEN integer chosen so that
+    /// `centre - size / 2` is also even; with an even `pad` offset that makes `cropX`/`cropY` exact
+    /// even integers. The CENTRE is preserved EXACTLY (it was the thing drifting); the size moves
+    /// by at most 2px, i.e. a &lt;1% change in zoom strength, which is invisible.
+    ///
+    /// DO NOT go back to passing fractions to `crop` "because the expression parser accepts them".
+    /// It accepts them and then throws the fraction away.
+    /// </summary>
+    private readonly record struct ZoomWindow(int CropW, int CropH, int PadX, int PadY, int CanvasW, int CanvasH, int CropX, int CropY);
+
+    private static ZoomWindow SnapZoomWindow(double cropWRaw, double cropHRaw, double resW, double resH,
+                                             double cxTarget, double cyTarget)
+    {
+        int cx = (int)Math.Round(cxTarget, MidpointRounding.AwayFromZero);
+        int cy = (int)Math.Round(cyTarget, MidpointRounding.AwayFromZero);
+
+        int w = SnapExtent(cropWRaw, cx);
+        int h = SnapExtent(cropHRaw, cy);
+
+        int padX = (int)ZoomPadMargin(w);
+        int padY = (int)ZoomPadMargin(h);
+
+        return new ZoomWindow(w, h, padX, padY,
+                              (int)resW + 2 * padX, (int)resH + 2 * padY,
+                              padX + cx - w / 2, padY + cy - h / 2);
+    }
+
+    /// <summary>
+    /// DRIFT_01 — nearest EVEN extent whose half has the same parity as the window centre, so that
+    /// `centre - extent / 2` is even and the crop origin lands on the chroma grid untouched.
+    /// Of the two even values straddling <paramref name="raw"/> exactly one satisfies that, so the
+    /// chosen extent is never more than 2px from the ideal.
+    /// </summary>
+    private static int SnapExtent(double raw, int centre)
+    {
+        int lo = (int)Math.Floor(raw);
+        lo -= lo & 1;
+        if (lo < 2) lo = 2;
+        int pick = ((centre - lo / 2) & 1) == 0 ? lo : lo + 2;
+        return pick < 2 ? 2 : pick;
     }
 
     /// <param name="needHudBranch">
@@ -215,21 +266,6 @@ public class GranularSpeedBuilder
             double prevEnd = (i > 0) ? zooms[i - 1].EndSec : 0.0;
             double nextStart = (i < zooms.Count - 1) ? zooms[i + 1].StartSec : totalDurationSec;
 
-            // Free footage on each side, measured against the NEIGHBOURING ZOOMS only (plus the
-            // clip start and clip end). Speed segments are deliberately not considered — a glide
-            // may run through a slow-motion or fast-forward stretch.
-            //
-            // The ramp is ALL-OR-NOTHING at a fixed 0.5s. Previously it was `Math.Min(1.0, avail)`,
-            // which produced a variable-length glide (anywhere from 0.5s to 1.0s) that the user
-            // could neither predict nor see.
-            //
-            // OPTION A — how much room is required depends on WHO is next door:
-            //   * another SLOW zoom  -> 1.0s, because it wants to borrow from the same gap.
-            //   * an INSTANT zoom, the clip start, or the clip end -> 0.5s. None of those borrow
-            //     anything, so there is nothing to contend with.
-            // When two Slow zooms are closer than 1.0s NEITHER gets a ramp on the facing side and
-            // both snap — symmetric, predictable, and free of the half-zoom hop that the old
-            // overlapping-windows behaviour produced.
             bool prevIsSlowZoom = i > 0 && zooms[i - 1].Slow;
             bool nextIsSlowZoom = i < zooms.Count - 1 && zooms[i + 1].Slow;
 
@@ -333,12 +369,6 @@ public class GranularSpeedBuilder
         if (totalDurationSec > sourceCursor + 0.001)
             AppendSourceRange(sourceCursor, totalDurationSec);
 
-        // TIME_01 - the mapping comes from the one shared model now, not from a third
-        // hand-written copy. Build's own `chunks` list is additionally subdivided at zoom-phase
-        // boundaries, which cannot change the result: splitting (a,b,speed) into (a,m,speed) plus
-        // (m,b,speed) sums to the identical output length, the partial case interpolates to the
-        // same value, and freeze chunks are never subdivided by a zoom. The two agree by
-        // construction, so there is nothing left here to drift.
         var sharedTimeline = OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs);
         double TimeMapper(double timelineSec) => sharedTimeline.SourceToOutput(timelineSec);
 
@@ -437,35 +467,21 @@ public class GranularSpeedBuilder
                 }
 
                 string preScale = $"scale={resW}:{resH}:force_original_aspect_ratio=decrease,pad={resW}:{resH}:(ow-iw)/2:(oh-ih)/2";
-                string p1Str = p1.ToString(CultureInfo.InvariantCulture);
-                
                 if (Math.Abs(chunk.Speed) < 0.001)
                 {
                     if (p1 >= 0.999 && !zc.Slow)
                     {
-                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
-                        double cxTarget = zc.X + zc.W / 2.0;
-                        double cyTarget = zc.Y + zc.H / 2.0;
-                        double cropW = resW / targetZ;
-                        double cropH = resH / targetZ;
-                        // G05: INSTANT zoom — the crop window is a FIXED cropW x cropH and its
-                        // centre can travel anywhere in [0, resW] x [0, resH]. The provably
-                        // minimal safe margin is therefore cropW/2 (see ZoomPadMargin), not the
-                        // old blanket resW/2. At 2x zoom that is a 25% smaller working frame; at
-                        // 4x, 37% smaller. Geometry is unchanged — the discarded band was black.
-                        double padX = ZoomPadMargin(cropW);
-                        double padY = ZoomPadMargin(cropH);
-                        double canvasW = resW + 2.0 * padX;
-                        double canvasH = resH + 2.0 * padY;
-                        double cropX = padX + cxTarget - cropW / 2.0;
-                        double cropY = padY + cyTarget - cropH / 2.0;
-                        zoomFilter = new FilterChain()
-                            .AddRaw(preScale)
-                            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
-                            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
-                            .AddNode(new CasFilterNode { Strength = 0.5 })
-                            .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
-                            .ToFFmpegString() + ",";
+                        // DEDUPE_01 — THIS WAS A VERBATIM COPY OF BuildConstantZoomFilter AT p = 1.0.
+                        // At p = 1 that method's `zVal` collapses to `targetZ` and `viewCx`/`viewCy`
+                        // collapse to `cxTarget`/`cyTarget` — EXACTLY, not approximately: every input
+                        // here is integer-derived, so `1 + (z - 1)` and `a + (c - a)` are both exact in
+                        // IEEE754 at these magnitudes. The emitted filter string is byte-identical.
+                        // ⚠️ THE LITERAL 1.0 IS DELIBERATE AND IS NOT `p1`. This branch only fires for a
+                        // NON-Slow zoom, and a non-Slow zoom gets a single ZoomPhase with
+                        // ProgStart = ProgEnd = 1.0, so `p1` is already exactly 1.0. Passing the literal
+                        // keeps the graph identical even if the `>= 0.999` guard is ever loosened; passing
+                        // `p1` would silently let a 0.999x zoom through as a slightly weaker one.
+                        zoomFilter = BuildConstantZoomFilter(preScale, zc, resW, resH, outW, outH, 1.0);
                     }
                     else
                     {
@@ -476,25 +492,9 @@ public class GranularSpeedBuilder
                 {
                     if (!zc.Slow)
                     {
-                        double targetZ = Math.Min(resW / zc.W, resH / zc.H);
-                        double cxTarget = zc.X + zc.W / 2.0;
-                        double cyTarget = zc.Y + zc.H / 2.0;
-                        double cropW = resW / targetZ;
-                        double cropH = resH / targetZ;
-                        // G05: INSTANT zoom on a speed-adjusted chunk — same reasoning as above.
-                        double padX = ZoomPadMargin(cropW);
-                        double padY = ZoomPadMargin(cropH);
-                        double canvasW = resW + 2.0 * padX;
-                        double canvasH = resH + 2.0 * padY;
-                        double cropX = padX + cxTarget - cropW / 2.0;
-                        double cropY = padY + cyTarget - cropH / 2.0;
-                        zoomFilter = new FilterChain()
-                            .AddRaw(preScale)
-                            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
-                            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
-                            .AddNode(new CasFilterNode { Strength = 0.5 })
-                            .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
-                            .ToFFmpegString() + ",";
+                        // DEDUPE_01 — identical to the freeze branch above: BuildConstantZoomFilter at
+                        // p = 1.0. See the note there for why the literal 1.0 is used rather than `p1`.
+                        zoomFilter = BuildConstantZoomFilter(preScale, zc, resW, resH, outW, outH, 1.0);
                     }
                     else if (Math.Abs(p1 - p2) < 0.001)
                     {
@@ -507,13 +507,6 @@ public class GranularSpeedBuilder
                         double cxTarget = zc.X + zc.W / 2.0;
                         double cyTarget = zc.Y + zc.H / 2.0;
 
-                        // G05: SLOW RAMP — the ONLY site that legitimately needs the full
-                        // half-frame margin. Here the zoom factor is animated from 1.0 up to
-                        // targetZ, so at the START of the ramp the crop window is the ENTIRE
-                        // frame (cropW == resW) and ZoomPadMargin would return exactly resW/2
-                        // anyway. Written out explicitly so nobody "optimises" it to the instant
-                        // path's tighter margin and reintroduces the out-of-bounds crop crashes
-                        // that changelog item (10) fixed.
                         double padX = resW / 2.0;
                         double padY = resH / 2.0;
                         double canvasW = resW + 2.0 * padX;
@@ -542,8 +535,28 @@ public class GranularSpeedBuilder
                         string cxExpr = $"({padX.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cxTarget - resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resW.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
                         string cyExpr = $"({padY.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cyTarget - resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resH.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
 
-                        string cropX = $"(({cxExpr})*({zExpr})*{sStr})";
-                        string cropY = $"(({cyExpr})*({zExpr})*{sStr})";
+                        // ── DRIFT_01, RAMP HALF ────────────────────────────────────────────────
+                        // `crop` TRUNCATES x/y to int and then masks them DOWN onto the chroma grid
+                        // (`& ~1` on yuv420p). A FRACTIONAL origin is therefore a BIASED snap of up
+                        // to 2px toward zero — a real leftward/upward shift, not noise — which the
+                        // live zoom magnifies by z and the portrait 2:3 slice magnifies again.
+                        // The constant-zoom paths fix this by emitting whole even integers
+                        // (see SnapZoomWindow); a per-frame ramp cannot, so the quantisation is
+                        // moved INSIDE the expression: `round(v/2)*2` lands on the NEAREST even
+                        // value, which makes FFmpeg's own floor-and-mask a no-op. Residual <=1px
+                        // and — the point — UNBIASED, so it reads as sub-pixel shimmer instead of
+                        // a sideways offset, and the ramp hands off to the held zoom without a jump.
+                        //
+                        // ⚠️ DO NOT "IMPROVE" THIS WITH `in_w` / `in_h`. It was tried and it is
+                        // WRONG: the preceding `scale=...:eval=frame` grows the picture per frame
+                        // but the LINK dimensions crop's expression sees are frozen at config time
+                        // (measured: in_w reported 5120 — the pad width — while real frames were
+                        // ~20800 wide). Any clamp or normalisation built on in_w/out_w collapses
+                        // the crop into the black margin and the chunk renders solid black.
+                        // For the same reason there is NO clamp here: FFmpeg clamps x/y against the
+                        // true frame internally, and the padded canvas guarantees the window fits.
+                        string cropX = $"round((({cxExpr})*({zExpr})*{sStr})/2)*2";
+                        string cropY = $"round((({cyExpr})*({zExpr})*{sStr})/2)*2";
 
                         string preDownscale = s < 0.999 ? $"scale={workW}:{workH}," : "";
 
@@ -701,25 +714,13 @@ public class GranularSpeedBuilder
         double viewCx = resW / 2.0 + (cxTarget - resW / 2.0) * p;
         double viewCy = resH / 2.0 + (cyTarget - resH / 2.0) * p;
 
-        double cropW = resW / zVal;
-        double cropH = resH / zVal;
-        // G05: this builds a CONSTANT crop for a fixed zoom progress `p`, so cropW/cropH do not
-        // change across the chunk and the minimal safe margin is cropW/2 (see ZoomPadMargin).
-        // At p=0 (zVal=1) this degrades gracefully to resW/2 — the old value — so the
-        // no-zoom-yet case is byte-identical.
-        double padX = ZoomPadMargin(cropW);
-        double padY = ZoomPadMargin(cropH);
-        double canvasW = resW + 2.0 * padX;
-        double canvasH = resH + 2.0 * padY;
+        // DRIFT_01 — hand FFmpeg a whole, chroma-aligned window; see SnapZoomWindow.
+        var zwin = SnapZoomWindow(resW / zVal, resH / zVal, resW, resH, viewCx, viewCy);
 
-        double cropX = padX + viewCx - cropW / 2.0;
-        double cropY = padY + viewCy - cropH / 2.0;
-
-        var ci = CultureInfo.InvariantCulture;
         return new FilterChain()
             .AddRaw(preScale)
-            .AddNode(new PadFilterNode { Width = canvasW.ToString(CultureInfo.InvariantCulture), Height = canvasH.ToString(CultureInfo.InvariantCulture), X = padX.ToString(CultureInfo.InvariantCulture), Y = padY.ToString(CultureInfo.InvariantCulture), Color = "black" })
-            .AddNode(new CropFilterNode { Width = cropW.ToString(CultureInfo.InvariantCulture), Height = cropH.ToString(CultureInfo.InvariantCulture), X = cropX.ToString(CultureInfo.InvariantCulture), Y = cropY.ToString(CultureInfo.InvariantCulture) })
+            .AddNode(new PadFilterNode { Width = zwin.CanvasW.ToString(CultureInfo.InvariantCulture), Height = zwin.CanvasH.ToString(CultureInfo.InvariantCulture), X = zwin.PadX.ToString(CultureInfo.InvariantCulture), Y = zwin.PadY.ToString(CultureInfo.InvariantCulture), Color = "black" })
+            .AddNode(new CropFilterNode { Width = zwin.CropW.ToString(CultureInfo.InvariantCulture), Height = zwin.CropH.ToString(CultureInfo.InvariantCulture), X = zwin.CropX.ToString(CultureInfo.InvariantCulture), Y = zwin.CropY.ToString(CultureInfo.InvariantCulture) })
             .AddNode(new CasFilterNode { Strength = 0.5 })
             .AddNode(new ScaleFilterNode { Width = outW.ToString(CultureInfo.InvariantCulture), Height = outH.ToString(CultureInfo.InvariantCulture) })
             .ToFFmpegString() + ",";

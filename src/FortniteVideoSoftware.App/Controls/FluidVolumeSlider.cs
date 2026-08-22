@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
@@ -84,16 +84,38 @@ public class FluidVolumeSlider : Slider
     private static readonly ImmutableSolidColorBrush s_white = new(Colors.White);
     
 
-    private static readonly IBrush s_innerShadowBrush = new ImmutableLinearGradientBrush(
+    private IBrush _innerShadowBrush = BuildInnerShadow(Color.Parse("#a6000000"));
+    private Color _glassBaseColor = Color.Parse("#0d0d12");
+    private Color _glassEdgeColor = Color.Parse("#000000");
+
+    private static IBrush BuildInnerShadow(Color edge) => new ImmutableLinearGradientBrush(
         new[]
         {
-            new ImmutableGradientStop(0.0, Color.Parse("#a6000000")),
-            new ImmutableGradientStop(0.18, Color.Parse("#00000000")),
-            new ImmutableGradientStop(0.82, Color.Parse("#00000000")),
-            new ImmutableGradientStop(1.0, Color.Parse("#a6000000")),
+            new ImmutableGradientStop(0.0, edge),
+            new ImmutableGradientStop(0.18, Color.FromArgb(0, edge.R, edge.G, edge.B)),
+            new ImmutableGradientStop(0.82, Color.FromArgb(0, edge.R, edge.G, edge.B)),
+            new ImmutableGradientStop(1.0, edge),
         },
         startPoint: new RelativePoint(0.5, 0, RelativeUnit.Relative),
         endPoint: new RelativePoint(0.5, 1, RelativeUnit.Relative));
+
+    /// <summary>
+    /// ISSUE_10 — resolves the glass chrome for the CURRENT ThemeVariant. A missing token leaves
+    /// the Dark value in place, so a broken resource dictionary degrades to the old look rather
+    /// than to an invisible control.
+    /// </summary>
+    private void RefreshGlassTheme()
+    {
+        Color Tok(string key, Color fallback)
+            => this.TryFindResource(key, ActualThemeVariant, out object? v) && v is Color c ? c : fallback;
+
+        _innerShadowBrush = BuildInnerShadow(Tok("AppTubeInnerShadowColor", Color.Parse("#a6000000")));
+        _glassBaseColor = Tok("AppTubeGlassBaseColor", Color.Parse("#0d0d12"));
+        _glassEdgeColor = Tok("AppTubeGlassEdgeColor", Color.Parse("#000000"));
+        InvalidateVisual();
+    }
+
+    private void OnTubeThemeVariantChanged(object? sender, EventArgs e) => RefreshGlassTheme();
     private static readonly ImmutablePen s_markerDarkPen = new(new ImmutableSolidColorBrush(Color.Parse("#59000000")), 1);
     private static readonly ImmutablePen s_markerLightPen = new(new ImmutableSolidColorBrush(Color.Parse("#2effffff")), 1);
     private static readonly ImmutableSolidColorBrush s_markerTextBrush = new(Colors.White, 0.30);
@@ -159,6 +181,8 @@ public class FluidVolumeSlider : Slider
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        ActualThemeVariantChanged += OnTubeThemeVariantChanged;
+        RefreshGlassTheme();
         _currentVolume = _targetVolume = Math.Clamp(Value, 0, 100);
         _stateInitialized = true;
         _clock.Restart();
@@ -178,6 +202,7 @@ public class FluidVolumeSlider : Slider
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        ActualThemeVariantChanged -= OnTubeThemeVariantChanged;
         base.OnDetachedFromVisualTree(e);
         _running = false;
         _clock.Stop();
@@ -438,12 +463,12 @@ public class FluidVolumeSlider : Slider
             gradientOrigin: new RelativePoint(0.5, 0.7, RelativeUnit.Relative),
             radius: 1.0);
 
-        Color glassCenter = LerpColor(Color.Parse("#0d0d12"), centerColor, 0.15);
+        Color glassCenter = LerpColor(_glassBaseColor, centerColor, 0.15);
         var glassBrush = new ImmutableLinearGradientBrush(
             new[] {
-                new ImmutableGradientStop(0.0, Color.Parse("#000000")),
+                new ImmutableGradientStop(0.0, _glassEdgeColor),
                 new ImmutableGradientStop(0.5, glassCenter),
-                new ImmutableGradientStop(1.0, Color.Parse("#000000")),
+                new ImmutableGradientStop(1.0, _glassEdgeColor),
             },
             startPoint: new RelativePoint(0, 0.5, RelativeUnit.Relative),
             endPoint: new RelativePoint(1, 0.5, RelativeUnit.Relative));
@@ -510,7 +535,7 @@ public class FluidVolumeSlider : Slider
             var baseGlassRect = new Rect(tubeX + 2, tubeY + tubeHeight - radius + 1, tubeWidth - 4, radius - 2);
             context.DrawEllipse(new ImmutableSolidColorBrush(Color.FromArgb(200, 0, 0, 0)), null, baseGlassRect.Center, baseGlassRect.Width / 2.0, baseGlassRect.Height / 2.0);
 
-            context.DrawGeometry(s_innerShadowBrush, null, capsule);
+            context.DrawGeometry(_innerShadowBrush, null, capsule);
 
             var leftGlare = new ImmutableLinearGradientBrush(
                 new[] {

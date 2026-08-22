@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -83,10 +83,25 @@ public class AppSettings
     public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
     public FontScale FontScale { get; set; } = FontScale.Normal;
 
-    public bool ConfirmVideoMergerRemove { get; set; } = false;
-    public bool ConfirmVideoMergerClearAll { get; set; } = false;
+    public bool ConfirmVideoMergerRemove { get; set; } = true;
+    public bool ConfirmVideoMergerClearAll { get; set; } = true;
     public bool ConfirmCropToolReset { get; set; } = true;
     public bool ConfirmCropToolDelete { get; set; } = true;
+
+    /// <summary>ISSUE_01/ISSUE_12 — ask before deleting the selected speed segment.</summary>
+    public bool ConfirmGranularDeleteSegment { get; set; } = true;
+
+    /// <summary>ISSUE_01/ISSUE_12 — ask before wiping every speed segment and pending selection.</summary>
+    public bool ConfirmGranularClearAll { get; set; } = true;
+
+    /// <summary>ISSUE_12 — ask before the Main App's CANCEL button closes the application.</summary>
+    public bool ConfirmMainAppCancel { get; set; } = true;
+
+    /// <summary>
+    /// ISSUE_02 — ask before leaving the Main App for the Video Merger / Crop Tools, which closes
+    /// the Main App. Only ever asked when real editing work exists (see MainWindow.HasUnsavedWork).
+    /// </summary>
+    public bool ConfirmMainAppSwitchTool { get; set; } = true;
 
     /// <summary>
     /// Meme System §1/§3: the unified meme asset directory. Empty = use the default
@@ -156,24 +171,8 @@ public static class MemeDirectory
     /// <summary>Raised after the user successfully changes the meme directory in Settings, so
     /// the MainWindow can silently re-scan and rebuild the MemeComboBox (§3 State Update).</summary>
     public static event Action? Changed;
-    public static void NotifyChanged() { try { Changed?.Invoke(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+    public static void NotifyChanged() { try { Changed?.Invoke(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); } }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // SANDBOX_01 — DEV MUST NEVER WRITE INTO THE INSTALLED APP'S MEDIA LIBRARY.
-    //
-    // `dev.cmd` already keeps its settings and state apart (FVS_PROGRAMDATA_ROOT ->
-    // %TMP%\Fortnite_Video_Software_DEV), but the MEDIA folders were resolved straight from the
-    // Windows Videos/Music known folders — so a dev run seeded starter files, downloaded memes and
-    // wrote songs into exactly the same library the installed copy uses. Debugging a starter-file
-    // or download change would silently pollute the user's real collection, and deleting a test
-    // file would delete the real one.
-    //
-    // In dev, all three libraries now live under the same sandbox as everything else, so the whole
-    // folder can be deleted to get a clean slate. Behaviour is otherwise IDENTICAL — same seeding,
-    // same download buttons, same layout — which is the point: dev should rehearse production, not
-    // share its data.
-    // ⚠️ ONE PLACE DECIDES THIS. Do not resolve MyVideos/MyMusic directly anywhere else.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private static bool IsDevSandbox =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
             FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.ProgramDataRootOverrideEnvironmentVariable));
@@ -197,7 +196,7 @@ public static class MemeDirectory
     {
         string configured = SettingsManager.Instance.MemeDirectoryPath;
         string dir = string.IsNullOrWhiteSpace(configured) ? GetDefault() : configured;
-        try { Directory.CreateDirectory(dir); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { Directory.CreateDirectory(dir); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         return dir;
     }
 }
@@ -404,8 +403,6 @@ public static class SettingsManager
 
         if (from < 4)
         {
-            // G03: pre-v4 files have no encoder override. "Auto" preserves the old behaviour
-            // exactly (trust the boot scan), so this migration is a no-op for existing users.
             if (string.IsNullOrWhiteSpace(loaded.VideoEncoderOverride)) loaded.VideoEncoderOverride = "Auto";
             from = 4;
         }
@@ -445,10 +442,10 @@ public static class SettingsManager
 
             foreach (var f in backups)
             {
-                try { f.Delete(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { f.Delete(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     public static void Save()

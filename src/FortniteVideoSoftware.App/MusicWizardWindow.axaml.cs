@@ -191,17 +191,18 @@ public partial class MusicWizardWindow : Window
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += PlayheadTimer_Tick;
         WirePreviewDetach();
+
+        this.Loaded += (_, _) => Controls.CoachOverlay.Register(this, Controls.CoachTours.MusicWizardKey, Controls.CoachTours.MusicWizard);
+        WireHelpButton();
     }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // DETACH_01 — pop-out preview for phase 3. Shared mechanism, own remembered geometry.
-    //
-    // The wizard's MpvVideoView is not in the XAML — it is created in code as VideoHostBorder's
-    // child each time phase 3 loads. The controller therefore reparents it OUT of that Border and
-    // back INTO it, which the captured-origin logic handles as a Decorator. The phase-3 loader
-    // reattaches first (see BuildPhase3PreviewAsync) so it never finds an empty Border and builds
-    // a second host while the first is still alive in the floating window.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
+    /// <summary>ISSUE_04 — the permanent replay route for this screen's walkthrough.</summary>
+    private void WireHelpButton()
+    {
+        var help = this.FindControl<Avalonia.Controls.Button>("WizardHelpButton");
+        if (help != null) help.Click += (_, _) => Controls.CoachOverlay.Replay(this);
+    }
+
     private PreviewDetachController? _previewDetach;
 
     private void WirePreviewDetach()
@@ -222,11 +223,6 @@ public partial class MusicWizardWindow : Window
             _previewDetach!.SyncButton(btn);
         };
 
-        // UXQA_01: phase 3 builds its player asynchronously, so this window genuinely spends a few
-        // seconds with nothing to detach. Say so in the phase-3 status line rather than ignoring
-        // the click.
-        // LAYOUT_01: route through SetPhase3Status so the line's visibility stays in step with its
-        // text. Setting .Text directly here would leave a collapsed label holding a real message.
         _previewDetach.DetachUnavailable += why => SetPhase3Status(why);
 
         btn.Click += (_, _) => _previewDetach.Toggle();
@@ -247,26 +243,9 @@ public partial class MusicWizardWindow : Window
             UpdatePlayhead();
         }
 
-        // Outside the `_isPreviewPlaying` guard on purpose: phase 3 is the screen where the user
-        // scrubs and pauses to judge how the music lines up against the picture, and a paused
-        // frame must show the zoom just as truthfully as a playing one.
         UpdatePhase3LiveZoomCrop();
     }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // LIVE ZOOM PREVIEW (Music Wizard phase 3)
-    //
-    // Phase 3 is the A/B screen — video against music, judged as a whole before export. It used
-    // to play the clip with speed changes and freezes applied but the zooms invisible, so what
-    // you were judging was not what you were about to render.
-    //
-    // The maths comes from `ZoomPreviewSimulator`, shared with the Main App and the Granular
-    // editor and derived from the export engine's own timing constants, so all three previews and
-    // the exported file agree by construction.
-    //
-    // ⚠️ GPU MACHINES ONLY — see the note on the Main App's copy. CPU-only machines keep the
-    // static rectangles.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>Last crop pushed to mpv, so an unchanged value is never re-sent every tick.</summary>
     private string _lastLiveCrop = "";
@@ -287,17 +266,9 @@ public partial class MusicWizardWindow : Window
         var ipc = WizardVideoHost?.IpcClient;
         if (ipc == null) return;
 
-        // Only phase 3 previews the composed video; steps 1-2 must never be cropped.
-        // PORTRAIT_01: an empty segment list no longer means "nothing to do" — in portrait the
-        // export still delivers the 2:3 slice, so the preview must show it.
         if (_currentStep != 3) { ClearPhase3LiveZoomCrop(); return; }
         if (_phase3SpeedSegments.Count == 0 && !IsPortraitPreview) { ClearPhase3LiveZoomCrop(); return; }
 
-        // ⚠️ The zoom timeline is in SOURCE-relative seconds, but phase 3's playhead runs on the
-        // OUTPUT timeline (speed segments and freezes have already stretched/compressed it).
-        // MapPhase3OutputToSourceRelativeSeconds is the existing, authoritative conversion — the
-        // same one used to drive the video clock — so the zoom lands on the correct frame instead
-        // of drifting wherever a speed segment changes the mapping.
         double outputRelativeSec = GetCurrentPhase3VideoRelativeSeconds();
         double sourceRelativeSec = MapPhase3OutputToSourceRelativeSeconds(outputRelativeSec);
         double durSec = Math.Max(0.1, GetPhase3SourceDurationSeconds());
@@ -393,7 +364,7 @@ public partial class MusicWizardWindow : Window
                 if (mSlider != null && state.TryGetPropertyValue("WizardMusicVolume", out var mvNode) && mvNode != null)
                     mSlider.Value = mvNode.GetValue<double>();
             }
-            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
@@ -536,8 +507,6 @@ public partial class MusicWizardWindow : Window
         if (smartFitBtn != null)
             smartFitBtn.Click += async (s, e) => await ApplySmartFitAsync(smartFitBtn);
 
-        // AUDIO_09: the DuckingCompareBtn handler lived here. The toggle now lives in Settings as
-        // `AudioProtection` and governs BOTH ducking and carving — see MusicResult construction.
 
         var downloadSongsBtn = this.FindControl<Button>("DownloadSongsBtn");
         if (downloadSongsBtn != null)
@@ -566,7 +535,7 @@ public partial class MusicWizardWindow : Window
 
             {
 
-                var musicPath = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
+                var musicPath = Infrastructure.MemeDirectory.GetMusicRoot();
 
                 try
                 {
@@ -583,7 +552,7 @@ public partial class MusicWizardWindow : Window
                         }
                     }
                 }
-                catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
                 Avalonia.Platform.Storage.IStorageFolder? musicFolder = null;
                 try
@@ -591,7 +560,7 @@ public partial class MusicWizardWindow : Window
                     var uri = new Uri(musicPath);
                     musicFolder = await this.StorageProvider.TryGetFolderFromPathAsync(uri);
                 }
-                catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
                 var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
 
@@ -625,7 +594,7 @@ public partial class MusicWizardWindow : Window
 
                     }
 
-                    catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                    catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
 
                     await ScanDirectoryForMusicAsync(selectedFolderPath);
@@ -701,14 +670,6 @@ public partial class MusicWizardWindow : Window
         }
 
 
-        // ── LANES_04: move the XAML-declared lane content into the shared control ─────────
-        // The thumbnail and waveform lanes are still DECLARED in XAML — they are merely
-        // reparented here. Recreating those 10 named controls in code would have been far more
-        // churn, and reparenting keeps the window's namescope intact so every existing
-        // FindControl (ThumbnailLaneGrid, WaveformLaneImage, the two loading overlays, …) keeps
-        // resolving exactly as before. Runs once, before first layout, so nothing flashes.
-        // ⚠️ LANE ORDER IS OPPOSITE TO THE GRANULAR EDITOR: here A (upper) = film frames,
-        // B (lower) = waveform. That is intentional and matches what phase 3 always showed.
         var laneHolder = this.FindControl<Panel>("Phase3LaneContentHolder");
         var lanesHost = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
         var thumbContent = this.FindControl<Panel>("Phase3ThumbLaneContent");
@@ -730,15 +691,11 @@ public partial class MusicWizardWindow : Window
             laneHolder.IsVisible = false;
         }
 
-        // ── LANES_04: seeking now comes from the shared TimelineLanesControl ──────────────
-        // It raises SeekRequested for the ruler AND both lanes (frames + waveform) AND the
-        // grabbable caret. The bespoke Phase3SeekCanvas pointer plumbing that used to live here
-        // is gone; only the phase-3-specific "what a seek MEANS" logic remains.
         var phase3Lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
         if (phase3Lanes != null)
         {
-            phase3Lanes.LaneASeekable = true;   // film frames
-            phase3Lanes.LaneBSeekable = true;   // waveform
+            phase3Lanes.LaneASeekable = true;
+            phase3Lanes.LaneBSeekable = true;
             phase3Lanes.SeekRequested += videoRelativeSec =>
             {
                 bool wasPlaying = _isPreviewPlaying;
@@ -773,7 +730,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("VideoVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Video {videoVolSlider.Value:0}%";   // SLIDER_05: short form - the long one stole width from the slider
+                    if (lbl != null) lbl.Text = $"Video {videoVolSlider.Value:0}%";
 
 
                     if (_currentStep == 3)
@@ -814,7 +771,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("MusicVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Music {musicVolSlider.Value:0}%";   // SLIDER_05: short form - see VideoVolLabel
+                    if (lbl != null) lbl.Text = $"Music {musicVolSlider.Value:0}%";
 
 
                     if (_audioIpcClient != null)
@@ -1206,16 +1163,16 @@ public partial class MusicWizardWindow : Window
 
     private void CancelAudioAnalysis()
     {
-        try { _audioAnalysisCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-        try { _audioAnalysisCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _audioAnalysisCts?.Cancel(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
+        try { _audioAnalysisCts?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         _audioAnalysisCts = null;
     }
 
     private void CancelMusicScan()
     {
         Interlocked.Increment(ref _musicScanVersion);
-        try { _musicScanCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-        try { _musicScanCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _musicScanCts?.Cancel(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
+        try { _musicScanCts?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         _musicScanCts = null;
     }
 
@@ -1334,7 +1291,7 @@ public partial class MusicWizardWindow : Window
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
             throw;
         }
         catch (Exception ex)
@@ -1344,7 +1301,7 @@ public partial class MusicWizardWindow : Window
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
     }
 
@@ -1583,7 +1540,7 @@ public partial class MusicWizardWindow : Window
         var autoFillBtn = this.FindControl<Button>("AutoFillSongsBtn");
         if (autoFillBtn != null)
             autoFillBtn.Content = $"Auto-Filled {_pendingAutoFillMusicPaths.Count} Songs";
-        ShowToast($"Auto-filled {_pendingAutoFillMusicPaths.Count} songs.");
+        ShowToastSuccess($"Auto-filled {_pendingAutoFillMusicPaths.Count} songs.");
     }
 
     private void ResetAutoFillQueueState()
@@ -1711,7 +1668,7 @@ public partial class MusicWizardWindow : Window
                 }
             }
         }
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
     }
 
     private void SaveRecentMusicPins(System.Collections.Generic.IEnumerable<string> selectedPaths)
@@ -1739,7 +1696,7 @@ public partial class MusicWizardWindow : Window
                     ["RecentMusicPaths"] = recentArray
                 });
         }
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
     }
 
     private void HandleSongOffsetKeyDown(KeyEventArgs e)
@@ -1972,7 +1929,7 @@ public partial class MusicWizardWindow : Window
 
             var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
             var carvingCheck = this.FindControl<CheckBox>("CarvingCheckBox");
-            bool audioProtection = Infrastructure.SettingsManager.Instance.Defaults.AudioProtection;   // AUDIO_09
+            bool audioProtection = Infrastructure.SettingsManager.Instance.Defaults.AudioProtection;
             var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             double timelineStartSec = _trimStartMs / 1000.0;
@@ -1989,10 +1946,6 @@ public partial class MusicWizardWindow : Window
                 OffsetSeconds = _songStartSeconds,
                 TimelineStartSeconds = timelineStartSec,
                 TimelineEndSeconds = timelineEndSec,
-                // AUDIO_09: ONE master switch in Settings now governs both. The per-wizard
-                // checkboxes remain as a per-video override, but Settings can veto them outright —
-                // OFF there means no ducking and no carving at all, i.e. no protection whatsoever
-                // for the game audio. Default is ON.
                 EnableDucking = audioProtection && (duckingCheck?.IsChecked ?? true),
                 EnableCarving = audioProtection && (carvingCheck?.IsChecked ?? true),
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
@@ -2137,11 +2090,11 @@ public partial class MusicWizardWindow : Window
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
             }
 
             throw;
@@ -2151,12 +2104,12 @@ public partial class MusicWizardWindow : Window
             RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to generate sequence waveform: {ex.Message}");
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
             }
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
 
         return null;
@@ -2264,9 +2217,6 @@ public partial class MusicWizardWindow : Window
             }
             _phase3ClipDurationsSec.Clear();
 
-            // DETACH_01: if the preview is currently popped out, the old host is NOT in this
-            // Border — it is inside the floating window. Rebuilding without pulling it home first
-            // would leave that host alive and undisposed while a second one is created here.
             _previewDetach?.Attach();
 
             var border = this.FindControl<Avalonia.Controls.Border>("VideoHostBorder");
@@ -2299,7 +2249,7 @@ public partial class MusicWizardWindow : Window
                 await wizardVideoHost.IpcClient.SetPropertyAsync("time-pos", (_trimStartMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await wizardVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 RuntimeLog.Info("MUSIC_WIZARD", "Phase 3 MPV preview video loaded.");
-                RefreshDetachButtonState();   // UXQA_01: there is now something to pop out.
+                RefreshDetachButtonState();
 
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
@@ -2315,7 +2265,7 @@ public partial class MusicWizardWindow : Window
                 var videosToThumb = (_isMergerMode && _mergerVideos != null && _mergerVideos.Count > 0) 
                     ? _mergerVideos : new System.Collections.Generic.List<string> { _videoPath };
                 
-                foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); } }
+                foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); } }
                 _lastPhase3ThumbFiles.Clear();
 
                 double totalDur = 0;
@@ -2403,7 +2353,7 @@ public partial class MusicWizardWindow : Window
                             _lastPhase3WaveFile = wavePath;
                             UpdatePhase3WaveformLaneWidth();
                         }
-                        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                     }
                 }
             }
@@ -2447,8 +2397,8 @@ public partial class MusicWizardWindow : Window
     private void CancelPhase3Load()
     {
         _phase3LoadVersion++;
-        try { _phase3LoadCts?.Cancel(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
-        try { _phase3LoadCts?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        try { _phase3LoadCts?.Cancel(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
+        try { _phase3LoadCts?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         _phase3LoadCts = null;
         _phase3Ready = false;
     }
@@ -2581,7 +2531,7 @@ public partial class MusicWizardWindow : Window
             if (musicVolSlider != null) updates["WizardMusicVolume"] = musicVolSlider.Value;
             new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(updates);
         }
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
     }
 
     private void UpdatePhase3WaveformLaneWidth()
@@ -2837,8 +2787,6 @@ public partial class MusicWizardWindow : Window
 
         if (forceReload || segmentChanged)
         {
-            // PREVIEW_01: match this track's level to what the export will do with it. Cached per
-            // path, so switching back and forth between tracks measures each one only once.
             await EnsureMusicBedGainAsync(segment.Path);
             await _audioIpcClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
             await _audioIpcClient.SendCommandAsync("loadfile", targetPath, "replace");
@@ -2876,7 +2824,6 @@ public partial class MusicWizardWindow : Window
     /// </summary>
     private void UpdateDuckingCompareButton()
     {
-        // Intentionally empty — see the summary above.
     }
 
     private double GetPreviewVideoVolume(double? masterVolume = null)
@@ -2885,31 +2832,12 @@ public partial class MusicWizardWindow : Window
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         videoVolume = videoVolume * master / 100.0;
 
-        // PREVIEW_03: the export normalises the game bus, so the preview must too — otherwise the
-        // music sits the wrong distance from it and every balance judgement made here is wrong.
         if (Math.Abs(PreviewVideoGainDb) > 0.01)
             videoVolume *= Math.Pow(10, PreviewVideoGainDb / 20.0);
 
         return Math.Clamp(videoVolume, 0.0, 100.0);
     }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // PREVIEW_01 — MAKE THE PREVIEW'S MUSIC LEVEL MATCH THE EXPORT'S.
-    //
-    // The export measures every music file and drops it to a background bed level
-    // (AudioLoudnessProbe.MusicBedLufs) BEFORE the user's slider is applied. The preview did not:
-    // it played the file at whatever loudness its label mastered it to. Commercial masters run
-    // -8 to -10 LUFS against a -14 LUFS game bus, so with both sliders at 100 the preview was
-    // roughly 5 dB music-heavy compared with the file the user would actually get.
-    //
-    // That is why tuning by ear never transferred: the preview was not a quiet version of the
-    // export, it was a DIFFERENT BALANCE. This applies the same bed correction so the two agree.
-    //
-    // ⚠️ THIS IS THE LEVEL ONLY. Ducking and carving still are NOT simulated here — they cannot
-    // be, because the preview plays video and music through two SEPARATE mpv processes and a
-    // sidechain needs both signals inside one filter graph. Do not let this fix create the
-    // impression that the preview is now fully faithful; it closes the biggest gap, not all of it.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private double _musicBedGainDb;
     private string? _musicBedMeasuredPath;
 
@@ -2920,28 +2848,6 @@ public partial class MusicWizardWindow : Window
     /// </summary>
     public double? SourceMeasuredLufs { get; set; }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // PREVIEW_03 — MIRROR THE EXPORT'S BALANCE WITHOUT RUNNING OUT OF HEADROOM.
-    //
-    // The export puts the game at TargetLufs and the music at MusicBedLufs, so the music ends up a
-    // fixed distance BELOW the game. To hear that same relationship here, both have to move.
-    //
-    // ⚠️ THE OBVIOUS IMPLEMENTATION DOES NOT WORK. mpv's `volume` is a 0-100 percentage, and the
-    // common case is a QUIET clip that needs a BOOST to reach the target — there is no room above
-    // 100 to give it. Raising the video is impossible exactly when it is most needed.
-    //
-    // So the whole preview is shifted DOWN instead. A single offset, equal to whatever boost the
-    // video would have needed, is subtracted from every element. The video then sits at unity
-    // (nothing to raise), the music sits the correct distance beneath it, and the ONLY difference
-    // from the export is that the entire preview plays quieter — which the system volume solves.
-    // The relative balance, which is the thing being judged, is exact.
-    //
-    // Worked example, source -18.44 LUFS and a -9.20 LUFS pop master:
-    //     video wants  -14.00 - (-18.44) = +4.44 dB  -> offset = -4.44
-    //     video gain   = +4.44 - 4.44 =  0.00 dB     (plays raw, no ceiling problem)
-    //     music gain   = -10.80 - 4.44 = -15.24 dB
-    //     resulting gap = 6.00 dB, identical to the export. ✓
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private double PreviewHeadroomOffsetDb =>
         SourceMeasuredLufs.HasValue
             ? -Math.Max(0.0, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value)
@@ -2995,8 +2901,6 @@ public partial class MusicWizardWindow : Window
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         musicVolume = musicVolume * master / 100.0;
 
-        // PREVIEW_01/03: the bed correction PLUS the shared headroom offset, so the music keeps the
-        // exact distance below the game that the export gives it. See PreviewHeadroomOffsetDb.
         double gain = PreviewMusicGainDb;
         if (Math.Abs(gain) > 0.01)
             musicVolume *= Math.Pow(10, gain / 20.0);
@@ -3087,7 +2991,7 @@ public partial class MusicWizardWindow : Window
     {
         if (!string.IsNullOrEmpty(path) && File.Exists(path))
         {
-            try { File.Delete(path); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { File.Delete(path); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
         path = null;
     }
@@ -3213,7 +3117,6 @@ public partial class MusicWizardWindow : Window
             string targetPath = _selectedTrack!.FilePath.Replace("\\", "/");
             if (_lastLoadedTrackPath != targetPath)
             {
-                // PREVIEW_01: same bed match on the phase 1/2 audition path.
                 await EnsureMusicBedGainAsync(_selectedTrack!.FilePath);
                 await audioClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await audioClient.SendCommandAsync("loadfile", targetPath, "replace");
@@ -3338,7 +3241,7 @@ public partial class MusicWizardWindow : Window
         {
             if (pngFile != null && File.Exists(pngFile))
             {
-                try { File.Delete(pngFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                try { File.Delete(pngFile); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
             }
             return;
         }
@@ -3365,7 +3268,7 @@ public partial class MusicWizardWindow : Window
 
                 {
 
-                    try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                    try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
                 }
 
@@ -3480,9 +3383,6 @@ public partial class MusicWizardWindow : Window
 
     {
 
-        // LANES_04: the ruler, its labels and the gridlines are drawn by the shared
-        // TimelineLanesControl. Phase 3's own version drew 4px grey hairlines with `m\:ss`
-        // labels that could never show hours. Only the merger clip-boundary overlays remain here.
         var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
         double canvasWidth = lanes?.Bounds.Width ?? 0;
         if (canvasWidth <= 0) return;
@@ -3494,7 +3394,6 @@ public partial class MusicWizardWindow : Window
     {
         if (!_isMergerMode) return;
 
-        // LANES_04: the ruler canvas is gone; clip markers live on the two lane overlays.
         Canvas? scaleCanvas = null;
         var thumbCanvas = this.FindControl<Canvas>("ThumbnailOverlayCanvas");
         var waveCanvas = this.FindControl<Canvas>("WaveformOverlayCanvas");
@@ -3662,9 +3561,6 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            // LANES_04: the caret, its time badge and both clocks belong to the shared control.
-            // Phase 3 only reports WHERE the playhead is; the control derives the line position,
-            // the badge text and the elapsed/remaining clocks from Duration + Position.
             var p3Lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("Phase3Lanes");
             if (p3Lanes != null)
             {
@@ -3798,7 +3694,7 @@ public partial class MusicWizardWindow : Window
 
             _ = ProbeTrackInfoAsync(track);
 
-            ShowToast("✔ Music file loaded!");
+            ShowToastSuccess("✔ Music file loaded!");
 
         }
         else
@@ -3817,8 +3713,6 @@ public partial class MusicWizardWindow : Window
         CancelMusicScan();
         CancelPhase3Load();
         StopPreview();
-        // Drop the simulated crop BEFORE the host is torn down — afterwards there is no IPC
-        // client left to send it to.
         ClearPhase3LiveZoomCrop();
         DisposePhase3VideoHost();
 
@@ -3844,15 +3738,17 @@ public partial class MusicWizardWindow : Window
 
     {
 
+        Controls.CoachOverlay.Cancel(this);
+        Controls.FloatingNotice.Clear(this);
         if (_playheadTimer != null) { _playheadTimer.Stop(); _playheadTimer.Tick -= PlayheadTimer_Tick; _playheadTimer = null; }
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
         CancelAudioAnalysis();
         CancelMusicScan();
         if (_lastWaveformFile != null && File.Exists(_lastWaveformFile))
         {
-            try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { File.Delete(_lastWaveformFile); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
-        foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); } }
+        foreach (var f in _lastPhase3ThumbFiles) { try { if (File.Exists(f)) File.Delete(f); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); } }
         _lastPhase3ThumbFiles.Clear();
         DeleteTempFile(ref _lastPhase3WaveFile);
         StopPreview();
@@ -3863,7 +3759,7 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            try { _audioIpcClient.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { _audioIpcClient.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
             _audioIpcClient = null;
 
@@ -3929,9 +3825,9 @@ public partial class MusicWizardWindow : Window
                 }
             }
         }
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
-        return Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
+        return Infrastructure.MemeDirectory.GetMusicRoot();
     }
 
     private void LoadMusicDirectory()
@@ -3955,14 +3851,14 @@ public partial class MusicWizardWindow : Window
 
         }
 
-        catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
 
         if (string.IsNullOrWhiteSpace(targetDir) || !Directory.Exists(targetDir))
 
         {
 
-            targetDir = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
+            targetDir = Infrastructure.MemeDirectory.GetMusicRoot();
 
         }
 
@@ -4149,103 +4045,30 @@ public partial class MusicWizardWindow : Window
     }
 
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// ISSUE_09 — THIS WAS 95 LINES OF HAND-ROLLED TOAST. IT IS NOW ONE LINE.
+    ///
+    /// The old body built a Border by hand, hunted for `Step1Panel`'s parent to host it, computed a
+    /// ZIndex from its siblings, then hand-animated opacity in a `for` loop with `await Task.Delay(16)`
+    /// — twice. It slid in from the TOP of the wizard while every other screen in the suite put its
+    /// feedback somewhere else entirely, and it had TWO early `return`s (one if `Step1Panel` was not
+    /// found, one if its parent was not a Panel) that made the message vanish silently rather than
+    /// show up somewhere imperfect. A user who pressed a button and saw nothing had no way to tell a
+    /// no-op from a lost message.
+    ///
+    /// Every one of the 13 call sites is unchanged — they still call ShowToast(text). What changed is
+    /// that they now produce the SAME float-up-and-fade notice as the Main App, the Speed Editor, the
+    /// Merger, the Crop Tools and the Voice Over recorder.
+    /// ⚠️ Do not reintroduce a bespoke toast here. See Controls/FloatingNotice.cs.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     private void ShowToast(string message)
+        => Controls.FloatingNotice.Show(this, message);
 
-    {
-
-        Dispatcher.UIThread.Post(async () =>
-
-        {
-
-
-            var grid = this.FindControl<Grid>("Step1Panel")?.Parent as Panel;
-
-            if (grid == null) return;
-
-
-            var toast = new Avalonia.Controls.Border
-
-            {
-
-                Background = (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppSurfaceBrush")!,
-                BorderBrush = (Avalonia.Media.SolidColorBrush)Avalonia.Application.Current!.FindResource("AppFocusInnerBrush")!,
-
-                BorderThickness = new Avalonia.Thickness(1),
-
-                CornerRadius = new Avalonia.CornerRadius(6),
-
-                Padding = new Avalonia.Thickness(15, 8),
-
-                Child = new TextBlock
-
-                {
-
-                    Text = message,
-
-                    Foreground = Avalonia.Media.Brushes.White,
-
-                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(11),
-
-                    FontWeight = Avalonia.Media.FontWeight.SemiBold
-
-                },
-
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
-
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-
-                Opacity = 0
-
-            };
-
-
-            var hostPanel = this.FindControl<Panel>("Step1Panel")?.Parent as Panel;
-
-            if (hostPanel == null) return;
-
-
-            int topZIndex = hostPanel.Children.Count == 0
-
-                ? 999
-
-                : Math.Max(999, hostPanel.Children.Max(child => child.ZIndex) + 1);
-
-            toast.ZIndex = topZIndex;
-
-            hostPanel.Children.Add(toast);
-
-
-            for (double o = 0; o <= 1; o += 0.1)
-
-            {
-
-                toast.Opacity = o;
-
-                await Task.Delay(16);
-
-            }
-
-            toast.Opacity = 1;
-
-
-            await Task.Delay(2500);
-
-
-            for (double o = 1; o >= 0; o -= 0.1)
-
-            {
-
-                toast.Opacity = o;
-
-                await Task.Delay(16);
-
-            }
-
-
-            hostPanel.Children.Remove(toast);
-
-        });
-    }
+    /// <summary>ISSUE_09 — the same notice in the "that worked" colour.</summary>
+    private void ShowToastSuccess(string message)
+        => Controls.FloatingNotice.Success(this, message);
 
     private void AttachTitleBarDrag()
     {
@@ -4264,7 +4087,7 @@ public partial class MusicWizardWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                    try { BeginMoveDrag(e); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                 }
             };
         }

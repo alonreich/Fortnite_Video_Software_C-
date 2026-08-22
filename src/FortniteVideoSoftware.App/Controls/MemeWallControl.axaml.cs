@@ -149,7 +149,7 @@ public partial class MemeWallControl : UserControl
             {
                 MinWidth = 100,
                 MinHeight = 60,
-                Background = (IBrush?)Application.Current?.FindResource("AppSurfaceAlpha80Brush"),
+                Background = Infrastructure.ThemeResources.Brush(this, "AppSurfaceAlpha80Brush", new SolidColorBrush(Color.Parse("#CC1e293b"))),
                 CornerRadius = new CornerRadius(4),
                 Child = new TextBlock
                 {
@@ -169,7 +169,7 @@ public partial class MemeWallControl : UserControl
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 120,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            Foreground = (IBrush?)Application.Current?.FindResource("AppTextMutedBrush")
+            Foreground = Infrastructure.ThemeResources.Brush(this, "AppTextMutedBrush", new SolidColorBrush(Color.Parse("#b6c2d0")))
         };
         stack.Children.Add(nameText);
 
@@ -179,7 +179,7 @@ public partial class MemeWallControl : UserControl
             {
                 Text = "⚠ Landscape",
                 FontSize = ThemeManager.ScaledFontSize(9),
-                Foreground = (IBrush?)Application.Current?.FindResource("AppWarningBrush"),
+                Foreground = Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", new SolidColorBrush(Color.Parse("#facc15"))),
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             };
             ToolTip.SetTip(cellBorder, "Fit for landscape — may crop in portrait mode");

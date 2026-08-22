@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 
@@ -83,7 +83,7 @@ internal static class ShellLinkWriter
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
             throw new TimeoutException("PowerShell shortcut creation timed out.");
         }
@@ -94,7 +94,7 @@ internal static class ShellLinkWriter
             _ = await stdoutTask.ConfigureAwait(false);
             stderrText = await stderrTask.ConfigureAwait(false);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         if (process.ExitCode != 0)
         {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -36,8 +36,6 @@ namespace FortniteVideoSoftware.App;
 /// </summary>
 public sealed class PreviewDetachController
 {
-    // Bounds keys. Every one of these must also appear in StateTransferStore.BoundsKeys and in
-    // MainWindow's preserveKeys list, or the geometry is wiped on the next update/reset.
     public const string MainWindowKey = "PreviewMonitorWindowBounds";
     public const string GranularKey = "GranularPreviewMonitorBounds";
     public const string MusicWizardKey = "MusicWizardPreviewMonitorBounds";
@@ -51,7 +49,6 @@ public sealed class PreviewDetachController
 
     private PreviewMonitorWindow? _monitor;
 
-    // Captured origin — exactly one of these three is non-null while detached.
     private Panel? _originPanel;
     private int _originIndex = -1;
     private Decorator? _originDecorator;
@@ -120,7 +117,6 @@ public sealed class PreviewDetachController
         var content = _content();
         if (content == null)
         {
-            // UXQA_01: never swallow the click in silence. Tell the caller so it can say something.
             const string why = "The video preview is still loading — there is nothing to pop out yet.";
             RuntimeLog.Info("UI", $"Detach requested with no preview available ({_boundsKey}).");
             DetachUnavailable?.Invoke(why);
@@ -156,8 +152,6 @@ public sealed class PreviewDetachController
         _transitioning = true;
         try
         {
-            // Clear the field BEFORE Close(): PreviewMonitorWindow.OnClosing cancels the close and
-            // calls back into Attach() while IsDetached is true, which would otherwise recurse.
             var monitor = _monitor;
             _monitor = null;
 
@@ -209,9 +203,6 @@ public sealed class PreviewDetachController
             int px = _owner.Position.X + (int)((_owner.Bounds.Width - w) / 2);
             int py = Math.Max(0, _owner.Position.Y + (int)((_owner.Bounds.Height - h) / 2) - 150);
 
-            // Clamp to the screen the OWNER is on, not the primary one — on a multi-monitor desk
-            // the owner is frequently not on the primary, and clamping to primary would yank the
-            // new window onto a different display than the one it was summoned from.
             var screen = _owner.Screens?.ScreenFromWindow(_owner) ?? _owner.Screens?.Primary;
             if (screen != null)
             {
@@ -258,8 +249,6 @@ public sealed class PreviewDetachController
     {
         if (_originPanel != null)
         {
-            // The tree may have changed while the preview was away, so the recorded index is a
-            // preference, not a promise.
             int index = Math.Clamp(_originIndex < 0 ? 0 : _originIndex, 0, _originPanel.Children.Count);
             _originPanel.Children.Insert(index, content);
         }

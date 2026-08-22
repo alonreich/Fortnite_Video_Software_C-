@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Input;
 
 namespace FortniteVideoSoftware.App.Controls;
@@ -51,9 +51,6 @@ internal static class TimelineKnob
 
         seekSurface.PointerReleased += (_, _) => SetClass(slider, DragClass, false);
 
-        // The seek canvases capture the pointer while dragging. If that capture is taken away —
-        // a window losing focus mid-drag, say — PointerReleased never arrives and the knob would
-        // stay stuck at full size forever.
         seekSurface.PointerCaptureLost += (_, _) => SetClass(slider, DragClass, false);
     }
 

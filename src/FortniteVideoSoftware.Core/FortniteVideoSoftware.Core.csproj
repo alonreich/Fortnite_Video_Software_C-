@@ -14,4 +14,21 @@
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="2.88.7" />
   </ItemGroup>
 
+  <!-- ISSUE_03: the Win32 version block a user sees in Properties > Details comes from the ENTRY
+       assembly (the App project), not from here. These are carried anyway so every managed
+       assembly in the product reports the same publisher and version - a mismatched Company on a
+       satellite assembly is exactly the kind of detail a security reviewer flags. Keep in step
+       with FortniteVideoSoftware.App.csproj on every release. -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Company>Alon Reich</Company>
+    <Authors>Alon Reich</Authors>
+    <Product>Clip Studio for Gameplay</Product>
+    <Copyright>Copyright © 2026 Alon Reich. All rights reserved.</Copyright>
+    <NeutralLanguage>en-US</NeutralLanguage>
+  </PropertyGroup>
+
 </Project>

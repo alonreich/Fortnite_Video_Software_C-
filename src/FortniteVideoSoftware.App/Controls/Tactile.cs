@@ -20,6 +20,33 @@ namespace FortniteVideoSoftware.App.Controls
         public static bool GetIsRippleEnabled(Control element) => element.GetValue(IsRippleEnabledProperty);
         public static void SetIsRippleEnabled(Control element, bool value) => element.SetValue(IsRippleEnabledProperty, value);
 
+        public static readonly AttachedProperty<bool> IsRippleSuppressedProperty =
+            AvaloniaProperty.RegisterAttached<Tactile, Control, bool>("IsRippleSuppressed");
+
+        public static bool GetIsRippleSuppressed(Control element) => element.GetValue(IsRippleSuppressedProperty);
+        public static void SetIsRippleSuppressed(Control element, bool value) => element.SetValue(IsRippleSuppressedProperty, value);
+
+        private static bool _globalRippleInstalled;
+
+        /// <summary>
+        /// Installs the one process-wide press ripple. Idempotent; call once from
+        /// AvaloniaApp.OnFrameworkInitializationCompleted, before any window is shown.
+        /// </summary>
+        public static void EnableGlobalRipple()
+        {
+            if (_globalRippleInstalled) return;
+            _globalRippleInstalled = true;
+
+            InputElement.PointerPressedEvent.AddClassHandler<Button>(
+                (btn, e) =>
+                {
+                    if (GetIsRippleSuppressed(btn)) return;
+                    if (GetIsRippleEnabled(btn)) return;
+                    Ripple_PointerPressed(btn, e);
+                },
+                Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        }
+
         public static readonly AttachedProperty<bool> IsParallaxTiltEnabledProperty =
             AvaloniaProperty.RegisterAttached<Tactile, Control, bool>("IsParallaxTiltEnabled");
 
@@ -50,11 +77,21 @@ namespace FortniteVideoSoftware.App.Controls
         private static void Ripple_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (sender is not Control c) return;
+            if (!c.IsEnabled) return;
             var layer = AdornerLayer.GetAdornerLayer(c);
             if (layer == null) return;
 
             var pt = e.GetPosition(c);
-            
+
+            Color rippleColor = Colors.White;
+            if (c.TryFindResource("AppRippleColor", c.ActualThemeVariant, out object? colorObj) && colorObj is Color themed)
+            {
+                rippleColor = themed;
+            }
+
+            Color mid = Color.FromArgb(0x30, rippleColor.R, rippleColor.G, rippleColor.B);
+            Color edge = Color.FromArgb(0x00, rippleColor.R, rippleColor.G, rippleColor.B);
+
             var ripple = new Ellipse
             {
                 Width = 20,
@@ -64,9 +101,9 @@ namespace FortniteVideoSoftware.App.Controls
                 {
                     GradientStops = new GradientStops
                     {
-                        new GradientStop(Color.Parse("#00FFFFFF"), 0.0),
-                        new GradientStop(Color.Parse("#30FFFFFF"), 0.7),
-                        new GradientStop(Color.Parse("#00FFFFFF"), 1.0)
+                        new GradientStop(edge, 0.0),
+                        new GradientStop(mid, 0.7),
+                        new GradientStop(edge, 1.0)
                     }
                 },
                 RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative)

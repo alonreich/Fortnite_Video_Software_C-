@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -44,7 +44,7 @@ public static class Phase1Gate
         {
             foreach (Process worker in workers)
             {
-                try { worker.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { worker.Kill(true); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
             throw new TimeoutException("Background workers timed out after 45 seconds.");
         }

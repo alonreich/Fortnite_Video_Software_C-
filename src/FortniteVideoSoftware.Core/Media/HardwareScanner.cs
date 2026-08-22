@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -76,7 +76,6 @@ public static class HardwareScanner
         }
         catch (OperationCanceledException)
         {
-            // G03: an ABORTED scan proves nothing about the hardware. Do not report "CPU".
             CoreLogger.Fail("Hardware", "Hardware scan timed out or was cancelled — hardware capability UNKNOWN, deferring to the encoder probe at export time.");
             return ScanFailed;
         }
@@ -86,7 +85,6 @@ public static class HardwareScanner
             return ScanFailed;
         }
 
-        // Reached only when every probe RAN and every probe legitimately failed.
         CoreLogger.Fail("Hardware", "No working hardware encoder detected; using CPU.");
         return "CPU";
     }
@@ -120,12 +118,9 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg.");
-        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
+        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } });
         CoreLogger.Debug("HardwareScanner", $"Command: {psi.FileName} {psi.Arguments}");
-        // G02: these were the ONLY two unguarded ChildProcessTracker.AddProcess call sites in the
-        // solution. Process tracking is cosmetic bookkeeping; it must never be able to abort the
-        // GPU capability scan and downgrade the whole session to CPU encoding.
-        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         
@@ -135,7 +130,7 @@ public static class HardwareScanner
         }
         catch (OperationCanceledException)
         {
-            try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { process.Kill(true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             throw;
         }
 
@@ -165,9 +160,8 @@ public static class HardwareScanner
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start FFmpeg for encoder test.");
-        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } });
-        // G02: see GetAvailableHwaccelsAsync — tracking failures must never abort the probe.
-        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        using var killReg = cancellationToken.Register(() => { try { process.Kill(true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } });
+        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         
         try
@@ -176,7 +170,7 @@ public static class HardwareScanner
         }
         catch (OperationCanceledException)
         {
-            try { process.Kill(true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { process.Kill(true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             throw;
         }
 

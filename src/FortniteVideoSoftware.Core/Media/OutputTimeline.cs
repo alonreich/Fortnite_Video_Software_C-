@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -160,10 +160,6 @@ public sealed class OutputTimeline
         }
         normalizedSegments.Sort((a, b) => a.start.CompareTo(b.start));
 
-        // Pass 1 — lay out the moving footage. Gaps between speed segments run at base speed.
-        // `fromSeg` distinguishes footage the USER explicitly marked as a speed segment from the
-        // plain base-speed filler between segments. D8 forbids a meme interrupting a real segment,
-        // but filler is ordinary gameplay and a meme may be dropped anywhere inside it.
         var sourceChunks = new List<(double start, double end, double speed, bool fromSeg)>();
         double currentSec = 0;
         foreach (var seg in normalizedSegments.Where(s => Math.Abs(s.speed) > 0.001))
@@ -178,8 +174,6 @@ public sealed class OutputTimeline
         if (currentSec < totalDurationSec - 0.001)
             sourceChunks.Add((currentSec, totalDurationSec, baseSpeed, false));
 
-        // Pass 2 — splice the freezes in. A freeze is an INSERTION, not a replacement: the cursor
-        // stays at fStart, so the footage underneath the freeze still plays afterwards.
         var chunks = new List<Chunk>();
         double sourceCursor = 0;
 
@@ -210,14 +204,6 @@ public sealed class OutputTimeline
         if (totalDurationSec > sourceCursor + 0.001)
             AppendSourceRange(sourceCursor, totalDurationSec);
 
-        // Pass 3 — MEME_04: splice the memes in. Like a freeze, an insertion occupies output time
-        // and consumes NO source time, so nothing after it is lost — it is pushed later.
-        //
-        // D8 — A MEME NEVER INTERRUPTS A FREEZE OR A SPEED SEGMENT. The caller is expected to have
-        // snapped the point already; the ordering rule below then places the meme AFTER a freeze
-        // that sits on the same source instant, never between the freeze and its resumed footage
-        // (both of which start at the same source second, which is why a naive index search on
-        // SourceStartSec alone would drop the meme in the wrong slot).
         if (insertions != null && insertions.Count > 0)
         {
             var ordered = new List<Insertion>(insertions);
@@ -228,10 +214,6 @@ public sealed class OutputTimeline
                 if (ins.DurationSec <= 0.001) continue;
                 double at = Math.Max(0, Math.Min(ins.AtSourceSec, totalDurationSec));
 
-                // ⚠️ SPLIT THE FOOTAGE THE MEME LANDS IN. Without this the meme is appended after
-                // the whole chunk instead of being spliced into it: a meme "at 30s" of a 60s clip
-                // with no segments would play at the END, and the reverse mapping would jump
-                // backwards from 60s to 30s. Caught by the monotonicity check.
                 for (int i = 0; i < chunks.Count; i++)
                 {
                     var c = chunks[i];
@@ -249,11 +231,6 @@ public sealed class OutputTimeline
                 {
                     if (chunks[i].SourceStartSec >= at - 0.0005 && !chunks[i].HoldsSource) { idx = i; break; }
                 }
-                // NOTE: no extra "step past the freeze" pass is needed, and adding one is a BUG.
-                // The search above already skips holding chunks, so `idx` is the first chunk of
-                // MOVING footage at or after this instant — which is precisely the slot after any
-                // freeze sitting on the same instant. Incrementing again jumps the meme past the
-                // resumed footage as well and sends it to the end of the clip.
 
                 chunks.Insert(Math.Clamp(idx, 0, chunks.Count),
                     new Chunk(at, at + 0.001, 0, ins.DurationSec, ins.Id));
@@ -283,8 +260,6 @@ public sealed class OutputTimeline
         {
             if (ch.HoldsSource)
             {
-                // A freeze OR a meme counts in full the moment the playhead reaches it — it occupies
-                // output time without occupying source time, so there is no partial interpolation.
                 if (target >= ch.SourceStartSec) mapped += ch.FreezeHoldSec;
                 continue;
             }
@@ -385,9 +360,6 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
-            // Only a REAL user speed segment blocks a meme. Plain base-speed footage between
-            // segments is ordinary gameplay and a meme may land anywhere inside it — snapping out
-            // of that would fling every mid-video meme to the end of the clip.
             if (ch.IsInsertion || ch.IsFreeze || !ch.FromSegment) continue;
             if (at > ch.SourceStartSec + 0.0005 && at < ch.SourceEndSec - 0.0005)
                 return ch.SourceEndSec;

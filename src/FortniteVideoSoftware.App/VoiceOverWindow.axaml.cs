@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -109,11 +109,6 @@ public partial class VoiceOverWindow : Window
             Session = session;
             Reader = new NAudio.Wave.AudioFileReader(session.WavPath);
 
-            // PREVIEW_02: the export normalises every take to the game bus target, but this
-            // preview used to play the raw recording at unity. A take recorded quietly sounded
-            // buried here and then arrived correct in the export — or the reverse — so judging
-            // "is my voice loud enough?" from this window was guesswork. previewGain carries the
-            // same correction the exporter will apply. 1.0 means "unmeasured", i.e. old behaviour.
             Reader.Volume = previewGain;
 
             Player = new NAudio.Wave.WaveOutEvent();
@@ -122,25 +117,12 @@ public partial class VoiceOverWindow : Window
 
         public void Dispose()
         {
-            try { Player.Stop(); Player.Dispose(); } catch {}
-            try { Reader.Dispose(); } catch {}
+            try { Player.Stop(); Player.Dispose(); } catch (System.Exception) { }
+            try { Reader.Dispose(); } catch (System.Exception) { }
         }
     }
     private List<PreviewPlayer> _previewPlayers = new();
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // PREVIEW_02 — PREVIEW EACH TAKE AT THE LEVEL THE EXPORT WILL GIVE IT.
-    //
-    // The exporter normalises voice-over to the game bus target (AudioLoudnessProbe.TargetLufs)
-    // so the voice sits with the gameplay. This window played the raw .wav at unity gain, so a
-    // quietly-recorded take sounded too soft here and came out fine in the file — and a shouted
-    // one sounded fine here and came out hot. The user was being asked "is this level right?"
-    // against a level that was never going to ship.
-    //
-    // Measurement is asynchronous and players are created on a timer tick, so the gain is looked
-    // up from a cache that is filled in the background. An unmeasured take previews at 1.0 —
-    // exactly the old behaviour — and corrects itself once the measurement lands.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private readonly Dictionary<string, float> _takePreviewGain = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _takeGainPending = new(StringComparer.OrdinalIgnoreCase);
 
@@ -173,7 +155,7 @@ public partial class VoiceOverWindow : Window
         if (_takeGainPending.Add(path))
             _ = MeasureTakeGainAsync(path);
 
-        return 1.0f;   // until the measurement lands
+        return 1.0f;
     }
 
     private async Task MeasureTakeGainAsync(string wavPath)
@@ -186,12 +168,10 @@ public partial class VoiceOverWindow : Window
             float gain = 1.0f;
             if (reading != null)
             {
-                // Same target the exporter aims the voice at, clamped so a near-silent take cannot
-                // be amplified into a wall of hiss.
                 double db = Math.Clamp(
                     FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - reading.IntegratedLufs,
                     -24.0, 12.0);
-                db += VoicePreviewOffsetDb;   // PREVIEW_03: match the un-boosted preview video
+                db += VoicePreviewOffsetDb;
                 gain = (float)Math.Pow(10, db / 20.0);
                 CoreLogger.Info("VoiceOver",
                     $"Preview take '{System.IO.Path.GetFileName(wavPath)}' measured {reading.IntegratedLufs:F2} LUFS -> " +
@@ -200,7 +180,6 @@ public partial class VoiceOverWindow : Window
 
             _takePreviewGain[wavPath] = gain;
 
-            // Rebuild on the next tick so the new gain is actually heard.
             StopPreviewPlayers();
         }
         catch (Exception ex)
@@ -327,8 +306,6 @@ public partial class VoiceOverWindow : Window
         if (_cancelButton != null) _cancelButton.Click += (s, e) => Close();
 
         _timer.Tick += Timer_Tick;
-        // ISSUE_05: this line was duplicated. Starting an already-running DispatcherTimer is a
-        // no-op, so it never misbehaved — it just read like a bug and invited a wrong "fix".
         _timer.Start();
 
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, OnKeyDownHandler, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -348,6 +325,8 @@ public partial class VoiceOverWindow : Window
         {
             WireTimelineSeekSurface(_waveformLaneGrid);
         }
+
+        Loaded += (_, _) => Controls.CoachOverlay.Register(this, Controls.CoachTours.VoiceOverKey, Controls.CoachTours.VoiceOver);
 
         Loaded += async (_, _) =>
         {
@@ -432,7 +411,12 @@ public partial class VoiceOverWindow : Window
             {
                 if (System.IO.File.Exists(session.WavPath))
                 {
-                    try { _previewPlayers.Add(new PreviewPlayer(session, GetTakePreviewGain(session))); } catch {}
+                    try { _previewPlayers.Add(new PreviewPlayer(session, GetTakePreviewGain(session))); }
+                    catch (System.Exception __ex)
+                    {
+                        RuntimeLog.Fail("VoiceOver", $"A recorded take could not be opened for preview: {__ex.Message}");
+                        RuntimeLog.Swallowed(__ex);
+                    }
                 }
             }
         }
@@ -453,7 +437,7 @@ public partial class VoiceOverWindow : Window
                 double playOffset = time - take.StartSec;
                 if (playOffset >= 0 && playOffset < player.Reader.TotalTime.TotalSeconds)
                 {
-                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(playOffset); } catch {}
+                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(playOffset); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
                 }
                 player.Player.Play();
             }
@@ -467,7 +451,7 @@ public partial class VoiceOverWindow : Window
                 double actualPos = player.Reader.CurrentTime.TotalSeconds;
                 if (Math.Abs(expectedPos - actualPos) > 0.15)
                 {
-                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, expectedPos)); } catch {}
+                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, expectedPos)); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
                 }
             }
         }
@@ -475,7 +459,6 @@ public partial class VoiceOverWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        // Must run FIRST: it is what converts an armed take into a live, correctly anchored one.
         PumpRecordArming();
         UpdateWaveformUI();
         UpdatePlayPauseIconUI();
@@ -535,7 +518,7 @@ public partial class VoiceOverWindow : Window
         {
             if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
             {
-                try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         };
     }
@@ -550,6 +533,10 @@ public partial class VoiceOverWindow : Window
         _playPauseButton = this.FindControl<Button>("PlayPauseButton");
         _applyButton = this.FindControl<Button>("ApplyButton");
         _cancelButton = this.FindControl<Button>("CancelButton");
+
+        var voHelpButton = this.FindControl<Button>("VoiceOverHelpButton");
+        if (voHelpButton != null) voHelpButton.Click += (_, _) => Controls.CoachOverlay.Replay(this);
+
         _micDeviceComboBox = this.FindControl<ComboBox>("MicDeviceComboBox");
         _recordingStatusText = this.FindControl<TextBlock>("RecordingStatusText");
         _voiceOverHintText = this.FindControl<TextBlock>("VoiceOverHintText");
@@ -591,6 +578,7 @@ public partial class VoiceOverWindow : Window
                     _renderedSessionCount = -1;
                     UpdatePlayheadUI();
                     UpdateApplyState();
+                    Controls.FloatingNotice.Info(this, _selectedSession.IsMuted ? "Take muted" : "Take unmuted");
                 }
             };
         }
@@ -607,6 +595,7 @@ public partial class VoiceOverWindow : Window
                     _renderedSessionCount = -1;
                     UpdatePlayheadUI();
                     UpdateApplyState();
+                    Controls.FloatingNotice.Show(this, "Take deleted");
                 }
             };
         }
@@ -673,7 +662,7 @@ public partial class VoiceOverWindow : Window
                 BeginResizeDrag(WindowEdge.SouthEast, e);
                 e.Handled = true;
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         };
     }
 
@@ -905,8 +894,6 @@ public partial class VoiceOverWindow : Window
         if (_playPauseButton != null) _playPauseButton.IsEnabled = _isMpvReady && !_isRecording;
         if (_micDeviceComboBox != null) _micDeviceComboBox.IsEnabled = hasInputDevice && !_isRecording;
 
-        // Pause/Resume only exists while a recording session is open. It is disabled during the
-        // brief ARMING window so the user cannot pause a take that has not started yet.
         if (_pauseResumeButton != null)
         {
             _pauseResumeButton.IsVisible = _isRecording;
@@ -988,10 +975,6 @@ public partial class VoiceOverWindow : Window
         if (durationSec <= 0) durationSec = videoDuration;
         string ffmpeg = ResolveBinaryPath("ffmpeg.exe", "backend");
 
-        // LEAK_02: retire the PREVIOUS generation before starting a new one. This used to just
-        // overwrite the field, which abandoned the old CancellationTokenSource undisposed AND —
-        // worse than the leak — left the old thumbnail/waveform job running, free to finish late
-        // and overwrite the lanes belonging to the newer request.
         RetireGenerationCts(_generationCts);
         _generationCts = new System.Threading.CancellationTokenSource();
         var token = _generationCts.Token;
@@ -1037,7 +1020,7 @@ public partial class VoiceOverWindow : Window
                 process = System.Diagnostics.Process.Start(psi);
                 if (process != null)
                 {
-                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     await process.WaitForExitAsync(token);
                 }
                 if (process?.ExitCode == 0 && System.IO.File.Exists(tempPng)) return tempPng;
@@ -1050,7 +1033,7 @@ public partial class VoiceOverWindow : Window
             {
                 if (process != null)
                 {
-                    try { if (!process.HasExited) process.Kill(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { if (!process.HasExited) process.Kill(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     process.Dispose();
                 }
             }
@@ -1421,7 +1404,6 @@ public partial class VoiceOverWindow : Window
         if (!force)
         {
             _dragSeekTimeSec = targetTime;
-            // ISSUE_02 fix: enable live scrubbing
             _lastTimelineSeekUtc = DateTime.UtcNow;
             SeekToAbsolute(targetTime);
             e.Handled = true;
@@ -1433,8 +1415,6 @@ public partial class VoiceOverWindow : Window
         SeekToAbsolute(targetTime);
         e.Handled = true;
         
-        // Hold the visual override for a short time so the playhead doesn't rubber-band 
-        // back to the old video time while the player processes the seek.
         _ = Task.Delay(300).ContinueWith(_ => Dispatcher.UIThread.Post(() => 
         {
             if (Math.Abs((_dragSeekTimeSec ?? 0) - targetTime) < 0.001) 
@@ -1572,43 +1552,6 @@ public partial class VoiceOverWindow : Window
         }
     }
 
-    // =====================================================================================
-    // VOICE-OVER SYNC MODEL — read this before changing anything below.
-    // =====================================================================================
-    // A take is anchored to the video by ONE number: VoiceOverSession.StartSec, in SOURCE
-    // seconds. The exporter maps it to output time with
-    // ProcessWorker.cs -> granularTimeMapper(take.StartSec) and places the WAV with `adelay`.
-    // Nothing stretches the WAV. That is correct ONLY because this preview plays at exactly
-    // the same rate the export will render:
-    //   * speed segments  -> ApplyPreviewSpeedForPosition sets mpv `speed`, so N seconds of
-    //                        wall clock here == N seconds of output there;
-    //   * freeze segments -> the preview genuinely pauses for the freeze duration, and the
-    //                        export holds a still frame for the same duration.
-    // So the microphone, which records in wall clock, is already in OUTPUT time. Only the
-    // START needs anchoring — and that is exactly what used to be wrong:
-    //
-    // THE BUG (audit round 6): StartSec was stamped from IpcClient.CurrentTime BEFORE either
-    // the microphone or the video had actually started. Both are fire-and-forget:
-    // SetPropertyAsync("pause","no") is an un-awaited IPC round trip to mpv, and
-    // WaveInEvent.StartRecording() has its own device spin-up. Whatever time elapsed between
-    // "we stamped the clock" and "the video actually rolled" became dead air at the head of
-    // the WAV that the exporter believed was speech. Every take drifted EARLY by an unbounded,
-    // machine-dependent amount, and there was no way for the user to correct it.
-    //
-    // THE FIX — ARMING. Starting (or resuming) a take no longer opens the microphone. It
-    // unpauses the video and arms; PumpRecordArming() then watches the real video clock on the
-    // 50 ms timer, and only when the clock has actually ADVANCED does it open the microphone
-    // and stamp StartSec from that same observed position. Mic-open and clock-read are now
-    // adjacent, so the residual error is one audio buffer instead of an IPC round trip.
-    //
-    // PAUSE/RESUME is built on the same primitive: pause CLOSES the current take, resume opens
-    // a BRAND NEW one that re-arms and re-anchors from scratch. Each segment carries its own
-    // independently measured StartSec, so error cannot accumulate across pauses no matter how
-    // many times the user pauses or how long they wait. This is why VoiceRecorder's old
-    // PauseRecording/ResumeRecording pair was deleted rather than wired up: resuming one
-    // continuous WAV would have folded every resume latency into a single un-correctable
-    // offset, which is precisely the drift this design removes.
-    // =====================================================================================
 
     /// <summary>True between "user pressed record" and "the video clock actually moved".</summary>
     private bool _recordArming;
@@ -1665,13 +1608,9 @@ public partial class VoiceOverWindow : Window
         _currentSession = new VoiceOverSession
         {
             WavPath = _outputWavPath,
-            // Provisional only. PumpRecordArming overwrites this with the position observed at
-            // the instant capture truly begins — that value is the one the exporter uses.
             StartSec = provisionalStartSec
         };
 
-        // AUDIO_01: hard-mute every UI sound for as long as a take is open. Armed counts:
-        // the microphone is about to open and the user may click something in the meantime.
         _uiSoundMute?.Dispose();
         _uiSoundMute = UiSoundEffect.Suppress();
 
@@ -1698,9 +1637,6 @@ public partial class VoiceOverWindow : Window
         var ipc = _videoHost?.IpcClient;
         if (ipc == null) return;
 
-        // A freeze segment legitimately pauses the preview. Wait it out rather than anchoring to
-        // the frozen position, which would place the voice at the START of the freeze no matter
-        // how far into it the user actually began speaking.
         if (_isCurrentlyFrozen || ipc.IsPaused)
         {
             _armPrevTime = ipc.CurrentTime;
@@ -1721,7 +1657,6 @@ public partial class VoiceOverWindow : Window
             return;
         }
 
-        // The video is genuinely rolling. Open the microphone and anchor to THIS reading.
         var recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
         recorder.VolumeChanged += OnVolumeChanged;
         try
@@ -1811,11 +1746,13 @@ public partial class VoiceOverWindow : Window
             _renderedSessionCount = -1;
             RuntimeLog.Info("VoiceOver",
                 $"Take saved: {_currentSession.StartSec:0.###}s -> {_currentSession.EndSec:0.###}s (source time).");
+            Controls.FloatingNotice.Success(this, $"Take saved — {_currentSession.EndSec - _currentSession.StartSec:0.0}s");
         }
         else
         {
             TryDeleteFile(_currentSession.WavPath);
             _lastTakeWasRejected = true;
+            Controls.FloatingNotice.Error(this, "That take was too short to keep");
         }
 
         _currentSession = null;
@@ -1840,7 +1777,7 @@ public partial class VoiceOverWindow : Window
     {
         if (_recorder == null) return;
         _recorder.VolumeChanged -= OnVolumeChanged;
-        try { _recorder.StopRecording(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { _recorder.StopRecording(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         _recorder.Dispose();
         _recorder = null;
     }
@@ -1933,15 +1870,11 @@ public partial class VoiceOverWindow : Window
         _recordPaused = false;
         _isCurrentlyFrozen = false;
 
-        // Take-splitting means the take may ALREADY be closed (the user paused and never
-        // resumed). FinalizeCurrentTake is a no-op in that case; _lastTakeWasRejected carries
-        // the "too short to keep" outcome out of it.
         _lastTakeWasRejected = false;
         FinalizeCurrentTake();
 
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
-        // AUDIO_01: microphone is closed — UI sounds may resume.
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;
 
@@ -2223,20 +2156,20 @@ public partial class VoiceOverWindow : Window
     {
         if (cts == null) return;
         try { cts.Cancel(); }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
 
         _ = System.Threading.Tasks.Task.Run(() =>
         {
             try { cts.Dispose(); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
         });
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        Controls.CoachOverlay.Cancel(this);
+        Controls.FloatingNotice.Clear(this);
         _isClosing = true;
-        // Cancel ONLY on the close path — see RetireGenerationCts for why Dispose must not happen
-        // on this thread. The window is going away, so there is nothing left to reclaim.
         _generationCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;
@@ -2246,8 +2179,6 @@ public partial class VoiceOverWindow : Window
             _recorder.Dispose();
         }
 
-        // AUDIO_01: fail-safe. If the window is closed mid-take, StopRecordingAndPlayback may
-        // never run — without this the whole suite would stay muted for the rest of the session.
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;
 
@@ -2256,22 +2187,17 @@ public partial class VoiceOverWindow : Window
         
         if (_tempThumbPath != null && System.IO.File.Exists(_tempThumbPath))
         {
-            try { System.IO.File.Delete(_tempThumbPath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { System.IO.File.Delete(_tempThumbPath); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
         if (_tempWavePath != null && System.IO.File.Exists(_tempWavePath))
         {
-            try { System.IO.File.Delete(_tempWavePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { System.IO.File.Delete(_tempWavePath); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         _videoHost?.Dispose();
         base.OnClosed(e);
     }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // DETACH_01 — pop-out preview. Shared mechanism, own remembered geometry.
-    // The controller reattaches on this window's Closing, so _videoHost is always back in its
-    // home tree by the time OnClosed disposes it above.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private PreviewDetachController? _previewDetach;
 
     private void WirePreviewDetach()
@@ -2292,7 +2218,7 @@ public partial class VoiceOverWindow : Window
             _previewDetach!.SyncButton(btn);
         };
 
-        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);   // UXQA_01
+        _previewDetach.DetachUnavailable += why => RuntimeLog.Info("UI", why);
 
         btn.Click += (_, _) => _previewDetach.Toggle();
         _previewDetach.SyncButton(btn);

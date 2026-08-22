@@ -54,14 +54,6 @@ public class VideoConfig
         var store = new Ipc.CropConfigStore(paths);
         JsonObject sanitized = HudConfig.Sanitize(await store.LoadAsync(), migrateLegacy: false);
 
-        // ISSUE_3: HudConfig.Validate existed in full but had ZERO call sites anywhere in the
-        // solution, so a crop config with nonsense in it was loaded and exported without a single
-        // complaint — the first sign of trouble was a wrong-looking video. This is the one place
-        // every export reads the crop config, so it is where the check belongs.
-        //
-        // It reports, it does not block: Sanitize has already clamped everything to something
-        // renderable, and refusing to export because one HUD rect looks odd would be worse than
-        // exporting it. The log line is what turns "the video looks wrong" into a diagnosable bug.
         try
         {
             var issues = HudConfig.Validate(sanitized);

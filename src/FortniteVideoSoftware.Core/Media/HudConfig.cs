@@ -1,4 +1,4 @@
-
+﻿
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
 using FortniteVideoSoftware.Core.Ipc;
@@ -162,8 +162,6 @@ public static class HudConfig
     {
         config ??= new JsonObject();
         JsonObject clean = config.DeepClone().AsObject();
-        // See IsContentSpace: this must NOT depend on schema_version, or a version bump re-runs the
-        // one-time -150px Y migration and shifts every saved mask.
         bool currentSpace = IsContentSpace(clean);
 
         foreach (string section in RequiredSections)
@@ -272,9 +270,6 @@ public static class HudConfig
             zOrdersObj[key] = ToInt(zOrdersObj[key] ?? JsonValue.Create(zDef), zDef);
         }
 
-        // IDEA_1: keep the optional source-crop section honest. An entry whose content crop has
-        // been cleared to 0x0 (the way CropToolWindow marks a deleted layer) must not keep a live
-        // source rect behind it, or reopening the editor would resurrect the deleted box.
         if (clean[SourceCropsSection] is JsonObject sourceCrops)
         {
             foreach (string key in new List<string>(sourceCrops.Select(kvp => kvp.Key)))

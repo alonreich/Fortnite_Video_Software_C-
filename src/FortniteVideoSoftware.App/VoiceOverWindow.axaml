@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -120,8 +120,13 @@
                                                         <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Border>
-                                                <!-- We can generate Images via code or just a Canvas -->
-                                                <Canvas Name="ThumbnailCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                <!-- ISSUE_14: `ThumbnailCanvas` was declared here and referenced by
+                                                     ZERO lines of code anywhere in the source tree. It was built for
+                                                     an approach that drew the film frames one at a time; the code
+                                                     took a different route and renders ONE wide strip into
+                                                     ThumbnailLaneImage above, which is what you actually see. The
+                                                     empty canvas was a spare part whose presence implied a second
+                                                     drawing path that has never existed. Removed. -->
                                                 <!-- Playhead Marker -->
                                                 <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
                                                 <Border Name="ThumbPlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" />
@@ -184,6 +189,10 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
+                                <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
+                                     The walkthrough auto-plays only on the first few opens; this button is
+                                     how a returning user gets it again. Every screen in the suite has one. -->
+                                <Button Name="VoiceOverHelpButton" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" AutomationProperties.Name="Show me around the voice over recorder" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
                                 <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
                                 <Button Name="ApplyButton" Classes="Success" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take before applying"/>
                             </StackPanel>

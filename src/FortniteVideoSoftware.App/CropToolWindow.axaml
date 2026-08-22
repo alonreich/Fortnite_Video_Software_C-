@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -28,6 +28,10 @@
             </Border>
 
             <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
+                                     The walkthrough auto-plays only on the first few opens; this button is
+                                     how a returning user gets it again. Every screen in the suite has one. -->
+                <Button Grid.Column="1" Name="CropToolHelpButton" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,12,0" ZIndex="500" AutomationProperties.Name="Show me around the crop tools" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
                 <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto" Background="{DynamicResource AppSurfaceBrush}">
                     <Border Grid.Row="0"
                             Background="{DynamicResource AppPanelBrush}"

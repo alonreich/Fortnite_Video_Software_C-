@@ -285,6 +285,9 @@ if not exist "%FINAL_DIR%\%PROJECT_EXE%" (
 move /y "%FINAL_DIR%\%PROJECT_EXE%" "%OUTPUT_DIR%\%OUTPUT_EXE%"
 if errorlevel 1 exit /b 1
 
+call :CODE_SIGN "%OUTPUT_DIR%\%OUTPUT_EXE%"
+if errorlevel 1 exit /b 1
+
 call :PURGE_COMPILED_EXTRAS
 if errorlevel 1 exit /b 1
 
@@ -293,6 +296,75 @@ if exist "%STAGING_DIR%" rd /s /q "%STAGING_DIR%"
 if exist "%FINAL_DIR%" rd /s /q "%FINAL_DIR%"
 if exist "src\FortniteVideoSoftware.App\payload.zip" del /f /q "src\FortniteVideoSoftware.App\payload.zip"
 
+exit /b 0
+
+:CODE_SIGN
+rem ============================================================================================
+rem  ISSUE_03 - AUTHENTICODE SIGNING. DORMANT UNTIL A CERTIFICATE IS CONFIGURED.
+rem
+rem  Why this exists: the product ships as ONE .exe downloaded straight from the internet. An
+rem  unsigned .exe triggers SmartScreen's full-screen "Windows protected your PC - Unknown
+rem  publisher" wall on first run. That wall is the first thing a new user ever sees and it reads
+rem  as malware. The csproj now supplies the Properties/Details metadata; this supplies the
+rem  signature. BOTH are needed - metadata alone does not silence SmartScreen.
+rem
+rem  HOW TO TURN IT ON (no script edit required):
+rem      set FVS_SIGN_PFX=C:\path\to\your-cert.pfx
+rem      set FVS_SIGN_PASS=your-pfx-password
+rem  then run Build.cmd exactly as usual. Leave them unset and the build behaves as it always has,
+rem  printing a one-line reminder instead of failing.
+rem
+rem  DELIBERATE CHOICES, DO NOT "SIMPLIFY":
+rem    * The password is read from the environment, never hardcoded here. A .pfx password committed
+rem      to a public repository is a revoked certificate.
+rem    * /tr with an RFC-3161 timestamp server is MANDATORY. Without a timestamp every copy of the
+rem      product stops validating the day the certificate expires - including copies already on
+rem      users machines.
+rem    * If FVS_SIGN_PFX is set but signing FAILS, the build FAILS. Silently shipping an unsigned
+rem      binary when the operator asked for a signed one is the worst of the three outcomes.
+rem ============================================================================================
+if "%FVS_SIGN_PFX%"=="" (
+  echo [Sign] No FVS_SIGN_PFX set - shipping UNSIGNED. Windows SmartScreen will warn end users.
+  echo [Sign] To sign: set FVS_SIGN_PFX and FVS_SIGN_PASS, then re-run Build.cmd.
+  exit /b 0
+)
+
+if not exist "%FVS_SIGN_PFX%" (
+  echo ERROR: FVS_SIGN_PFX is set but the file does not exist: %FVS_SIGN_PFX%
+  exit /b 1
+)
+
+rem  signtool.exe is NOT on PATH in a plain shell - it lives inside the Windows SDK. Probe PATH
+rem  first, then fall back to the newest x64 SDK copy. The powershell fallback is deliberately NOT
+rem  wrapped in an if(...) block: escaping a pipe inside parentheses inside a for /f inside a batch
+rem  block is a well-known way to silently produce an empty result. A goto keeps it at top level.
+set "SIGNTOOL="
+where signtool.exe >nul 2>&1
+if not errorlevel 1 set "SIGNTOOL=signtool.exe"
+if not "!SIGNTOOL!"=="" goto CODE_SIGN_HAVE_TOOL
+
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'; if (Test-Path $p) { Get-ChildItem -Path $p -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Where-Object FullName -like '*x64*' | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName }"`) do set "SIGNTOOL=%%S"
+
+:CODE_SIGN_HAVE_TOOL
+if "!SIGNTOOL!"=="" (
+  echo ERROR: FVS_SIGN_PFX is set but signtool.exe could not be found.
+  echo        Install the Windows SDK Signing Tools, or put signtool.exe on PATH.
+  exit /b 1
+)
+
+echo [Sign] Signing %~1 ...
+"!SIGNTOOL!" sign /fd SHA256 /f "%FVS_SIGN_PFX%" /p "%FVS_SIGN_PASS%" /tr http://timestamp.digicert.com /td SHA256 "%~1"
+if errorlevel 1 (
+  echo ERROR: Authenticode signing FAILED. Refusing to ship an unsigned binary that was meant to be signed.
+  exit /b 1
+)
+
+"!SIGNTOOL!" verify /pa "%~1"
+if errorlevel 1 (
+  echo ERROR: Signature verification failed for %~1
+  exit /b 1
+)
+echo [Sign] Signed and verified.
 exit /b 0
 
 :PURGE_COMPILED_EXTRAS

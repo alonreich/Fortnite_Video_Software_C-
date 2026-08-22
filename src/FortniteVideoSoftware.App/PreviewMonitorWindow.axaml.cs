@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using FortniteVideoSoftware.App.Controls;
@@ -61,7 +61,7 @@ public partial class PreviewMonitorWindow : Window
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                 }
             };
         }
@@ -72,10 +72,6 @@ public partial class PreviewMonitorWindow : Window
         base.OnClosing(e);
         FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, _boundsKey);
 
-        // The user pressing this window's X means "put the preview back", not "destroy it" — the
-        // mpv surface inside still belongs to the owning screen. Cancel, hand control to the
-        // controller, and let IT close us once the preview is safely home. The controller clears
-        // its own state before calling Close(), so the second pass through here does not re-cancel.
         if (Controller != null && Controller.IsDetached)
         {
             e.Cancel = true;

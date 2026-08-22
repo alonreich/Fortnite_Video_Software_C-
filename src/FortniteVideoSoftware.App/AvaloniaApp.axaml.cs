@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
@@ -10,18 +10,6 @@ public partial class AvaloniaApp : Application
     {
         AvaloniaXamlLoader.Load(this);
 
-        // ==================================================================================
-        // UI SOUND DISPATCH (audit round 5)
-        // ----------------------------------------------------------------------------------
-        // All routing decisions moved into UiSoundRouter — read the header comment there for
-        // why the previous style-class sniffing was wrong (AUDIO_04/07/10/11). This method now
-        // does one thing: forward clicks to the router.
-        //
-        // AUDIO_09: a second handler is registered for MenuItem. The old code listened to
-        // Button.ClickEvent only, so all 17 menu entries across the Main App and the Merger
-        // were silent — including entries that are the SAME action as a button that did make a
-        // sound (MenuVideoMerger vs VideoMergerButton, MenuCropSettings vs CropSettingsButton).
-        // ==================================================================================
         Avalonia.Controls.Button.ClickEvent.AddClassHandler<Avalonia.Controls.Button>(
             (sender, e) => DispatchUiSound(sender),
             Avalonia.Interactivity.RoutingStrategies.Bubble, true);
@@ -42,7 +30,7 @@ public partial class AvaloniaApp : Application
             var cue = UiSoundRouter.Resolve(sender);
             if (cue.HasValue) UiSoundEffect.Play(cue.Value);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     public override void OnFrameworkInitializationCompleted()
@@ -51,15 +39,12 @@ public partial class AvaloniaApp : Application
         Infrastructure.SettingsManager.Load();
         Infrastructure.ThemeManager.ApplyFromSettings();
 
+        Controls.Tactile.EnableGlobalRipple();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // AUDIO_13: the sound engine holds a WaveOutEvent and a mixer. The previous
-            // implementation disposed nothing at all — six SoundPlayer instances and their
-            // MemoryStreams simply leaked to process exit. Deterministic teardown, idempotent.
             desktop.Exit += (_, _) => UiSoundEffect.Shutdown();
 
-            // IDEA_3: release the shell's ITaskbarList3 reference. Same reasoning as the sound
-            // engine above — a COM object held to process exit is a dangling reference.
             desktop.Exit += (_, _) => TaskbarProgress.Shutdown();
 
             var argsList = desktop.Args ?? System.Array.Empty<string>();

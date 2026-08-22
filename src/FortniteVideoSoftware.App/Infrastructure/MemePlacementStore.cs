@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json.Nodes;
@@ -52,8 +52,6 @@ public static class MemePlacementStore
                 {
                     foreach (var kv in obj)
                     {
-                        // Type-tolerant on purpose: a value written as a number, a string or a bool
-                        // must all read back rather than throwing. Same trap as CROPCHK_01.
                         string? raw = kv.Value?.ToString();
                         if (string.IsNullOrWhiteSpace(raw)) continue;
                         map[kv.Key] = raw.Equals("1", StringComparison.Ordinal) ||
@@ -79,10 +77,10 @@ public static class MemePlacementStore
         if (string.IsNullOrWhiteSpace(memePath)) return MemePlacement.End;
         string key = Path.GetFileName(memePath);
 
-        if (Load().TryGetValue(key, out var chosen)) return chosen;          // 1 — user's choice
-        return MemeAssets.DefaultsToStart(memePath)                          // 2 — shipped opinion
+        if (Load().TryGetValue(key, out var chosen)) return chosen;
+        return MemeAssets.DefaultsToStart(memePath)
             ? MemePlacement.Start
-            : MemePlacement.End;                                             // 3 — safe default
+            : MemePlacement.End;
     }
 
     /// <summary>True when the shipped opinion disagrees with what the user is about to do.</summary>

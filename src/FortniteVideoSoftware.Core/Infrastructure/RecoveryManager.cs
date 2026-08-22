@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -54,7 +54,7 @@ public sealed class RecoveryManager
             File.WriteAllText(_paths.CleanShutdownIntentFile,
                 $"{Environment.ProcessId}:{DateTime.UtcNow:O}");
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     private void ClearCleanShutdownIntent()
@@ -64,7 +64,7 @@ public sealed class RecoveryManager
             if (File.Exists(_paths.CleanShutdownIntentFile))
                 File.Delete(_paths.CleanShutdownIntentFile);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public bool CheckFault()
@@ -74,10 +74,6 @@ public sealed class RecoveryManager
             return false;
         }
 
-        // RECOVERY_02: the previous session declared it was closing on purpose. Whatever stopped it
-        // from finishing the cleanup (an OS shutdown, a failed bounds save) it was NOT a crash, so
-        // do not accuse it of one — and do not offer to restore work the user deliberately ended.
-        // Tidy up the leftovers the interrupted close never got to.
         if (File.Exists(_paths.CleanShutdownIntentFile))
         {
             CoreLogger.Info("Recovery",
@@ -161,29 +157,26 @@ public sealed class RecoveryManager
         {
             string content = "";
             try { content = File.ReadAllText(_paths.SafeModeSentinelFile).Trim(); }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             if (TryParseOwner(content, out int ownerPid, out long ownerTicks))
             {
-                // Our own sentinel — a restore is running right now, in this process.
                 if (ownerPid == Environment.ProcessId) return true;
 
                 if (IsProcessStillRunning(ownerPid, ownerTicks)) return true;
-                // Owner is gone: the restore died. Fall through and clear.
             }
             else
             {
-                // Legacy/unstamped sentinel: fall back to the original age rule.
                 TimeSpan age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_paths.SafeModeSentinelFile);
                 if (age < _safeModeThreshold) return true;
             }
 
-            try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-            try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { if (File.Exists(_paths.AppSessionLockFile)) File.Delete(_paths.AppSessionLockFile); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            try { if (File.Exists(_paths.RecoveryStateFile)) File.Delete(_paths.RecoveryStateFile); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             File.Delete(_paths.SafeModeSentinelFile);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
         return false;
     }
@@ -213,7 +206,7 @@ public sealed class RecoveryManager
         catch (ArgumentException) { return false; }
         catch (InvalidOperationException) { return false; }
         catch (System.ComponentModel.Win32Exception) { return false; }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); return false; }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); return false; }
     }
 
     public void ActivateSafeMode()
@@ -221,8 +214,6 @@ public sealed class RecoveryManager
         try
         {
             _paths.EnsureWritableDirectories();
-            // RECOVERY_05: stamp the owner so the sentinel is judged by whether this process is
-            // still alive, not by an arbitrary 120-second clock.
             File.WriteAllText(_paths.SafeModeSentinelFile,
                 $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}");
             CoreLogger.Info("Recovery", "Safe mode activated to prevent a crash loop.");
@@ -247,7 +238,7 @@ public sealed class RecoveryManager
             }
             CoreLogger.Info("Recovery", "Safe mode deactivated after successful recovery.");
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public void AcquireLock()
@@ -257,9 +248,6 @@ public sealed class RecoveryManager
             _paths.EnsureWritableDirectories();
             string lockData = $"{Environment.ProcessId}:{Process.GetCurrentProcess().StartTime.Ticks}";
             File.WriteAllText(_paths.AppSessionLockFile, lockData);
-            // RECOVERY_02: a NEW session is starting, so any "closing on purpose" marker left by a
-            // previous one is spent. Leaving it would make a genuine crash in THIS session look
-            // like an intentional close on the next launch.
             ClearCleanShutdownIntent();
             CoreLogger.Info("Recovery", $"Session lock acquired (PID {Environment.ProcessId}).");
         }
@@ -289,11 +277,10 @@ public sealed class RecoveryManager
             }
 
             ClearState();
-            // RECOVERY_02: the close completed properly, so the intent marker has done its job.
             ClearCleanShutdownIntent();
             CoreLogger.Info("Recovery", "Session lock and recovery state cleaned up on normal shutdown.");
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public void SetSkipCleanup(bool skip)
@@ -317,7 +304,7 @@ public sealed class RecoveryManager
             }
             CoreLogger.Info("Recovery", "Session lock released for process handoff (recovery state preserved).");
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public void SaveStateAsync(JsonObject state)
@@ -422,7 +409,7 @@ public sealed class RecoveryManager
                 File.Delete(_paths.RecoveryStateFile);
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     /// <summary>
@@ -453,8 +440,6 @@ public sealed class RecoveryManager
         }
         catch
         {
-            // Could not move it — leave the original alone. Keeping an unreadable file is strictly
-            // better than deleting a readable one, and LoadState already tolerates a bad file.
             return null;
         }
     }

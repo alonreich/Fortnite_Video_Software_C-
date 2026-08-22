@@ -42,3 +42,4 @@ Thumbs.db
 # Ignore old code
 old_code/*
 Old_Code/*
+developer_tools/redundant_code_report.html

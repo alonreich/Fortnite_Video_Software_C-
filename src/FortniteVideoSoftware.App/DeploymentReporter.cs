@@ -1,4 +1,4 @@
-namespace FortniteVideoSoftware.App;
+﻿namespace FortniteVideoSoftware.App;
 
 /// <summary>
 /// Installer / uninstaller progress reporting.
@@ -42,7 +42,7 @@ internal static class DeploymentReporter
             string directory = Path.GetDirectoryName(DeploymentFootprint.InstallReportPath) ?? DeploymentFootprint.TempRoot;
             Directory.CreateDirectory(directory);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
         string header =
             "==============================================================================" + Environment.NewLine +
@@ -85,8 +85,7 @@ internal static class DeploymentReporter
 
         Console.Write(line);
 
-        // The progress UI must never be able to break the installer either.
-        try { OnProgress?.Invoke(detail, percent); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { OnProgress?.Invoke(detail, percent); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         return Task.CompletedTask;
     }
 }

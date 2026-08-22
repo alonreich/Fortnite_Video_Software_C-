@@ -1,4 +1,4 @@
-namespace FortniteVideoSoftware.Core.Media;
+﻿namespace FortniteVideoSoftware.Core.Media;
 
 /// <summary>
 /// LIVE ZOOM PREVIEW — ONE IMPLEMENTATION, SHARED BY EVERY PREVIEW SURFACE IN THE SUITE.
@@ -76,8 +76,6 @@ public static class ZoomPreviewSimulator
     public static Result Compute(IReadOnlyList<SpeedSegment>? segments, double tSec, double durSec,
                                  bool portraitMode = false, int srcW = 0, int srcH = 0)
     {
-        // PORTRAIT_01: with no zoom at all the export still delivers the 2:3 slice, so the preview
-        // must show it too. This is the "truthful throughout" case.
         if (portraitMode && srcW > 0 && srcH > 0 && (segments == null || segments.Count == 0))
             return PortraitSliceOnly(srcW, srcH);
 
@@ -104,17 +102,13 @@ public static class ZoomPreviewSimulator
         {
             var (zs, ze, seg) = zooms[i];
 
-            // Inside the marked range the zoom is HELD at full strength, Slow or not.
             if (tSec >= zs && tSec <= ze) { p = 1.0; active = seg; break; }
 
-            // Only a SLOW zoom reaches outside its marked range.
             if (!seg.ZoomSlow) continue;
 
             double prevEnd = i > 0 ? zooms[i - 1].ze : 0.0;
             double nextStart = i < zooms.Count - 1 ? zooms[i + 1].zs : durSec;
 
-            // Two adjacent SLOW zooms both want to borrow from the gap between them, so they need
-            // twice the ramp. An Instant zoom or a clip edge borrows nothing and needs only one.
             bool prevIsSlow = i > 0 && zooms[i - 1].seg.ZoomSlow;
             bool nextIsSlow = i < zooms.Count - 1 && zooms[i + 1].seg.ZoomSlow;
 
@@ -144,7 +138,6 @@ public static class ZoomPreviewSimulator
 
         if (active == null || p <= 0.001)
         {
-            // Between zooms (or before the first one) portrait still shows the slice.
             if (portraitMode)
             {
                 int fw = srcW, fh = srcH;
@@ -162,8 +155,6 @@ public static class ZoomPreviewSimulator
         var (sw, sh) = CoordinateMath.GetResolutionInts(active.ZoomOrigRes!);
         if (sw <= 0 || sh <= 0) return Result.None;
 
-        // Same shape as the export: zoom factor ramps 1 -> targetZ, and the view centre travels
-        // from the frame centre to the box centre on the same progress value.
         double targetZ = Math.Min((double)sw / active.ZoomW!.Value, (double)sh / active.ZoomH!.Value);
         double zVal = 1.0 + (targetZ - 1.0) * p;
         if (zVal < 1.0) zVal = 1.0;
@@ -175,16 +166,10 @@ public static class ZoomPreviewSimulator
         double x = cx - visW / 2.0;
         double y = cy - visH / 2.0;
 
-        // ── PORTRAIT_01: apply the export's THIRD step, the 2:3 centre-crop ──────────────────
-        // The window computed above is the export's widened intermediate. The export then scales
-        // it back to full frame and keeps only the central slice, which nets out to the drawn box.
-        // Reproduce that here or the preview shows the intermediate and looks 2.67x too wide.
-        // The portrait crop trims HORIZONTALLY ONLY (crop=1280:1920 keeps the full height), so y
-        // and visH are untouched.
         if (portraitMode)
         {
             double survW = PortraitSurvivingWidth(sw, sh);
-            double k = visW / sw;                       // 1 final px == k source px
+            double k = visW / sw;
             x += (sw - survW) / 2.0 * k;
             visW = survW * k;
         }
@@ -192,7 +177,6 @@ public static class ZoomPreviewSimulator
         x = Math.Clamp(x, 0, Math.Max(0, sw - visW));
         y = Math.Clamp(y, 0, Math.Max(0, sh - visH));
 
-        // Even dimensions: mpv rejects odd crops on chroma-subsampled formats.
         int iw = Math.Max(2, (int)Math.Round(visW / 2.0) * 2);
         int ih = Math.Max(2, (int)Math.Round(visH / 2.0) * 2);
         int ix = Math.Max(0, Math.Min(sw - iw, (int)Math.Round(x)));
@@ -228,7 +212,6 @@ public static class ZoomPreviewSimulator
         int ih = Math.Max(2, (int)Math.Round(sh / 2.0) * 2);
         int ix = Math.Max(0, Math.Min(sw - iw, (int)Math.Round((sw - survW) / 2.0)));
 
-        // Progress 0: no zoom is in effect, this is just the portrait framing.
         return new Result($"{iw}x{ih}+{ix}+0", 0.0);
     }
 }

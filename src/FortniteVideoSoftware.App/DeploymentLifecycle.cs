@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -546,7 +546,7 @@ internal static class DeploymentLifecycle
                 Directory.Delete(directory, recursive: true);
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <param name="invokingUserDesktop">
@@ -655,7 +655,7 @@ internal static class DeploymentLifecycle
                             }
                         }
                     }
-                    catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                 }
             }
         }
@@ -932,7 +932,7 @@ internal static class DeploymentLifecycle
                         return true;
                     }
                 }
-                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         }
 
@@ -979,7 +979,7 @@ internal static class DeploymentLifecycle
                         await TerminateProcessAsync(process).ConfigureAwait(false);
                     }
                 }
-                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             }
 
             if (!foundAny)
@@ -1041,7 +1041,7 @@ internal static class DeploymentLifecycle
                     await DeploymentReporter.FailAsync("VERIFY REGISTRY", $"Registry key still exists: {hive} {view}\\{path}", null).ConfigureAwait(false);
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         return clean;
@@ -1061,7 +1061,7 @@ internal static class DeploymentLifecycle
                     return version;
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         if (File.Exists(DeploymentFootprint.InstallPath))
@@ -1070,7 +1070,7 @@ internal static class DeploymentLifecycle
             {
                 return FileVersionInfo.GetVersionInfo(DeploymentFootprint.InstallPath).ProductVersion;
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         return null;
@@ -1274,7 +1274,7 @@ internal static class DeploymentLifecycle
             using Process process = Process.GetProcessById(pid);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private static async Task<int> RunHiddenProcessAsync(string exe, string args, int timeoutMilliseconds)
@@ -1311,7 +1311,7 @@ internal static class DeploymentLifecycle
             }
             catch (TimeoutException)
             {
-                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                 output = outputTask.IsCompletedSuccessfully ? outputTask.Result : string.Empty;
                 error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
                 await DeploymentReporter.StepAsync("PROCESS TIMEOUT",
@@ -1344,7 +1344,7 @@ internal static class DeploymentLifecycle
                 UseShellExecute = false
             });
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

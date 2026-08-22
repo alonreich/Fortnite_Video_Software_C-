@@ -1,4 +1,4 @@
-using FortniteVideoSoftware.Core.Infrastructure;
+﻿using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -118,7 +118,7 @@ public static class TwoPassEncoding
         {
             if (string.IsNullOrEmpty(path)) continue;
             try { if (File.Exists(path)) File.Delete(path); }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 }

@@ -26,11 +26,6 @@ public partial class ErrorDialogWindow : Window
         if (okayBtn != null) okayBtn.Click += (_, _) => Close();
         if (showLogsBtn != null) showLogsBtn.Click += (_, _) => OpenLogFile();
 
-        // AUDIO_03: UiSoundEffect.PlayError and its 108 KB clip existed but had ZERO call sites
-        // anywhere in src\ — a sound compiled into the binary that was structurally impossible
-        // to hear, while every failure in the suite happened in total silence. This window is
-        // the single user-facing failure surface (see the class summary above), so it is the
-        // one correct place to fire it.
         Opened += (_, _) => UiSoundEffect.PlayError();
     }
 

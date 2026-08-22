@@ -1,4 +1,4 @@
-namespace FortniteVideoSoftware.Core.Media;
+﻿namespace FortniteVideoSoftware.Core.Media;
 
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -50,7 +50,6 @@ public static class ExportEncoderStrategy
             return userOverride;
         }
 
-        // A live scan result from THIS process always beats the cache — it is newer by definition.
         if (!string.IsNullOrWhiteSpace(bootScanResult) && bootScanResult != HardwareScanner.ScanFailed)
         {
             return bootScanResult;
@@ -64,7 +63,6 @@ public static class ExportEncoderStrategy
             return shared.Value.EncoderMode;
         }
 
-        // Nothing known. NOT "CPU" — see the precedence notes above.
         return HardwareScanner.ScanFailed;
     }
 }

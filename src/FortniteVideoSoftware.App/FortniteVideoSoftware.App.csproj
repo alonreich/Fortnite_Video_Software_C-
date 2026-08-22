@@ -91,4 +91,33 @@
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- ══════════════════════════════════════════════════════════════════════════════════════════
+       ISSUE_03 — WIN32 BINARY IDENTITY. DO NOT DELETE THESE, AND DO NOT LEAVE THEM BLANK.
+       Until this block existed the shipped single .exe carried .NET's silent defaults: FileVersion
+       1.0.0.0, no Company, no Product, no Copyright. Right-click > Properties > Details was empty,
+       which is what a user checks when SmartScreen stops an unknown download — so the one place
+       they went looking for reassurance said nothing at all. Mandate #2 makes this ONE file the
+       entire product; it has to be able to introduce itself.
+       ⚠️ Product deliberately avoids the word "Fortnite". That is an Epic Games trademark and this
+          string is embedded in a binary that is distributed publicly. The folder and repo may keep
+          their working name; the shipped metadata may not.
+       ⚠️ Bump <Version> on every release. AssemblyVersion is pinned to a 1.0.0.0-style major line on
+          purpose so assembly binding never breaks between patch releases; FileVersion and
+          InformationalVersion carry the real number that users and bug reports see.
+       ══════════════════════════════════════════════════════════════════════════════════════════ -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Company>Alon Reich</Company>
+    <Authors>Alon Reich</Authors>
+    <Product>Clip Studio for Gameplay</Product>
+    <AssemblyTitle>Clip Studio for Gameplay</AssemblyTitle>
+    <Description>Trim, speed-ramp, add music and export gameplay clips for social video.</Description>
+    <Copyright>Copyright © 2026 Alon Reich. All rights reserved.</Copyright>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
 </Project>

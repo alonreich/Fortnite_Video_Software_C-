@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace FortniteVideoSoftware.App;
 
@@ -23,7 +23,7 @@ public static partial class NativeDialog
                 if (handle != null) return handle.Handle;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         return IntPtr.Zero;
     }
 

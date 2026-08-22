@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -181,7 +181,7 @@ public static class AudioLoudnessProbe
             process = Process.Start(psi);
             if (process == null) return null;
 
-            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             Task<string> stdErrTask = process.StandardError.ReadToEndAsync(cancellationToken);
             Task<string> stdOutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -213,7 +213,7 @@ public static class AudioLoudnessProbe
         }
         catch (OperationCanceledException)
         {
-            try { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             throw;
         }
         catch (Exception ex)
@@ -223,7 +223,7 @@ public static class AudioLoudnessProbe
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 

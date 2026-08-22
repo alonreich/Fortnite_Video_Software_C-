@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -129,7 +129,7 @@ public class MergerWorker : IDisposable
         CoreLogger.Info("Merger", "Merge cancelled by user.");
         if (_currentProcess != null)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 
@@ -149,7 +149,7 @@ public class MergerWorker : IDisposable
             {
                 if (!proc.WaitForExit(graceMs))
                 {
-                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                     proc.WaitForExit(2000);
                 }
             }
@@ -191,7 +191,6 @@ public class MergerWorker : IDisposable
                 double totalDuration = 0;
                 var fileDurations = new double[InputFiles.Count];
                 var fileHasAudio = new bool[InputFiles.Count];
-                // IDEA_8: the resolved in/out window and the resulting length for each clip.
                 var clipWindows = new (double start, double end, bool trimmed)[InputFiles.Count];
                 var clipDurations = new double[InputFiles.Count];
                 double peakSourceVideoBitrateKbps = 0;
@@ -204,9 +203,6 @@ public class MergerWorker : IDisposable
                     fileDurations[fi] = dur;
                     fileHasAudio[fi] = hasAudio;
 
-                    // IDEA_8: every downstream size, duration and progress calculation must use the
-                    // TRIMMED length, not the file length. Getting this wrong does not fail loudly —
-                    // it produces a wrong bitrate budget and a progress bar that never reaches 100%.
                     var (winStart, winEnd, winTrimmed) = ResolveClipWindow(fi, dur);
                     double effectiveDur = winEnd - winStart;
                     clipWindows[fi] = (winStart, winEnd, winTrimmed);
@@ -227,7 +223,7 @@ public class MergerWorker : IDisposable
                             durationWeightedBitrateKbps += srcVbit * Math.Max(0.1, effectiveDur);
                         }
                     }
-                    catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                 }
 
                 if (totalDuration == 0) totalDuration = 10.0;
@@ -263,22 +259,6 @@ public class MergerWorker : IDisposable
 
                 int musicInputIndex = InputFiles.Count;
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // G08 — THE MERGER NEVER ASKED THE GPU TO DECODE ANYTHING.
-                // This method used to append every `-i` here, with no `-hwaccel` anywhere in the
-                // file, so every queued clip was decoded in software and then run through a
-                // lanczos rescale + fps=60 conversion on the CPU. Only the final encode touched
-                // the GPU. (project_structure.txt notes "the Merger never set
-                // -hwaccel_output_format — that is why merging always worked"; that is true and
-                // still true, but it also never set plain `-hwaccel`, which is the part that
-                // actually moves DECODING onto the GPU.)
-                //
-                // Inputs are now built PER ATTEMPT, because `-hwaccel` is a per-input option and
-                // its value depends on which encoder the current attempt uses — and the encoder
-                // can change mid-run via the fallback chain. Input ORDER is unchanged, so
-                // `musicInputIndex` and every [n:v]/[n:a] label in the filter graph still line up.
-                // Deliberately NO `-hwaccel_output_format`: the merge filter graph is software.
-                // ─────────────────────────────────────────────────────────────────────────────
                 List<string> BuildInputArgs(string encoder)
                 {
                     var decodeFlags = EncoderManager.GetDecodeFlags(encoder);
@@ -288,7 +268,6 @@ public class MergerWorker : IDisposable
                         args.AddRange(decodeFlags);
                         args.AddRange(["-i", InputFiles[i]]);
                     }
-                    // Audio-only inputs — no hardware decode path, intentionally omitted.
                     foreach (var musicTrack in effectiveMusicTracks)
                     {
                         args.AddRange(["-i", musicTrack.Path]);
@@ -299,8 +278,6 @@ public class MergerWorker : IDisposable
                 string vOutputLabel = "[v_concat]";
                 string aOutputLabel = "[a_concat]";
 
-                // SYNC_01: ONE interleaved list, [v0][a0][v1][a1]..., feeding ONE concat.
-                // See the concat block below for why this must never be split back into two.
                 string avInputs = "";
                 for (int i = 0; i < InputFiles.Count; i++)
                 {
@@ -308,11 +285,6 @@ public class MergerWorker : IDisposable
                         ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
                         : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
 
-                    // IDEA_8: the trim pair. Both branches of the SAME clip get the identical window
-                    // and are then rebased to zero, which is the whole A/V sync guarantee — the
-                    // concat downstream assumes every segment starts at PTS 0.
-                    // Order matters: trim BEFORE the speed change, so the numbers stay in plain
-                    // source seconds and never have to be divided by speedFactor.
                     var win = clipWindows[i];
                     string vTrim = win.trimmed
                         ? $"trim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},"
@@ -321,10 +293,6 @@ public class MergerWorker : IDisposable
                         ? $"atrim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},"
                         : "";
 
-                    // SYNC_01: the rebase to zero is now UNCONDITIONAL, not only on the trimmed
-                    // path. A game-capture MP4 routinely starts its audio stream a few
-                    // milliseconds before or after its video stream; without an explicit rebase
-                    // that built-in offset walks straight into concat and shifts the whole clip.
                     filters.Add($"[{i}:v]{vTrim}setpts=PTS-STARTPTS,{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near[v{i}]");
                     double clipDur = clipDurations[i] > 0 ? clipDurations[i] : totalDuration;
                     if (fileHasAudio[i])
@@ -344,40 +312,8 @@ public class MergerWorker : IDisposable
                 }
                 if (InputFiles.Count > 1)
                 {
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // SYNC_01 — CUMULATIVE A/V DRIFT ACROSS A LONG MERGE.
-                    //
-                    // This used to be TWO independent concat filters: one that joined every
-                    // video branch, and a separate one that joined every audio branch. Each
-                    // built its own timeline by simply adding up the lengths handed to it, and
-                    // neither one knew the other existed.
-                    //
-                    // Those two totals are never equal. A clip's audio almost never ends on the
-                    // exact same microsecond as its video — game-capture MP4s are typically
-                    // variable-frame-rate, and `fps=60` above re-times the video onto an exact
-                    // 1/60s grid while the audio keeps its true sample-accurate length. So each
-                    // clip contributes a small video-minus-audio difference, a few milliseconds
-                    // either way. With two separate concats those differences ADD UP: clip 1 is
-                    // fine, clip 10 is noticeably off, clip 30 is badly out. That is exactly the
-                    // "gets worse the further into the video you go" signature.
-                    //
-                    // ONE concat with v=1:a=1 and the streams interleaved fixes it structurally.
-                    // The concat filter then treats each clip as a SEGMENT: it takes the longest
-                    // stream in that segment as the segment's length, advances every output by
-                    // that same amount, and pads the shorter audio with silence. Video and audio
-                    // are therefore re-zeroed together at every clip boundary, so an error can
-                    // never survive past the clip that produced it, let alone accumulate.
-                    //
-                    // ⚠️ DO NOT split this back into two concat filters. Doing so reintroduces
-                    // the drift, and it will look fine on a two-clip test and only show up on a
-                    // long merge.
-                    // ─────────────────────────────────────────────────────────────────────────
                     filters.Add($"{avInputs}concat=n={InputFiles.Count}:v=1:a=1{vOutputLabel}{aOutputLabel}");
 
-                    // Belt and braces behind the structural fix: land the joined audio on a
-                    // continuous 48 kHz timeline starting at exactly zero. `async=1` repairs any
-                    // residual sub-millisecond gap at a boundary by resampling rather than by
-                    // shifting everything after it, so nothing downstream can start sliding.
                     filters.Add($"{aOutputLabel}aresample=48000:async=1:min_comp=0.01:first_pts=0[a_concat_sync]");
                     aOutputLabel = "[a_concat_sync]";
                 }
@@ -428,12 +364,8 @@ public class MergerWorker : IDisposable
                 string filterScript = string.Join(";", filters.Where(p => !string.IsNullOrEmpty(p)));
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
-                // LOG_02: at INFO for the same reason as the Main App — the command line only ever
-                // shows the -filter_complex_script PATH, and that file dies with tempJobDir.
                 CoreLogger.Info("FFmpeg MERGE", $"Filter Script Content:\n{filterScript}");
 
-                // G03: honour the user's Settings override. "Auto"/empty keeps the historical
-                // "GPU" behaviour (best available hardware encoder, CPU only as a fallback).
                 string mergeStrategy = string.IsNullOrWhiteSpace(HardwareStrategy) ||
                                        HardwareStrategy.Equals("Auto", StringComparison.OrdinalIgnoreCase)
                     ? "GPU"
@@ -463,19 +395,13 @@ public class MergerWorker : IDisposable
                 string? successOutputPath = null;
                 string lastErrorMsg = "FFmpeg render failed.";
 
-                // ── T01 two-pass state (see TwoPassEncoding for the full rationale) ──────────
-                // Both artefacts live in tempJobDir and are deleted within this job.
                 string twoPassMasterPath = Path.Combine(tempJobDir, "twopass_master.mp4");
                 string twoPassLogPrefix = Path.Combine(tempJobDir, "twopass_stats");
                 bool twoPassDisabled = false;
 
-                // FAST route needs room for the scratch master; without it we still do two-pass,
-                // just the slower way that re-runs the filter graph. HasRoomFor never fails a job.
                 bool twoPassFastRoute = DiskSpaceGuard.HasRoomFor(
                     tempJobDir, DiskSpaceGuard.EstimateTwoPassMasterBytes(outputDuration));
 
-                // Guarantee a clean slate: a stats file left by anything else would hand pass 2 a
-                // complexity map for the wrong video, which is silent quality damage, not an error.
                 TwoPassEncoding.Cleanup(twoPassMasterPath, twoPassLogPrefix);
 
                 while (true)
@@ -510,26 +436,17 @@ public class MergerWorker : IDisposable
                         }
                     }
 
-                    // ── T01 GATE (Video Merger) ──────────────────────────────────────────────
-                    // Two-pass runs ONLY at 100% "Lossless", because that is the only Merger mode
-                    // with a bitrate BUDGET (`-b:v` anchored to the duration-weighted average
-                    // source bitrate — the number the "Est. Output" label is derived from).
-                    // Below 100% the Merger switches to CQ/CRF, which is constant-quality and has
-                    // no budget to redistribute, so a second pass would cost time for nothing.
-                    // libx264 only — NVENC has no stats-file two-pass (see EncoderManager).
                     bool twoPass = currentEncoder == "libx264"
                                    && losslessBitrateKbps.HasValue
                                    && QualityPercent >= 100
                                    && !twoPassDisabled;
 
-                    // G09: name the chips, not just the codec.
                     CoreLogger.Info("FFmpeg", $"Executing merge: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={(twoPass ? (twoPassFastRoute ? "two-pass(fast)" : "two-pass(slow)") : "single-pass")}.");
 
                     bool attemptSuccess;
 
                     if (twoPass && twoPassFastRoute)
                     {
-                        // Graph once into a near-lossless master, then both passes off the master.
                         var masterArgs = new List<string>(cmdArgs);
                         masterArgs.AddRange(BuildInputArgs(currentEncoder));
                         masterArgs.AddRange(["-filter_complex_script", filterScriptPath]);
@@ -554,27 +471,19 @@ public class MergerWorker : IDisposable
 
                         if (!attemptSuccess && !cancellationToken.IsCancellationRequested)
                         {
-                            // Never fail a merge over this — drop to single-pass and try again.
                             twoPassDisabled = true;
                             CoreLogger.Fail("FFmpeg", "Two-pass merge failed — falling back to a single-pass merge.");
-                            if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                            if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
                             continue;
                         }
                     }
                     else if (twoPass)
                     {
-                        // SLOW route — no room for a master, so the filter graph genuinely runs
-                        // twice. Still worth it: the user asked for an accurate output size.
                         int passKbps = Math.Min(EncoderManager.MaxBitrateKbps, Math.Max(300, losslessBitrateKbps!.Value));
 
                         var pass1Args = new List<string>(cmdArgs);
                         pass1Args.AddRange(BuildInputArgs(currentEncoder));
                         pass1Args.AddRange(["-filter_complex_script", filterScriptPath]);
-                        // ⚠️ BOTH streams must be mapped and encoded even though this pass only
-                        // measures video. `-an` (or omitting the audio map) makes FFmpeg abort:
-                        // with `-filter_complex`, a labeled output nothing consumes is an
-                        // unconnected-output error. The null muxer discards everything and the
-                        // audio chain is trivial next to the video graph, so the cost is noise.
                         pass1Args.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         pass1Args.AddRange(TwoPassEncoding.PassArgs(passKbps, 1, twoPassLogPrefix));
                         pass1Args.AddRange(["-c:a", "aac", "-b:a", "192k", "-sn", "-dn", "-f", "null", "NUL"]);
@@ -600,14 +509,13 @@ public class MergerWorker : IDisposable
                         {
                             twoPassDisabled = true;
                             CoreLogger.Fail("FFmpeg", "Two-pass merge failed — falling back to a single-pass merge.");
-                            if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                            if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
                             continue;
                         }
                     }
                     else
                     {
                         var attemptArgs = new List<string>(cmdArgs);
-                        // G08: per-attempt inputs carry this attempt's `-hwaccel` flags.
                         attemptArgs.AddRange(BuildInputArgs(currentEncoder));
                         attemptArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         attemptArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
@@ -623,10 +531,6 @@ public class MergerWorker : IDisposable
                     if (attemptSuccess && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                     {
                         successOutputPath = corePath;
-                        // G09: the one line that makes a silent hardware downgrade impossible to
-                        // miss. ⚠️ Its SHAPE must stay identical to ProcessWorker's — including the
-                        // `route=` suffix — because Section 5C.6 documents one format for the whole
-                        // suite and a log reader should not have to know which app produced a line.
                         string mergeRoute = twoPass ? (twoPassFastRoute ? " route=two-pass(fast)" : " route=two-pass(slow)") : "";
                         CoreLogger.Info("FFmpeg",
                             $"PIPELINE RESULT: decode={EncoderManager.DescribeDecoder(currentEncoder)} " +
@@ -654,7 +558,7 @@ public class MergerWorker : IDisposable
                     currentEncoder = fallbacks[0];
                     CoreLogger.Info("Merger", $"Encoder {failedEncoder} failed, retrying with fallback: {currentEncoder}");
 
-                    try { if (File.Exists(corePath)) File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { if (File.Exists(corePath)) File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                 }
 
                 if (successOutputPath != null)
@@ -720,7 +624,7 @@ public class MergerWorker : IDisposable
             }
             finally
             {
-                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }
         }
         catch (OperationCanceledException)
@@ -768,7 +672,7 @@ public class MergerWorker : IDisposable
                 if (end > start)
                     musicWindowDuration = Math.Max(0.01, end - start);
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
 
         var normalized = new List<MusicTrack>();
@@ -785,7 +689,7 @@ public class MergerWorker : IDisposable
                     if (probedDuration > 0)
                         duration = probedDuration;
                 }
-                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }
 
             if (durationFromSourceProbe && track.Offset > 0 && duration > track.Offset)
@@ -798,7 +702,7 @@ public class MergerWorker : IDisposable
         }
 
         bool loopMusic = false;
-        try { loopMusic = MusicConfig?["loop_music"]?.GetValue<bool>() ?? false; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { loopMusic = MusicConfig?["loop_music"]?.GetValue<bool>() ?? false; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         if (!loopMusic)
             return normalized;
 
@@ -841,19 +745,13 @@ public class MergerWorker : IDisposable
         string masterPath, string finalPath, string passLogPrefix,
         int videoBitrateKbps, double outputDuration, CancellationToken cancellationToken)
     {
-        // PASS 1 — analysis only; audio is irrelevant to video complexity stats.
         var pass1 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass1.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 1, passLogPrefix));
         pass1.AddRange(["-an", "-sn", "-dn", "-f", "null", "NUL"]);
 
-        // ⚠️ THESE BOUNDARIES ARE DELIBERATELY THE SAME AS ProcessWorker's TWO-PASS SPLIT
-        // (TwoPassGraphFraction 0.60 / TwoPassAnalysisFraction 0.75) so Section 5C.4 describes
-        // BOTH applications with one set of numbers. If you retune one, retune the other and the
-        // documentation together — a silent drift here is what made 5C.4 wrong for the Merger.
         CoreLogger.Info("FFmpeg", "Two-pass merge: analyzing (2 of 3).");
         if (!await ExecuteFFmpegAsync(pass1, outputDuration, cancellationToken, 60, 75)) return false;
 
-        // PASS 2 — the real encode, reading the map pass 1 wrote.
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
         pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
@@ -895,11 +793,11 @@ public class MergerWorker : IDisposable
         if (_currentProcess == null)
             return false;
 
-        try { ChildProcessTracker.AddProcess(_currentProcess); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+        try { ChildProcessTracker.AddProcess(_currentProcess); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
         using var reg = cancellationToken.Register(() =>
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         });
 
         var progressTask = Task.Run(async () =>
@@ -916,15 +814,12 @@ public class MergerWorker : IDisposable
                         double currentSec = outTimeUs / 1_000_000.0;
                         if (totalDuration > 0)
                         {
-                            // T01: floor/ceiling default to 0/100, so this is unchanged for
-                            // every single-pass caller.
                             double frac = Math.Clamp(currentSec / totalDuration, 0.0, 1.0);
                             int percent = (int)Math.Clamp(progressFloor + frac * (progressCeiling - progressFloor), 0, 100);
                             ProgressUpdate?.Invoke(percent);
                         }
                     }
                 }
-                // G09: throughput, for the PIPELINE RESULT line.
                 else if (line.StartsWith("speed="))
                 {
                     string v = line[6..].Trim();
@@ -1064,9 +959,9 @@ public class MergerWorker : IDisposable
                     proc.Kill(entireProcessTree: true);
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
-            try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             _currentProcess = null;
         }
     }

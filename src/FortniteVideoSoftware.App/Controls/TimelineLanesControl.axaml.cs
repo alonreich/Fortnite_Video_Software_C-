@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
@@ -42,9 +42,6 @@ public partial class TimelineLanesControl : UserControl
     {
         InitializeComponent();
 
-        // ⚠️ REDRAW ON RESIZE. Its absence is why the ruler could stay permanently blank: the
-        // first layout pass has width 0, the draw bails out, and without this nothing ever asks
-        // again.
         var lanes = this.FindControl<Grid>("LanesGrid");
         if (lanes != null) lanes.SizeChanged += (_, _) => Refresh();
 
@@ -56,11 +53,6 @@ public partial class TimelineLanesControl : UserControl
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    // ⚠️ THE XAML PANELS ARE NAMED `LaneAHostPanel` / `LaneBHostPanel`, NOT `LaneAHost`.
-    // Avalonia's name generator emits a member for EVERY `Name=` in the XAML, so naming them
-    // `LaneAHost` collided head-on with these two properties (CS0102, "already contains a
-    // definition"). Keep the XAML names and the public API names distinct — renaming either side
-    // back will break the build again.
 
     /// <summary>Upper 60px lane. The host window adds its own content here.</summary>
     public Panel? LaneAHost => this.FindControl<Panel>("LaneAHostPanel");
@@ -134,9 +126,6 @@ public partial class TimelineLanesControl : UserControl
         UpdateClocks();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // TIME FORMAT — one rule for the whole suite.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// MM:SS, escalating to HH:MM:SS only at one hour or more. Never milliseconds.
@@ -155,15 +144,10 @@ public partial class TimelineLanesControl : UserControl
     {
         var elapsed = this.FindControl<TextBlock>("ElapsedLabel");
         var remaining = this.FindControl<TextBlock>("RemainingLabel");
-        // LEFT counts UP (time into the clip), RIGHT counts DOWN (time left) — confirmed with the
-        // owner, and the same in both windows.
         if (elapsed != null) elapsed.Text = FormatClock(_positionSec);
         if (remaining != null) remaining.Text = FormatClock(Math.Max(0, _durationSec - _positionSec));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // RULER + GRIDLINES
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     private void DrawRuler()
     {
@@ -186,7 +170,6 @@ public partial class TimelineLanesControl : UserControl
         {
             double x = (t / _durationSec) * w;
 
-            // Full-height tick, not the old 4px grey hairline.
             ruler.Children.Add(new Avalonia.Controls.Shapes.Rectangle
             {
                 Width = 1,
@@ -204,7 +187,6 @@ public partial class TimelineLanesControl : UserControl
                 Foreground = new SolidColorBrush(Color.FromArgb(230, 226, 232, 240)),
                 IsHitTestVisible = false
             };
-            // Nudge the first label right and the last one left so neither is clipped at the edge.
             double lx = x + 3;
             if (t <= 0.0001) lx = 2;
             else if (t >= _durationSec - interval * 0.5) lx = Math.Max(2, x - 34);
@@ -212,7 +194,6 @@ public partial class TimelineLanesControl : UserControl
             Canvas.SetTop(label, 4);
             ruler.Children.Add(label);
 
-            // Gridline dropping through BOTH lanes.
             if (grid != null)
             {
                 grid.Children.Add(new Avalonia.Controls.Shapes.Rectangle
@@ -244,9 +225,6 @@ public partial class TimelineLanesControl : UserControl
         return steps[^1];
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // CARET
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     private void UpdateCaret()
     {
@@ -278,14 +256,11 @@ public partial class TimelineLanesControl : UserControl
         var host = this.FindControl<Panel>("CaretHost");
         if (grab == null || line == null || host == null) return;
 
-        // The grab column is hit-testable even though its parent Panel is not — that is deliberate,
-        // so the caret can be grabbed while the rest of the overlay stays transparent to clicks.
         host.IsHitTestVisible = false;
         grab.IsHitTestVisible = true;
 
         void SetHighlight(bool on)
         {
-            // Slight grow + glow, shown on hover AND held for the whole drag until release.
             line.Width = on ? 5 : 3;
             line.Effect = on
                 ? new Avalonia.Media.DropShadowEffect
@@ -307,8 +282,6 @@ public partial class TimelineLanesControl : UserControl
             _caretDragging = true;
             SetHighlight(true);
             e.Pointer.Capture(grab);
-            // Handled so the seek surfaces underneath never see it — grabbing the playhead must
-            // not also register as a click-to-seek.
             e.Handled = true;
         };
 
@@ -321,7 +294,7 @@ public partial class TimelineLanesControl : UserControl
             _positionSec = frac * _durationSec;
             UpdateCaret();
             UpdateClocks();
-            SeekRequested?.Invoke(_positionSec);   // live scrub
+            SeekRequested?.Invoke(_positionSec);
             e.Handled = true;
         };
 
@@ -336,9 +309,6 @@ public partial class TimelineLanesControl : UserControl
         };
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // CLICK / DRAG TO SEEK
-    // ─────────────────────────────────────────────────────────────────────────────────────────
 
     private void WireSeek(Canvas? surface)
     {

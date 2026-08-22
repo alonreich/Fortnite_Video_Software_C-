@@ -1,4 +1,4 @@
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -22,17 +22,6 @@ public class ProcessWorker : IDisposable
     private const double AnalysisBandMax = 8.0;
     private const double EncodeBandMax = 96.0;
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // T01 — TWO-PASS PROGRESS SPLIT.
-    // The encode band (encodeFloor .. EncodeBandMax) is carved into three sub-bands when the
-    // two-pass route runs. Fractions, not absolute percentages, because `encodeFloor` is 8 when
-    // the audio loudnorm analysis ran and 0 when it did not.
-    //   0.00 -> 0.60 : Stage 1, the filter graph + near-lossless master (BY FAR the slowest part)
-    //   0.60 -> 0.75 : Pass 1, complexity analysis (decodes the master, encodes to null)
-    //   0.75 -> 1.00 : Pass 2, the real encode at the user's target size
-    // These are wall-clock-proportional estimates, not guarantees; the monotonic EmitProgress gate
-    // means an over- or under-run can only ever stall the bar, never rewind it (FIX_1).
-    // ─────────────────────────────────────────────────────────────────────────────────────────
     private const double TwoPassGraphFraction = 0.60;
     private const double TwoPassAnalysisFraction = 0.75;
 
@@ -258,11 +247,6 @@ public class ProcessWorker : IDisposable
     {
         _isCanceled = true;
 
-        // LOG_03: Cancel() is also called on normal app shutdown, long AFTER a successful export.
-        // It used to log "Cancellation requested by user. Terminating FFmpeg process tree."
-        // unconditionally, so a perfectly clean run ended with a line claiming the user cancelled
-        // and that FFmpeg was killed — neither of which happened. In a log that is meant to be the
-        // source of truth, a false statement is worse than no statement. Say what is actually true.
         bool encoding = _currentProcess is { HasExited: false };
         CoreLogger.Info("Process", encoding
             ? "Cancellation requested by user. Terminating FFmpeg process tree."
@@ -270,7 +254,7 @@ public class ProcessWorker : IDisposable
 
         if (_currentProcess != null)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 
@@ -289,7 +273,7 @@ public class ProcessWorker : IDisposable
             {
                 if (!proc.WaitForExit(graceMs))
                 {
-                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                     proc.WaitForExit(2000);
                 }
             }
@@ -357,12 +341,6 @@ public class ProcessWorker : IDisposable
                 }
                 if (MusicConfig != null)
                 {
-                    // ISSUE_04: this was `MusicConfig["ducking_threshold"]?.GetValue<double>() != 1.0`.
-                    // When the key is ABSENT the null-conditional yields a null double?, and
-                    // `null != 1.0` is TRUE — so a config with no ducking entry logged
-                    // "Ducking Enabled: True" while the pipeline was actually falling back to
-                    // AudioFilterChain's default. Anyone reading the log to diagnose an audio
-                    // complaint was sent the wrong way. Now the three states are distinct.
                     double? duckThreshold = MusicConfig["ducking_threshold"]?.GetValue<double>();
                     string duckState = duckThreshold switch
                     {
@@ -416,23 +394,6 @@ public class ProcessWorker : IDisposable
                 if (padEndHumanSec < minPadSec) padEndHumanSec = 0;
                 double sourcePadEndSec = padEndHumanSec * SpeedFactor;
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // MEME_05 — RESOLVE EVERY MEME IN THIS EXPORT, NOT JUST ONE.
-                //
-                // `MemePlacements` is authoritative when it is non-empty. When it is empty the
-                // legacy `MemeFile` + `MemeAtStart` pair is projected into a single placement so
-                // that a payload written before multi-meme support produces the SAME graph it
-                // always did:
-                //   * MemeAtStart=false -> placed at the end of the trimmed clip  -> appended
-                //   * MemeAtStart=true  -> placed at 0                            -> leads the
-                //     gameplay, and still lands AFTER the frozen thumbnail head (see the concat).
-                // The legacy entry deliberately keeps the id "meme", so the emitted labels remain
-                // [meme_v] / [meme_a] exactly as before.
-                //
-                // The duration is PROBED here rather than trusted from the placement: the graph's
-                // trims, the bitrate budget and the `-t` ceiling all depend on it, and the file on
-                // disk is the only honest answer.
-                // ─────────────────────────────────────────────────────────────────────────────
                 var memes = new List<ResolvedMeme>();
                 {
                     var requested = new List<(string path, double atRel, string? id)>();
@@ -484,24 +445,6 @@ public class ProcessWorker : IDisposable
 
                         if (m.IsImage) m.DurationSec = MemePlacement.StillImageDurationSec;
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // MEME_01 — MEASURE THIS MEME'S LOUDNESS, IF IT HAS ANY SOUND AT ALL.
-                        //
-                        // Memes are third-party clips ripped from anywhere, so their loudness is
-                        // wild — the measured spread across the shipped set is 15.9 dB, with one
-                        // clipping at +0.75 dBTP. The body of the video is normalised to
-                        // TargetLufs, so each meme is aimed at the SAME figure: it then sits at the
-                        // same perceived loudness as everything around it, whatever its source was.
-                        //
-                        // ⚠️ THIS IS PER MEME AND MUST STAY PER MEME. N memes are N independent
-                        // measurements; a single shared gain would level one of them and leave the
-                        // rest wherever they happened to be.
-                        //
-                        // Image memes and silent clips are skipped entirely — there is nothing to
-                        // measure, and the graph already substitutes `anullsrc` for them.
-                        // A failed measurement leaves the gain at 0 dB and falls back to the older
-                        // proportional shift, so this can never block an export.
-                        // ─────────────────────────────────────────────────────────────────────
                         if (m.HasAudio && !m.IsImage)
                         {
                             try
@@ -538,33 +481,10 @@ public class ProcessWorker : IDisposable
 
                     if (memes.Count == 0)
                     {
-                        // Nothing survived: the legacy field must not keep claiming a meme exists.
                         MemeFile = null;
                     }
                     else
                     {
-                        // ─────────────────────────────────────────────────────────────────────
-                        // MEME_05 — THE CLOSING FADE PAD IS DROPPED ONLY WHEN A MEME ACTUALLY
-                        // ENDS THE VIDEO.
-                        //
-                        // The pad buys a second of footage past MARK END to fade the gameplay out
-                        // over. That is pointless when a meme plays last — hence the original
-                        // unconditional `padEndHumanSec = 0`. But "a meme exists" and "a meme is
-                        // last" stopped being the same statement the moment memes could land
-                        // mid-video: with every meme inside the clip the GAMEPLAY is still last,
-                        // and dropping the pad robs the export of its closing fade for no reason.
-                        //
-                        // ⚠️ THIS ALSO CORRECTS THE LEGACY MemeAtStart CASE, which zeroed the pad
-                        // even though the meme played FIRST and the gameplay still ended the
-                        // video. That was always wrong; it simply never mattered while "meme" and
-                        // "meme at the end" were nearly synonymous. A legacy start-meme export
-                        // therefore gains its closing fade back — a deliberate behaviour change,
-                        // recorded in MEME_TIMELINE_PLAN.txt.
-                        //
-                        // The test is in SOURCE time on purpose: it has to be answered here, before
-                        // the extract range is fixed, and the output-time cut positions do not
-                        // exist yet.
-                        // ─────────────────────────────────────────────────────────────────────
                         double clipLenSec = Math.Max(0, (EndTimeMs - StartTimeMs) / 1000.0);
                         bool aMemeEndsTheVideo = memes.Any(m => m.AtSourceSecRelative >= clipLenSec - 0.001);
                         if (aMemeEndsTheVideo)
@@ -642,65 +562,22 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // AUDIO_03: measure the music BEFORE the graph is built, so every track can be put
-                // at a proper bed level rather than arriving at whatever loudness its label chose.
                 var musicBedGains = musicTracks.Count > 0
                     ? await MeasureMusicBedGainsAsync(musicTracks, cancellationToken)
                     : new Dictionary<string, double>();
 
                 bool mixMusicAfterMeme = KeepMusicDuringMeme && memeTotalDuration > 0 && musicTracks.Count > 0;
-                // ⚠️ The music tracks are ADJUSTED further down, not here — their start delays have
-                // to be shifted by the meme time in front of them, and that is not known until the
-                // cut times are computed. See the `mixMusicAfterMeme` block after MemeTimeInsertedBefore.
 
                 int? introInputIndex = introDurationSec > 0.001 ? 1 + musicTracks.Count : null;
                 string? textInputLabel = textPngPath != null
                     ? $"[{1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0)}:v]"
                     : null;
                 
-                // MEME_05 — EACH MEME IS ITS OWN FFMPEG INPUT, in list order. The order here and the
-                // order the `-i` arguments are emitted in below MUST stay identical, and the
-                // voice-over base index below must skip all of them.
                 int memeInputBase = 1 + musicTracks.Count + (introInputIndex.HasValue ? 1 : 0) + (textPngPath != null ? 1 : 0);
                 for (int i = 0; i < memes.Count; i++) memes[i].InputIndex = memeInputBase + i;
 
                 double renderDurationSec = gDur + introDurationSec;
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // MEME_05 — WHERE EACH MEME CUTS INTO THE RENDERED STREAM.
-                //
-                // ⚠️⚠️ THE SINGLE EASIEST THING TO GET WRONG IN THIS WHOLE FEATURE. ⚠️⚠️
-                // `AtSourceSecRelative` is CLIP-RELATIVE SOURCE time — a moment of gameplay,
-                // measured from the trim-in point. The stream being cut, `[v_render_out]`, has
-                // ALREADY had the speed changes, the freezes and the thumbnail intro applied, and
-                // has NOT yet had any meme spliced into it. So the cut time is:
-                //
-                //     introDurationSec + <source -> output mapping of the moment>
-                //
-                // and the mapping MUST be the pre-meme one. `granularTimeMapper` is exactly that:
-                // OutputTimeline.SourceToOutput built WITHOUT insertions (see
-                // GranularSpeedBuilder.Build). Feeding a timeline that already knows about the memes
-                // would count every earlier meme's duration into this number, and each meme after
-                // the first would drift later by the sum of the ones before it. This is the same
-                // mapper the voice-over positions use, so meme cuts and voice-over starts cannot
-                // disagree.
-                //
-                // ⚠️ THE FROZEN THUMBNAIL HEAD STAYS FIRST (MEME_02). The lower clamp is
-                // introDurationSec, not 0, so a meme placed at the very beginning lands AFTER the
-                // chosen still and WhatsApp never grabs a meme's black opening frame.
-                //
-                // ⚠️ EVERY CUT IS SNAPPED TO THE FRAME GRID. `trim` can only cut on a frame
-                // boundary but `atrim` is sample-accurate, so an arbitrary cut time makes the video
-                // piece and the audio piece different lengths — up to half a frame each, and N seams
-                // accumulate. Snapping first makes both sides land on the same instant: at 60fps and
-                // 48kHz a frame is exactly 800 samples, so the seam is exact rather than merely
-                // close. This codebase has already been bitten by A/V drift at concat seams (see the
-                // VFR negative-timestamp and implicit-split entries in the changelog).
-                //
-                // ⚠️ THIS RUNS HERE, BEFORE THE VOICE-OVER BLOCK, NOT DOWN AT THE CONCAT. The
-                // voice-over needs `MemeTimeInsertedBefore` to place its takes on the KeepMusic
-                // path — see the comment there. Moving it back down reintroduces that defect.
-                // ─────────────────────────────────────────────────────────────────────────────
                 double fpsValue = double.TryParse(targetFps, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out double parsedFps) && parsedFps > 0
                     ? parsedFps
@@ -713,9 +590,6 @@ public class ProcessWorker : IDisposable
                         ? granularTimeMapper(absSourceSec)
                         : (absSourceSec - actualExtractStartMs / 1000.0) / SpeedFactor;
 
-                    // A meme asked for AT (or before) the trim-in point LEADS the gameplay. It must
-                    // not be dropped in after the fade-in, because that lead-in is footage from
-                    // BEFORE the trim-in point and the mapper reports it as positive time.
                     if (m.AtSourceSecRelative <= 0.0005) bodyOutSec = 0;
 
                     double cut = Math.Clamp(introDurationSec + bodyOutSec, introDurationSec, renderDurationSec);
@@ -723,26 +597,12 @@ public class ProcessWorker : IDisposable
                 }
                 memes.Sort((a, b) => a.CutOutputSec.CompareTo(b.CutOutputSec));
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // MEME_05 — CUT THE RENDERED STREAM INTO PIECES.
-                //
-                // A cut at 0 or at the very end is not a cut at all: those memes simply lead or
-                // trail. Everything else becomes an interior cut point, and N interior cuts produce
-                // N+1 pieces.
-                //
-                // ⚠️ MinPieceSec EXISTS BECAUSE AN EMPTY TRIM KILLS concat. Two cut points a
-                // fraction of a frame apart would leave a piece with no frames in it, and the graph
-                // fails to configure. Cuts that close are merged onto the earlier one, so the memes
-                // simply stack at the same seam — which is the correct outcome anyway: they are at
-                // the same moment.
-                // ─────────────────────────────────────────────────────────────────────────────
                 const double MinPieceSec = 0.05;
                 var memeCuts = new List<double>();
                 {
                     var trailing = new List<ResolvedMeme>();
                     foreach (var m in memes)
                     {
-                        // Trails everything — no cut needed, it is simply concatenated last.
                         if (m.CutOutputSec >= renderDurationSec - MinPieceSec)
                         {
                             m.CutOutputSec = renderDurationSec;
@@ -750,10 +610,6 @@ public class ProcessWorker : IDisposable
                             continue;
                         }
 
-                        // Leads everything. ⚠️ ONLY LEGAL WHEN THERE IS NO THUMBNAIL HEAD TO
-                        // PROTECT. With an intro present the head must stay first (MEME_02), so a
-                        // meme at the beginning becomes a real cut at the intro boundary instead —
-                        // which is exactly the shipped 3-way split.
                         if (introDurationSec <= 0.001 && m.CutOutputSec <= MinPieceSec)
                         {
                             m.CutOutputSec = 0;
@@ -761,9 +617,6 @@ public class ProcessWorker : IDisposable
                             continue;
                         }
 
-                        // An interior cut. The thumbnail head is deliberately short (0.1s) and is
-                        // exempt from the merge rule — it is the FIRST cut, so there is nothing
-                        // before it to merge onto, and it must survive as its own piece.
                         if (memeCuts.Count > 0 && m.CutOutputSec - memeCuts[^1] < MinPieceSec)
                             m.CutOutputSec = memeCuts[^1];
                         else
@@ -775,23 +628,6 @@ public class ProcessWorker : IDisposable
                 }
                 int memePieceCount = memeCuts.Count + 1;
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // MEME_05 — HOW MUCH MEME TIME SITS IN FRONT OF A GIVEN MOMENT OF THE RENDERED
-                // STREAM. This is the ONLY honest way to convert a position in the pre-meme clock
-                // into a position in the FINISHED video, and anything mixed in AFTER the concat
-                // needs it.
-                //
-                // The boundary is inclusive on purpose: a meme sitting exactly on the instant in
-                // question plays BEFORE that instant (the rendered stream is cut there and resumes
-                // after the meme), so its duration counts.
-                // ─────────────────────────────────────────────────────────────────────────────
-                // <paramref name="landsAfter"/> decides what happens to something sitting EXACTLY on
-                // a meme's instant. A voice-over take is locked to a moment of gameplay, and that
-                // gameplay resumes AFTER the meme, so the take must move with it (true). Music on
-                // the KeepMusicDuringMeme path is explicitly meant to play THROUGH memes, so a cue
-                // on that instant starts WITH the meme, not after it (false). Getting this backwards
-                // for music would make a track whose start delay is 0 begin after a leading meme —
-                // silence over the very meme the flag exists to keep music under.
                 double MemeTimeInsertedBefore(double renderedOutSec, bool landsAfter)
                 {
                     double acc = 0;
@@ -805,29 +641,6 @@ public class ProcessWorker : IDisposable
                     return acc;
                 }
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // MEME_05 — MUSIC ON THE KEEP-MUSIC PATH LIVES IN THE FINISHED CLOCK, TOO.
-                //
-                // When KeepMusicDuringMeme is on, AudioFilterChain runs AFTER the meme concat, so
-                // the stream it lays music over already contains every meme. Extending each track's
-                // Duration by the meme total — all this block used to do — keeps the music playing
-                // to the end, but a track that STARTS partway in was still delayed by a body-clock
-                // figure, so it came in early by the length of every meme before it. That is the
-                // same defect fixed for the voice-over, and the same fix applies.
-                //
-                // ⚠️ `Duration` IS LEFT ALONE APART FROM THE ORIGINAL `+ memeTotalDuration`.
-                // AudioFilterChain sequences consecutive tracks with `accumProjectSec += Duration`
-                // AND adds TimelineStartDelay on top, so Duration is not purely a length — trimming
-                // it by the shift would drag every LATER track's start with it. Overshooting the
-                // end is harmless (the `-t` ceiling and the tail fade both bound it); undershooting
-                // would leave silence. Leave it long.
-                //
-                // ⚠️ THE INTRO OFFSET IS DELIBERATELY NOT CORRECTED HERE. On this path the stream's
-                // t=0 is the thumbnail intro, so the music is also introDurationSec early — one
-                // frame at the default 0.1s. That error predates memes, and correcting it moves the
-                // music tail fade the Music Wizard's markers were tuned against. It is a Music
-                // Wizard decision, not a meme decision; recorded in MEME_TIMELINE_PLAN.txt.
-                // ─────────────────────────────────────────────────────────────────────────────
                 if (mixMusicAfterMeme)
                 {
                     for (int i = 0; i < musicTracks.Count; i++)
@@ -975,20 +788,6 @@ public class ProcessWorker : IDisposable
                         aPreparedPad = "[a_master_leveled]";
                     }
 
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // AUDIO_02 — AIM THE VOICE AT WHERE THE GAME ENDS UP, NOT WHERE IT STARTED.
-                    //
-                    // This used to target `_loudnorm.InputI` — the game's loudness BEFORE
-                    // normalisation. But the game bus is levelled to TargetLufs a few lines above,
-                    // so on a quiet clip the voice was aimed at the old, quieter number and ended
-                    // up sitting that many dB underneath the gameplay it was supposed to match.
-                    // The quieter the source, the further the voice fell behind — the opposite of
-                    // "everything keeps its proportions".
-                    //
-                    // When the game bus is normalised, aim the voice at the SAME target so the two
-                    // land together. Only when no measurement exists (nothing to normalise
-                    // against) does it fall back to the measured/raw loudness as before.
-                    // ─────────────────────────────────────────────────────────────────────────
                     double gameLufsForVoice = hasSecondPass
                         ? AudioLoudnessProbe.TargetLufs
                         : (_loudnorm?.InputI
@@ -1020,30 +819,6 @@ public class ProcessWorker : IDisposable
                                 voStartOutSec = 0;
                             }
 
-                            // ─────────────────────────────────────────────────────────────────
-                            // MEME_05 / D5 — WHICH CLOCK THIS DELAY IS MEASURED IN DEPENDS ON
-                            // WHERE THE VOICE-OVER GETS MIXED, AND THE TWO ANSWERS ARE DIFFERENT.
-                            //
-                            // NORMAL PATH (mixMusicAfterMeme == false): the voice is mixed into the
-                            // body audio BEFORE the thumbnail intro is prepended and BEFORE the
-                            // memes are spliced in. `voStartOutSec` — the pre-meme body clock — is
-                            // therefore exactly right, and D5 falls out for free: the atrim that
-                            // cuts the rendered audio at a meme seam cuts the voice with it, so a
-                            // take straddling a meme splits and RESUMES, and a take after a meme
-                            // slides later intact. Nothing to do.
-                            //
-                            // KEEP-MUSIC PATH (mixMusicAfterMeme == true): the voice is mixed AFTER
-                            // the concat, onto a stream whose t=0 is the start of the thumbnail
-                            // intro and which already contains every meme. A delay in the body
-                            // clock is then wrong twice over — early by the intro, and early by the
-                            // total length of every meme that plays before the take. With memes
-                            // only ever at the very end that never showed; with a meme mid-video a
-                            // take can land seconds out of place.
-                            //
-                            // ⚠️ The ducking pulse above deliberately keeps the BODY clock: it acts
-                            // on `aPreparedPad`, which is the pre-intro, pre-meme audio. Do not
-                            // "fix" it to match this.
-                            // ─────────────────────────────────────────────────────────────────
                             double voDelaySec = voStartOutSec;
                             if (mixMusicAfterMeme)
                                 voDelaySec += introDurationSec
@@ -1071,25 +846,6 @@ public class ProcessWorker : IDisposable
                 }
                 else
                 {
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // AUDIO_02 — THE GAME BUS WAS SKIPPING ITS NORMALISATION WHENEVER THERE WAS
-                    // NO VOICE-OVER.
-                    //
-                    // This branch used to ONLY set the flag, with a comment saying it did so "so
-                    // we pass correct args to AudioFilterChain" — and that is exactly the trap.
-                    // `hasSecondPass = true` tells the mixer "the game is already levelled, do not
-                    // apply the flat fallback gain" (see the `hasSecondPass ? 0.0` arguments), and
-                    // the music still receives its matching follow-gain. But the filter that was
-                    // supposed to do the levelling was never added to the graph on this path.
-                    //
-                    // Net effect on every export WITHOUT a voice-over: game +0 dB, music +4.4 dB.
-                    // The proof is in the exported filter graph — `[a_prepared_base]anull[a_main_raw]`
-                    // and no `loudnorm` anywhere, while the music carried `volume=1.6672`.
-                    //
-                    // ⚠️ THE TWO BRANCHES MUST APPLY THE SAME FILTER. If you touch the voice-over
-                    // path above, mirror it here. A flag that claims work was done, without the
-                    // work, is worse than no flag.
-                    // ─────────────────────────────────────────────────────────────────────────
                     var secondPassFilterNoVoice = BuildLoudnormSecondPassFilter();
                     hasSecondPass = !string.IsNullOrEmpty(secondPassFilterNoVoice);
                     if (sourceHasAudio && hasSecondPass)
@@ -1101,8 +857,7 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // If we didn't have effective takes but still need the variable
-                string? finalVoLabelScope = effectiveTakes.Count > 0 ? "[vo_mixed_all]" : null; // handled below in a clean way
+                string? finalVoLabelScope = effectiveTakes.Count > 0 ? "[vo_mixed_all]" : null;
 
                 string currentALabel = aPreparedPad;
                 if (!mixMusicAfterMeme)
@@ -1126,7 +881,7 @@ public class ProcessWorker : IDisposable
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
                         voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
-                        musicBedGainDb: musicBedGains);   // AUDIO_03
+                        musicBedGainDb: musicBedGains);
 
                     foreach (var part in built.chains)
                     {
@@ -1252,16 +1007,6 @@ public class ProcessWorker : IDisposable
                     }
                     CoreLogger.Info("FFmpeg", $"Meme canvas sized to {canvas.Replace(':', 'x')} to match the video output.");
 
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // MEME_05 — PREPARE EVERY MEME'S OWN VIDEO AND AUDIO BRANCH.
-                    //
-                    // ⚠️ THIS LOOP IS PER MEME, DELIBERATELY. Memes are unrelated third-party rips:
-                    // different resolutions, different frame rates, different levels, some silent,
-                    // some still images. Every one of them has to be brought onto the SAME canvas,
-                    // the SAME frame rate and the SAME sample format before concat will accept it,
-                    // and each needs its own measured gain (MEME_01). Nothing here may be hoisted
-                    // out of the loop and shared.
-                    // ─────────────────────────────────────────────────────────────────────────
                     foreach (var m in memes)
                     {
                         string memeScale =
@@ -1269,38 +1014,8 @@ public class ProcessWorker : IDisposable
                             $"pad={canvas}:(ow-iw)/2:(oh-ih)/2:color=black," +
                             $"scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1,fps={targetFps}:start_time=0:round=near";
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // AUDIO_02 — THE MEME RIDES THE SAME LOUDNESS CHANGE AS EVERYTHING ELSE.
-                        //
-                        // A meme is concatenated into the finished stream, so it never passes
-                        // through the game bus and receives none of its normalisation. On a quiet
-                        // clip the body was lifted toward the target while the meme stayed where it
-                        // was — so the meme arrived jarringly loud by comparison.
-                        //
-                        // Shift it by the SAME dB the rest of the mix moved. This is deliberately a
-                        // relative shift, not a normalisation: the meme keeps its own character and
-                        // its relationship to the body is preserved, which is the whole point.
-                        // ─────────────────────────────────────────────────────────────────────
                         string memeAudio = "aresample=48000:async=1";
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // MEME_01 — LEVEL THE MEME, THEN CLAMP ITS SPIKES.
-                        //
-                        // Two different jobs, and they need to happen in this order:
-                        //   1. `volume` puts the whole clip at the same loudness as the rest of the
-                        //      video, so it no longer arrives louder or quieter than its neighbours.
-                        //   2. `alimiter` catches the individual bangs. Meme rips are full of
-                        //      clipped screams and explosions that sit far above their own average,
-                        //      and a loudness match alone does nothing about those — matching the
-                        //      AVERAGE can even push a spiky clip's peaks higher. The limiter is
-                        //      what stops the "off the chart" moments, and it is deliberately a
-                        //      touch below the master ceiling so a meme can never be the loudest
-                        //      thing in the export.
-                        //
-                        // When the measurement failed we fall back to the previous behaviour —
-                        // shift by the same dB as the rest of the mix — so a meme is never left
-                        // un-levelled just because ffprobe could not read it.
-                        // ─────────────────────────────────────────────────────────────────────
                         if (m.LoudnessMeasured && Math.Abs(m.LoudnessGainDb) > 0.01)
                         {
                             double g = Math.Pow(10, m.LoudnessGainDb / 20.0);
@@ -1319,25 +1034,6 @@ public class ProcessWorker : IDisposable
                             memeAudio += ",alimiter=limit=-2.0dB:level_in=1:level_out=1";
                         }
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // MEME_05 — A MEME FADES OUT ONLY WHERE THERE IS SOMETHING TO FADE INTO.
-                        //
-                        // The fade was unconditional, from when a meme was always the last thing on
-                        // screen. Whether it helps or hurts depends entirely on WHAT FOLLOWS:
-                        //
-                        //   TRAILING meme  -> the video ends. Fading to black is the ending. KEEP.
-                        //   LEADING meme   -> the gameplay that follows opens with its own
-                        //                     `fade=t=in` over the lead-in pad, so the meme's fade
-                        //                     to black and the gameplay's fade up form one clean
-                        //                     transition. KEEP. (This is also what the shipped
-                        //                     MemeAtStart export does, preserved exactly.)
-                        //   INTERIOR meme  -> the gameplay resumes mid-render with NO fade-in, so a
-                        //                     fade to black is followed by a hard cut out of black.
-                        //                     That is the jarring case. SKIP IT — a mid-video meme
-                        //                     hard-cuts on both sides, the classic cutaway.
-                        //
-                        // Owner's decision, 2026-08-16.
-                        // ─────────────────────────────────────────────────────────────────────
                         bool memeTrails = m.SlotIndex == memePieceCount;
                         bool memeLeads = m.CutOutputSec <= introDurationSec + 1e-9;
                         bool fadeThisMeme = memeTrails || memeLeads;
@@ -1358,15 +1054,9 @@ public class ProcessWorker : IDisposable
                         if (m.HasAudio)
                             coreFilters.Add($"[{m.InputIndex}:a]{memeAudio}{m.ALabel}");
                         else
-                            // ⚠️ A SILENT OR IMAGE MEME STILL NEEDS AN AUDIO PAD. concat with a=1
-                            // demands one audio stream per segment; without this the whole graph
-                            // fails to configure.
                             coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={m.DurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS{m.ALabel}");
                     }
 
-                    // The cut times, the piece boundaries and each meme's slot were all computed
-                    // further up, BEFORE the voice-over block, because the voice-over needs them to
-                    // place its takes on the KeepMusicDuringMeme path. Do not move them back here.
                     var cuts = memeCuts;
                     int pieceCount = memePieceCount;
 
@@ -1375,18 +1065,11 @@ public class ProcessWorker : IDisposable
 
                     if (pieceCount == 1)
                     {
-                        // Nothing lands inside the video, so there is nothing to cut. This is the
-                        // historical prepend/append graph, reproduced exactly.
                         vPieces.Add("[v_render_out]");
                         aPieces.Add(aOutputFinal);
                     }
                     else
                     {
-                        // ⚠️ EXPLICIT split / asplit, NEVER an implicit one. Handing the same label
-                        // to several filters lets FFmpeg improvise the duplication, and this
-                        // codebase has already lost a full second of video to that (see the
-                        // implicit-split A/V desync entry in the changelog). An explicit split
-                        // clones the buffers in lockstep.
                         var vSrc = new List<string>(pieceCount);
                         var aSrc = new List<string>(pieceCount);
                         for (int i = 0; i < pieceCount; i++)
@@ -1416,15 +1099,6 @@ public class ProcessWorker : IDisposable
                         }
                     }
 
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // MEME_05 — THE N-WAY CONCAT.
-                    //
-                    // Slot 0 is ahead of the first piece, slot i sits between piece i-1 and piece i,
-                    // and the last slot trails everything. ⚠️ THE VIDEO AND AUDIO LABELS OF EACH
-                    // SEGMENT MUST STAY ADJACENT AND IN [v][a][v][a] ORDER — concat reads its
-                    // inputs positionally, and one transposed pair silently welds the wrong audio
-                    // to the wrong picture.
-                    // ─────────────────────────────────────────────────────────────────────────
                     var concatOrder = new List<string>();
                     int concatSegments = 0;
                     for (int slot = 0; slot <= pieceCount; slot++)
@@ -1488,7 +1162,7 @@ public class ProcessWorker : IDisposable
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
                         voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
-                        musicBedGainDb: musicBedGains);   // AUDIO_03
+                        musicBedGainDb: musicBedGains);
 
                     foreach (var part in built.chains)
                     {
@@ -1496,16 +1170,6 @@ public class ProcessWorker : IDisposable
                     }
                     aOutputFinal = built.finalLabel;
                     
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // MEME_05 — THIS IS THE MUSIC'S TAIL FADE, SO IT IS SIZED BY WHATEVER IS LAST
-                    // ON SCREEN — AND THAT IS ONLY A MEME IF A MEME ACTUALLY TRAILS.
-                    //
-                    // `memes` is sorted by cut position, so `memes[^1]` is the last meme to appear
-                    // — but with every meme mid-video the last THING is the gameplay, which already
-                    // carries its own closing fade from the pad above. Sizing a music fade off a
-                    // meme that plays in the middle would start the fade in the wrong place and
-                    // duck the music under footage that is not ending.
-                    // ─────────────────────────────────────────────────────────────────────────
                     double lastMemeDuration =
                         memes.Count > 0 && memes[^1].SlotIndex == memePieceCount ? memes[^1].DurationSec : 0;
                     if (EnableFades && lastMemeDuration >= 0.5)
@@ -1518,45 +1182,9 @@ public class ProcessWorker : IDisposable
                     }
                 }
 
-                // ─────────────────────────────────────────────────────────────────────────────
-                // AUDIO_01 — REMOVED: a SECOND, BLIND loudnorm over the finished mix.
-                //
-                // This line used to sit here:
-                //     {aOutputFinal}loudnorm=I=-23:TP=-1.5:LRA=11[a_mastered]
-                //
-                // ⚠️ NEVER PUT IT BACK. It looks harmless — same target as the game pass — but it
-                // supplies NO measured values and NO `linear=true`, and FFmpeg's loudnorm only
-                // applies a single fixed gain when all five measured_* parameters are present.
-                // Without them it runs in DYNAMIC mode: a continuously-acting automatic gain
-                // control over the whole mix. See GetLoudnormFilter() below, which does it
-                // correctly with linear=true + measured_I/TP/LRA/thresh, and whose own comment
-                // spells out that this is what separates a real two-pass from a guess.
-                //
-                // WHAT IT ACTUALLY DID: a dynamic AGC follows whatever is loudest, and a
-                // commercial music master (~-8 to -10 LUFS) is far louder than gameplay. So the
-                // MUSIC drove the gain of the ENTIRE mix — every swell pulled the gunshots and
-                // effects down with it, every dip pushed them back up. The sidechain ducking and
-                // the carving EQ above were computed correctly and then silently overridden by
-                // this one line, producing the exact inverse of the intended effect: game audio
-                // being modulated by the music instead of the other way around.
-                //
-                // It was also UNCONDITIONAL, so exports with no music at all were squashed by the
-                // same AGC for no reason.
-                //
-                // The game audio is already linear-normalised with real measured values, the music
-                // sits beneath it via sidechaincompress, and the alimiter below remains as the peak
-                // safety net. A second normalisation pass over the mix is not needed and cannot be
-                // done honestly here — it would require measuring the MIXED audio first.
-                // ─────────────────────────────────────────────────────────────────────────────
 
                 if (AutoSpikeFlattening)
                 {
-                    // LOG_04: the loudness "cutoff" stage — say it is on and at what ceiling.
-                    // AUDIO_07 (#7): -1.5 dB -> -1.0 dB. loudnorm already guarantees a -1.5 dBTP
-                    // true-peak ceiling, so a limiter at the SAME -1.5 dB could only ever act on
-                    // material that had already been handled — contributing distortion risk and
-                    // nothing else. Held slightly higher it becomes what it should be: a genuine
-                    // emergency catch for the rare case where music and game peaks coincide.
                     CoreLogger.Info("Audio",
                         "PEAK LIMITER ON: alimiter ceiling -1.0 dB (safety net above the -1.5 dBTP " +
                         "loudnorm ceiling). Only momentary peaks are held back; it does not change " +
@@ -1570,47 +1198,19 @@ public class ProcessWorker : IDisposable
                 }
 
                 string filterScript = string.Join(";", coreFilters.Where(p => !string.IsNullOrEmpty(p)));
-                // ─────────────────────────────────────────────────────────────────────────────
-                // LOG_02 — THE FILTER GRAPH IS THE STORY. IT MUST BE AT INFO.
-                //
-                // The logged "Executing Final Pipeline Command" line looks complete but is NOT:
-                // the graph is handed to FFmpeg as `-filter_complex_script <file>`, so the command
-                // shows only a PATH. That file is written into tempJobDir and deleted with it when
-                // the job ends — so after any finished export, every filter that actually shaped
-                // the video and audio was gone, and the log could not answer the one question
-                // worth asking: what did we really do to this footage?
-                //
-                // This is where the scale/crop/pad geometry, the zoom ramps, the HUD compositing
-                // and the ENTIRE audio chain live — carving EQ, the sidechain ducking values, the
-                // 150 Hz bass split. Debugging "the music ducks too hard" or "the crop is off"
-                // without this line means reproducing the export just to see the graph.
-                // ─────────────────────────────────────────────────────────────────────────────
                 CoreLogger.Info("FFmpeg", $"Filter Script Content:\n{filterScript}");
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
 
                 string corePath = Path.Combine(tempJobDir, "core.mp4");
 
-                // ── T01 two-pass state ───────────────────────────────────────────────────────
-                // Both artefacts live in tempJobDir and are deleted the moment the job is done
-                // (see CleanupTwoPassArtifacts + the job-dir teardown). Nothing survives an export.
                 string twoPassMasterPath = Path.Combine(tempJobDir, "twopass_master.mp4");
                 string twoPassLogPrefix = Path.Combine(tempJobDir, "twopass_stats");
 
-                // Disabled for the rest of the job once the tail has failed, so the outer retry
-                // cannot loop forever trying the same broken route.
                 bool twoPassDisabled = false;
 
-                // Set only when a two-pass run actually PRODUCED the delivered file. The
-                // size-retry suppression below keys off this, not off "the encoder was libx264" —
-                // those are not the same thing and conflating them would silently disable the
-                // retry for ordinary single-pass CPU exports that still benefit from it.
                 bool twoPassProducedResult = false;
 
-                // The FAST route needs room for the scratch master. If it does not fit we do NOT
-                // fall back to single-pass (the user asked for accurate size targeting) — we fall
-                // back to plain -pass 1/-pass 2 over the filter graph, which costs ~2x but needs
-                // no extra disk. HasRoomFor never fails an export; it only answers yes/no.
                 bool twoPassFastRoute = DiskSpaceGuard.HasRoomFor(
                     tempJobDir, DiskSpaceGuard.EstimateTwoPassMasterBytes(renderDurationSec + memeTotalDuration));
 
@@ -1623,21 +1223,12 @@ public class ProcessWorker : IDisposable
                 {
                     string currentEncoder = lastSuccessfulEncoder ?? lastAttemptedEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
 
-                    // T01 SLOW route only: 1 = analysis run pending, 2 = real run pending. On the
-                    // FAST route the two passes are handled by RunTwoPassTailAsync and this stays 1.
                     int slowStage = 1;
 
                     while (true)
                     {
                         lastAttemptedEncoder = currentEncoder;
 
-                        // ── T01 GATE ────────────────────────────────────────────────────────
-                        // Two-pass runs ONLY when all three hold:
-                        //   (1) a bitrate target exists — CRF/CQ exports have no budget to
-                        //       redistribute, so a second pass would cost time for nothing;
-                        //   (2) the encoder is libx264 — NVENC has no stats-file two-pass;
-                        //   (3) the tail has not already failed this job.
-                        // Every other combination takes the original single-pass path unchanged.
                         bool twoPass = requestedBitrate.HasValue
                                        && currentEncoder == "libx264"
                                        && !twoPassDisabled;
@@ -1651,21 +1242,6 @@ public class ProcessWorker : IDisposable
                             "-y", "-hide_banner", "-progress", "pipe:1"
                         };
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // G04 — `-hwaccel` IS A PER-INPUT OPTION.
-                        // It binds ONLY to the next `-i` on the command line. This block used to
-                        // emit it exactly once, at the head of the arg list, so ONLY input 0 (the
-                        // main clip) decoded on the GPU. The thumbnail-intro clone — which is the
-                        // SAME 1080p/1440p file re-opened as a second input — and any video meme
-                        // both decoded in software, on every single export, on every GPU machine.
-                        // `decodeFlags` must therefore be re-emitted immediately before EVERY
-                        // video `-i`. Image inputs (text PNG, image memes) are deliberately
-                        // excluded: there is no hardware path for a looped still and adding the
-                        // flag there just makes FFmpeg warn.
-                        // NOTE: still no `-hwaccel_output_format` — see ISSUE_01 in
-                        // project_structure.txt. Frames MUST come back to system memory because
-                        // the whole filter graph below is software.
-                        // ─────────────────────────────────────────────────────────────────────
                         var decodeFlags = EncoderManager.GetDecodeFlags(currentEncoder);
 
                         ffmpegArgs.AddRange(decodeFlags);
@@ -1675,7 +1251,6 @@ public class ProcessWorker : IDisposable
                             "-i", InputPath,
                         ]);
 
-                        // Audio-only inputs: no hwaccel (there is nothing to decode on the GPU).
                         foreach (var track in musicTracks)
                             ffmpegArgs.AddRange(["-i", track.Path]);
 
@@ -1686,27 +1261,21 @@ public class ProcessWorker : IDisposable
                                 : StartTimeMs / 1000.0;
                             if (sourceDuration > 0.25)
                                 introAbsSec = Math.Min(Math.Max(0, introAbsSec), Math.Max(0, sourceDuration - 0.2));
-                            // G04: video input — needs its own decode flags.
                             ffmpegArgs.AddRange(decodeFlags);
                             ffmpegArgs.AddRange(["-ss", introAbsSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-t", Math.Max(0.2, introDurationSec + 0.1).ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", InputPath]);
                         }
 
-                        // Still image — intentionally NO hwaccel.
                         if (textPngPath != null)
                             ffmpegArgs.AddRange(["-loop", "1", "-i", textPngPath]);
 
-                        // MEME_05 — one `-i` per meme, in the SAME order the input indices were
-                        // handed out above. Reordering either side silently swaps the memes.
                         foreach (var m in memes)
                         {
                             if (m.IsImage)
                             {
-                                // Still image — intentionally NO hwaccel.
                                 ffmpegArgs.AddRange(["-loop", "1", "-framerate", targetFps, "-t", m.DurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "-i", m.FilePath]);
                             }
                             else
                             {
-                                // G04: video meme — needs its own decode flags.
                                 ffmpegArgs.AddRange(decodeFlags);
                                 ffmpegArgs.AddRange(["-i", m.FilePath]);
                             }
@@ -1719,12 +1288,6 @@ public class ProcessWorker : IDisposable
                         ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         double totalOutputDurationSec = renderDurationSec + memeTotalDuration;
 
-                        // ── T01: what this FFmpeg invocation actually produces ───────────────
-                        // FAST two-pass  -> the near-lossless master; passes 1+2 follow separately.
-                        // SLOW two-pass  -> pass 1 straight off the filter graph (no master; the
-                        //                   graph will simply be re-run for pass 2). Only used
-                        //                   when the drive cannot hold the master.
-                        // Single-pass    -> the finished file, exactly as before.
                         bool graphIsMaster = twoPass && twoPassFastRoute;
                         bool graphIsSlowPass1 = twoPass && !twoPassFastRoute && slowStage == 1;
                         bool graphIsSlowPass2 = twoPass && !twoPassFastRoute && slowStage == 2;
@@ -1733,8 +1296,6 @@ public class ProcessWorker : IDisposable
 
                         if (graphIsMaster)
                         {
-                            // Audio is FINALISED here and stream-copied by pass 2, so it is
-                            // encoded exactly once across the whole export.
                             ffmpegArgs.AddRange(TwoPassEncoding.MasterCodecArgs());
                             ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
                                 "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
@@ -1742,15 +1303,6 @@ public class ProcessWorker : IDisposable
                         }
                         else if (graphIsSlowPass1)
                         {
-                            // ⚠️ THE AUDIO BRANCH MUST STILL BE MAPPED AND ENCODED HERE.
-                            // The obvious "optimisation" is `-an`, since audio contributes nothing
-                            // to a video complexity map. It does not work: with `-filter_complex`,
-                            // a labeled output that is never consumed makes FFmpeg abort with an
-                            // unconnected-output error, and `-map [a] -an` is the same thing by
-                            // another route. The null muxer discards both streams and the audio
-                            // chain is trivial next to the video graph, so the cost is noise.
-                            // (The FAST route's pass 1 CAN use `-an` — it reads a plain file, not
-                            // a filter graph. See RunTwoPassTailAsync.)
                             ffmpegArgs.AddRange(TwoPassEncoding.PassArgs(requestedBitrate!.Value, 1, twoPassLogPrefix));
                             ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k", "-sn", "-dn",
                                 "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
@@ -1771,9 +1323,6 @@ public class ProcessWorker : IDisposable
                                 "-movflags", "+faststart", corePath]);
                         }
 
-                        // T01: progress window for THIS invocation. On the ordinary single-pass
-                        // path graphFloor/graphCeiling collapse to encodeFloor/EncodeBandMax, so
-                        // the maths below is byte-identical to before.
                         double encodeBand = EncodeBandMax - encodeFloor;
                         double graphFloor = graphIsSlowPass2
                             ? encodeFloor + encodeBand * TwoPassSlowPass1Fraction
@@ -1785,11 +1334,6 @@ public class ProcessWorker : IDisposable
                         double pass1Ceiling = encodeFloor + encodeBand * TwoPassAnalysisFraction;
 
                         string cmdLine = FormatForLog(ffmpegArgs);
-                        // G09: name the CHIPS, not just the codec. Nothing in the log used to
-                        // distinguish "GPU decode + GPU encode" from "everything on the CPU",
-                        // which is exactly why a fully dead hardware pipeline went unnoticed
-                        // across entire sessions. This line is INFO on purpose — it contains no
-                        // paths, so it is safe in production logs (see logging invariant L8).
                         string routeLabel = graphIsMaster
                             ? "two-pass FAST (rendering master, 2 passes follow)"
                             : graphIsSlowPass1
@@ -1798,30 +1342,8 @@ public class ProcessWorker : IDisposable
                         CoreLogger.Info("FFmpeg", $"Starting encode: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={routeLabel}, attempt={attemptNum}.");
                         CoreLogger.Info("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // LOG_05 — ONE FINAL, SELF-CONTAINED, RUNNABLE COMMAND.
-                        //
-                        // The line above is what was literally executed, but it is NOT reproducible
-                        // on its own: the whole filter graph hides behind
-                        // `-filter_complex_script <path>`, and that file lives in tempJobDir, which
-                        // is deleted the moment the job ends. So after any finished export the log
-                        // could describe the encode but never REPLAY it.
-                        //
-                        // This second line substitutes the script back inline as `-filter_complex`,
-                        // producing a single command that can be pasted into a terminal and re-run
-                        // verbatim. That is what makes the log the source of truth rather than a
-                        // summary of it: every filter, every audio value, every path, in one place.
-                        //
-                        // Safe to quote with double quotes — the graph uses single quotes
-                        // internally (weights='1 1', volume='...'), never double.
-                        // ─────────────────────────────────────────────────────────────────────
                         try
                         {
-                            // Rebuild the script token EXACTLY as FormatForLog rendered it — it only
-                            // quotes an argument that is empty or contains a space or a quote. Assuming
-                            // the unquoted form would silently fail to match the day the temp path
-                            // lands somewhere with a space in it, and the "final command" would then
-                            // still point at a file that no longer exists.
                             string scriptToken = filterScriptPath.Length == 0
                                                  || filterScriptPath.Contains(' ')
                                                  || filterScriptPath.Contains('"')
@@ -1869,11 +1391,11 @@ public class ProcessWorker : IDisposable
                         try
                         {
 
-                        try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                        try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
                         using var reg = cancellationToken.Register(() =>
                         {
-                            try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                            try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                         });
 
                         var progressTask = Task.Run(async () =>
@@ -1891,8 +1413,6 @@ public class ProcessWorker : IDisposable
                                         if (totalOutputDurationSec > 0)
                                         {
                                             double frac = EncodeFraction(currentSec);
-                                            // T01: graphFloor/graphCeiling collapse to
-                                            // encodeFloor/EncodeBandMax on the single-pass path.
                                             int scaledPercent = (int)Math.Round(graphFloor + frac * (graphCeiling - graphFloor));
                                             EmitProgress(2,
                                                 graphIsMaster ? "Preparing Video (1 of 3)" :
@@ -1903,8 +1423,6 @@ public class ProcessWorker : IDisposable
                                         }
                                     }
                                 }
-                                // G09: capture throughput so a slow run is diagnosable from the
-                                // log alone. Cheap string slice; no allocation-heavy parsing.
                                 else if (line.StartsWith("speed="))
                                 {
                                     string v = line[6..].Trim();
@@ -1953,9 +1471,6 @@ public class ProcessWorker : IDisposable
                             return false;
                         }
 
-                        // T01: what counts as "this invocation succeeded" depends on the route.
-                        // The SLOW analysis pass writes to the null muxer, so there is no file to
-                        // check — only the exit code matters.
                         string producedPath = graphIsMaster ? twoPassMasterPath : corePath;
                         bool producedOk = graphIsSlowPass1
                             ? exitCode == 0
@@ -1963,7 +1478,6 @@ public class ProcessWorker : IDisposable
 
                         if (producedOk)
                         {
-                            // ── SLOW route: analysis done, now re-run the graph for the real pass.
                             if (graphIsSlowPass1)
                             {
                                 slowStage = 2;
@@ -1971,7 +1485,6 @@ public class ProcessWorker : IDisposable
                                 continue;
                             }
 
-                            // ── FAST route: the master exists; run both passes off it.
                             if (graphIsMaster)
                             {
                                 bool tailOk = await RunTwoPassTailAsync(
@@ -1990,14 +1503,10 @@ public class ProcessWorker : IDisposable
 
                                 if (!tailOk)
                                 {
-                                    // Do NOT fail the export over this. Disable two-pass for the
-                                    // rest of the job and fall straight through to the ordinary
-                                    // single-pass encode — the user still gets a video. The flag
-                                    // guarantees this cannot loop.
                                     twoPassDisabled = true;
                                     CoreLogger.Fail("FFmpeg",
                                         "Two-pass tail failed — falling back to a single-pass encode for this export.");
-                                    if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                                    if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
                                     continue;
                                 }
                             }
@@ -2007,8 +1516,6 @@ public class ProcessWorker : IDisposable
 
                             bool cpuFallback = currentEncoder == "libx264" && useCuda && !encoderMgr.ForcedCpu;
                             string passLabel = twoPass ? (twoPassFastRoute ? " route=two-pass(fast)" : " route=two-pass(slow)") : "";
-                            // G09: the one line that makes a silent hardware downgrade impossible
-                            // to miss. decode / encode / speed, in plain terms, at INFO.
                             CoreLogger.Info("FFmpeg",
                                 $"PIPELINE RESULT: decode={EncoderManager.DescribeDecoder(currentEncoder)} " +
                                 $"encode={EncoderManager.DescribeEncoder(currentEncoder)} speed={LastReportedSpeed}{passLabel}" +
@@ -2044,7 +1551,7 @@ public class ProcessWorker : IDisposable
                             if (!disposedByGuard)
                             {
                                 _currentProcess = null;
-                                try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                                try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                             }
                         }
                     }
@@ -2064,9 +1571,6 @@ public class ProcessWorker : IDisposable
                     for (int attempt = 1; attempt <= 2; attempt++)
                     {
                         if (File.Exists(corePath)) File.Delete(corePath);
-                        // T01: never let a previous attempt's master or stats file leak into this
-                        // one — a stale stats file would hand pass 2 a complexity map for a
-                        // different bitrate, which is silent quality damage rather than an error.
                         CleanupTwoPassArtifacts(twoPassMasterPath, twoPassLogPrefix);
 
                         success = await RunFfmpegOnce(HardwareStrategy != "CPU", currentBitrate, attempt);
@@ -2083,7 +1587,7 @@ public class ProcessWorker : IDisposable
                             {
                                 CoreLogger.Fail("FFmpeg",
                                     "Size-target retry failed — delivering the earlier successful render instead of failing the export.");
-                                if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                                if (File.Exists(corePath)) { try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
 
                                 try
                                 {
@@ -2114,17 +1618,6 @@ public class ProcessWorker : IDisposable
                             break;
                         }
 
-                        // ── T01: TWO-PASS REPLACES THE BITRATE-SCALING RETRY ────────────────
-                        // The retry below was a blind guess: scale the bitrate by the size ratio
-                        // and render everything again, with the code itself acknowledging the
-                        // second attempt can land FURTHER from the target than the first.
-                        // A completed two-pass run already distributed the exact budget it was
-                        // given using a real complexity map of the whole timeline; if it still
-                        // missed the ±5% band the bitrate estimate itself was off, and burning
-                        // another full render on a guess is not the answer. Accept the result,
-                        // log the miss, and stop — the user gets their video in ~1.35x rather
-                        // than ~2.7x. The retry stays fully intact for the NVENC/CQ paths, which
-                        // have no complexity map and genuinely can improve on a second guess.
                         if (twoPassProducedResult)
                         {
                             CoreLogger.Info("FFmpeg",
@@ -2143,7 +1636,7 @@ public class ProcessWorker : IDisposable
 
                                 try
                                 {
-                                    try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                                    try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                                     File.Move(bestPath, corePath, overwrite: true);
                                     haveBest = false;
                                     finalActualSize = bestSize;
@@ -2197,7 +1690,7 @@ public class ProcessWorker : IDisposable
                 }
                 finally
                 {
-                    if (File.Exists(bestPath)) { try { File.Delete(bestPath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); } }
+                    if (File.Exists(bestPath)) { try { File.Delete(bestPath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
                 }
 
                 if (!success)
@@ -2258,34 +1751,11 @@ public class ProcessWorker : IDisposable
                     return;
                 }
 
-                try { File.Delete(corePath); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
                 if (ThumbnailPosMs > 0)
                 {
                     EmitProgress(2, "Generating Thumbnail", 98);
-                    // ─────────────────────────────────────────────────────────────────────────
-                    // TEMP_01 — THE THUMBNAIL IS SCRATCH, NOT A DELIVERABLE. KEEP IT OUT OF THE
-                    // USER'S FOLDER.
-                    //
-                    // This used to be `Path.Combine(outputDir, ...)`, which dropped a
-                    // `<video>_thumbnail.jpg` right next to the exported video — in Downloads, or
-                    // wherever the user sends their exports. It was the ONLY thing in the whole
-                    // pipeline that wrote anything other than the finished video into that folder,
-                    // and it was never cleaned up: the delete below only fires for a ZERO-BYTE
-                    // file, so every successful export left one more .jpg behind, for ever.
-                    //
-                    // It now lands in this job's own `tempJobDir` under
-                    // %TMP%\Fortnite_Video_Software\, which is deleted wholesale in the finally
-                    // block at the end of this method — so cleanup is automatic and cannot be
-                    // forgotten, exactly like the two-pass master and the filter scripts.
-                    //
-                    // ⚠️ NOTHING IN THE APP READS THIS FILE. It is produced, validated, logged and
-                    // discarded. The thumbnail MARKER still does real work regardless — the same
-                    // `ThumbnailPosMs` is assigned to `IntroAbsTimeMs` in MainMediaController, and
-                    // that is what freezes the chosen frame at the head of the exported video. If
-                    // you ever want the user to KEEP this picture, surface it deliberately (a
-                    // "Save thumbnail" action); do not send it back to `outputDir` by default.
-                    // ─────────────────────────────────────────────────────────────────────────
                     string thumbnailOutput = Path.Combine(tempJobDir, Path.GetFileNameWithoutExtension(finalOutput) + "_thumbnail.jpg");
                     double extractTargetSec = granularTimeMapper != null
                         ? Math.Max(0.0, granularTimeMapper(ThumbnailPosMs / 1000.0))
@@ -2295,12 +1765,6 @@ public class ProcessWorker : IDisposable
                         extractTargetSec += introDurationSec;
                     }
 
-                    // ⚠️ MEME_05 — THIS SEEKS THE FINISHED FILE, WHICH CONTAINS THE MEMES. Every
-                    // term above is in the PRE-MEME clock, so without this the grab lands early by
-                    // the total length of every meme before the chosen moment — far enough, with a
-                    // mid-video meme, to grab a frame of the meme instead of the gameplay the user
-                    // picked. Same shift as the voice-over: the chosen frame is a moment of
-                    // gameplay, and that gameplay resumes AFTER any meme sitting on it.
                     extractTargetSec += MemeTimeInsertedBefore(extractTargetSec, landsAfter: true);
                     string targetStr = extractTargetSec.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -2354,7 +1818,7 @@ public class ProcessWorker : IDisposable
                             catch (OperationCanceledException) { }
 
                             string thumbErr = string.Empty;
-                            try { thumbErr = await thumbErrTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                            try { thumbErr = await thumbErrTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
                             int thumbExit = ReadExitCodeSafely(p, "Thumbnail", graceMs: 2000);
                             bool thumbWritten = File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length > 0;
@@ -2374,7 +1838,7 @@ public class ProcessWorker : IDisposable
 
                                 if (File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length == 0)
                                 {
-                                    try { File.Delete(thumbnailOutput); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                                    try { File.Delete(thumbnailOutput); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                                 }
                             }
                         }
@@ -2387,16 +1851,13 @@ public class ProcessWorker : IDisposable
                     }
                 }
                 pipelineStopwatch.Stop();
-                // LOG_01: the FULL destination, not just the file name. "Output: Fortnite-Video-1.mp4"
-                // told you nothing about WHERE it landed — Downloads, a custom folder, or the
-                // fallback picked when the chosen one was unwritable. The log is the story teller.
                 CoreLogger.Info("Process", $"Pipeline completed in {pipelineStopwatch.Elapsed.TotalSeconds:F1}s. Output: {finalOutput}");
                 EmitProgress(2, "Complete", 100);
                 EmitFinished(true, finalOutput);
             }
             finally
             {
-                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }
         }
         catch (OperationCanceledException)
@@ -2513,36 +1974,6 @@ public class ProcessWorker : IDisposable
         Finished?.Invoke(success, message);
     }
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // T01 — TWO-PASS SIZE TARGETING (CPU / libx264 path only)
-    //
-    // WHAT IT SOLVES: with a size target the encoder previously got ONE blind bitrate guess. If
-    // the finished file missed the ±5% band, the whole export was rendered AGAIN with a scaled
-    // guess — and the retry could legitimately land FURTHER from the target than the first try
-    // (see the "Retry landed further from the target" branch). Bits were also distributed evenly
-    // across the timeline, so a static lobby got the same budget per second as a firefight.
-    //
-    // HOW IT WORKS: pass 1 encodes the whole timeline and writes a per-frame complexity map; pass
-    // 2 reads that map and redistributes the SAME total budget toward the frames that need it.
-    // Unlike `-rc-lookahead` (which only sees ~32 frames, half a second at 60fps) the map spans
-    // the entire video, so it can take bits from the last quiet 20 seconds and spend them on a
-    // 3-second fight at 0:45. Nothing here touches pixels — no blur, no smoothing, no filter
-    // changes. Only the bit allocation differs.
-    //
-    // WHY A SCRATCH MASTER: naive `-pass 1`/`-pass 2` re-runs the ENTIRE filter graph for both
-    // passes, and in this app the graph (14-18 way split, lanczos portrait scale, zoom pads, HUD
-    // overlays) dominates wall clock — that would be ~2x. Instead the graph runs ONCE into a
-    // near-lossless master, and both passes read that master: ~1.3-1.4x instead of ~2x.
-    //
-    // ⚠️ MANDATE #1 CARVE-OUT: `project_structure.txt` forbids caches for video pipelines. The
-    // master is NOT a cache — it is created inside the job's own `tempJobDir`, consumed by the two
-    // passes, and deleted in the same job. It is never reused across exports and never outlives
-    // the job directory. Do NOT "optimise" it into something that survives an export.
-    //
-    // ⚠️ NVENC IS DELIBERATELY EXCLUDED. `h264_nvenc` does not implement libavcodec's stats-file
-    // two-pass; its equivalent is `-multipass fullres` + `-rc-lookahead 32`, both already enabled
-    // in EncoderManager and explicitly NOT to be changed. This route is libx264 only.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// T01 — runs the analysis pass and the real pass against the pre-rendered master.
@@ -2562,8 +1993,6 @@ public class ProcessWorker : IDisposable
         double pass2Ceiling,
         CancellationToken cancellationToken)
     {
-        // PASS 1 — analysis only. `-an` because audio contributes nothing to video complexity
-        // stats and decoding it would be wasted work. Output is discarded via the null muxer.
         var pass1 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass1.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 1, passLogPrefix));
         pass1.AddRange(["-an", "-sn", "-dn", "-f", "null", "NUL"]);
@@ -2574,9 +2003,6 @@ public class ProcessWorker : IDisposable
             return false;
         }
 
-        // PASS 2 — the real encode, reading the map pass 1 wrote.
-        // `-c:a copy`: the audio was finalised in the master, so it is encoded exactly ONCE across
-        // the whole export and suffers no second-generation loss.
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
         pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
@@ -2619,16 +2045,15 @@ public class ProcessWorker : IDisposable
             return false;
         }
 
-        // Cancellation must reach THIS process too, not just the filter-graph one.
         _currentProcess = proc;
 
         try
         {
-            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             using var reg = cancellationToken.Register(() =>
             {
-                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             });
 
             var progressTask = Task.Run(async () =>
@@ -2671,8 +2096,8 @@ public class ProcessWorker : IDisposable
             try { await proc.WaitForExitAsync(cancellationToken); }
             catch (OperationCanceledException) { return false; }
 
-            try { await progressTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
-            try { await stderrTask; } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { await progressTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            try { await stderrTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
             if (exitCode == 0) return true;
@@ -2698,8 +2123,6 @@ public class ProcessWorker : IDisposable
     {
         try
         {
-            // AUDIO_02: single source of truth — the same target the user is judged against in the
-            // "your video is too quiet" prompt, and the same one the export masters to.
             double targetLufs = AudioLoudnessProbe.TargetLufs;
             var args = new List<string>
             {
@@ -2707,12 +2130,6 @@ public class ProcessWorker : IDisposable
                 "-ss", (measureStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-t", ((measureEndMs - measureStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
                 "-i", InputPath,
-                // AUDIO_02: the measurement pass MUST declare the same target as the second pass.
-                // input_i/tp/lra/thresh describe the source and do not depend on the target, but
-                // `target_offset` does — and that offset is handed straight to the second pass.
-                // Measuring against -23 and then rendering against -14 fed the second pass an
-                // offset computed for a different target, skewing the very gain it was supposed
-                // to make exact.
                 "-af", $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}" +
                        $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",
@@ -2734,11 +2151,11 @@ public class ProcessWorker : IDisposable
             using var process = Process.Start(psi);
             if (process == null) return;
 
-            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             using var loudnormKill = cancellationToken.Register(() =>
             {
-                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             });
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
@@ -2803,12 +2220,6 @@ public class ProcessWorker : IDisposable
                             $"Pass 1 complete. I={inputI:F2} LUFS, TP={inputTp:F2} dBTP, LRA={inputLra:F2} LU, " +
                             $"thresh={inputThresh:F2}, offset={targetOffset:F2}. Second pass will run in linear mode.");
 
-                        // ─────────────────────────────────────────────────────────────────────
-                        // LOG_04 — SAY WHAT THE NORMALISATION IS ABOUT TO DO, IN FULL.
-                        // The measurement line above only reported what was MEASURED. It never
-                        // stated the target, the resulting gain, or which streams would move with
-                        // it — so a mix that came out wrong could not be diagnosed from the log.
-                        // ─────────────────────────────────────────────────────────────────────
                         CoreLogger.Info("Loudnorm",
                             $"NORMALISATION PLAN: measured {inputI:F2} LUFS -> target {targetLufs:F1} LUFS " +
                             $"= {VolumeNormalizeDb:+0.00;-0.00} dB, true-peak ceiling {AudioLoudnessProbe.PeakCeilingDbtp:F1} dBTP. " +
@@ -2907,24 +2318,6 @@ public class ProcessWorker : IDisposable
 
         var ci = CultureInfo.InvariantCulture;
 
-        // ─────────────────────────────────────────────────────────────────────────────────────
-        // AUDIO_02 — ONE LOUDNESS TARGET FOR THE WHOLE APP. THIS USED TO SAY I=-23.
-        //
-        // -23 LUFS is EBU R128, the BROADCAST television standard. Every platform this app
-        // actually exports for — YouTube, TikTok, Reels, Shorts — normalises to about -14 LUFS
-        // and will simply turn anything louder back down. Mastering to -23 meant shipping a file
-        // roughly 9 dB quieter than the platform target for no benefit.
-        //
-        // ⚠️ THE REAL DAMAGE WAS THE MISMATCH, NOT THE NUMBER. The music's "follow" gain is
-        // derived from VolumeNormalizeDb = TargetLufs - measured, i.e. against -14, while THIS
-        // filter pushed the game bus toward -23. On a -18.4 LUFS clip that is +4.4 dB on the music
-        // and -4.6 dB on the game: the two moved in OPPOSITE directions, roughly 9 dB apart, every
-        // single export. That is what buried the gunshots under the music.
-        //
-        // Both now read the same constants, so the number the user is judged against in the
-        // "your video is too quiet" prompt is the number the export actually delivers.
-        // ⚠️ DO NOT hardcode a target here again — change AudioLoudnessProbe.TargetLufs instead.
-        // ─────────────────────────────────────────────────────────────────────────────────────
         return $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", ci)}" +
                $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", ci)}:LRA=11:linear=true" +
                $":measured_I={_loudnorm.InputI.ToString("F2", ci)}" +
@@ -2970,9 +2363,9 @@ public class ProcessWorker : IDisposable
                     proc.Kill(entireProcessTree: true);
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
-            try { proc.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             _currentProcess = null;
         }
     }

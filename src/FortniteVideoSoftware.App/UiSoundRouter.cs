@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
 
@@ -112,37 +112,24 @@ internal static class UiSoundRouter
 
         string name = control.Name ?? string.Empty;
 
-        // 1. Absolute silence list (AUDIO_01).
         if (name.Length > 0 && Silent.Contains(name)) return null;
 
-        // 2. A parent menu entry only expands a submenu - nothing happened (AUDIO_09).
         if (control is MenuItem mi && mi.ItemCount > 0) return null;
 
-        // 3. STRUCTURAL (AUDIO_04): a Button that owns a Flyout has performed NO action; it has
-        //    only revealed a confirmation. Must be tested before every name list below.
         if (control is Button btn && btn.Flyout != null) return UiCue.Click;
 
-        // 4. The commit half of that pattern. Every guarded destructive action in the suite
-        //    names its inner button Confirm* (ConfirmDeleteButton, ConfirmClearAllSegmentsBtn,
-        //    ConfirmRemoveVideoButton, ConfirmCancelProcessButton, ...). THIS is where the
-        //    heavy clip belongs - the deed is now actually done.
         if (name.StartsWith("Confirm", StringComparison.Ordinal)) return UiCue.Close;
 
         if (name.Length > 0)
         {
             if (MarkNames.Contains(name)) return UiCue.Mark;
             if (OpenNames.Contains(name)) return UiCue.Open;
-            if (ApplyNames.Contains(name)) return UiCue.Click;   // AUDIO_10
+            if (ApplyNames.Contains(name)) return UiCue.Click;
             if (CloseNames.Contains(name)) return UiCue.Close;
         }
 
-        // 5. Red, no flyout, not a Confirm*: an unguarded destructive commit
-        //    (CancelSyncBtn, ResetKeyBindsBtn, MenuRemoveSelected, MenuClearAll, EXIT APP).
         if (control.Classes.Contains("Danger")) return UiCue.Close;
 
-        // 6. Everything else, including Undo/Redo, which now match each other (AUDIO_10).
-        //    NOTE: there is deliberately NO Success branch here. Process belongs to a finished
-        //    export, not to a button press (AUDIO_02/AUDIO_07).
         return UiCue.Click;
     }
 }

@@ -1,4 +1,4 @@
-#nullable disable
+﻿#nullable disable
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -85,7 +85,7 @@ namespace FortniteVideoSoftware.App
                 int y = wa.Y + (wa.Height - physH) / 2;
                 Position = new PixelPoint(x, y);
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         public void UpdateProgress(int value)
@@ -130,7 +130,7 @@ namespace FortniteVideoSoftware.App
                 if (el is Button || el is TextBox) return;
                 el = el.Parent;
             }
-            try { BeginMoveDrag(e); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
         public void UpdateStatus(string status)

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -29,8 +29,6 @@ public sealed class StateTransferStore
         "MusicWizardBounds",
         "SettingsBounds",
         "VoiceOverWindowBounds",
-        // DETACH_01 — one detached-preview geometry per screen, so each remembers its own size,
-        // position and display. Must stay in step with the key constants on PreviewDetachController.
         "PreviewMonitorWindowBounds",
         "GranularPreviewMonitorBounds",
         "MusicWizardPreviewMonitorBounds",
@@ -108,7 +106,7 @@ public sealed class StateTransferStore
     ///
     /// WHAT WAS WRONG: this method only caught <c>LockException</c>. Validation throws
     /// <c>InvalidDataException</c> for an unrecognised key, which escaped as a faulted Task — some
-    /// callers `await` it inside a broad `try {} catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }` and some do not, so depending on the
+    /// callers `await` it inside a broad `try {} catch (System.Exception ex) { CoreLogger.Swallowed(ex); }` and some do not, so depending on the
     /// call site the write was either swallowed or blew up somewhere unrelated. Either way the
     /// user's change appeared to save and was gone at next launch.
     ///
@@ -187,7 +185,7 @@ public sealed class StateTransferStore
     /// async-over-sync would deadlock the UI thread. Performs I/O directly
     /// on the calling thread without Task.Run + GetAwaiter().GetResult().
     ///
-    /// ISSUE_09 — the bare `catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }` here meant a genuinely failed save looked exactly like a
+    /// ISSUE_09 — the bare `catch (System.Exception ex) { CoreLogger.Swallowed(ex); }` here meant a genuinely failed save looked exactly like a
     /// successful one, and this is the variant used on window CLOSE, i.e. the one that persists
     /// window bounds and folder preferences. A failure is now logged so it is at least
     /// diagnosable, and bad keys are dropped rather than aborting the whole write.

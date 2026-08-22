@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -24,15 +24,6 @@ public partial class MainWindow : Window
 {
     private MpvVideoView? _videoHost;
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // DETACH_01 — the detach/reattach machinery moved OUT of this window.
-    //
-    // It used to live here as two hand-rolled methods, which is precisely why no other screen in
-    // the suite could pop its preview out: the behaviour was welded to this class. It now lives in
-    // PreviewDetachController and this window is just one more caller. What stays here is only
-    // what is genuinely the Main App's: the watermark, the two toggle captions, and mirroring the
-    // portrait overlay onto the floating window.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
     private PreviewDetachController? _previewDetach;
     private PreviewDetachController PreviewDetach => _previewDetach ??= BuildPreviewDetachController();
     private PreviewMonitorWindow? DetachedPreviewWindow => _previewDetach?.Monitor;
@@ -179,9 +170,6 @@ public partial class MainWindow : Window
     private double _baseSpeed = SpeedPresetButtons.NativeDefaultSpeed;
     private bool _isTimelineDrawn = false;
     private string _loadedVideoPath = string.Empty;
-    // G03: "not scanned yet" is UNKNOWN, not "CPU-only". Defaulting to "CPU" meant an export
-    // started before InitializeHardwareScanAsync finished was pinned to libx264 for no reason.
-    // The sentinel makes EncoderManager re-probe instead.
     private string _hardwareMode = HardwareScanner.ScanFailed;
     private System.Threading.CancellationTokenSource? _processCts;
 private readonly RecoveryManager _recovery = new RecoveryManager();
@@ -334,6 +322,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         this.Loaded += (s, e) => InitializeMpv();
 
+        this.Loaded += (s, e) => Controls.CoachOverlay.Register(this, Controls.CoachTours.MainAppKey, Controls.CoachTours.MainApp);
+
         this.AddHandler(InputElement.KeyDownEvent, (s, e) =>
         {
             if (e.Key == Key.Space)
@@ -378,9 +368,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var menuUploadVideo = this.FindControl<MenuItem>("MenuUploadVideo");
         if (menuUploadVideo != null) menuUploadVideo.Click += OnUploadVideoClicked;
 
-        // DETACH_01: both entry points just toggle. The captions are no longer set here — the
-        // controller's StateChanged does it, so the menu and the button can never disagree about
-        // which way round they are (which they could before, since only one of them updated both).
         var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
         if (menuTogglePreview != null) menuTogglePreview.Click += async (s, e) =>
         {
@@ -405,27 +392,31 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (menuExit != null) menuExit.Click += (s, e) => Close();
 
         var menuCropSettings = this.FindControl<MenuItem>("MenuCropSettings");
-        if (menuCropSettings != null) menuCropSettings.Click += (s, e) =>
-        {
-            SaveRecoveryState(sync: true);
-            _recovery.ReleaseLockOnly();
-            RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
-            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-            ShutdownVideoPipeline();
-            Environment.Exit(0);
-        };
+        if (menuCropSettings != null) menuCropSettings.Click += async (s, e) =>
+            await SwitchToCompanionAppAsync("--crop-tool", "Crop Tools");
 
         var menuVideoMerger = this.FindControl<MenuItem>("MenuVideoMerger");
-        if (menuVideoMerger != null) menuVideoMerger.Click += (s, e) =>
+        if (menuVideoMerger != null) menuVideoMerger.Click += async (s, e) =>
+            await SwitchToCompanionAppAsync("--merger", "Video Merger");
+
+        var menuShowShortcuts = this.FindControl<MenuItem>("MenuShowShortcuts");
+        if (menuShowShortcuts != null) menuShowShortcuts.Click += (s, e) =>
         {
-            SaveRecoveryState(sync: true);
-            _recovery.ReleaseLockOnly();
-            RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
-            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-            ShutdownVideoPipeline();
-            Environment.Exit(0);
+            var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+            if (sheet == null) return;
+            if (!sheet.IsVisible) BuildShortcutSheetRows();
+            sheet.IsVisible = !sheet.IsVisible;
+            RuntimeLog.Info("UI", $"Keyboard shortcut sheet {(sheet.IsVisible ? "opened" : "closed")} from the View menu.");
+        };
+
+        var menuShowHelp = this.FindControl<MenuItem>("MenuShowHelp");
+        if (menuShowHelp != null) menuShowHelp.Click += (s, e) => CoachOverlay.Replay(this);
+
+        var shortcutSheetClose = this.FindControl<Button>("ShortcutSheetCloseButton");
+        if (shortcutSheetClose != null) shortcutSheetClose.Click += (s, e) =>
+        {
+            var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+            if (sheet != null) sheet.IsVisible = false;
         };
 
         UpdateTooltips();
@@ -496,6 +487,30 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _marchingAntsTimer.Start();
 
         var slider = this.FindControl<Slider>("TimelineSlider");
+
+        var cancelButton = this.FindControl<Button>("CancelButton");
+        if (cancelButton != null)
+        {
+            cancelButton.Click += (s, e) =>
+            {
+                if (!SettingsManager.Instance.ConfirmMainAppCancel)
+                {
+                    cancelButton.Flyout?.Hide();
+                    RuntimeLog.Info("UI", "Cancel button pressed with confirmations disabled, closing app.");
+                    Close();
+                }
+            };
+        }
+
+        var keepWorkingButton = this.FindControl<Button>("KeepWorkingButton");
+        if (keepWorkingButton != null)
+        {
+            keepWorkingButton.Click += (s, e) =>
+            {
+                this.FindControl<Button>("CancelButton")?.Flyout?.Hide();
+                RuntimeLog.Info("UI", "User backed out of the Cancel button and kept working.");
+            };
+        }
 
         var confirmCancelButton = this.FindControl<Button>("ConfirmCancelButton");
         if (confirmCancelButton != null)
@@ -577,7 +592,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     zoomSrcRes);
 
                 await editor.ShowDialog(this);
-                // RETURN_01: park at MARK START, paused, so the user can review the edit.
                 ReturnToTrimStartPaused();
 
                 SetTimelinePopupsVisible(true);
@@ -591,10 +605,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _freezeTimeMs = editor.ResultFreezeTimeMs;
                     _freezeDurationS = editor.ResultFreezeDurationS;
 
-                    // The zoom set just changed underneath the preview. Drop any crop left over
-                    // from the OLD set — the next tick recomputes from the new one. Without this
-                    // a deleted zoom would stay visibly applied until the playhead happened to
-                    // wander somewhere the new data also produces a crop.
                     ClearLiveZoomCrop();
 
                     int count = _speedSegments.Count;
@@ -631,31 +641,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var videoMergerButton = this.FindControl<Button>("VideoMergerButton");
         if (videoMergerButton != null)
         {
-            videoMergerButton.Click += (s, e) =>
-            {
-                SaveRecoveryState(sync: true);
-                _recovery.ReleaseLockOnly();
-                RuntimeLog.Info("UI", "Opening Video Merger app and closing Main app.");
-                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-                var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--merger") { UseShellExecute = false });
-                ShutdownVideoPipeline();
-                Environment.Exit(0);
-            };
+            videoMergerButton.Click += async (s, e) => await SwitchToCompanionAppAsync("--merger", "Video Merger");
         }
 
         var cropSettingsButton = this.FindControl<Button>("CropSettingsButton");
         if (cropSettingsButton != null)
         {
-            cropSettingsButton.Click += (s, e) =>
-            {
-                SaveRecoveryState(sync: true);
-                _recovery.ReleaseLockOnly();
-                RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
-                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-                var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-                ShutdownVideoPipeline();
-                Environment.Exit(0);
-            };
+            cropSettingsButton.Click += async (s, e) => await SwitchToCompanionAppAsync("--crop-tool", "Crop Tools");
         }
 
         var playPauseButton = this.FindControl<Button>("PlayPauseButton");
@@ -742,7 +734,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
                 if (wasPlaying) _ = ActiveVideoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
 
-                // PREVIEW_03: see the wizard call site — same reason, same measured number.
                 var dialog = new VoiceOverWindow(
                     _loadedVideoPath,
                     GetCurrentMpvTime(),
@@ -750,11 +741,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _trimEndSet ? _trimEndMs : 0,
                     BuildExportSpeedSegments(),
                     _baseSpeed);
-                dialog.SourceMeasuredLufs = _sourceMeasuredLufs;   // PREVIEW_03
+                dialog.SourceMeasuredLufs = _sourceMeasuredLufs;
                 try
                 {
                     await dialog.ShowDialog(this);
-                    // RETURN_01: see ReturnToTrimStartPaused.
                     ReturnToTrimStartPaused();
 
                     if (HasVoiceOverEffect(dialog.Result))
@@ -951,7 +941,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                             ["MainVolume"] = volumeSlider.Value
                         });
                 }
-                catch { }
+                catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
             };
         }
 
@@ -1009,15 +999,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
                     _baseSpeed,
                     BuildExportSpeedSegments());
-                // PORTRAIT_01: phase 3 cannot know the export format on its own, and without this
-                // its A/B preview shows a 16:9 frame for a clip that exports as 2:3.
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
-                // PREVIEW_03: hand over the loudness this window already measured on upload, so the
-                // wizard can reproduce the EXPORT's game-vs-music balance instead of guessing.
-                // Re-measuring inside the wizard would cost seconds for a number we already have.
                 wizard.SourceMeasuredLufs = _sourceMeasuredLufs;
                 await wizard.ShowDialog(this);
-                // RETURN_01: see ReturnToTrimStartPaused.
                 ReturnToTrimStartPaused();
                 SetTimelinePopupsVisible(true);
 
@@ -1093,13 +1077,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
         
         var memeCb = this.FindControl<ComboBox>("MemeComboBox");
-        WireMemePlacementCombo();   // MEME_02
+        WireMemePlacementCombo();
 
         if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
             if (memeCb.SelectedItem is MemeItem action && action.IsDownloadAction)
             {
                 memeCb.SelectedItem = e.RemovedItems != null && e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
-                _ = RunCloudMemeSyncAsync(action.DownloadCategory);   // DOWNLOAD_01
+                _ = RunCloudMemeSyncAsync(action.DownloadCategory);
                 return;
             }
 
@@ -1109,7 +1093,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     $"MemeSelected: type={(sel.IsImage ? "image" : "video")}, file={sel.FileName}, " +
                     $"width={sel.Width}, height={sel.Height}, aspect={sel.AspectRatio:0.###}");
                 RuntimeLog.Debug("Memes", $"MemeSelected full path: {sel.FullPath}");
-                SyncMemePlacementUi(sel.FullPath);   // MEME_02
+                SyncMemePlacementUi(sel.FullPath);
             }
 
             SaveRecoveryState();
@@ -1180,12 +1164,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     RuntimeLog.Info("HANDOFF", "Returned from Crop Tools. Crop overlay configuration reloaded from the active profile.");
                 }
             }
-            catch { }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
             var newObj = new System.Text.Json.Nodes.JsonObject();
-            // DETACH_01 added the four per-screen detached-preview keys. Anything absent from this
-            // list is wiped on reset, so a new bounds key MUST be added here as well as to
-            // StateTransferStore.BoundsKeys — otherwise the window geometry silently stops sticking.
             var preserveKeys = new[] { "schema_version", "MainWindowBounds", "PreviewMonitorWindowBounds", "GranularPreviewMonitorBounds", "MusicWizardPreviewMonitorBounds", "VoiceOverPreviewMonitorBounds", "MergerPreviewMonitorBounds", "VideoMergerBounds", "CropToolBounds", "GranularBounds", "MusicWizardBounds", "SettingsBounds", "VoiceOverWindowBounds", "UploadVideoDirectory", "MergerUploadDirectory", "MergerOutputDirectory", "CropToolUploadDirectory", "CustomMusicDirectory", "WizardVideoVolume", "WizardMusicVolume", "MainVolume" };
             foreach (var key in preserveKeys) {
                 if (state.TryGetPropertyValue(key, out var gb)) {
@@ -1314,8 +1295,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             var tb = new TextBlock { Text = item.FileName, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
             if (item.IsDownloadAction)
             {
-                // DOWNLOAD_01: name the category outright. "Download more memes..." gave no hint
-                // that it also pulled every image, or how long that would take.
                 tb.Text = item.DownloadCategory == "jpeg"
                     ? "⬇  Download more meme PICTURES…"
                     : "⬇  Download more meme VIDEOS…";
@@ -1334,7 +1313,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         });
 
         var prev = preserveSelection ? cb.SelectedItem as MemeItem : null;
-        // DOWNLOAD_01: one row per library, so each button fetches exactly one thing.
         var list = new List<MemeItem>(_memeItems)
         {
             new MemeItem { IsDownloadAction = true, DownloadCategory = "mp4",  FileName = "Download more meme videos..." },
@@ -1350,18 +1328,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     }
 
     /// <summary>§4 consent + delta sync + silent §1 rescan.</summary>
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // MEME_02 — the Start/End picker.
-    //
-    // Shows the placement this meme will actually use, resolved through MemePlacementStore:
-    // the user's remembered choice for this file, else the shipped default, else End. Changing it
-    // writes the choice straight back, so it is remembered for that meme from then on.
-    //
-    // ⚠️ THE WARNING IS A NUDGE, NOT A BLOCK. Some memes only make sense leading INTO the
-    // gameplay, and choosing End for one of those produces a video that lands oddly — but it is a
-    // legitimate choice and the app has no business refusing it. It says so once and gets out of
-    // the way.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
     private bool _suppressMemePlacementEvent;
 
     private void SyncMemePlacementUi(string? memePath)
@@ -1466,8 +1432,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         try
         {
             await Task.Run(() => {
-                string musicFolder = Infrastructure.MemeDirectory.GetMusicRoot();   // SANDBOX_01
-                string videosFolder = Infrastructure.MemeDirectory.GetVideosRoot();   // SANDBOX_01
+                string musicFolder = Infrastructure.MemeDirectory.GetMusicRoot();
+                string videosFolder = Infrastructure.MemeDirectory.GetVideosRoot();
                 string memeFolder = Infrastructure.MemeDirectory.GetActive();
 
                 if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
@@ -1483,25 +1449,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                             string dest = Path.Combine(memeFolder, Path.GetFileName(f));
                             if (!File.Exists(dest)) File.Copy(f, dest);
                         }
-                        catch { }
+                        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                     }
                 }
 
-                // ─────────────────────────────────────────────────────────────────────────
-                // STARTER_01 — DELIVER THE SHIPPED STARTER MEDIA.
-                //
-                // ⚠️ WHAT USED TO BE HERE NEVER WORKED OUTSIDE THE DEV TREE. It walked FIVE
-                // LEVELS UP from the executable looking for `mp3`/`mp4`/`jpeg` — that is the
-                // bin/Debug/net9.0-windows/win-x64 -> repo root layout. On a real install those
-                // folders are nowhere, the fallback was the install directory which had no media
-                // either, so every File.Exists() returned false and the user got three EMPTY
-                // libraries with nothing to tell them anything was missing.
-                //
-                // The media now ships in `starter\` next to the program (Build.cmd step 2.6),
-                // a location that exists identically in dev and in production. MemeAssets owns
-                // the file list, skips anything already present, and writes a one-time marker so
-                // a starter file the user deletes stays deleted.
-                // ─────────────────────────────────────────────────────────────────────────
                 Infrastructure.MemeAssets.DeliverStarter("mp3", musicFolder);
                 Infrastructure.MemeAssets.DeliverStarter("mp4", memeFolder);
                 Infrastructure.MemeAssets.DeliverStarter("jpeg", memeFolder);
@@ -1756,13 +1707,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     {
                         var uri = new Uri(startPath);
                         options.SuggestedStartLocation = await topLevel.StorageProvider.TryGetFolderFromPathAsync(uri);
-                    } 
-                    catch { }
+                    }
+                    catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                 }
             }
-            catch { }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
-        catch { }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
         SetTimelinePopupsVisible(false);
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(options);
@@ -1795,7 +1746,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths).UpdatePropertiesSync(state);
                 }
             }
-            catch { }
+            catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
             await LoadVideoIntoEditorAsync(selectedPath, "uploaded");
         }
@@ -1820,8 +1771,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         RuntimeLog.Debug("UI", $"Full path: {path}");
         ShowTacticalFeedback("Loading video...");
 
-        // A new clip means the old clip's zooms are meaningless. Clear any simulated crop before
-        // the file swaps, or the incoming video opens already cropped to the previous one's box.
         ClearLiveZoomCrop();
 
         var videoHost = _videoHost;
@@ -1883,8 +1832,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private async Task RunAudioLoudnessCheckAsync(string path)
     {
-        try { _loudnessProbeCts?.Cancel(); } catch { }
-        try { _loudnessProbeCts?.Dispose(); } catch { }
+        try { _loudnessProbeCts?.Cancel(); } catch (System.ObjectDisposedException) { }
+        try { _loudnessProbeCts?.Dispose(); } catch (System.ObjectDisposedException) { }
         var cts = new CancellationTokenSource();
         _loudnessProbeCts = cts;
 
@@ -1974,7 +1923,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     });
             }
         }
-        catch { }
+        catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
     }
 
     private void ResetProjectStateToUpload()
@@ -1994,9 +1943,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var detachBtnReset = this.FindControl<Button>("DetachOverlayButton");
         if (detachBtnReset != null) detachBtnReset.IsVisible = false;
-        // UXQA_01: the MENU entry was never gated, only the on-video button. With no clip loaded it
-        // looked live but DetachPreviewMonitor() silently returned, so the user clicked it and
-        // nothing happened at all. Keep the two in step.
         SetDetachMenuAvailable(false);
         var unlockHintReset = this.FindControl<TextBlock>("TrimUnlockHint");
         if (unlockHintReset != null) unlockHintReset.IsVisible = true;
@@ -2152,7 +2098,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var detachBtn = this.FindControl<Button>("DetachOverlayButton");
         if (detachBtn != null) detachBtn.IsVisible = true;
-        SetDetachMenuAvailable(true);   // UXQA_01
+        SetDetachMenuAvailable(true);
 
         var unlockHint = this.FindControl<TextBlock>("TrimUnlockHint");
         if (unlockHint != null) unlockHint.IsVisible = false;
@@ -2321,14 +2267,148 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// bottom edge of VideoAreaBorder), matching the original bottom-center feedback position.
     /// Styling: golden text (#facc15) on 50% semi-transparent dark blue (#0f1b3a) background.
     /// </summary>
-    private void ShowTacticalFeedback(string text)
+    /// <summary>
+    /// ISSUE_05 — fills the cheat sheet from the user's OWN key binds, never the factory defaults.
+    /// Rebuilt on every open so a rebind in Settings is reflected without restarting the app.
+    /// </summary>
+    private void BuildShortcutSheetRows()
     {
-        var popup = this.FindControl<Popup>("FeedbackPopup");
-        var popupText = this.FindControl<TextBlock>("FeedbackPopupText");
-        var popupBorder = this.FindControl<Border>("FeedbackPopupBorder");
-        var videoBorder = this.FindControl<Border>("VideoAreaBorder");
-        FloatingFeedback.Show(popup, popupBorder, popupText, videoBorder, text);
+        var rows = this.FindControl<StackPanel>("ShortcutSheetRows");
+        if (rows == null) return;
+
+        rows.Children.Clear();
+        var kb = SettingsManager.Instance.KeyBinds;
+
+        void Section(string title)
+        {
+            rows.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontWeight = Avalonia.Media.FontWeight.Bold,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(12),
+                Margin = new Thickness(0, 12, 0, 2),
+                Foreground = Infrastructure.ThemeResources.Brush(this, "AppAccentBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#60a5fa")))
+            });
+        }
+
+        void Row(string keyText, string what)
+        {
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("170,*") };
+
+            var chip = new Border
+            {
+                Background = Infrastructure.ThemeResources.Brush(this, "AppControlTrackBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#222222"))),
+                BorderBrush = Infrastructure.ThemeResources.Brush(this, "AppBorderBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#475569"))),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(10, 4),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                Child = new TextBlock
+                {
+                    Text = keyText,
+                    FontWeight = Avalonia.Media.FontWeight.Bold,
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(11),
+                    Foreground = Infrastructure.ThemeResources.Brush(this, "AppTextPrimaryBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#ffffff")))
+                }
+            };
+            Grid.SetColumn(chip, 0);
+            grid.Children.Add(chip);
+
+            var label = new TextBlock
+            {
+                Text = what,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(12),
+                Foreground = Infrastructure.ThemeResources.Brush(this, "AppTextMutedBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#b6c2d0")))
+            };
+            Grid.SetColumn(label, 1);
+            grid.Children.Add(label);
+
+            rows.Children.Add(grid);
+        }
+
+        Section("Playing and moving around");
+        Row(PrettyKey(kb.PlayPause), "Play or pause the video");
+        Row(PrettyKey(kb.SeekForward), "Jump forwards");
+        Row(PrettyKey(kb.SeekBackward), "Jump backwards");
+        Row("Ctrl + " + PrettyKey(kb.FineSeekForward), "Nudge forwards one frame at a time");
+        Row("Ctrl + " + PrettyKey(kb.FineSeekBackward), "Nudge backwards one frame at a time");
+
+        Section("Cutting the clip");
+        Row(PrettyKey(kb.MarkStart), "Cut off everything before this point");
+        Row(PrettyKey(kb.MarkEnd), "Cut off everything after this point");
+
+        Section("Volume");
+        Row(PrettyKey(kb.VolumeUp), "Louder");
+        Row(PrettyKey(kb.VolumeDown), "Quieter");
+        Row("Ctrl + " + PrettyKey(kb.AggressiveVolumeUp), "Louder, in big steps");
+        Row("Ctrl + " + PrettyKey(kb.AggressiveVolumeDown), "Quieter, in big steps");
+
+        Section("This card");
+        Row("?", "Open or close this list");
+        Row("Esc", "Close this list");
     }
+
+    /// <summary>
+    /// ISSUE_05 — Avalonia's Key enum names are developer-facing ("OemOpenBrackets", "D7"). This
+    /// prints what is actually engraved on the user's keyboard. Anything unmapped falls through to
+    /// the enum name, which is still better than showing nothing.
+    /// </summary>
+    private static string PrettyKey(Key key) => key switch
+    {
+        Key.Space => "Space",
+        Key.Left => "←",
+        Key.Right => "→",
+        Key.Up => "↑",
+        Key.Down => "↓",
+        Key.OemOpenBrackets => "[",
+        Key.OemCloseBrackets => "]",
+        Key.OemComma => ",",
+        Key.OemPeriod => ".",
+        Key.OemMinus => "-",
+        Key.OemPlus => "=",
+        Key.OemQuestion => "/",
+        Key.OemSemicolon => ";",
+        Key.OemQuotes => "'",
+        Key.OemBackslash => "\\",
+        Key.OemTilde => "`",
+        Key.Escape => "Esc",
+        Key.Back => "Backspace",
+        Key.Tab => "Tab",
+        Key.Delete => "Delete",
+        Key.Home => "Home",
+        Key.End => "End",
+        Key.PageUp => "Page Up",
+        Key.PageDown => "Page Down",
+        >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
+        _ => key.ToString()
+    };
+
+    /// <summary>
+    /// ISSUE_09 / ISSUE_14 — the float-up-and-fade notice. This used to be the ONLY screen in the
+    /// suite that had one, because the old FloatingFeedback helper needed three named XAML controls
+    /// and an OS-level Popup per window. It now draws into `OverlayCanvas` — the element that sat in
+    /// MainWindow.axaml commented "for Pop-up Badges and Custom Floating Animations" with not one
+    /// line of code ever drawing into it — and every other window in the suite can raise the same
+    /// notice with the same one-line call.
+    /// ⚠️ The FeedbackPopup / FeedbackPopupBorder / FeedbackPopupText trio and FloatingFeedback.cs
+    ///    were DELETED in the same change. Do not reintroduce a per-window Popup for this.
+    /// </summary>
+    private void ShowTacticalFeedback(string text)
+        => Controls.FloatingNotice.Show(this, text);
+
+    /// <summary>
+    /// ISSUE_09 — same notice, coloured for a successful action rather than a warning.
+    /// Kept as the counterpart to ShowTacticalFeedback so a caller reporting a SUCCESS does not
+    /// have to reach past this class into Controls.FloatingNotice and pick a NoticeKind by hand.
+    /// </summary>
+    private void ShowTacticalSuccess(string text)
+        => Controls.FloatingNotice.Success(this, text);
+
+    /// <summary>ISSUE_09 — the red variant, for an action the user attempted that could not run.</summary>
+    private void ShowTacticalError(string text)
+        => Controls.FloatingNotice.Error(this, text);
 
     private void ShowTimelineGlow(double timeMs, Avalonia.Media.IBrush color)
     {
@@ -2493,8 +2573,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             var watermark = this.FindControl<Border>("PreviewDetachedWatermark");
             if (watermark != null) watermark.IsVisible = detached;
 
-            // UXQA_01: caption AND enabled state both come from the shared SyncButton, so the Main
-            // App cannot drift from the other four screens.
             controller.SyncButton(this.FindControl<Button>("DetachOverlayButton"));
 
             var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
@@ -2508,9 +2586,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         return controller;
     }
 
-    // Kept as Task-returning members because PreviewMonitorWindow and several call sites await
-    // them. They are deliberately NOT `async`: there is nothing left to await here, and marking
-    // them async would only add a state machine and a CS1998 warning.
     public Task AttachPreviewMonitor()
     {
         PreviewDetach.Attach();
@@ -2519,7 +2594,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private Task DetachPreviewMonitor()
     {
-        // Main-App-specific precondition: there is no point popping out an empty player.
         if (string.IsNullOrEmpty(_loadedVideoPath)) return Task.CompletedTask;
         PreviewDetach.Detach();
         return Task.CompletedTask;
@@ -2911,7 +2985,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
                         if (_draggingStartMarker) {
                             _draggingStartMarker = false;
-                            try { e.Pointer.Capture(null); } catch { }
+                            try { e.Pointer.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
                         }
                         return;
                     }
@@ -3000,7 +3074,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
                         if (_draggingEndMarker) {
                             _draggingEndMarker = false;
-                            try { e.Pointer.Capture(null); } catch { }
+                            try { e.Pointer.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
                         }
                         return;
                     }
@@ -3769,22 +3843,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private bool _tickFaultLogged;
 
-    // ═════════════════════════════════════════════════════════════════════════════════════════
-    // LIVE ZOOM PREVIEW (Main App)
-    //
-    // The Main App preview used to ignore zooms entirely: the fuchsia markers appeared on the
-    // timeline, but the picture never zoomed. So after closing the Granular editor you re-watched
-    // the whole clip to sanity-check it before exporting and simply could not see one of the
-    // effects you had just applied.
-    //
-    // The picture now zooms exactly as the exported file will, INCLUDING the slow glide, because
-    // the maths comes from `ZoomPreviewSimulator` — the same one the Granular editor and Music
-    // Wizard phase 3 use, which in turn reads its timing straight off the export engine.
-    //
-    // ⚠️ GPU MACHINES ONLY. On the CPU fallback path each crop change rebuilds mpv's software
-    // scaler, and one 0.5s glide causes about ten of them on hardware that has no GPU to begin
-    // with. CPU-only machines keep the static rectangles and nothing more — deliberate.
-    // ═════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>Last crop pushed to mpv, so an unchanged value is never re-sent every tick.</summary>
     private string _lastLiveCrop = "";
@@ -3799,8 +3857,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         double durSec = Math.Max(0.1, ((_trimEndMs > 0 ? _trimEndMs : ipc.Duration * 1000.0) - _trimStartMs) / 1000.0);
         double tSec = Math.Max(0, (ipc.CurrentTime * 1000.0) - _trimStartMs) / 1000.0;
 
-        // PORTRAIT_01: same truthfulness rule as the Granular editor — when Portrait mode is on,
-        // the preview shows the 2:3 slice the export produces, zoom or no zoom.
         bool portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
             _speedSegments, tSec, durSec, portrait, ipc.VideoWidth, ipc.VideoHeight);
@@ -3861,28 +3917,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         double dur = ActiveVideoHost.IpcClient.Duration;
         double displayTime = dur > 0 ? Math.Clamp(time, 0, dur) : Math.Max(0, time);
 
-        // ─────────────────────────────────────────────────────────────────────────────────────
-        // EOF_01 — THE VIDEO REACHING ITS END MUST STOP THE MUSIC AND THE VOICE-OVER.
-        //
-        // Symptom: "the music keeps playing after the video ends." Both preview gates below asked
-        // only `!isPaused && time is inside my range`, and NEITHER of those turns false at the end
-        // of the clip:
-        //   * `MpvVideoView` sets `keep-open=yes`, so at EOF mpv parks on the last frame instead of
-        //     unloading. `time` freezes at roughly `duration` — it never advances PAST the music's
-        //     end point, so `time <= TimelineEndSeconds` stays TRUE.
-        //   * That comparison is inclusive, and the normal case is music running to the very end of
-        //     the clip, which puts TimelineEndSeconds exactly at `duration`. So the range test can
-        //     never fail on its own.
-        //   * `_isCurrentlyFrozen` force-clears `isPaused` a few lines down, so even the pause flip
-        //     is not dependable.
-        // With every condition stuck TRUE, the music player was simply never told to stop.
-        //
-        // `IsEof` was already being maintained by MpvIpcClient from mpv's `eof-reached` property —
-        // the signal existed and was used in exactly ONE place in the whole application. The
-        // duration fallback covers the tick or two before `eof-reached` propagates, and is skipped
-        // entirely when duration is unknown (dur <= 0) so a still-loading file is never treated as
-        // finished.
-        // ─────────────────────────────────────────────────────────────────────────────────────
         bool videoEnded = ActiveVideoHost.IpcClient.IsEof || (dur > 0 && time >= dur - 0.05);
 
         if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
@@ -3891,7 +3925,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (_isCurrentlyFrozen) isPaused = false;
             double songTime = _musicWizardResult.OffsetSeconds + (time - _musicWizardResult.TimelineStartSeconds);
             bool songHasAudio = _musicWizardResult.MusicDurationSeconds <= 0 || songTime < _musicWizardResult.MusicDurationSeconds;
-            // EOF_01: `!videoEnded` is what actually stops this at the end of the clip — see above.
             bool shouldPlayMusic = !isPaused && !videoEnded && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds && songHasAudio;
             bool isDraggingAnyMarker = _draggingStartMarker || _draggingEndMarker || _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock;
 
@@ -3924,8 +3957,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             foreach (var take in _voiceOverPreviewTakes)
             {
                 double voiceTime = editedTime - take.StartProjectSec;
-                // EOF_01: identical defect — a take that runs to the end of the clip kept playing
-                // past it, for exactly the same reason the music did.
                 bool shouldPlayVoice = !isPaused && !videoEnded && voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
 
                 if (shouldPlayVoice && take.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
@@ -4039,10 +4070,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             try
             {
                 string ffmpegExe = ResolveFfmpegPath();
-                // ISSUE 2: the Main App is the suite's scanner. ScanSharedAsync reuses a valid
-                // published result if one exists and PUBLISHES a fresh one otherwise, so the
-                // Video Merger and Crop Tools never have to run this four-process ffmpeg probe
-                // themselves and can never reach a different answer than this window did.
                 string mode = await HardwareScanner.ScanSharedAsync(ffmpegExe);
                 _hardwareMode = mode;
 
@@ -4062,15 +4089,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                         hwLabel.Text = "RDP: CPU BLOCKED";
                         hwLabel.Foreground = Avalonia.Media.Brushes.Red;
                     }
-                    // G03: a user override outranks the scan and must be what the badge reports,
-                    // otherwise the label and the actual encoder disagree.
                     string effective = ResolveHardwareMode();
 
                     if (effective == HardwareScanner.ScanFailed)
                     {
-                        // The scan ABORTED. It did NOT prove this box is CPU-only, and
-                        // EncoderManager will re-probe at export time. Saying "CPU Only" here
-                        // was the visible half of the bug that hid a dead GPU pipeline.
                         RuntimeLog.Fail("Hardware", "Boot hardware scan did not complete; encoder will be re-probed at export time.");
                         hwLabel.Text = "HW: Detecting…";
                         hwLabel.Foreground = Avalonia.Media.Brushes.Goldenrod;
@@ -4090,7 +4112,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
             catch
             {
-                // G03: an exception here means the scan is UNKNOWN, not that the GPU is absent.
                 _hardwareMode = HardwareScanner.ScanFailed;
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
@@ -4111,7 +4132,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return false;
 
         bool isRdp = false;
-        try { isRdp = GetSystemMetrics(0x1000) != 0; } catch { }
+        try { isRdp = GetSystemMetrics(0x1000) != 0; } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         if (!isRdp)
         {
             var clientName = Environment.GetEnvironmentVariable("CLIENTNAME");
@@ -4232,6 +4253,31 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
+        bool questionPressed = e.Key == Key.OemQuestion;
+        var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+        if (sheet != null)
+        {
+            if (questionPressed)
+            {
+                if (!sheet.IsVisible) BuildShortcutSheetRows();
+                sheet.IsVisible = !sheet.IsVisible;
+                RuntimeLog.Info("UI", $"Keyboard shortcut sheet {(sheet.IsVisible ? "opened" : "closed")}.");
+                e.Handled = true;
+                return;
+            }
+            if (sheet.IsVisible && e.Key == Key.Escape)
+            {
+                sheet.IsVisible = false;
+                e.Handled = true;
+                return;
+            }
+            if (sheet.IsVisible)
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (_isThumbnailMarkerSelected && _thumbnailSet && e.Key is Key.Left or Key.Right)
         {
             int frames = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 1;
@@ -4246,7 +4292,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             if (FocusManager?.GetFocusedElement() is ListBox listBox && listBox.SelectedItem is string filePath)
             {
-                try { System.IO.File.Delete(filePath); } catch { }
+                try
+                {
+                    System.IO.File.Delete(filePath);
+                }
+                catch (System.Exception __ex)
+                {
+                    RuntimeLog.Fail("UI", $"Could not delete '{System.IO.Path.GetFileName(filePath)}': {__ex.Message}");
+                    RuntimeLog.Swallowed(__ex);
+                    ShowTacticalError("Could not delete that file");
+                }
             }
         }
         var playPause = new Avalonia.Input.KeyGesture(kb.PlayPause);
@@ -4396,11 +4451,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var previousCts = _processCts;
         _processCts = new System.Threading.CancellationTokenSource();
-        try { previousCts?.Dispose(); } catch { }
+        try { previousCts?.Dispose(); } catch (System.ObjectDisposedException) { /* ISSUE_13: already disposed by the task that owned it. Expected. */ }
 
         await Task.Yield();
         
-        // --- DECOUPLED PIPELINE INJECTION ---
         SetTimelinePopupsVisible(false);
         if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
         this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
@@ -4519,8 +4573,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ShowTeammates = this.FindControl<Avalonia.Controls.ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
             ShowSpectating = this.FindControl<Avalonia.Controls.ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
             MemeFile = memeFile,
-            // MEME_02: resolved per file — the user's remembered choice, else the shipped
-            // default, else End. See MemePlacementStore for the precedence.
             MemeAtStart = !string.IsNullOrWhiteSpace(memeFile) &&
                           Infrastructure.MemePlacementStore.Get(memeFile!) == Infrastructure.MemePlacement.Start,
             PortraitText = this.FindControl<Avalonia.Controls.TextBox>("PortraitTextInput")?.Text,
@@ -4716,7 +4768,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             _ = ipc.SetPropertyAsync("pause", "yes");
             _ = SeekInternal(_trimStartMs / 1000.0);
-            ClearLiveZoomCrop();   // the zoom set may have changed; the next tick recomputes it
+            ClearLiveZoomCrop();
         }
         catch (Exception ex)
         {
@@ -4817,7 +4869,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         if (needsUpdate)
         {
-            try { pointer?.Capture(null); } catch { }
+            try { pointer?.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
             UpdateTimelineMarkers();
             SaveRecoveryState();
         }
@@ -4844,12 +4896,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
-        // ⚠️ RECOVERY_02 — FIRST STATEMENT, SYNCHRONOUS, BEFORE ANY await. DO NOT MOVE IT DOWN.
-        // Everything below this line is asynchronous, and during a Windows shutdown / restart /
-        // sign-out the OS can terminate the process partway through it. This marker is what tells
-        // the next launch "the user meant to close" — without it the leftover session lock makes
-        // the app announce a crash that never happened, every single time the PC is shut down with
-        // the app open.
         _recovery.MarkCleanShutdownIntent();
 
         e.Cancel = true;
@@ -4882,13 +4928,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
         finally
         {
-            // ⚠️ RECOVERY_01 — CLEANUP BELONGS IN `finally`, NOT IN THE `try`.
-            // It used to sit in the try block AFTER `await SaveBoundsAsync(...)`. If that throw —
-            // disk full, the bounds file locked, one bad serialize — the catch swallowed it, the
-            // `finally` still exited the process cleanly, and the session lock plus the recovery
-            // state SURVIVED a perfectly normal close. The next launch then announced a crash that
-            // never happened and offered to restore a session the user had deliberately finished.
-            // A failure while saving window position must never be able to fake a crash.
             try { _recovery.CleanupLock(); }
             catch (Exception ex) { RuntimeLog.Fail("UI", $"Recovery cleanup failed during close: {ex.Message}"); }
 
@@ -4898,28 +4937,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    // LEAK_01 — ORDERED TEARDOWN OF THE mpv / D3D11 / OpenGL PIPELINE.
-    //
-    // The Main App was the ONLY window that never disposed its MpvVideoView. Granular, Voice Over,
-    // the Merger and the Music Wizard all do. That mattered more here than anywhere else, because
-    // this class leaves the process through `Environment.Exit(0)` in NINE different places —
-    // and Environment.Exit does NOT run finalizers, so `~MpvVideoView` never fired either. The
-    // whole documented teardown ORDER was skipped every single time:
-    //
-    //     mpv_render_context_free -> IpcClient.Dispose -> mpv_terminate_destroy
-    //     -> NativeLibrary.Free(opengl32) -> D3D11 context -> D3D11 device
-    //
-    // That is the exact ordering the changelog records being introduced to stop raw 0xc0000005
-    // access violations inside NVIDIA's driver (`nvoglv64.dll`) when the Granular editor closed.
-    // The Granular editor got that fix; the Main App never did. It was usually masked because
-    // Environment.Exit tends to kill the process before the driver can fault — "usually" is not a
-    // guarantee, and it is worst on the SIX handoff paths that spawn the Merger or Crop Tool,
-    // where a sibling process is grabbing the same GPU as this one abandons it.
-    //
-    // ⚠️ CALL THIS BEFORE EVERY Environment.Exit IN THIS CLASS. It is idempotent and cheap, so
-    // when in doubt, call it.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
     private bool _videoPipelineShutDown;
 
     private void ShutdownVideoPipeline()
@@ -4927,14 +4944,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (_videoPipelineShutDown) return;
         _videoPipelineShutDown = true;
 
-        // DETACH_01: if the preview is currently popped out, the host is parented to the floating
-        // window. Bring it home first so it is disposed from its own tree, exactly as it would be
-        // on a normal close, and so the floating window does not outlive the surface it displays.
         try { _previewDetach?.Attach(); }
         catch (Exception ex) { RuntimeLog.Fail("UI", $"Could not reattach the preview during shutdown: {ex.Message}"); }
 
-        // Deliberately NOT nulled: Dispose is guarded by its own _isDisposed flag, and leaving the
-        // reference intact keeps anything still unwinding on the close path from null-referencing.
         try { _videoHost?.Dispose(); }
         catch (Exception ex) { RuntimeLog.Fail("UI", $"Video preview teardown reported: {ex.Message}"); }
 
@@ -4944,6 +4956,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     protected override void OnClosed(EventArgs e)
     {
+        Controls.CoachOverlay.Cancel(this);
+        Controls.FloatingNotice.Clear(this);
         base.OnClosed(e);
         SingleInstanceGuard.VideoPathReceived -= OnVideoHandedOffFromAnotherLaunch;
         SingleInstanceGuard.Release();
@@ -4969,7 +4983,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && e.ClickCount < 2)
                 {
-                    try { BeginMoveDrag(e); } catch { }
+                    try { BeginMoveDrag(e); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                 }
             };
         }
@@ -5082,8 +5096,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         foreach (var take in _voiceOverPreviewTakes)
         {
-            try { take.Player.Dispose(); } catch { }
-            try { take.Reader.Dispose(); } catch { }
+            try { take.Player.Dispose(); } catch (System.Exception) { }
+            try { take.Reader.Dispose(); } catch (System.Exception) { }
         }
         _voiceOverPreviewTakes.Clear();
     }
@@ -5232,48 +5246,202 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _recoveryDebounceTimer.Start();
     }
 
+    private async Task SwitchToCompanionAppAsync(string commandLineSwitch, string toolName)
+    {
+        if (_companionHandoffInProgress) return;
+
+        if (HasUnsavedWork() && Infrastructure.SettingsManager.Instance.ConfirmMainAppSwitchTool)
+        {
+            var dlg = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+            dlg.SetTitle($"Open {toolName}?");
+            dlg.SetMessage(
+                $"{toolName} opens in place of this window, so the editor you are looking at now will close." + Environment.NewLine + Environment.NewLine +
+                "Your edits are saved first and come straight back the next time you open the editor — nothing is lost." + Environment.NewLine + Environment.NewLine +
+                $"Open {toolName} now?");
+            dlg.SetButtonText($"OPEN {toolName.ToUpperInvariant()}", "STAY HERE");
+            await dlg.ShowDialog(this);
+
+            if (!dlg.Result)
+            {
+                RuntimeLog.Info("UI", $"User declined the switch to {toolName} and stayed in the editor.");
+                ShowTacticalFeedback("Staying in the editor");
+                return;
+            }
+        }
+
+        _companionHandoffInProgress = true;
+        RuntimeLog.Info("UI", $"Opening {toolName} and closing Main app.");
+
+        SaveRecoveryState(sync: true);
+        _recovery.ReleaseLockOnly();
+
+        ShowCompanionHandoffOverlay(toolName);
+
+        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
+
+        System.Diagnostics.Process? child = null;
+        try
+        {
+            child = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(exePath, commandLineSwitch) { UseShellExecute = false });
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Fail("UI", $"Could not launch {toolName}: {ex.Message}");
+            HideCompanionHandoffOverlay();
+            _companionHandoffInProgress = false;
+            ShowTacticalError($"Could not open {toolName}");
+            return;
+        }
+
+        ShutdownVideoPipeline();
+
+        if (child != null)
+        {
+            for (int i = 0; i < 100; i++)
+            {
+                try
+                {
+                    if (child.HasExited) break;
+                    child.Refresh();
+                    if (child.MainWindowHandle != IntPtr.Zero) break;
+                }
+                catch (System.Exception ex) { RuntimeLog.Debug("UI", $"Handoff poll for {toolName}: {ex.Message}"); break; }
+                await Task.Delay(100);
+            }
+            await Task.Delay(400);
+        }
+
+        Environment.Exit(0);
+    }
+
+    /// <summary>ISSUE_02 — guards against a double-click firing two handoffs.</summary>
+    private bool _companionHandoffInProgress;
+
+    /// <summary>
+    /// ISSUE_02 — the "hold on, the other tool is opening" curtain. Built in code rather than XAML
+    /// so it cannot be accidentally left visible by a designer edit, and placed at int.MaxValue so
+    /// it covers every other overlay in the window including the export phase overlay.
+    /// </summary>
+    private void ShowCompanionHandoffOverlay(string toolName)
+    {
+        try
+        {
+            if (this.Content is not Panel rootPanel) return;
+
+            var card = new StackPanel
+            {
+                Spacing = 16,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            card.Children.Add(new TextBlock
+            {
+                Text = $"Opening {toolName}…",
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(20),
+                FontWeight = Avalonia.Media.FontWeight.Bold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Foreground = Infrastructure.ThemeResources.Brush(this, "AppTextPrimaryBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#ffffff")))
+            });
+            card.Children.Add(new ProgressBar
+            {
+                IsIndeterminate = true,
+                Width = 240,
+                Height = 4
+            });
+            card.Children.Add(new TextBlock
+            {
+                Text = "Your edits have been saved and will be waiting when you come back.",
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(12),
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                TextAlignment = Avalonia.Media.TextAlignment.Center,
+                MaxWidth = 420,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Foreground = Infrastructure.ThemeResources.Brush(this, "AppTextMutedBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#b6c2d0")))
+            });
+
+            _companionHandoffOverlay = new Border
+            {
+                Background = Infrastructure.ThemeResources.Brush(this, "AppDimmerHeavyBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#C8000000"))),
+                ZIndex = int.MaxValue,
+                Child = card
+            };
+            rootPanel.Children.Add(_companionHandoffOverlay);
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Debug("UI", $"Handoff overlay could not be shown: {ex.Message}");
+        }
+    }
+
+    private void HideCompanionHandoffOverlay()
+    {
+        try
+        {
+            if (_companionHandoffOverlay != null && this.Content is Panel rootPanel)
+            {
+                rootPanel.Children.Remove(_companionHandoffOverlay);
+            }
+            _companionHandoffOverlay = null;
+        }
+        catch (System.Exception ex) { RuntimeLog.Debug("UI", $"Handoff overlay could not be hidden: {ex.Message}"); }
+    }
+
+    private Border? _companionHandoffOverlay;
+
+    /// <summary>
+    /// ISSUE_02 / RECOVERY_03 / RECOVERY_04 — "is there anything worth recovering?", in ONE place.
+    ///
+    /// <para>
+    /// RECOVERY_03: the speed test used to be <c>Math.Abs(_baseSpeed - 1.0) &gt; 0.01</c>, but the
+    /// app's default speed is 1.1 (<c>SpeedPresetButtons.NativeDefaultSpeed</c>). |1.1-1.0| = 0.1,
+    /// so the condition was TRUE from the instant the window opened, for every user on the
+    /// defaults — permanently. Two opposite failures came out of that one wrong constant: the
+    /// ClearState() branch in SaveRecoveryState was effectively dead, so a stale recovery file
+    /// lingered after the user removed their last edit; and the moment anyone chose exactly 1.0x —
+    /// an entirely normal choice — the test flipped to false and the file was DELETED, taking
+    /// everything in RECOVERY_04 with it. Compare against the real default, so this means what it
+    /// says.
+    /// </para>
+    /// <para>
+    /// RECOVERY_04: the meme choice and the HUD/portrait toggles are all written into the recovery
+    /// payload, yet none of them used to count as "work". If they were the user's only edits the
+    /// app decided there was nothing to keep and ERASED the file — and since the toggle handlers
+    /// call SaveRecoveryState() on every click, ticking Boss HP actively destroyed the recovery
+    /// state instead of saving it. They are counted here.
+    /// ⚠️ These two fixes are a PAIR. RECOVERY_03 alone would have exposed RECOVERY_04 immediately;
+    /// RECOVERY_04 alone leaves the dead-branch half of RECOVERY_03 in place.
+    /// </para>
+    /// <para>
+    /// ⚠️ A LOADED VIDEO IS NOT WORK. Uploading a clip and touching nothing else must return false —
+    /// that is exactly the case the Video Merger / Crop Tools switch prompt must NOT interrupt.
+    /// Do not add "_videoPath != null" to this expression.
+    /// </para>
+    /// </summary>
+    private bool HasUnsavedWork()
+    {
+        bool memeSelected = (this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false)
+                            || this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem is MemeItem;
+
+        bool hudToggled = (this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false)
+                          || (this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false)
+                          || (this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false);
+
+        return _trimStartSet || _trimEndSet || _thumbnailSet ||
+               _isGranularSpeedActive || _isMusicActive || _voiceOverResult != null ||
+               _musicWizardResult != null ||
+               _speedSegments.Count > 0 || _freezeTimeMs >= 0 ||
+               Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) > 0.01 ||
+               memeSelected || hudToggled ||
+               !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
+    }
+
     private void SaveRecoveryState(bool sync = false)
     {
         if (_isRestoring) return;
         try
         {
-            // ═════════════════════════════════════════════════════════════════════════════════
-            // "IS THERE ANYTHING WORTH RECOVERING?" — read the two fixes below before editing.
-            //
-            // RECOVERY_03: the speed test used to be `Math.Abs(_baseSpeed - 1.0) > 0.01`, but the
-            // app's default speed is 1.1 (SpeedPresetButtons.NativeDefaultSpeed). |1.1-1.0| = 0.1,
-            // so the condition was TRUE from the instant the window opened, for every user on the
-            // defaults — permanently. Two opposite failures came out of that one wrong constant:
-            //   * the ClearState() branch below was effectively dead, so after the user removed
-            //     their last edit the recovery file was NOT deleted and lingered with stale
-            //     contents (the "false states" problem);
-            //   * and the moment anyone chose exactly 1.0x — an entirely normal choice — the test
-            //     flipped to false and the file was DELETED, taking everything in RECOVERY_04
-            //     with it.
-            // Compare against the real default, so this means what it says.
-            //
-            // RECOVERY_04: the meme choice and the HUD/portrait toggles are all WRITTEN into the
-            // payload below, yet none of them used to count as "work". If they were the user's
-            // only edits the app decided there was nothing to keep and ERASED the file — and since
-            // the toggle handlers call SaveRecoveryState() on every click, ticking Boss HP
-            // actively destroyed the recovery state instead of saving it. They are counted now.
-            // ⚠️ These two fixes are a PAIR. RECOVERY_03 alone would have exposed RECOVERY_04
-            // immediately; RECOVERY_04 alone leaves the dead-branch half of RECOVERY_03 in place.
-            // ═════════════════════════════════════════════════════════════════════════════════
-            bool memeSelected = (this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false)
-                                || this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem is MemeItem;
-
-            bool hudToggled = (this.FindControl<ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false)
-                              || (this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false)
-                              || (this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false);
-
-            bool hasWork = _trimStartSet || _trimEndSet || _thumbnailSet ||
-                           _isGranularSpeedActive || _isMusicActive || _voiceOverResult != null ||
-                           _musicWizardResult != null ||
-                           _speedSegments.Count > 0 || _freezeTimeMs >= 0 ||
-                           Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) > 0.01 ||
-                           memeSelected || hudToggled ||
-                           !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
+            bool hasWork = HasUnsavedWork();
 
             if (!hasWork)
             {

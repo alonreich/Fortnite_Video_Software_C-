@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,7 +31,7 @@ public class MainMediaController
             var tcs = new TaskCompletionSource<ExportResult>();
             
             ct.Register(() => {
-                try { worker.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { worker.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             });
 
             worker.Finished += (success, message) =>
@@ -45,7 +45,6 @@ public class MainMediaController
 
                 if (success)
                 {
-                    // LOG_01: full path, not just the file name — see ProcessWorker's completion line.
                     RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
                     tcs.TrySetResult(new ExportResult { Success = true, OutputPath = message, Warning = worker.CompletionWarning });
                 }
@@ -90,9 +89,7 @@ public class MainMediaController
             worker.ShowTeammates = payload.ShowTeammates;
             worker.ShowSpectating = payload.ShowSpectating;
             worker.MemeFile = payload.MemeFile;
-            worker.MemeAtStart = payload.MemeAtStart;   // MEME_02
-            // MEME_03: the list wins when present; the legacy pair above is the fallback for
-            // payloads (including crash-recovery state) written before multi-meme support.
+            worker.MemeAtStart = payload.MemeAtStart;
             if (payload.MemePlacements != null && payload.MemePlacements.Count > 0)
                 worker.MemePlacements = payload.MemePlacements;
             worker.PortraitText = payload.PortraitText;

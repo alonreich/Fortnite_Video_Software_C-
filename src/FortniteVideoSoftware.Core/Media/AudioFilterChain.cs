@@ -1,7 +1,9 @@
-
+﻿
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
+
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 
@@ -130,7 +132,7 @@ public class AudioFilterChain
                 double mEnd = (double)(musicConfig["timeline_end_sec"]?.GetValue<double>() ?? 0);
                 if (mEnd > mStart) musicWindowSec = mEnd - mStart;
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
 
         if (tracks.Count > 0 && musicWindowSec.HasValue)
@@ -164,7 +166,7 @@ public class AudioFilterChain
         if (musicConfig != null)
         {
             try { initialDelaySec = Math.Max(0, (double)(musicConfig["timeline_start_sec"]?.GetValue<double>() ?? 0)); }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
 
         var preparedMusicLabels = new List<string>();
@@ -220,22 +222,6 @@ public class AudioFilterChain
                 }
             }
 
-            // ─────────────────────────────────────────────────────────────────────────────────
-            // AUDIO_03 — PUT THE MUSIC AT A BED LEVEL BEFORE THE USER'S SLIDER TOUCHES IT.
-            //
-            // The gameplay is loudness-measured and normalised; the music never was. A commercial
-            // master lands around -8 to -10 LUFS, the game bus at -14, so "slider 1.0 vs slider
-            // 1.0" actually meant the music started roughly 5 dB AHEAD. The ducking and carving
-            // downstream were then permanently fighting a deficit rather than doing their real job.
-            //
-            // musicBedGainDb carries a per-file correction measured by AudioLoudnessProbe, so a
-            // loud pop master gets pulled down and a quiet acoustic track gets lifted — both land
-            // at the same bed level. The user's slider is applied ON TOP, so 1.0 finally means
-            // "normal background level" instead of "however loud this particular record is".
-            //
-            // A missing entry means the measurement failed; the correction is simply 0 dB and the
-            // behaviour falls back to exactly what it was before. Never block an export over this.
-            // ─────────────────────────────────────────────────────────────────────────────────
             double mVol = GetDouble(musicConfig, "music_vol", GetDouble(musicConfig, "volume", 0.8));
             if (musicBedGainDb != null && musicBedGainDb.TryGetValue(track.Path, out double bedDb) && Math.Abs(bedDb) > 0.01)
             {
@@ -280,22 +266,6 @@ public class AudioFilterChain
         bool carvingEnabled = musicConfig != null && (musicConfig["carving_enabled"]?.GetValue<bool>() ?? true);
         if (carvingEnabled)
         {
-            // ─────────────────────────────────────────────────────────────────────────────────
-            // AUDIO_05 (#6) — ONE HONEST CARVE INSTEAD OF TWO COSMETIC NOTCHES.
-            //
-            // This was `equalizer=f=1500:width=500:g=-5` plus `equalizer=f=3000:width=500:g=-3`.
-            // With width_type=h the width is in HERTZ, so those were Q≈3 and Q≈6 — surgical
-            // notches, far too narrow to create real space, yet applied PERMANENTLY, including
-            // through silence where there is nothing to make room for. The music was left slightly
-            // hollow all the time in exchange for very little.
-            //
-            // A single wider, gentler scoop centred where game detail actually lives does more
-            // with less: -4 dB at 2 kHz across ~1800 Hz covers the 1.1-2.9 kHz band in one move.
-            //
-            // NEXT STEP IF THIS IS EVER REVISITED: make it DYNAMIC — drive the same cut from the
-            // sidechain trigger so the hole only opens while the game needs it, and the music is
-            // untouched the rest of the time. That is the proper fix; this is the good one.
-            // ─────────────────────────────────────────────────────────────────────────────────
             chain.Add($"{bgMusicLabel}equalizer=f=2000:width_type=h:width=1800:g=-4[a_bg_music]");
             bgMusicLabel = "[a_bg_music]";
         }
@@ -328,35 +298,13 @@ public class AudioFilterChain
                   "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
         chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");
 
-        // ─────────────────────────────────────────────────────────────────────────────────────
-        // AUDIO_06 (#5) — THE PROTECTED-BASS LINE MOVES 150 Hz -> 250 Hz.
-        //
-        // Everything below this split is never ducked, so it is a permanent shelter for the music.
-        // At 150 Hz that shelter covered the region where a gunshot's WEIGHT lives (roughly
-        // 80-250 Hz), so the music's low-mid body kept sitting on top of gunfire even while its
-        // treble politely stepped aside — the shots lost their punch without the music ever
-        // appearing to be in the way.
-        //
-        // 250 Hz hands that band to the ducker while still leaving true bass (kick fundamental,
-        // sub) untouched, which is what stops a ducked track going limp.
-        // ⚠️ Raising this much further starts thinning the music audibly. 250-300 Hz is the useful
-        // range; do not push it into the low mids.
-        // ─────────────────────────────────────────────────────────────────────────────────────
         chain.Add($"{bgMusicLabel}acrossover=split=250[mus_low][mus_high]");
 
-        // AUDIO_08: fall back to the SHARED tuned constants, not to stale literals. These used to
-        // read 0.15 / 2.5 — the 2.5 was the pre-retune ratio, so any caller that did not supply a
-        // config value silently got the old, inaudible ducking back.
         double dThresh = GetDouble(musicConfig, "ducking_threshold", SidechainCompressNode.TunedThreshold);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", SidechainCompressNode.TunedRatio);
 
         chain.Add(new FilterChain()
             .WithInputs("mus_high", "trig_final")
-            // AUDIO_08: ONLY the two genuinely configurable values are set here. Attack, Release and
-            // Detection now come from SidechainCompressNode's defaults — they used to be hardcoded
-            // to 1 / 400 / "rms" in this initialiser, which silently overrode the retuned defaults
-            // and left the ducker on its old, inaudible settings.
-            // ⚠️ DO NOT re-add Attack/Release/Detection here. Change the Tuned* constants instead.
             .AddNode(new SidechainCompressNode { Threshold = dThresh, Ratio = dRatio })
             .WithOutputs("mus_high_ducked")
             .ToFFmpegString());

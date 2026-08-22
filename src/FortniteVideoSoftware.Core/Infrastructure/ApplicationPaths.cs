@@ -1,4 +1,4 @@
-namespace FortniteVideoSoftware.Core.Infrastructure;
+﻿namespace FortniteVideoSoftware.Core.Infrastructure;
 
 public sealed class ApplicationPaths
 {
@@ -122,7 +122,7 @@ public sealed class ApplicationPaths
                 });
                 System.Threading.Tasks.Task.Run(async () => { if (proc != null) await proc.WaitForExitAsync(); });
             }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
     }
 }

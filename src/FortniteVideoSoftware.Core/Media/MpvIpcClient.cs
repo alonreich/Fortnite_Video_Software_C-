@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -454,11 +454,11 @@ public class MpvIpcClient : IDisposable
         bool loopStopped = true;
         if (_cts != null)
         {
-            try { _cts.Cancel(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _cts.Cancel(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             if (_mpvHandle != nint.Zero)
             {
-                try { MpvWrapper.mpv_wakeup(_mpvHandle); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { MpvWrapper.mpv_wakeup(_mpvHandle); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }
 
             if (_eventLoopThread != null)
@@ -468,7 +468,7 @@ public class MpvIpcClient : IDisposable
                 _eventLoopThread = null;
             }
 
-            try { _cts.Dispose(); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { _cts.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             _cts = null;
         }
 

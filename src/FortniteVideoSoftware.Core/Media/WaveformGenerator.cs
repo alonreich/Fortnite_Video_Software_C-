@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -51,7 +51,7 @@ public static class WaveformGenerator
             await process.WaitForExitAsync(cancellationToken);
             _ = await outputTask;
             string waveErr = string.Empty;
-            try { waveErr = await errorTask; } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { waveErr = await errorTask; } catch (System.Exception __ex) { CoreLogger.Swallowed(__ex); }
 
             if (process.ExitCode == 0 && File.Exists(tempPng) && new FileInfo(tempPng).Length > 0)
             {
@@ -72,11 +72,11 @@ public static class WaveformGenerator
                 if (process != null && !process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            catch (System.Exception __ex) { CoreLogger.Swallowed(__ex); }
 
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { CoreLogger.Swallowed(__ex); }
             }
 
             throw;
@@ -86,12 +86,12 @@ public static class WaveformGenerator
             CoreLogger.Fail("WaveformGenerator", $"Waveform generation threw: {ex.Message}");
             if (tempPng != null && File.Exists(tempPng))
             {
-                try { File.Delete(tempPng); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+                try { File.Delete(tempPng); } catch (System.Exception __ex) { CoreLogger.Swallowed(__ex); }
             }
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception __ex) { System.Diagnostics.Debug.WriteLine(__ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception __ex) { CoreLogger.Swallowed(__ex); }
         }
         return null;
     }

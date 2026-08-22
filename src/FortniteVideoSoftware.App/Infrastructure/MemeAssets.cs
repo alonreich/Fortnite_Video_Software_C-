@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -56,8 +56,6 @@ public static class MemeAssets
                 "Donald Trump - He Died like a Dog.mp4",
                 "I will find you and I will kill you.mp4",
             },
-            // Images are shipped whole — all three are small enough and there is no reason to
-            // deliver a partial set of a three-item category.
             ["jpeg"] = Array.Empty<string>(),
         };
 
@@ -106,8 +104,6 @@ public static class MemeAssets
             string src = Path.Combine(StarterRoot(), category);
             if (!Directory.Exists(src))
             {
-                // Dev runs before a Build.cmd, or a stripped install. Not an error — just nothing
-                // to deliver. Do NOT write the marker, so a later proper build still gets a chance.
                 RuntimeLog.Info("Starter", $"No starter '{category}' folder shipped with this build — skipping.");
                 return 0;
             }
@@ -125,7 +121,7 @@ public static class MemeAssets
                     string from = Path.Combine(src, name);
                     string to = Path.Combine(destination, name);
                     if (!File.Exists(from)) continue;
-                    if (File.Exists(to)) continue;          // never overwrite the user's copy
+                    if (File.Exists(to)) continue;
                     File.Copy(from, to);
                     copied++;
                 }

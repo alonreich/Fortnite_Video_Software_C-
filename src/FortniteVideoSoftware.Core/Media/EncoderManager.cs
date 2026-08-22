@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -49,10 +49,6 @@ public class EncoderManager
             }
             else if (upper == HardwareScanner.ScanFailed)
             {
-                // G03: the boot scan ABORTED — it never proved this machine is CPU-only. This
-                // constructor has just run its OWN successful `ffmpeg -encoders` probe, which is
-                // strictly better evidence. Treat the sentinel exactly like AUTO and say so
-                // loudly, so a silent hardware downgrade can never happen again.
                 PrimaryEncoder = AvailableEncoders.Count == 0 ? "libx264" : EncoderPreference.FirstOrDefault(encoder =>
                     encoder != "libx264" && AvailableEncoders.Contains(encoder)) ?? "libx264";
                 ForcedCpu = PrimaryEncoder == "libx264";
@@ -116,7 +112,36 @@ public class EncoderManager
         _ => encoderName,
     };
 
-    private int VbvBufKbps(int kbps) => Math.Min(MaxBitrateKbps, Math.Max(kbps, kbps * 2));
+    private static int VbvBufKbps(int kbps) => Math.Min(MaxBitrateKbps, Math.Max(kbps, kbps * 2));
+
+    /// <summary>
+    /// DEDUPE_02 — THE ONE COPY OF THE HARDWARE VBV / PEAK-BITRATE ARITHMETIC.
+    ///
+    /// `h264_nvenc`, `h264_amf` and `h264_qsv` each carried a byte-identical three-line block:
+    /// clamp the requested rate into [300, MaxBitrateKbps], derive the peak (equal to the average
+    /// when the export is size-locked, otherwise 1.5x capped at the same ceiling), and size the VBV
+    /// buffer from THE PEAK — never from the average, or a size-locked CBR export overshoots its
+    /// target. Three copies meant three places to forget when the ceiling or the 1.5x headroom
+    /// changes; there is now one.
+    ///
+    /// ⚠️ SILICON-SPECIFIC FLAGS DO NOT BELONG HERE. `-rc`, `-cq`/`-qp_*`/`-global_quality`,
+    /// presets, AQ and the `rcLabel` string differ per vendor and stay at their call sites. This
+    /// helper emits ONLY `-b:v` / `-maxrate` / `-bufsize`, which is exactly the part that was
+    /// identical. Adding a vendor branch in here re-creates the duplication in a worse place.
+    ///
+    /// `VbvBufKbps` was made static for this; it reads no instance state (its only capture is the
+    /// `MaxBitrateKbps` const), so the change is behaviour-neutral.
+    ///
+    /// No-ops on a null rate so the guard can stay at the call site and read naturally.
+    /// </summary>
+    private static void AppendHardwareBitrateFlags(List<string> vcodec, int? videoBitrateKbps, bool sizeLocked)
+    {
+        if (!videoBitrateKbps.HasValue) return;
+
+        int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
+        int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
+        vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+    }
 
     private static Frac FpsFraction(string? fpsExpr, string defaultFps = "60")
     {
@@ -146,25 +171,15 @@ public class EncoderManager
             using var proc = Process.Start(psi);
             if (proc == null) return [];
 
-            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             var readTask = proc.StandardOutput.ReadToEndAsync();
             if (!proc.WaitForExit(5000))
             {
-                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine(ex.ToString()); }
+                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                 return [];
             }
 
-            // ⚠️ SYNC-OVER-ASYNC, AND IT IS ONLY SAFE BECAUSE OF WHERE THIS RUNS. `.Wait()`/`.Result`
-            // on a task whose continuation needs the interface thread is a classic deadlock; this
-            // one is fine for two reasons, BOTH of which must stay true:
-            //   1. `proc.WaitForExit(5000)` above already returned true, so the process has exited
-            //      and the stdout stream is at EOF — the task is effectively complete before we wait.
-            //   2. EVERY construction site wraps this type in `Task.Run` — ProcessWorker,
-            //      MergerWorker and SettingsWindow — so no UI SynchronizationContext is ever
-            //      captured and the continuation cannot need the interface thread.
-            // ⚠️ DO NOT construct EncoderManager directly on the interface thread. An audit flagged
-            // this line as a live deadlock; it is not, but only while rule 2 holds.
             string output = readTask.Wait(TimeSpan.FromSeconds(5)) ? readTask.Result : string.Empty;
             if (output.Length == 0)
             {
@@ -257,9 +272,7 @@ public class EncoderManager
 
             if (videoBitrateKbps.HasValue)
             {
-                int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+                AppendHardwareBitrateFlags(vcodec, videoBitrateKbps, sizeLocked);
                 rcLabel = $"NVENC {nvPreset}/{multipass} ({(sizeLocked ? "CBR" : "VBR")})";
             }
             else
@@ -279,9 +292,7 @@ public class EncoderManager
             ]);
             if (videoBitrateKbps.HasValue)
             {
-                int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+                AppendHardwareBitrateFlags(vcodec, videoBitrateKbps, sizeLocked);
             }
             else
             {
@@ -300,9 +311,7 @@ public class EncoderManager
             ]);
             if (videoBitrateKbps.HasValue)
             {
-                int kbps = Math.Min(MaxBitrateKbps, Math.Max(300, videoBitrateKbps.Value));
-                int maxKbps = sizeLocked ? kbps : Math.Min(MaxBitrateKbps, (int)(kbps * 1.5));
-                vcodec.AddRange(["-b:v", $"{kbps}k", "-maxrate", $"{maxKbps}k", "-bufsize", $"{VbvBufKbps(maxKbps)}k"]);
+                AppendHardwareBitrateFlags(vcodec, videoBitrateKbps, sizeLocked);
             }
             else
             {

@@ -251,8 +251,6 @@ static async Task<int> RunUiAsync(string[] args)
         var workerPaths = ApplicationPaths.CreateDefault();
         string uiTempFolder = Path.Combine(workerPaths.TempDirectory, "FortniteVideoSoftware_SetupUI_" + Environment.ProcessId);
 
-        // TEMP_02: sweep the previous runs' folders BEFORE creating this one. See the method for
-        // why the cleanup cannot happen when the folder is finished with.
         PurgeStaleSetupUiFolders(workerPaths.TempDirectory, uiTempFolder);
 
         Directory.CreateDirectory(uiTempFolder);
@@ -286,28 +284,6 @@ static async Task<int> RunUiAsync(string[] args)
     return builder.StartWithClassicDesktopLifetime(args);
 }
 
-// ═════════════════════════════════════════════════════════════════════════════════════════════
-// TEMP_02 — REMOVE THE PREVIOUS INSTALLER RUNS' SCRATCH FOLDERS.
-//
-// The installer/uninstaller worker extracts Avalonia's native DLLs into
-// %TMP%\Fortnite_Video_Software\FortniteVideoSoftware_SetupUI_<PID>\ and then points the loader
-// at it with SetDllDirectory. Every run left that folder behind, so the temp directory silently
-// accumulated one DLL-filled folder per install — _6644, _11220, and so on for ever.
-//
-// ⚠️ IT CANNOT BE DELETED WHEN THE WORKER FINISHES, AND THAT IS NOT AN OVERSIGHT.
-// SetDllDirectory causes those DLLs to be LOADED INTO THE RUNNING PROCESS. Windows holds an open
-// handle to every loaded module, so a process cannot delete its own DLLs while it is still alive —
-// the delete fails with a sharing violation no matter where it is placed, including in a finally
-// block or an exit handler. The only moment the files are unlocked is AFTER the owning process is
-// gone, which is why the sweep runs at the START of the NEXT worker instead.
-//
-// SAFETY: a folder is only removed when its owning process is provably gone. The PID is parsed
-// from the folder name and checked; a folder whose PID belongs to a LIVE process of this same
-// executable is left alone, so a second worker running concurrently never has its DLLs pulled out
-// from under it. PID reuse by an unrelated program is handled by also matching the process name.
-// Anything that is still locked simply fails to delete and is retried on the following run — the
-// sweep is best-effort by design and must never block or fail an installation.
-// ═════════════════════════════════════════════════════════════════════════════════════════════
 static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
 {
     const string prefix = "FortniteVideoSoftware_SetupUI_";
@@ -336,7 +312,6 @@ static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
             }
             catch (Exception ex)
             {
-                // Locked or vanished mid-sweep. Harmless: the next run tries again.
                 RuntimeLog.Debug("TEMP CLEANUP", $"Could not remove {folder}: {ex.Message}");
             }
         }
@@ -352,13 +327,11 @@ static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
         try
         {
             using var p = System.Diagnostics.Process.GetProcessById(pid);
-            // Same PID AND same executable — otherwise this is an unrelated program that merely
-            // inherited a recycled PID, and the folder really is abandoned.
             return string.Equals(p.ProcessName, currentName, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
-            return false;   // no such process — the folder is definitely orphaned
+            return false;
         }
     }
 }

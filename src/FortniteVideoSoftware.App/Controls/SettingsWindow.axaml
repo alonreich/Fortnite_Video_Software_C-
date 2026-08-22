@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:CompileBindings="True"
@@ -176,6 +176,11 @@
                             </StackPanel>
                         </TabItem>
                         <TabItem Header="Confirmation Dialogs">
+                            <!-- ISSUE_12: this tab grew from 4 rows to 10. A bare StackPanel inside a
+                                 TabItem does not scroll, so at the largest Settings font scale the last
+                                 checkboxes fell off the bottom of an 600px-min window with no way to
+                                 reach them. Wrapped, like the other long panels in this file. -->
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
                                 <TextBlock Text="Destructive Actions &amp; Warnings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
                                 <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="Choose whether the software should double check with you before deleting data. If you uncheck these, actions will happen instantly without warning." Margin="0,0,0,10" />
@@ -187,7 +192,20 @@
                                 <TextBlock Text="Crop Tools" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
                                 <CheckBox Content="Show warning before 'Reset' entire layout" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmCropToolReset, Mode=TwoWay}" />
                                 <CheckBox Content="Show warning before 'Delete' layer" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmCropToolDelete, Mode=TwoWay}" />
+
+                                <!-- ISSUE_12: the Speed Editor's two destructive buttons were absent from this
+                                     tab entirely, even though they are the most damaging edits in the suite.
+                                     They are listed here now, and (ISSUE_01) their prompts actually work. -->
+                                <TextBlock Text="Speed Editor" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before deleting the selected speed segment" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmGranularDeleteSegment, Mode=TwoWay}" ToolTip.Tip="There is no undo in the Speed Editor. Leaving this on is strongly recommended." />
+                                <CheckBox Content="Show warning before 'Clear All Segments'" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmGranularClearAll, Mode=TwoWay}" ToolTip.Tip="Clear All wipes every speed segment, freeze and zoom in one click and cannot be undone." />
+
+                                <!-- ISSUE_12 / ISSUE_02 -->
+                                <TextBlock Text="Main App" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before the CANCEL button closes the app" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppCancel, Mode=TwoWay}" />
+                                <CheckBox Content="Show warning before switching to Video Merger / Crop Tools" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppSwitchTool, Mode=TwoWay}" ToolTip.Tip="Those tools replace the Main App window. You are only asked when you actually have edits in progress — never straight after uploading a video." />
                             </StackPanel>
+                            </ScrollViewer>
                         </TabItem>
                     </TabControl>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
