@@ -106,17 +106,32 @@ internal static class DeploymentLifecycle
             bool preserve = false;
             (bool isUpgrade, string? existingVersion) = await ReportExistingVersionAsync().ConfigureAwait(false);
 
-            if (isUpgrade)
+            if (isUpgrade && !ConfirmVersionTransition(existingVersion))
             {
-                if (!ConfirmVersionTransition(existingVersion))
-                {
-                    await DeploymentReporter.StepAsync("CANCELLED",
-                        "The user cancelled after being shown the version comparison.", 100).ConfigureAwait(false);
-                    return 0;
-                }
+                await DeploymentReporter.StepAsync("CANCELLED",
+                    "The user cancelled after being shown the version comparison.", 100).ConfigureAwait(false);
+                return 0;
+            }
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // INSTALL_01 — ASK WHENEVER THERE IS SOMETHING TO LOSE, NOT ONLY ON AN "UPGRADE".
+            //
+            // This prompt used to sit inside `if (isUpgrade)`. `isUpgrade` reports on the INSTALL
+            // FOLDER and the uninstall REGISTRY KEY; the cleanup below deletes PROGRAMDATA. Those
+            // are different questions, and when they disagreed the user lost. Delete the install
+            // folder by hand, or only ever run the compiled exe or the dev build, and `isUpgrade`
+            // is false while a complete set of settings — crop profiles, window layout, recovery
+            // state — is still sitting in ProgramData. No prompt was shown, `preserve` stayed
+            // false, `includeUserData: !preserve` came out TRUE, and the lot was purged silently.
+            //
+            // The gate is now the data itself. The dialog already carries MB_TOPMOST |
+            // MB_SETFOREGROUND, so it was never a z-order problem — it was never reached.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            bool hasUserData = DeploymentFootprint.UserDataExists();
+            if (isUpgrade || hasUserData)
+            {
                 preserve = NativeDialog.ShowQuestion(
-                    "Previous Installation Detected!\r\n" +
+                    (isUpgrade ? "Previous Installation Detected!\r\n" : "Existing Settings Detected!\r\n") +
                     $"Installed version: {existingVersion ?? "unknown"}\r\n" +
                     $"This installer:    {GetCurrentVersion()}\r\n\r\n" +
                     "Would you like to preserve your settings, window layout and preferences from the older installed app?",
@@ -126,6 +141,12 @@ internal static class DeploymentLifecycle
                     preserve
                         ? "User chose to PRESERVE existing settings. ProgramData, Roaming and Local app data will be kept."
                         : "User chose a CLEAN install. All existing settings will be removed.",
+                    4).ConfigureAwait(false);
+            }
+            else
+            {
+                await DeploymentReporter.StepAsync("PRESERVE CHOICE",
+                    "No previous installation and no existing user data — nothing to preserve, so nothing was asked.",
                     4).ConfigureAwait(false);
             }
 

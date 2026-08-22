@@ -105,6 +105,31 @@ internal static class DeploymentFootprint
         }
     }
 
+    /// <summary>
+    /// INSTALL_01 — is there any USER DATA on this machine worth asking about?
+    ///
+    /// The pre-install cleanup decides whether to purge ProgramData / Roaming / Local from
+    /// `isUpgrade`, which reports on the INSTALL FOLDER and the uninstall REGISTRY KEY. Those are
+    /// not the same question. Delete the install folder by hand, or only ever run the compiled exe
+    /// or the dev build, and `isUpgrade` is false while a full set of settings — crop profiles,
+    /// window layout, recovery state — still sits in ProgramData. The prompt was skipped and they
+    /// were purged without anyone being asked.
+    ///
+    /// This asks about the thing that actually gets deleted. `TempAppFolder` is excluded on
+    /// purpose: it is scratch, it is purged either way, and its presence must not trigger a
+    /// "preserve your settings?" question about nothing.
+    /// </summary>
+    public static bool UserDataExists()
+    {
+        foreach (string dir in GetDirectoryPurgeTargets(includeInstallFolder: false, includeUserData: true))
+        {
+            if (string.Equals(dir, TempAppFolder, StringComparison.OrdinalIgnoreCase)) continue;
+            try { if (Directory.Exists(dir)) return true; }
+            catch (System.Exception) { /* unreadable is not the same as absent; keep looking */ }
+        }
+        return false;
+    }
+
     public static IEnumerable<string> GetVerificationTargets()
     {
         yield return InstallFolder;

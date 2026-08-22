@@ -58,6 +58,34 @@ set "PUBLISH_BASE_ARGS=-p:TreatWarningsAsErrors=true"
 set "PUBLISH_AOT_ARGS=-p:PublishAot=true -p:SelfContained=true"
 set "DOTNET_LOG_ARGS=-consoleLoggerParameters:ErrorsOnly"
 
+rem ---------------------------------------------------------------------------
+rem VERSION_01: stamp the build with a real version. Every release reported
+rem 1.0.0.0, so a user could not tell which build they were running, a bug report
+rem could not be tied to a binary, and nothing could be compared against the
+rem latest release. Computed ONCE here so the exe, the release tag and the
+rem published notes all say the same thing.
+rem
+rem   yyyy.MM.dd.HHmm - each part must stay under 65535 for a Windows version
+rem   resource. HHmm does; HHmmss does not. The time matters on its own too:
+rem   with the old date-only tag, two builds on the same day collided on one tag.
+rem
+rem *** AssemblyVersion IS NOT STAMPED, AND THAT IS DELIBERATE. ***
+rem FortniteVideoSoftware.App.csproj pins it to a 1.0.0.0-style major line on
+rem purpose so assembly binding never breaks between patch releases. Only
+rem Version, FileVersion and InformationalVersion carry the real number - which
+rem is exactly what that csproj comment says they are for. Do not "fix" this by
+rem adding -p:AssemblyVersion.
+rem ---------------------------------------------------------------------------
+set "BUILD_VERSION="
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "Get-Date -Format yyyy.MM.dd.HHmm"`) do set "BUILD_VERSION=%%V"
+if not defined BUILD_VERSION (
+  echo ERROR: could not compute a build version.
+  exit /b 1
+)
+set "TAG=v!BUILD_VERSION!"
+set "VERSION_ARGS=-p:Version=!BUILD_VERSION! -p:FileVersion=!BUILD_VERSION! -p:InformationalVersion=!BUILD_VERSION!"
+echo Build version: !BUILD_VERSION!  ^(tag !TAG!^)
+
 echo ###########################################################
 echo PURGING PREVIOUS BUILD ARTIFACTS...
 echo ###########################################################
@@ -162,16 +190,42 @@ if not defined LOCALHASH (
   echo [PUBLISH] STOPPED: could not fingerprint the freshly built exe.
   exit /b 1
 )
-for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "Get-Date -Format yyyy.MM.dd"`) do set "TAG=v%%D"
 echo [PUBLISH] 4/7 Built exe fingerprint + tag !TAG! ready.        [OK]
 
+rem ---------------------------------------------------------------------------
+rem VERSION_01: THERE IS EXACTLY ONE INSTALLER, EVERYWHERE, ALWAYS.
+rem   local : :VALIDATE_COMPILED_OUTPUT already proves compiled\ holds one exe.
+rem   cloud : every previous release is deleted below.
+rem   git   : and every tag with it - which the old code did NOT do.
+rem `--cleanup-tag` only removes a tag that the release it deleted actually
+rem owned. A tag created by hand, or one left behind when a release delete
+rem half-failed, survived and still appeared on the repository as another
+rem "version". The sweep below removes every remaining tag remotely AND locally.
+rem The slate is then RE-READ before publishing onto it: a delete that silently
+rem failed used to be counted as a success, so the script could print
+rem "removed 3" while a release was still live.
+rem ---------------------------------------------------------------------------
 set "REMOVED=0"
-for /f "usebackq delims=" %%T in (`gh release list --repo !REPO! --json tagName --jq ".[].tagName" 2^>nul`) do (
+for /f "usebackq delims=" %%T in (`gh release list --repo !REPO! --limit 200 --json tagName --jq ".[].tagName" 2^>nul`) do (
   echo [PUBLISH]     removing previous release %%T
   gh release delete %%T --repo !REPO! --cleanup-tag --yes >nul 2>&1
   set /a REMOVED+=1
 )
-echo [PUBLISH] 5/7 Previous releases removed: !REMOVED!                    [OK]
+
+git fetch --tags --prune --prune-tags >nul 2>&1
+for /f "usebackq delims=" %%T in (`git tag --list 2^>nul`) do (
+  git push origin --delete "%%T" >nul 2>&1
+  git tag -d "%%T" >nul 2>&1
+)
+
+set "SURVIVORS="
+for /f "usebackq delims=" %%T in (`gh release list --repo !REPO! --limit 200 --json tagName --jq ".[].tagName" 2^>nul`) do set "SURVIVORS=!SURVIVORS! %%T"
+if defined SURVIVORS (
+  echo [PUBLISH] STOPPED: these releases could not be removed:!SURVIVORS!
+  echo [PUBLISH] Publishing now would leave more than one installer live. Remove them by hand.
+  exit /b 1
+)
+echo [PUBLISH] 5/7 Removed !REMOVED! previous release^(s^) and all tags.   [OK]
 
 gh release create !TAG! "%OUTPUT_DIR%\%OUTPUT_EXE%" --repo !REPO! --title "Fortnite Video Software !TAG!" --notes "Automated NativeAOT release published by build.cmd on !TAG!. SHA256 !LOCALHASH!" --latest >nul 2>&1
 if errorlevel 1 (
@@ -210,7 +264,7 @@ if exist "%FINAL_DIR%" rd /s /q "%FINAL_DIR%"
 if exist "src\FortniteVideoSoftware.App\payload.zip" del /f /q "src\FortniteVideoSoftware.App\payload.zip"
 
 echo [NativeAOT] 2. Publishing raw payload to staging...
-dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true -o "%STAGING_DIR%" %DOTNET_LOG_ARGS%
+dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true !VERSION_ARGS! -o "%STAGING_DIR%" %DOTNET_LOG_ARGS%
 if errorlevel 1 exit /b 1
 
 echo [NativeAOT] 2.5 Copying binaries to staging...
@@ -273,7 +327,7 @@ if errorlevel 1 (
 )
 
 echo [NativeAOT] 4. Publishing standalone installer...
-dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true -o "%FINAL_DIR%" %DOTNET_LOG_ARGS%
+dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 %PUBLISH_BASE_ARGS% -p:PublishAot=true -p:SelfContained=true !VERSION_ARGS! -o "%FINAL_DIR%" %DOTNET_LOG_ARGS%
 if errorlevel 1 exit /b 1
 
 echo [NativeAOT] 5. Moving final EXE to compiled folder...

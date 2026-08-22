@@ -223,12 +223,42 @@ public class AudioFilterChain
             }
 
             double mVol = GetDouble(musicConfig, "music_vol", GetDouble(musicConfig, "volume", 0.8));
-            if (musicBedGainDb != null && musicBedGainDb.TryGetValue(track.Path, out double bedDb) && Math.Abs(bedDb) > 0.01)
+
+            // MUSICBED_01 — BED GAIN AND FOLLOW GAIN ARE MUTUALLY EXCLUSIVE. APPLYING BOTH DOUBLE-
+            // COUNTS THE SAME NUMBER AND IS WHY THE MUSIC LEVEL MOVED WITH THE CLIP'S LOUDNESS.
+            //
+            // The two do the same job by different routes and only one can be right per track:
+            //   BED GAIN places the track at an ABSOLUTE target (AudioLoudnessProbe.MusicBedLufs,
+            //     -20 LUFS). The game bus is separately loudnorm'd to TargetLufs (-14), so a
+            //     bed-normalised track is ALREADY exactly 6 dB under it — finished, nothing owed.
+            //   FOLLOW GAIN is VolumeNormalizeDb = (-14 - sourceLufs) = X, the same lift loudnorm
+            //     gives the game bus. It exists to preserve a PRE-EXISTING RAW balance for elements
+            //     that were NOT re-levelled: voice-over, memes, and music whose measurement failed.
+            //     Ride the whole mix up together and nothing shifts.
+            //
+            // Applied together the music landed at (-20 + X) against a game bus at -14, i.e. a gap
+            // of X - 6 dB instead of the constant -6 dB the two constants were written to produce.
+            // Worked examples, at equal sliders:
+            //     source -28 LUFS -> X = +14 -> music 8 dB ABOVE the game
+            //     source -14 LUFS -> X =   0 -> music 6 dB under      (the only correct case)
+            //     source  -6 LUFS -> X =  -8 -> music 14 dB under     (reported as "extremely low")
+            // The gap tracked how loud the CAPTURE happened to be, which is precisely the thing
+            // bed normalisation exists to make irrelevant.
+            //
+            // ⚠️ THE TEST IS DICTIONARY MEMBERSHIP, NOT `Math.Abs(bedDb) > 0.01`. A track that
+            // already measures -20 LUFS needs 0 dB of bed gain and IS bed-normalised; a magnitude
+            // test calls that "no bed applied" and hands it the follow gain — the one track in the
+            // library that must not get it.
+            double bedDb = 0.0;
+            bool bedApplied = musicBedGainDb != null
+                              && musicBedGainDb.TryGetValue(track.Path, out bedDb);
+
+            if (bedApplied && Math.Abs(bedDb) > 0.01)
             {
                 mVol *= Math.Pow(10, bedDb / 20.0);
             }
 
-            if (Math.Abs(musicFollowGainDb) > 0.01)
+            if (!bedApplied && Math.Abs(musicFollowGainDb) > 0.01)
             {
                 mVol *= Math.Pow(10, musicFollowGainDb / 20.0);
             }

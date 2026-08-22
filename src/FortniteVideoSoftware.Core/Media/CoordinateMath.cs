@@ -1,4 +1,4 @@
-
+﻿
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -404,6 +404,35 @@ public static class CoordinateMath
         int snappedX = ScaleRound(new Frac(rawX, den)) * (int)den;
         int snappedY = ScaleRound(new Frac(rawY - paddingTopUi, den)) * (int)den + paddingTopUi;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // WALL_01 — ⚠️ ATTEMPTED, DISPROVED, AND REVERTED. THE TEST IS `>` AND MUST STAY `>`.
+        //
+        // WHAT WAS TRIED: these two loops were changed from `>` to `>=`, so a layer could no longer
+        // come to rest exactly ON the far wall. The reasoning was that the 27-px snap above turns a
+        // layer that is NOT flush into one that IS — the shipped `stats` default sits at content
+        // x=666, eleven internal px clear of the right wall, and 666 snaps to 675, which is exactly
+        // the limit (1080 - 405). A flush layer makes its own cutout edge the finished frame's
+        // edge, so any imprecision in the crop rectangle would land on the outermost pixels and
+        // read as a stray vertical line down the right of a portrait export.
+        //
+        // WHY IT LOOKED RIGHT: a per-row-band chroma measurement on a real 1080x1920 export showed
+        // dV -39.91, dU +9.79, dY -13.94 across exactly that layer's row band while every other
+        // band was flat to +-0.1. That measurement is REAL and is still the best evidence anyone
+        // has about the line — it is predominantly a CHROMA fringe, which is why several luma-only
+        // and RGB-only investigations before it found nothing.
+        //
+        // WHY IT IS REVERTED ANYWAY: the owner shipped a build with `>=` (which moved `stats` from
+        // 675 to 648) and THE VERTICAL LINE STILL APPEARS. So flushness is not the cause, or not
+        // the only cause, and the change was buying a 27-px loss of placement freedom on every
+        // layer for nothing. Reverted to the original `>` on the owner's instruction.
+        //
+        // ⚠️ FOR THE NEXT INVESTIGATION — DO NOT SIMPLY RE-APPLY `>=`. It has been tried on real
+        // hardware and does not fix it. The chroma-band evidence above says the fringe is tied to
+        // that row band, so the remaining suspects are the layer's own cutout geometry rather than
+        // its POSITION: the `crop` rectangle in MobileFilterBuilder (HUD layer cutout), chroma
+        // subsampling at an odd crop width, and the scale/pad chain around it. Measure the U and V
+        // planes per row band, never luma or RGB alone.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         int clampedX = snappedX;
         while (clampedX > CoordinateConstants.PortraitW - ScaleRound(fw) && clampedX >= den)
         {

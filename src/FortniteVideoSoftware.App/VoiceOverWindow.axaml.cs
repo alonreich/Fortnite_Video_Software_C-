@@ -377,6 +377,18 @@ public partial class VoiceOverWindow : Window
                     UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session. Game audio ducking still works.");
                 }
 
+                // ══════════════════════════════════════════════════════════════════════════════
+                // VOICE_01 — THE TRANSPORT WAS PERMANENTLY DEAD ON THIS SCREEN.
+                // `_isMpvReady` gates PlayPauseButton and MicRecordButton (UpdateTransportState),
+                // and both start IsEnabled="False" in XAML. The field was declared `= false` and
+                // READ in four places — but never once ASSIGNED. A refactor left the readiness
+                // signal in this local `previewReady` and orphaned the field the UI depends on, so
+                // Play and Record could never enable and the only working control was CANCEL.
+                // Nothing about it looks broken at a glance, which is why it survived: the flag
+                // exists, is named correctly, and is wired to exactly the right controls.
+                // ══════════════════════════════════════════════════════════════════════════════
+                _isMpvReady = previewReady;
+
                 UpdateTransportState();
                 UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session.");
 
@@ -987,57 +999,69 @@ public partial class VoiceOverWindow : Window
         string localVideoPath = _videoPath ?? "";
         double localTrimStart = _trimStartSec;
 
-        var thumbTask = Task.Run(async () =>
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // STRIP_01 — this was a SECOND, WORSE copy of the filmstrip command, inline. It:
+        //   * decoded the entire range to keep 15 frames, exactly like the shared generator used
+        //     to (that is the delay the user reported on this screen);
+        //   * asked `fps` for 16 frames while tiling 15, so the strip never contained the frames
+        //     it claimed to;
+        //   * wrote into the OS temp directory rather than the app's, outside the job cleanup;
+        //   * did not redirect stderr, so every failure was silent;
+        //   * paid `-hwaccel auto` initialisation for a fifteen-frame job — the same CUDA decoder
+        //     init that logs `cuvidCreateDecoder ... CUDA_ERROR_INVALID_VALUE` on this hardware.
+        // It now calls the one implementation, which picks its own strategy by sample spacing.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        string thumbTempDir = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory;
+        // PREWARM_01 — take the background-rendered strip if the Main App already built this
+        // exact range. Null on any mismatch, in which case we stream it as usual.
+        var warmedStrip = FortniteVideoSoftware.App.Services.FilmstripPrewarm.TryTake(
+            localVideoPath, localTrimStart, durationSec);
+        bool warmedMounted = false;
+        if (warmedStrip != null)
         {
-            string? tempPng = null;
-            System.Diagnostics.Process? process = null;
+            if (_thumbnailLaneImage != null)
+            {
+                (_thumbnailLaneImage.Source as IDisposable)?.Dispose();
+                _thumbnailLaneImage.Source = warmedStrip;
+                if (_thumbLoadingOverlay != null) _thumbLoadingOverlay.IsVisible = false;
+                if (_thumbFallbackText != null) _thumbFallbackText.IsVisible = false;
+                warmedMounted = true;
+                CoreLogger.Info("VoiceOver", "Thumbnail lane served from the background prewarm.");
+            }
+            else
+            {
+                // LEAK_01 — TryTake TRANSFERS OWNERSHIP. With no Image to mount it on we are
+                // holding an orphan that nothing else will ever dispose, and reporting success
+                // for a lane that was never shown. Release it and render normally.
+                try { warmedStrip.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            }
+        }
+
+        // STRIP_03 — stream the lane so the first frame is on screen in ~0.2s instead of after the
+        // whole strip is rendered. The callbacks are marshalled to the UI thread by StreamAsync.
+        var thumbTask = warmedMounted ? Task.FromResult(true) : Task.Run(async () =>
+        {
             try
             {
-                tempPng = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"fvs_thumb_{Guid.NewGuid():N}.png");
-                double fps = 16.0 / (durationSec > 0 ? durationSec : 10);
-
-                var ci = System.Globalization.CultureInfo.InvariantCulture;
-                var laneArgs = new[]
-                {
-                    "-y", "-hide_banner", "-loglevel", "error",
-                    "-hwaccel", "auto",
-                    "-ss", localTrimStart.ToString(ci),
-                    "-t", durationSec.ToString(ci),
-                    "-i", localVideoPath,
-                    "-vf", $"fps={fps.ToString("0.000", ci)},scale=-1:60,tile=15x1",
-                    "-frames:v", "1",
-                    tempPng
-                };
-
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = ffmpeg,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                foreach (string arg in laneArgs) psi.ArgumentList.Add(arg);
-
-                process = System.Diagnostics.Process.Start(psi);
-                if (process != null)
-                {
-                    try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-                    await process.WaitForExitAsync(token);
-                }
-                if (process?.ExitCode == 0 && System.IO.File.Exists(tempPng)) return tempPng;
+                return await ThumbnailStripGenerator.StreamAsync(
+                    ffmpeg, localVideoPath, localTrimStart, durationSec, token,
+                    onReady: wb =>
+                    {
+                        if (_thumbnailLaneImage == null) return;
+                        (_thumbnailLaneImage.Source as IDisposable)?.Dispose();
+                        _thumbnailLaneImage.Source = wb;
+                        if (_thumbLoadingOverlay != null) _thumbLoadingOverlay.IsVisible = false;
+                        if (_thumbFallbackText != null) _thumbFallbackText.IsVisible = false;
+                    },
+                    onFrame: () => _thumbnailLaneImage?.InvalidateVisual(),
+                    logTag: "VoiceOver");
             }
+            catch (OperationCanceledException) { return false; }
             catch (Exception ex)
             {
                 CoreLogger.Fail("VoiceOver", $"Thumbnail lane generation failed: {ex.Message}");
+                return false;
             }
-            finally
-            {
-                if (process != null)
-                {
-                    try { if (!process.HasExited) process.Kill(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-                    process.Dispose();
-                }
-            }
-            return null;
         });
 
         var waveTask = Task.Run(async () =>
@@ -1054,12 +1078,29 @@ public partial class VoiceOverWindow : Window
             return null;
         });
 
-        string? thumbPath = await thumbTask;
+        bool thumbStreamed = await thumbTask;
         string? wavePath = await waveTask;
 
         if (token.IsCancellationRequested) return;
 
-        bool thumbLoaded = false;
+        // STRIP_03 — the stream is the normal path; this only runs when it yielded no frames.
+        string? thumbPath = null;
+        if (!thumbStreamed)
+        {
+            try
+            {
+                thumbPath = await ThumbnailStripGenerator.GenerateAsync(
+                    ffmpeg, localVideoPath, thumbTempDir, localTrimStart, durationSec, token,
+                    logTag: "VoiceOver");
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                CoreLogger.Fail("VoiceOver", $"Thumbnail lane fallback failed: {ex.Message}");
+            }
+        }
+
+        bool thumbLoaded = thumbStreamed;
         bool waveformLoaded = false;
 
         if (thumbPath != null && _thumbnailLaneImage != null)

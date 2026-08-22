@@ -22,17 +22,103 @@ namespace FortniteVideoSoftware.App.Controls
         private (int min, int max) _range = (0, 20);
         private List<string> _labels = new List<string>();
         private double _rotation = 0.0;
-        
-        private bool _isDragging = false;
-        private double _lastMouseX = 0;
-        private double _overscroll = 0.08;
 
         private object? _savedToolTip = null;
         private bool _isTooltipSuppressed = false;
         private Avalonia.Threading.DispatcherTimer? _tooltipRestoreTimer;
-        
+
         public event EventHandler<int>? ValueChanged;
         public event EventHandler<int>? ValueChangeCompleted;
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // WHEEL_01 — THE DIAL LANDS ON A DETENT INSTEAD OF FLOATING BETWEEN TWO.
+        //
+        // WHAT WAS WRONG. `_rotation` (the visual angle) and `_value` (the committed integer) are
+        // two different quantities, and on release nothing reconciled them. `OnPointerReleased`
+        // called `Value = round(_rotation)`, but the `Value` setter is guarded by
+        // `if (_value != clamped)` — and `_rotation`'s own setter had ALREADY written that same
+        // integer straight into the `_value` FIELD during the drag. So the guard was false, the
+        // setter returned early, and `_rotation` was never pulled onto the detent: the wheel came
+        // to rest at 7.43 while the readout said 7. That is the "floats in between" the user sees,
+        // and it is why the dial never felt like it clicked into anything.
+        //
+        // Three things are fixed here, and they are independent — do not collapse them:
+        //   (1) LANDING. Release always hands `_rotation` to a damped spring aimed at the nearest
+        //       detent, so the dial physically arrives on the value it reports.
+        //   (2) FEEL. The spring is UNDERDAMPED on purpose (see SettleZeta) so it overshoots,
+        //       returns, overshoots smaller, and stops — the two short wiggles that read as a
+        //       mechanical detent catching. A critically damped spring lands correctly and feels
+        //       dead; that was tried and rejected.
+        //   (3) GAIN. Drag distance is no longer a fixed number of units per pixel. A pointer-
+        //       acceleration curve gives fine control when moved gently and long travel when
+        //       flicked, and a flick keeps spinning under friction after release.
+        //
+        // `_value` is now written ONLY through `SetAndRaise`, so the TwoWay bindings in
+        // MainWindow/VideoMergerWindow finally track the dial. They previously never saw an
+        // intermediate value because the field was mutated behind the property system's back.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+
+        private enum WheelPhase { Idle, Dragging, Momentum, Settling }
+        private WheelPhase _phase = WheelPhase.Idle;
+
+        /// <summary>Dial speed in INDEX UNITS PER SECOND — never pixels. One unit = one detent.</summary>
+        private double _velocity;
+        private double _settleTarget;
+
+        /// <summary>While the spring runs, the reported value is pinned to the detent being
+        /// approached, so an overshoot cannot flicker the readout to the neighbouring tick.</summary>
+        private bool _valueLocked;
+
+        /// <summary>An interaction is in flight; <see cref="ValueChangeCompleted"/> fires once,
+        /// when the dial actually stops moving.</summary>
+        private bool _interactionPending;
+
+        private double _lastMouseX;
+        private long _lastMoveStamp;
+        private Avalonia.Threading.DispatcherTimer? _animTimer;
+        private long _lastFrameStamp;
+
+        // ── drag gain ────────────────────────────────────────────────────────────────────────
+        // Units of dial travel per pixel of pointer travel, interpolated by pointer SPEED. The
+        // curve is the same idea as OS pointer acceleration: at a slow, deliberate drag the dial
+        // moves at the fine rate so a single detent is easy to hit; at speed it approaches the
+        // coarse rate so the far end of a 21-stop range is reachable without clutching.
+        // GainRefSpeedPxPerSec is where the curve is roughly halfway; the exponent below 1 makes
+        // it bite early, which is what makes the control feel responsive rather than sluggish.
+        private const double FineGainPerPx = 0.0085;
+        private const double CoarseGainPerPx = 0.0320;
+        private const double GainRefSpeedPxPerSec = 1500.0;
+        private const double GainCurveExponent = 0.85;
+
+        // ── fling ────────────────────────────────────────────────────────────────────────────
+        private const double FlickMinVelocity = 1.2;
+        private const double MomentumFriction = 5.5;
+        private const double MomentumHandoffSpeed = 0.75;
+        private const double MaxFlingVelocity = 26.0;
+
+        // ── detent spring ────────────────────────────────────────────────────────────────────
+        // Damped harmonic oscillator. ζ = 0.30 gives a first overshoot of e^(-ζπ/√(1-ζ²)) ≈ 0.37
+        // of the remaining error and decays 0.14x per cycle after that: from a worst-case 0.5-unit
+        // approach that is a 0.19-unit wiggle, then 0.026, then nothing — visibly TWO bounces, both
+        // well inside half a detent so the readout never flickers. ω = 42 rad/s puts the whole
+        // landing at ~0.3s. RAISING ζ TOWARD 1 KILLS THE WIGGLE; LOWERING IT PAST ~0.2 makes the
+        // dial ring like a loose knob. Both were tried.
+        private const double SettleOmega = 42.0;
+        private const double SettleZeta = 0.30;
+        // Rest thresholds. 0.004 units is ~0.3 SCREEN px on a 160px dial, so cutting the tail here
+        // removes ~90ms of motion nobody can see and lands the whole gesture in ~0.30s. Do not
+        // raise them much further: past ~0.01 the dial visibly stops short of the detent, which is
+        // the exact defect this class of change exists to remove.
+        private const double SettleRestPosition = 0.004;
+        private const double SettleRestVelocity = 0.12;
+
+        /// <summary>The spring is integrated semi-implicitly at a fixed sub-step. A dropped UI
+        /// frame would otherwise hand the integrator a dt large enough to go unstable and fling
+        /// the dial off its range.</summary>
+        private const double MaxIntegrationStep = 1.0 / 240.0;
+
+        private const double EdgeOverscroll = 0.28;
+        private const double EdgeBounceDamping = 0.35;
 
         public SpinningWheelSlider()
         {
@@ -40,10 +126,18 @@ namespace FortniteVideoSoftware.App.Controls
             Cursor = new Cursor(StandardCursorType.Hand);
         }
 
+        private static long Stamp() => System.Diagnostics.Stopwatch.GetTimestamp();
+
+        private static double SecondsSince(long stamp)
+            => (Stamp() - stamp) / (double)System.Diagnostics.Stopwatch.Frequency;
+
         /// <summary>
         /// Issue #3: Temporarily suppresses the tooltip to prevent it from popping up
         /// destructively over the spinner while the user is dragging/scrolling.
         /// The tooltip is restored after the user stops interacting (with a short delay).
+        /// WHEEL_01: this timer no longer raises ValueChangeCompleted. "The user stopped touching
+        /// it" and "the dial stopped moving" are different moments, and the second one is the one
+        /// callers act on; it is raised from the spring instead.
         /// </summary>
         private void SuppressTooltipTemporarily()
         {
@@ -67,7 +161,6 @@ namespace FortniteVideoSoftware.App.Controls
                     {
                         ToolTip.SetTip(this, _savedToolTip);
                         _isTooltipSuppressed = false;
-                        ValueChangeCompleted?.Invoke(this, _value);
                     }
                 };
             }
@@ -75,42 +168,75 @@ namespace FortniteVideoSoftware.App.Controls
             _tooltipRestoreTimer.Stop();
             _tooltipRestoreTimer.Start();
         }
-        
-        public int Value 
+
+        public int Value
         {
             get => _value;
             set
             {
                 int clamped = Math.Max(_range.min, Math.Min(_range.max, value));
-                if (_value != clamped)
+
+                // WHEEL_01 — ECHO GUARD. The TwoWay binding writes the dial's own value back into
+                // this setter. Without this line that echo would call StopAnimation() and snap
+                // `_rotation` onto an integer on every detent crossed, killing the drag and the
+                // spring outright. A genuine external change still gets through.
+                if (_phase != WheelPhase.Idle && clamped == _value) return;
+
+                // WHEEL_01 — a PROGRAMMATIC set (preset button, crash-recovery restore, binding)
+                // snaps instantly and silently: no spring, no ValueChangeCompleted. Startup restore
+                // must not animate 21 stops, and must not look like a user edit to the callers that
+                // re-probe on completion.
+                StopAnimation();
+                _valueLocked = false;
+
+                bool changed = _value != clamped;
+                if (changed) SetAndRaise(ValueProperty, ref _value, clamped);
+
+                if (Math.Abs(_rotation - clamped) > 0.0005)
                 {
-                    SetAndRaise(ValueProperty, ref _value, clamped);
-                    if (Math.Abs(_rotation - clamped) > 0.01)
-                    {
-                        Rotation = clamped;
-                    }
-                    ValueChanged?.Invoke(this, clamped);
+                    _rotation = clamped;
+                    InvalidateVisual();
                 }
+
+                if (changed) ValueChanged?.Invoke(this, clamped);
             }
         }
-        
+
         public double Rotation
         {
             get => _rotation;
             set
             {
-                double clamped = ClampRotation(value);
-                if (Math.Abs(_rotation - clamped) < 0.001) return;
-                
-                _rotation = clamped;
-                int newVal = (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
-                if (newVal != _value)
-                {
-                    _value = newVal;
-                    ValueChanged?.Invoke(this, _value);
-                }
-                InvalidateVisual();
+                StopAnimation();
+                SetRotationInternal(value);
             }
+        }
+
+        /// <summary>
+        /// WHEEL_01 — the ONE writer of <see cref="_rotation"/>. Derives the reported value from
+        /// the angle unless the spring has pinned it, and pushes every change through
+        /// <see cref="SetAndRaise"/> so the property system (and therefore the TwoWay binding) sees
+        /// it. The old code assigned the `_value` field directly here, which is precisely why the
+        /// bindings were dead and why the release guard mis-fired.
+        /// </summary>
+        private void SetRotationInternal(double value)
+        {
+            double clamped = ClampRotation(value);
+            if (Math.Abs(_rotation - clamped) < 0.0005) return;
+
+            _rotation = clamped;
+
+            int newVal = _valueLocked
+                ? (int)Math.Round(_settleTarget)
+                : (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
+
+            if (newVal != _value)
+            {
+                SetAndRaise(ValueProperty, ref _value, newVal);
+                ValueChanged?.Invoke(this, newVal);
+            }
+
+            InvalidateVisual();
         }
 
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -121,78 +247,275 @@ namespace FortniteVideoSoftware.App.Controls
                 InvalidateVisual();
             }
         }
-        
+
         public void SetRange(int min, int max)
         {
             _range = (min, max);
             InvalidateVisual();
         }
-        
+
         public void SetLabels(IEnumerable<string> labels)
         {
             _labels = new List<string>(labels);
             InvalidateVisual();
         }
-        
+
         private double ClampRotation(double val)
         {
-            double lo = _range.min - _overscroll;
-            double hi = _range.max + _overscroll;
+            double lo = _range.min - EdgeOverscroll;
+            double hi = _range.max + EdgeOverscroll;
             return Math.Max(lo, Math.Min(hi, val));
         }
-        
-        private void SetValue(int val, bool animated = true)
+
+        private int NearestDetent()
+            => (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
+
+        /// <summary>The detent the dial is currently headed for — the spring's target while it is
+        /// settling, otherwise whatever is nearest. Wheel and arrow-key steps accumulate from HERE,
+        /// so a quick burst of clicks advances by the number of clicks rather than collapsing into
+        /// one because the dial had not arrived yet.</summary>
+        private int PendingDetent()
+            => _phase == WheelPhase.Settling ? (int)Math.Round(_settleTarget) : NearestDetent();
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // ANIMATION ENGINE
+        // ══════════════════════════════════════════════════════════════════════════════════════
+
+        private void EnsureAnimationTimer()
         {
-            Value = val;
+            if (_animTimer != null) return;
+            _animTimer = new Avalonia.Threading.DispatcherTimer(Avalonia.Threading.DispatcherPriority.Render)
+            {
+                Interval = TimeSpan.FromMilliseconds(16)
+            };
+            _animTimer.Tick += (s, e) => AnimationTick();
         }
-        
+
+        private void StartAnimation()
+        {
+            EnsureAnimationTimer();
+            _lastFrameStamp = Stamp();
+            if (!_animTimer!.IsEnabled) _animTimer.Start();
+        }
+
+        private void StopAnimation()
+        {
+            _animTimer?.Stop();
+            if (_phase != WheelPhase.Dragging) _phase = WheelPhase.Idle;
+            _velocity = 0;
+        }
+
+        private void BeginSettle(int detent)
+        {
+            _settleTarget = Math.Max(_range.min, Math.Min(_range.max, detent));
+            _valueLocked = true;
+
+            // Pin the readout to the detent immediately, so the label and the highlighted tick
+            // commit the moment the dial is committed — the wiggle is the dial arriving, not the
+            // value still being decided.
+            int target = (int)Math.Round(_settleTarget);
+            if (target != _value)
+            {
+                SetAndRaise(ValueProperty, ref _value, target);
+                ValueChanged?.Invoke(this, target);
+            }
+
+            _phase = WheelPhase.Settling;
+            StartAnimation();
+        }
+
+        private void AnimationTick()
+        {
+            double dt = SecondsSince(_lastFrameStamp);
+            _lastFrameStamp = Stamp();
+            if (dt <= 0) return;
+            if (dt > 0.10) dt = 0.10;          // a stalled UI thread must not teleport the dial
+
+            if (_phase == WheelPhase.Momentum) StepMomentum(dt);
+            else if (_phase == WheelPhase.Settling) StepSettle(dt);
+            else { StopAnimation(); return; }
+        }
+
+        private void StepMomentum(double dt)
+        {
+            SetRotationInternal(_rotation + _velocity * dt);
+            _velocity *= Math.Exp(-MomentumFriction * dt);
+
+            // End stops: the dial is already clamped inside ClampRotation, so all that is left is
+            // to bleed the energy off rather than let it grind against the wall.
+            if (_rotation <= _range.min - EdgeOverscroll + 1e-6 || _rotation >= _range.max + EdgeOverscroll - 1e-6)
+            {
+                _velocity *= EdgeBounceDamping;
+            }
+
+            if (Math.Abs(_velocity) < MomentumHandoffSpeed)
+            {
+                BeginSettle(NearestDetent());
+            }
+        }
+
+        private void StepSettle(double dt)
+        {
+            int steps = Math.Max(1, (int)Math.Ceiling(dt / MaxIntegrationStep));
+            double h = dt / steps;
+
+            for (int i = 0; i < steps; i++)
+            {
+                double x = _rotation - _settleTarget;
+                double accel = -(SettleOmega * SettleOmega) * x - (2.0 * SettleZeta * SettleOmega) * _velocity;
+                _velocity += accel * h;
+                _rotation += _velocity * h;
+            }
+
+            InvalidateVisual();
+
+            if (Math.Abs(_rotation - _settleTarget) < SettleRestPosition && Math.Abs(_velocity) < SettleRestVelocity)
+            {
+                _rotation = _settleTarget;
+                _velocity = 0;
+                _valueLocked = false;
+                _phase = WheelPhase.Idle;
+                StopAnimation();
+                InvalidateVisual();
+
+                if (_interactionPending)
+                {
+                    _interactionPending = false;
+                    ValueChangeCompleted?.Invoke(this, _value);
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // INPUT
+        // ══════════════════════════════════════════════════════════════════════════════════════
+
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             if (!IsEnabled) return;
-            _isDragging = true;
+
+            StopAnimation();
+            _valueLocked = false;
+            _phase = WheelPhase.Dragging;
+            _interactionPending = true;
+            _velocity = 0;
+
             var pt = e.GetCurrentPoint(this);
             _lastMouseX = pt.Position.X;
+            _lastMoveStamp = Stamp();
+
+            // WHEEL_01 — capture the pointer. Without it the drag died the instant the cursor left
+            // the 160x44 control, which on a dial you are deliberately flicking is most of the time.
+            e.Pointer.Capture(this);
+
             Cursor = new Cursor(StandardCursorType.Hand);
             Focus();
             SuppressTooltipTemporarily();
             e.Handled = true;
             base.OnPointerPressed(e);
         }
-        
+
         protected override void OnPointerMoved(PointerEventArgs e)
         {
-            if (!_isDragging) return;
+            if (_phase != WheelPhase.Dragging) { base.OnPointerMoved(e); return; }
+
             var pt = e.GetCurrentPoint(this);
             double dx = pt.Position.X - _lastMouseX;
             _lastMouseX = pt.Position.X;
-            double sensitivity = 0.011;
-            Rotation = _rotation - (dx * sensitivity);
+
+            double dt = SecondsSince(_lastMoveStamp);
+            _lastMoveStamp = Stamp();
+            if (dt < 0.001) dt = 0.001;
+            if (dt > 0.10) dt = 0.10;
+
+            double pointerSpeed = Math.Abs(dx) / dt;
+            double gain = DragGainFor(pointerSpeed);
+
+            double travel = -(dx * gain);
+            SetRotationInternal(_rotation + travel);
+
+            // Velocity for the fling, smoothed so one jittery sample cannot launch the dial.
+            double instant = travel / dt;
+            _velocity = (_velocity * 0.65) + (instant * 0.35);
+
             SuppressTooltipTemporarily();
             base.OnPointerMoved(e);
         }
-        
+
+        /// <summary>
+        /// WHEEL_01 — pointer-acceleration curve, units of dial travel per pixel of pointer travel.
+        /// Saturating rather than linear: a linear map either makes precise selection impossible at
+        /// the top end or makes long travel exhausting at the bottom. Exponent &lt; 1 makes the
+        /// response bite early so the dial does not feel inert during ordinary movement.
+        /// </summary>
+        private static double DragGainFor(double pointerSpeedPxPerSec)
+        {
+            double t = pointerSpeedPxPerSec / GainRefSpeedPxPerSec;
+            double k = 1.0 - Math.Exp(-Math.Pow(Math.Max(0.0, t), GainCurveExponent));
+            return FineGainPerPx + (CoarseGainPerPx - FineGainPerPx) * k;
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            if (!_isDragging) return;
-            _isDragging = false;
-            Cursor = new Cursor(StandardCursorType.Hand);
-            int target = (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
-            SetValue(target);
+            if (_phase != WheelPhase.Dragging) { base.OnPointerReleased(e); return; }
+
+            e.Pointer.Capture(null);
+            EndDrag();
             base.OnPointerReleased(e);
+        }
+
+        /// <summary>Capture can be taken away (another control grabs it, the window deactivates).
+        /// Treat it exactly like a release, or the dial is stranded mid-drag with a live timer and
+        /// a value that never commits.</summary>
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            if (_phase == WheelPhase.Dragging) EndDrag();
+            base.OnPointerCaptureLost(e);
+        }
+
+        private void EndDrag()
+        {
+            Cursor = new Cursor(StandardCursorType.Hand);
+
+            // A stale sample means the pointer was held still before letting go — that is a
+            // deliberate placement, not a flick, so it must not inherit whatever speed it had.
+            if (SecondsSince(_lastMoveStamp) > 0.12) _velocity = 0;
+
+            _velocity = Math.Max(-MaxFlingVelocity, Math.Min(MaxFlingVelocity, _velocity));
+
+            if (Math.Abs(_velocity) >= FlickMinVelocity)
+            {
+                _phase = WheelPhase.Momentum;
+                StartAnimation();
+            }
+            else
+            {
+                BeginSettle(NearestDetent());
+            }
         }
 
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
             if (!IsEnabled) return;
+
             double delta = e.Delta.Y > 0 ? 1 : (e.Delta.Y < 0 ? -1 : 0);
             if (e.Delta.X != 0 && delta == 0) delta = e.Delta.X > 0 ? 1 : -1;
-            
-            int current = (int)Math.Round(_rotation);
-            int target = current + (int)delta;
-            SetValue(target);
+            if (delta == 0) { base.OnPointerWheelChanged(e); return; }
+
+            _interactionPending = true;
+            StepToDetent(PendingDetent() + (int)delta);
+
             SuppressTooltipTemporarily();
             e.Handled = true;
             base.OnPointerWheelChanged(e);
+        }
+
+        /// <summary>Every discrete step (wheel, arrow key, Home/End) lands through the same spring
+        /// as a drag, so the dial behaves identically however it was moved.</summary>
+        private void StepToDetent(int detent)
+        {
+            _velocity = 0;
+            BeginSettle(detent);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -203,33 +526,39 @@ namespace FortniteVideoSoftware.App.Controls
                 return;
             }
 
-            int current = (int)Math.Round(_rotation);
+            int current = PendingDetent();
             switch (e.Key)
             {
                 case Key.Left:
                 case Key.Down:
-                    SetValue(current - 1);
+                    _interactionPending = true;
+                    StepToDetent(current - 1);
                     e.Handled = true;
                     return;
                 case Key.Right:
                 case Key.Up:
-                    SetValue(current + 1);
+                    _interactionPending = true;
+                    StepToDetent(current + 1);
                     e.Handled = true;
                     return;
                 case Key.PageDown:
-                    SetValue(current - 5);
+                    _interactionPending = true;
+                    StepToDetent(current - 5);
                     e.Handled = true;
                     return;
                 case Key.PageUp:
-                    SetValue(current + 5);
+                    _interactionPending = true;
+                    StepToDetent(current + 5);
                     e.Handled = true;
                     return;
                 case Key.Home:
-                    SetValue(_range.min);
+                    _interactionPending = true;
+                    StepToDetent(_range.min);
                     e.Handled = true;
                     return;
                 case Key.End:
-                    SetValue(_range.max);
+                    _interactionPending = true;
+                    StepToDetent(_range.max);
                     e.Handled = true;
                     return;
             }
@@ -237,16 +566,22 @@ namespace FortniteVideoSoftware.App.Controls
             base.OnKeyDown(e);
         }
 
+        /// <summary>WHEEL_01 — leaving the control no longer cancels the drag; the pointer is
+        /// captured, so the gesture legitimately continues outside the bounds. Only the cursor is
+        /// restored when the pointer leaves while idle.</summary>
         protected override void OnPointerExited(PointerEventArgs e)
         {
-            if (_isDragging)
+            if (_phase != WheelPhase.Dragging)
             {
-                _isDragging = false;
                 Cursor = new Cursor(StandardCursorType.Arrow);
-                int target = (int)Math.Round(Math.Max(_range.min, Math.Min(_range.max, _rotation)));
-                SetValue(target);
             }
             base.OnPointerExited(e);
+        }
+
+        protected override void OnPointerEntered(PointerEventArgs e)
+        {
+            if (IsEnabled) Cursor = new Cursor(StandardCursorType.Hand);
+            base.OnPointerEntered(e);
         }
         
         private static readonly System.Collections.Generic.Dictionary<(string, Color, Color), (FormattedText normal, FormattedText shadow)> _textCache = new();
@@ -321,6 +656,21 @@ namespace FortniteVideoSoftware.App.Controls
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             ActualThemeVariantChanged -= OnThemeVariantChangedForDial;
+
+            // LEAK_01 — A RUNNING DispatcherTimer KEEPS THIS CONTROL ALIVE AND KEEPS TICKING.
+            // The timer's Tick handler holds a reference to the slider, and the dispatcher holds
+            // the timer, so a window closed mid-settle (or mid-fling) leaves the whole control
+            // rooted and invalidating a visual that is no longer in any tree. WHEEL_01 stops the
+            // animation timer when the dial comes to REST, which is the common case and is exactly
+            // why this was easy to miss: it only leaks when the user closes the window while the
+            // dial is still moving. The tooltip timer has the same shape.
+            _animTimer?.Stop();
+            _tooltipRestoreTimer?.Stop();
+            _phase = WheelPhase.Idle;
+            _velocity = 0;
+            _valueLocked = false;
+            _interactionPending = false;
+
             base.OnDetachedFromVisualTree(e);
         }
 

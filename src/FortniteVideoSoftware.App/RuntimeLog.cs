@@ -141,7 +141,38 @@ public static class RuntimeLog
             _initialized = true;
         }
 
-        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // VERSION_01 — THE LOG BANNER READ THE ONE VERSION THAT IS PINNED ON PURPOSE.
+        // `GetName().Version` is AssemblyVersion, which `FortniteVideoSoftware.App.csproj`
+        // deliberately holds at 1.0.0.0 so assembly binding never breaks between patch releases.
+        // Its own comment says "FileVersion and InformationalVersion carry the real number that
+        // users and bug reports see" — but the log, which IS the bug report, was reading neither.
+        // Every build on every machine identified itself as v1.0.0.0.
+        // FileVersionInfo reads the Win32 resource off the running image: no reflection, so it
+        // survives NativeAOT trimming, and it is the same number Explorer shows in Properties >
+        // Details, which is where a user looks when SmartScreen stops a download.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        string version = "Unknown";
+        try
+        {
+            string? exe = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exe))
+            {
+                var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(exe);
+                version = !string.IsNullOrWhiteSpace(fvi.ProductVersion) ? fvi.ProductVersion!
+                        : (!string.IsNullOrWhiteSpace(fvi.FileVersion) ? fvi.FileVersion! : "Unknown");
+            }
+        }
+        catch (System.Exception)
+        {
+            // The logger may never log its own failure (L7/ISSUE_13). An unknown version is a
+            // cosmetic loss; a recursive logger fault is not.
+        }
+        if (version == "Unknown")
+        {
+            try { version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown"; }
+            catch (System.Exception) { }
+        }
         string header = Environment.NewLine +
             $"{_appName} v{version} {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} [INFO] BOOTSTRAP - Started (PID: {Environment.ProcessId}, Session: {_sessionId})" + Environment.NewLine;
         SafeWrite(header);

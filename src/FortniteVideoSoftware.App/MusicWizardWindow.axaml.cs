@@ -474,6 +474,18 @@ public partial class MusicWizardWindow : Window
             };
         }
 
+        // AUDIOPROT_01 — CarvingCheckBox previously had NO change handler of any kind, so ticking
+        // it did not even refresh the problem-flag panel, let alone the preview.
+        var carvingCheckWire = this.FindControl<CheckBox>("CarvingCheckBox");
+        if (carvingCheckWire != null)
+        {
+            carvingCheckWire.IsCheckedChanged += (s, e) =>
+            {
+                ApplyPreviewMusicFilters();
+                UpdateProblemFlags();
+            };
+        }
+
         var visibleOnlyCheck = this.FindControl<CheckBox>("AutoFillVisibleOnlyCheckBox");
         if (visibleOnlyCheck != null)
         {
@@ -1479,12 +1491,19 @@ public partial class MusicWizardWindow : Window
                 ? FindSmartFitStart(analysis, videoDuration)
                 : 0.0;
 
-            var duckingCheck = this.FindControl<CheckBox>("DuckingCheckBox");
-            if (duckingCheck != null) duckingCheck.IsChecked = true;
-
-            var carvingCheck = this.FindControl<CheckBox>("CarvingCheckBox");
-            if (carvingCheck != null) carvingCheck.IsChecked = true;
-
+            // AUDIOPROT_01 — SMART FIT NO LONGER RE-TICKS DUCKING AND CARVING.
+            //
+            // ⚠️ IT USED TO FORCE BOTH TO `IsChecked = true` HERE, SILENTLY. Smart Fit answers ONE
+            // question — where in the song to start — and has no business overruling the two audio
+            // protection switches. A user who deliberately turned ducking or carving off and then
+            // pressed Smart Fit had both quietly turned back on with no toast, no log line and no
+            // visible reason, and `BuildResult` reads the checkboxes directly, so the reversal
+            // travelled straight into `EnableDucking` / `EnableCarving` and into the export. That
+            // is the "unchecking is not respected" report. Do not reinstate this.
+            //
+            // The MusicVolSlider nudge below is DIFFERENT and is kept: it only fires when the
+            // slider is still sitting on its 100 default, i.e. when the user has expressed no
+            // preference, whereas an unticked checkbox IS an expressed preference.
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             if (musicVolSlider != null && Math.Abs(musicVolSlider.Value - 100.0) < 0.5)
                 musicVolSlider.Value = 85.0;
@@ -2287,37 +2306,87 @@ public partial class MusicWizardWindow : Window
                 _phase3ClipDurationsSec.Clear();
                 _phase3ClipDurationsSec.AddRange(videoDurs.Select(d => Math.Max(0.1, d / Math.Max(0.001, _phase3BaseSpeed))));
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // STRIP_02/03 — MOUNT THE LANE FIRST, THEN STREAM INTO IT.
+                // Two defects were stacked here. The loop `await`ed each clip's strip before
+                // starting the next, so in Merger mode the wait was the SUM over the queue; and
+                // nothing appeared for any clip until its strip was complete. The lane's Images
+                // are now created up front so each one has a surface to stream into, the renders
+                // run concurrently, and every clip fills in as its own frames decode.
+                // The semaphore is not ceremony: a merge queue can hold a dozen clips and an
+                // unbounded fan-out puts a dozen decoders on the machine at once, which on a
+                // laptop loses to the serial version it replaced.
+                // ══════════════════════════════════════════════════════════════════════════
+                var laneImages = new System.Collections.Generic.List<Avalonia.Controls.Image>(videosToThumb.Count);
                 for (int i = 0; i < videosToThumb.Count; i++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
-
-                    double vDur = videoDurs[i];
-                    double fraction = vDur / totalDur;
-                    int framesCount = Math.Max(1, (int)Math.Round(15 * fraction));
-
-                    double startOffset = (_isMergerMode || i > 0) ? 0 : (_trimStartMs / 1000.0);
-
-                    string? thumbPath = await GenerateThumbnailsStripAsync(ffmpeg, videosToThumb[i], startOffset, vDur, cancellationToken, framesCount);
-                    if (thumbPath != null) _lastPhase3ThumbFiles.Add(thumbPath);
-
-                    thumbLaneGrid.ColumnDefinitions.Add(new Avalonia.Controls.ColumnDefinition(vDur, Avalonia.Controls.GridUnitType.Star));
+                    thumbLaneGrid.ColumnDefinitions.Add(
+                        new Avalonia.Controls.ColumnDefinition(videoDurs[i], Avalonia.Controls.GridUnitType.Star));
 
                     var img = new Avalonia.Controls.Image { Stretch = Avalonia.Media.Stretch.Fill };
-                    Avalonia.Media.RenderOptions.SetBitmapInterpolationMode(img, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
-
-                    if (thumbPath != null)
-                    {
-                        try {
-                            using var fs = File.OpenRead(thumbPath);
-                            img.Source = new Avalonia.Media.Imaging.Bitmap(fs);
-                        } catch (Exception ex) {
-                            RuntimeLog.Fail("MUSIC_WIZARD", $"Could not load a filmstrip thumbnail: {ex.Message}");
-                        }
-                    }
+                    Avalonia.Media.RenderOptions.SetBitmapInterpolationMode(
+                        img, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
                     Avalonia.Controls.Grid.SetColumn(img, i);
                     thumbLaneGrid.Children.Add(img);
+                    laneImages.Add(img);
                 }
+
+                using var stripGate = new System.Threading.SemaphoreSlim(
+                    Math.Clamp(Environment.ProcessorCount / 2, 2, 4));
+
+                var stripTasks = new System.Collections.Generic.List<Task>(videosToThumb.Count);
+                for (int i = 0; i < videosToThumb.Count; i++)
+                {
+                    double vDur = videoDurs[i];
+                    int framesCount = Math.Max(1, (int)Math.Round(15 * (vDur / totalDur)));
+                    double startOffset = (_isMergerMode || i > 0) ? 0 : (_trimStartMs / 1000.0);
+                    string videoForStrip = videosToThumb[i];
+                    var target = laneImages[i];
+
+                    stripTasks.Add(Task.Run(async () =>
+                    {
+                        await stripGate.WaitAsync(cancellationToken);
+                        try
+                        {
+                            bool streamed = await ThumbnailStripGenerator.StreamAsync(
+                                ffmpeg, videoForStrip, startOffset, vDur, cancellationToken,
+                                onReady: wb =>
+                                {
+                                    if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
+                                    (target.Source as IDisposable)?.Dispose();
+                                    target.Source = wb;
+                                },
+                                onFrame: () => target.InvalidateVisual(),
+                                frames: framesCount,
+                                logTag: "MUSIC_WIZARD");
+
+                            if (streamed) return;
+
+                            // Nothing streamed for this clip — fall back to the tiled render.
+                            string? path = await GenerateThumbnailsStripAsync(
+                                ffmpeg, videoForStrip, startOffset, vDur, cancellationToken, framesCount);
+                            if (path == null) return;
+
+                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
+                                _lastPhase3ThumbFiles.Add(path);
+                                try
+                                {
+                                    using var fs = File.OpenRead(path);
+                                    target.Source = new Avalonia.Media.Imaging.Bitmap(fs);
+                                }
+                                catch (Exception ex)
+                                {
+                                    RuntimeLog.Fail("MUSIC_WIZARD", $"Could not load a filmstrip thumbnail: {ex.Message}");
+                                }
+                            });
+                        }
+                        finally { stripGate.Release(); }
+                    }));
+                }
+
+                await Task.WhenAll(stripTasks);
             }
             SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
 
@@ -2799,7 +2868,48 @@ public partial class MusicWizardWindow : Window
         }
 
         await _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+        ApplyPreviewMusicFilters();
         await _audioIpcClient.SetPropertyAsync("pause", "no");
+    }
+
+    /// <summary>
+    /// AUDIOPROT_01 — PUTS THE EQ CARVE ON THE PREVIEW MUSIC BUS SO THE CHECKBOX IS AUDIBLE.
+    ///
+    /// <para>
+    /// The wizard preview runs the music on its OWN audio-only mpv (<c>_audioIpcClient</c>) and, up
+    /// to now, set exactly one property on it: <c>volume</c>. No <c>af</c>, no lavfi, nothing. So
+    /// neither protection switch changed a single sample of what the user heard in phase 2 or phase
+    /// 3 — ticking or unticking them was inaudible BY CONSTRUCTION, which is the other half of the
+    /// "it does not respect the setting" report.
+    /// </para>
+    /// <para>
+    /// The carve is a STATIC EQ on the music bus, so it ports exactly. The string below is the
+    /// literal twin of the export's, in <c>AudioFilterChain.BuildMusicChain</c>:
+    /// <c>equalizer=f=2000:width_type=h:width=1800:g=-4</c>. ⚠️ IF THAT ONE CHANGES, CHANGE THIS
+    /// ONE IN THE SAME COMMIT — a preview that carves by a different amount than the export is
+    /// worse than a preview that does not carve at all, because it is silently wrong instead of
+    /// visibly absent. It is wrapped in mpv's explicit <c>lavfi=[...]</c> bridge rather than passed
+    /// bare, so the syntax cannot be mistaken for one of mpv's own built-in af names.
+    /// </para>
+    /// <para>
+    /// DUCKING IS DELIBERATELY NOT HERE, AND CANNOT BE. The export ducks with
+    /// <c>sidechaincompress</c>, whose whole point is that the GAME bus is the trigger for the
+    /// MUSIC bus. In the wizard the two live in two separate mpv processes, so there is no path to
+    /// route one as a sidechain into the other. Do not "fix" that by inventing a static
+    /// approximation — a fake duck that does not follow the real gameplay peaks would misrepresent
+    /// the export rather than preview it.
+    /// </para>
+    /// </summary>
+    private void ApplyPreviewMusicFilters()
+    {
+        if (_audioIpcClient == null) return;
+
+        bool carving = this.FindControl<CheckBox>("CarvingCheckBox")?.IsChecked ?? true;
+        string af = carving
+            ? "lavfi=[equalizer=f=2000:width_type=h:width=1800:g=-4]"
+            : "";
+
+        _ = _audioIpcClient.SetPropertyAsync("af", af);
     }
 
     private void UpdatePreviewControlsState()
@@ -2858,7 +2968,50 @@ public partial class MusicWizardWindow : Window
             ? (FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value) + PreviewHeadroomOffsetDb
             : 0.0;
 
-    private double PreviewMusicGainDb => _musicBedGainDb + PreviewHeadroomOffsetDb;
+    /// <summary>
+    /// MUSICBED_02 — WHERE THE PREVIEW MUSIC BED SITS, DERIVED, NOT GUESSED.
+    ///
+    /// <para>
+    /// ⚠️ MUSICLVL_01 CHANGED THIS TO A BARE <c>_musicBedGainDb</c> AND THAT WAS WRONG. It was
+    /// derived by matching the preview to the EXPORT as the export then behaved — but the export
+    /// was itself double-counting the loudness lift (see MUSICBED_01 in `AudioFilterChain`), so
+    /// "matching the export" faithfully reproduced a defect. With the export corrected, the
+    /// original <c>_musicBedGainDb + PreviewHeadroomOffsetDb</c> is provably right, and it is
+    /// restored below. Recorded so nobody re-derives the same wrong answer from the same wrong
+    /// reference.
+    /// </para>
+    /// <para>
+    /// THE DERIVATION. The export puts the game bus at <c>T = -14</c> LUFS and a bed-normalised
+    /// track at <c>MusicBedLufs = -20</c> LUFS: a constant 6 dB gap. The preview cannot normalise
+    /// the game bus — mpv only attenuates — so its video leg lands at <c>S + G_v</c>, where S is
+    /// the source's measured loudness and <c>G_v = PreviewVideoGainDb</c>. To hold the same 6 dB
+    /// gap the music must land at <c>S + G_v - 6</c>, so, writing <c>B</c> for the bed gain
+    /// (<c>-20 - trackLufs</c>) and <c>X</c> for <c>T - S</c>:
+    /// </para>
+    /// <para>
+    /// gain = (S + G_v - 6) - trackLufs = B + G_v - X, and since
+    /// <c>G_v = X + PreviewHeadroomOffsetDb</c>, that is exactly
+    /// <c>B + PreviewHeadroomOffsetDb</c>. Both branches check out:
+    /// a QUIET source (S &lt; T) gives G_v = 0 and gain = B - X, putting music at S - 6;
+    /// a LOUD source (S &gt; T) gives offset = 0 and gain = B, putting the attenuated video at -14
+    /// and the music at -20. Six dB either way.
+    /// </para>
+    /// <para>
+    /// ⚠️ AND THE BED GAIN IS DROPPED ENTIRELY WHEN THE SOURCE WAS NEVER MEASURED. This is the
+    /// defect the user actually heard. <see cref="SourceMeasuredLufs"/> null means the video leg
+    /// gets NO correction at all — <see cref="PreviewVideoGainDb"/> falls to 0 and the clip plays
+    /// raw — but <c>_musicBedGainDb</c> is measured independently by
+    /// <see cref="EnsureMusicBedGainAsync"/> and used to sit the music at an ABSOLUTE -20 LUFS
+    /// anyway. Bed-placing the music against a video that has not been placed is meaningless, and
+    /// on loud gameplay it is severe: a -6 LUFS capture plays raw at -6 while the music is pinned
+    /// to -20, i.e. FOURTEEN dB down — "extremely low in an extremely unproportional way". With no
+    /// measurement there is no reference, so the honest answer is the raw slider, which is what the
+    /// class comment on <see cref="SourceMeasuredLufs"/> already promised ("every preview gain
+    /// falls back to the raw behaviour") and what the music leg alone was not doing.
+    /// </para>
+    /// </summary>
+    private double PreviewMusicGainDb =>
+        SourceMeasuredLufs.HasValue ? _musicBedGainDb + PreviewHeadroomOffsetDb : 0.0;
 
     /// <summary>
     /// Measures the chosen track once and caches how far it sits from the bed target. Failures
@@ -2904,6 +3057,17 @@ public partial class MusicWizardWindow : Window
         double gain = PreviewMusicGainDb;
         if (Math.Abs(gain) > 0.01)
             musicVolume *= Math.Pow(10, gain / 20.0);
+
+        // MUSICLVL_01 — mpv's `volume` ceiling is 100 without raising `volume-max`, so a track
+        // mastered well below the -20 LUFS bed can ask for more level than the preview can give.
+        // That is the ONE case where the preview bed is still quieter than the export, and it is
+        // worth a log line rather than silence, because it looks identical to the bug just fixed.
+        if (musicVolume > 100.0)
+        {
+            RuntimeLog.Info("MUSIC_WIZARD",
+                $"Preview music wanted {musicVolume:F1} but mpv caps at 100 — this quiet a track " +
+                $"will sit up to {20.0 * Math.Log10(musicVolume / 100.0):F1} dB louder in the export.");
+        }
 
         return Math.Clamp(musicVolume, 0.0, 100.0);
     }
@@ -3128,6 +3292,7 @@ public partial class MusicWizardWindow : Window
             }
 
             await audioClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+            ApplyPreviewMusicFilters();
             await audioClient.SetPropertyAsync("pause", "no");
         }
         catch (Exception ex)

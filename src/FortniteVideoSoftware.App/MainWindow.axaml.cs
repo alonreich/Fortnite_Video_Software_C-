@@ -41,6 +41,14 @@ public partial class MainWindow : Window
 
     private double _trimStartMs = 0;
     private double _trimEndMs = 0;
+
+    /// <summary>
+    /// PREWARM_01 — the film-lane prewarm stays ASLEEP until the user has deliberately marked an
+    /// end point. Loading a video sets a full-range trim automatically, and warming on that would
+    /// spend a background render on a range most users immediately replace. Armed by MARK END and
+    /// by the end-marker drag; reset when a different video is loaded.
+    /// </summary>
+    private bool _prewarmArmed = false;
     private bool _trimEndSet = false;
 
     /// <summary>
@@ -100,6 +108,34 @@ public partial class MainWindow : Window
             _musicWizardResult.TimelineStartSeconds = valueMs / 1000.0;
             _musicWizardResult.TimelineEndSeconds = (valueMs / 1000.0) + dur;
         }
+        SchedulePrewarm();
+    }
+
+    /// <summary>
+    /// PREWARM_01 — the moment the trim range is known, start building the film lane every later
+    /// screen will want. Called from every place the trim can change; the service debounces, so a
+    /// marker drag firing this per pointer-move costs one render, not one per frame.
+    /// Fire-and-forget by design: it never blocks, never reports, and a failure is invisible
+    /// because every consumer can still render the lane itself.
+    /// The duration MUST be computed the same way the consumers compute theirs
+    /// (`GranularSpeedEditorWindow.GetDuration`, VoiceOver's `durationSec`) or the key will not
+    /// match and the prewarm is silently wasted rather than wrong.
+    /// </summary>
+    private void SchedulePrewarm()
+    {
+        try
+        {
+            if (!_prewarmArmed) return;
+            if (string.IsNullOrWhiteSpace(_loadedVideoPath)) return;
+            if (_trimEndMs <= _trimStartMs) return;
+
+            FortniteVideoSoftware.App.Services.FilmstripPrewarm.Schedule(
+                ResolveFfmpegPath(),
+                _loadedVideoPath,
+                _trimStartMs / 1000.0,
+                (_trimEndMs - _trimStartMs) / 1000.0);
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private void UpdateDraggingVisuals(double canvasWidth, double duration)
@@ -808,6 +844,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     return;
                 }
                 _trimEndMs = time * 1000;
+                _prewarmArmed = true;
+                SchedulePrewarm();
                 markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
                 if (ActiveVideoHost?.IpcClient != null)
@@ -3091,6 +3129,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                         
                         double newEndSec = (newX / canvasWidth) * duration;
                         _trimEndMs = newEndSec * 1000.0;
+                        _prewarmArmed = true;
+                        SchedulePrewarm();
                         Avalonia.Controls.Canvas.SetLeft(endHitBox, newX - 12);
                         if (scaleCanvas != null) Avalonia.Controls.Canvas.SetLeft(endText, ClampLabelLeft(newX - 28, 28));
                         UpdateDraggingVisuals(canvasWidth, duration);
@@ -3500,16 +3540,43 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Focusable = true
         };
 
-        var hitBox = new Border
+        // HITBOX_02 — THE GRAB AREA IS THE HEAD PLUS A NARROW STEM, NOT THE WHOLE 52x103 BOX.
+        //
+        // It used to be one transparent Border filling the entire control. That box is 103px tall
+        // but the drawn marker is a 28px head with a 2px stick hanging off it, so ~60% of the grab
+        // area was empty space around the stick. When two of these overlap — which is exactly what
+        // the vertical stagger produces on a short hold or a short zoom span — the upper marker's
+        // full-height box lies straight over the LOWER marker's HEAD, and since the two are
+        // siblings on the same canvas the one drawn later swallows every click. The lower head then
+        // cannot be grabbed at all, no matter where on it the user aims.
+        //
+        // Splitting the box means the upper marker only occupies a 16px-wide column over the lower
+        // head instead of the full 52px, leaving ~36px of the lower head directly clickable. Paired
+        // with the caller drawing the staggered (lower) marker LAST, both heads are reachable.
+        //
+        // ⚠️ DO NOT COLLAPSE THESE BACK INTO ONE FULL-SIZE BORDER. The geometry below tracks the
+        // drawn shapes: head icon at y 28..56 (glow 24..60), stick at y 56..103 centred on x 24.
+        var headHit = new Border
         {
             Width = 52,
-            Height = 103,
+            Height = 36,
             Background = Avalonia.Media.Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
         };
-        Avalonia.Controls.Canvas.SetLeft(hitBox, 0);
-        Avalonia.Controls.Canvas.SetTop(hitBox, 0);
-        outerCanvas.Children.Add(hitBox);
+        Avalonia.Controls.Canvas.SetLeft(headHit, 0);
+        Avalonia.Controls.Canvas.SetTop(headHit, 24);
+        outerCanvas.Children.Add(headHit);
+
+        var stemHit = new Border
+        {
+            Width = 16,
+            Height = 47,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(stemHit, 18);
+        Avalonia.Controls.Canvas.SetTop(stemHit, 56);
+        outerCanvas.Children.Add(stemHit);
         outerCanvas.Children.Add(hoverIconGlow);
         outerCanvas.Children.Add(hoverLineGlow);
         Avalonia.Controls.Canvas.SetTop(icon, 28);
@@ -3630,16 +3697,43 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Focusable = true
         };
 
-        var hitBox = new Border
+        // HITBOX_02 — THE GRAB AREA IS THE HEAD PLUS A NARROW STEM, NOT THE WHOLE 52x103 BOX.
+        //
+        // It used to be one transparent Border filling the entire control. That box is 103px tall
+        // but the drawn marker is a 28px head with a 2px stick hanging off it, so ~60% of the grab
+        // area was empty space around the stick. When two of these overlap — which is exactly what
+        // the vertical stagger produces on a short hold or a short zoom span — the upper marker's
+        // full-height box lies straight over the LOWER marker's HEAD, and since the two are
+        // siblings on the same canvas the one drawn later swallows every click. The lower head then
+        // cannot be grabbed at all, no matter where on it the user aims.
+        //
+        // Splitting the box means the upper marker only occupies a 16px-wide column over the lower
+        // head instead of the full 52px, leaving ~36px of the lower head directly clickable. Paired
+        // with the caller drawing the staggered (lower) marker LAST, both heads are reachable.
+        //
+        // ⚠️ DO NOT COLLAPSE THESE BACK INTO ONE FULL-SIZE BORDER. The geometry below tracks the
+        // drawn shapes: head icon at y 28..56 (glow 24..60), stick at y 56..103 centred on x 24.
+        var headHit = new Border
         {
             Width = 52,
-            Height = 103,
+            Height = 36,
             Background = Avalonia.Media.Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
         };
-        Avalonia.Controls.Canvas.SetLeft(hitBox, 0);
-        Avalonia.Controls.Canvas.SetTop(hitBox, 0);
-        outerCanvas.Children.Add(hitBox);
+        Avalonia.Controls.Canvas.SetLeft(headHit, 0);
+        Avalonia.Controls.Canvas.SetTop(headHit, 24);
+        outerCanvas.Children.Add(headHit);
+
+        var stemHit = new Border
+        {
+            Width = 16,
+            Height = 47,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(stemHit, 18);
+        Avalonia.Controls.Canvas.SetTop(stemHit, 56);
+        outerCanvas.Children.Add(stemHit);
         outerCanvas.Children.Add(hoverIconGlow);
         outerCanvas.Children.Add(hoverLineGlow);
         Avalonia.Controls.Canvas.SetTop(icon, 28);
@@ -3831,6 +3925,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 _trimEndSet = true;
                 _trimStartMs = 0;
                 _trimEndMs = dur * 1000.0;
+                // PREWARM_01 — a freshly loaded clip gets a full-range trim automatically. That is
+                // not a user decision, so it does not arm the prewarm; anything held for the
+                // previous video is now unreachable and is dropped.
+                _prewarmArmed = false;
+                FortniteVideoSoftware.App.Services.FilmstripPrewarm.Clear();
                 var markStartBtn = this.FindControl<Button>("MarkStartButton");
                 if (markStartBtn != null) markStartBtn.Content = "MARK START [" + FormatTime(TimeSpan.Zero) + "]";
                 var markEndBtn = this.FindControl<Button>("MarkEndButton");
