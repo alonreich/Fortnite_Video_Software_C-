@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -98,6 +98,8 @@ public partial class MusicWizardWindow : Window
     public ObservableCollection<MusicQueueItem> AutoFillQueueItems { get; } = new();
 
     public MusicWizardResult? Result { get; private set; }
+    
+    private readonly FortniteVideoSoftware.App.Controls.VoiceOverPreviewPlayer _voiceOverPlayer = new();
     
     public static readonly Avalonia.StyledProperty<string> MusicSearchTextProperty =
         Avalonia.AvaloniaProperty.Register<MusicWizardWindow, string>(nameof(MusicSearchText), string.Empty);
@@ -244,6 +246,16 @@ public partial class MusicWizardWindow : Window
         }
 
         UpdatePhase3LiveZoomCrop();
+        
+        if (WizardVideoHost?.IpcClient != null)
+        {
+            double t = WizardVideoHost.IpcClient.CurrentTime;
+            var timeMapper = FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.CreateTimeMapper(_trimEndMs - _trimStartMs, _phase3SpeedSegments, _phase3BaseSpeed, _trimStartMs);
+            double editedTimeSec = timeMapper(t);
+            bool isVoicePaused = WizardVideoHost.IpcClient.IsPaused;
+            bool ended = _trimEndMs > 0 && t >= _trimEndMs / 1000.0;
+            _voiceOverPlayer.UpdatePlayback(isVoicePaused, ended, editedTimeSec, timeMapper, false);
+        }
     }
 
 
@@ -320,8 +332,10 @@ public partial class MusicWizardWindow : Window
         double trimStartMs,
         double trimEndMs,
         double baseSpeed = 1.0,
-        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment>? speedSegments = null) : this()
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment>? speedSegments = null,
+        VoiceOverWindow.VoiceOverResult? voiceOverResult = null) : this()
     {
+        _voiceOverPlayer.Result = voiceOverResult;
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
@@ -2270,6 +2284,8 @@ public partial class MusicWizardWindow : Window
                 RuntimeLog.Info("MUSIC_WIZARD", "Phase 3 MPV preview video loaded.");
                 RefreshDetachButtonState();
 
+
+
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
                     await wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
@@ -2909,6 +2925,8 @@ public partial class MusicWizardWindow : Window
             ? "lavfi=[equalizer=f=2000:width_type=h:width=1800:g=-4]"
             : "";
 
+
+
         _ = _audioIpcClient.SetPropertyAsync("af", af);
     }
 
@@ -2942,110 +2960,18 @@ public partial class MusicWizardWindow : Window
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         videoVolume = videoVolume * master / 100.0;
 
-        if (Math.Abs(PreviewVideoGainDb) > 0.01)
-            videoVolume *= Math.Pow(10, PreviewVideoGainDb / 20.0);
-
         return Math.Clamp(videoVolume, 0.0, 100.0);
     }
 
-    private double _musicBedGainDb;
-    private string? _musicBedMeasuredPath;
 
-    /// <summary>
-    /// PREVIEW_03 — the source clip's measured loudness, handed over by the Main App which already
-    /// measured it on upload. Null means "not measured", and every preview gain falls back to the
-    /// raw behaviour.
-    /// </summary>
-    public double? SourceMeasuredLufs { get; set; }
-
-    private double PreviewHeadroomOffsetDb =>
-        SourceMeasuredLufs.HasValue
-            ? -Math.Max(0.0, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value)
-            : 0.0;
-
-    private double PreviewVideoGainDb =>
-        SourceMeasuredLufs.HasValue
-            ? (FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value) + PreviewHeadroomOffsetDb
-            : 0.0;
-
-    /// <summary>
-    /// MUSICBED_02 — WHERE THE PREVIEW MUSIC BED SITS, DERIVED, NOT GUESSED.
-    ///
-    /// <para>
-    /// ⚠️ MUSICLVL_01 CHANGED THIS TO A BARE <c>_musicBedGainDb</c> AND THAT WAS WRONG. It was
-    /// derived by matching the preview to the EXPORT as the export then behaved — but the export
-    /// was itself double-counting the loudness lift (see MUSICBED_01 in `AudioFilterChain`), so
-    /// "matching the export" faithfully reproduced a defect. With the export corrected, the
-    /// original <c>_musicBedGainDb + PreviewHeadroomOffsetDb</c> is provably right, and it is
-    /// restored below. Recorded so nobody re-derives the same wrong answer from the same wrong
-    /// reference.
-    /// </para>
-    /// <para>
-    /// THE DERIVATION. The export puts the game bus at <c>T = -14</c> LUFS and a bed-normalised
-    /// track at <c>MusicBedLufs = -20</c> LUFS: a constant 6 dB gap. The preview cannot normalise
-    /// the game bus — mpv only attenuates — so its video leg lands at <c>S + G_v</c>, where S is
-    /// the source's measured loudness and <c>G_v = PreviewVideoGainDb</c>. To hold the same 6 dB
-    /// gap the music must land at <c>S + G_v - 6</c>, so, writing <c>B</c> for the bed gain
-    /// (<c>-20 - trackLufs</c>) and <c>X</c> for <c>T - S</c>:
-    /// </para>
-    /// <para>
-    /// gain = (S + G_v - 6) - trackLufs = B + G_v - X, and since
-    /// <c>G_v = X + PreviewHeadroomOffsetDb</c>, that is exactly
-    /// <c>B + PreviewHeadroomOffsetDb</c>. Both branches check out:
-    /// a QUIET source (S &lt; T) gives G_v = 0 and gain = B - X, putting music at S - 6;
-    /// a LOUD source (S &gt; T) gives offset = 0 and gain = B, putting the attenuated video at -14
-    /// and the music at -20. Six dB either way.
-    /// </para>
-    /// <para>
-    /// ⚠️ AND THE BED GAIN IS DROPPED ENTIRELY WHEN THE SOURCE WAS NEVER MEASURED. This is the
-    /// defect the user actually heard. <see cref="SourceMeasuredLufs"/> null means the video leg
-    /// gets NO correction at all — <see cref="PreviewVideoGainDb"/> falls to 0 and the clip plays
-    /// raw — but <c>_musicBedGainDb</c> is measured independently by
-    /// <see cref="EnsureMusicBedGainAsync"/> and used to sit the music at an ABSOLUTE -20 LUFS
-    /// anyway. Bed-placing the music against a video that has not been placed is meaningless, and
-    /// on loud gameplay it is severe: a -6 LUFS capture plays raw at -6 while the music is pinned
-    /// to -20, i.e. FOURTEEN dB down — "extremely low in an extremely unproportional way". With no
-    /// measurement there is no reference, so the honest answer is the raw slider, which is what the
-    /// class comment on <see cref="SourceMeasuredLufs"/> already promised ("every preview gain
-    /// falls back to the raw behaviour") and what the music leg alone was not doing.
-    /// </para>
-    /// </summary>
-    private double PreviewMusicGainDb =>
-        SourceMeasuredLufs.HasValue ? _musicBedGainDb + PreviewHeadroomOffsetDb : 0.0;
 
     /// <summary>
     /// Measures the chosen track once and caches how far it sits from the bed target. Failures
     /// leave the gain at 0 dB, i.e. exactly the old behaviour — this must never block the preview.
     /// </summary>
-    private async Task EnsureMusicBedGainAsync(string musicPath)
+    private Task EnsureMusicBedGainAsync(string musicPath)
     {
-        if (string.IsNullOrWhiteSpace(musicPath)) return;
-        if (string.Equals(_musicBedMeasuredPath, musicPath, StringComparison.OrdinalIgnoreCase)) return;
-
-        _musicBedMeasuredPath = musicPath;
-        _musicBedGainDb = 0.0;
-        try
-        {
-            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
-                .MeasureAsync(ResolveFfmpegPath(), musicPath).ConfigureAwait(true);
-            if (reading == null) return;
-
-            _musicBedGainDb = Math.Clamp(
-                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MusicBedLufs - reading.IntegratedLufs,
-                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MinMusicGainDb,
-                FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MaxMusicGainDb);
-
-            RuntimeLog.Info("MUSIC_WIZARD",
-                $"Preview music matched to the export: measured {reading.IntegratedLufs:F2} LUFS -> " +
-                $"bed {FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MusicBedLufs:F1} LUFS " +
-                $"= {_musicBedGainDb:+0.00;-0.00} dB applied under the slider.");
-
-            ApplyPreviewMusicVolume();
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Info("MUSIC_WIZARD", $"Preview music level could not be matched: {ex.Message}");
-        }
+        return Task.CompletedTask;
     }
 
     private double GetPreviewMusicVolume(double? masterVolume = null)
@@ -3053,21 +2979,6 @@ public partial class MusicWizardWindow : Window
         double musicVolume = this.FindControl<Slider>("MusicVolSlider")?.Value ?? 100.0;
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         musicVolume = musicVolume * master / 100.0;
-
-        double gain = PreviewMusicGainDb;
-        if (Math.Abs(gain) > 0.01)
-            musicVolume *= Math.Pow(10, gain / 20.0);
-
-        // MUSICLVL_01 — mpv's `volume` ceiling is 100 without raising `volume-max`, so a track
-        // mastered well below the -20 LUFS bed can ask for more level than the preview can give.
-        // That is the ONE case where the preview bed is still quieter than the export, and it is
-        // worth a log line rather than silence, because it looks identical to the bug just fixed.
-        if (musicVolume > 100.0)
-        {
-            RuntimeLog.Info("MUSIC_WIZARD",
-                $"Preview music wanted {musicVolume:F1} but mpv caps at 100 — this quiet a track " +
-                $"will sit up to {20.0 * Math.Log10(musicVolume / 100.0):F1} dB louder in the export.");
-        }
 
         return Math.Clamp(musicVolume, 0.0, 100.0);
     }
@@ -3930,7 +3841,7 @@ public partial class MusicWizardWindow : Window
 
         }
 
-
+        _voiceOverPlayer.Dispose();
         base.OnClosed(e);
 
     }

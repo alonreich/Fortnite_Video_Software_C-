@@ -94,6 +94,25 @@ public static class AudioLoudnessProbe
     public const double PeakCeilingDbtp = -1.5;
 
     /// <summary>
+    /// QUIETBOOST_01 — HOW MUCH OF THE MEASURED LIFT A QUIET CAPTURE ACTUALLY RECEIVES.
+    ///
+    /// A capture well under <see cref="TargetLufs"/> asks for a large positive gain, and taking
+    /// it in full is technically correct but sounded far too loud: at -14 LUFS a gameplay clip
+    /// is as loud as a mastered record, and its noise floor and room tone come up with it.
+    /// Owner's decision: keep only 30% of the lift, i.e. reduce it by this factor.
+    ///
+    /// ⚠️ THIS ONLY EVER REDUCES A BOOST. A capture ALREADY LOUDER than the target is still
+    /// pulled all the way down — that direction is a ceiling, not a preference, and softening it
+    /// would ship files above the platform target that every platform then turns down anyway.
+    ///
+    /// ⚠️ IT IS APPLIED TO THE FINISHED MIX, NOT THE GAME BUS. Music sits at an ABSOLUTE
+    /// <see cref="MusicBedLufs"/> and the voice-over at an absolute target, so trimming the bus
+    /// alone would leave both of them where they were and make them relatively LOUDER by exactly
+    /// this amount. Trimming the sum moves everything together and the mix balance is untouched.
+    /// </summary>
+    public const double QuietBoostReductionFactor = 0.70;
+
+    /// <summary>
     /// AUDIO_03 — where BACKGROUND MUSIC should sit, in LUFS.
     ///
     /// ⚠️ THIS EXISTS BECAUSE MUSIC WAS NEVER MEASURED AT ALL. Gameplay is normalised to

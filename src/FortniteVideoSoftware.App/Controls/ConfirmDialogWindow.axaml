@@ -30,6 +30,7 @@
                          AvaloniaApp.axaml, dropping the two most consequential buttons in the suite
                          below the WCAG 2.2 target size AND freezing them at 34px while the Settings
                          font scale grew their labels. They now inherit the 44px scaling token. -->
+                    <Button Name="AltBtn" Classes="Primary" Content="ALT" MinWidth="130" Cursor="Hand" IsVisible="False"/>
                     <Button Name="YesBtn" Classes="Success" Content="YES" MinWidth="130" Cursor="Hand"/>
                     <Button Name="NoBtn" Classes="Secondary" Content="NO" MinWidth="130" Cursor="Hand"/>
                 </StackPanel>

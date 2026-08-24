@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -448,7 +448,7 @@ public static class SettingsManager
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
-    public static void Save()
+    public static bool Save()
     {
         try
         {
@@ -460,10 +460,12 @@ public static class SettingsManager
             string tempFile = SettingsPath + ".tmp";
             File.WriteAllText(tempFile, json);
             File.Move(tempFile, SettingsPath, overwrite: true);
+            return true;
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("Settings", $"Failed to save settings: {ex.Message}");
+            return false;
         }
     }
 }

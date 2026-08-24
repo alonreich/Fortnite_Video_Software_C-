@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -76,13 +76,13 @@
                                         <!-- Recording Indicator & EQ -->
                                         <StackPanel Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="0,0,20,0">
                                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                                <Ellipse Name="RecordingLight" Width="16" Height="16" ToolTip.Tip="Recording indicator: Red = recording, Green = idle" Fill="{DynamicResource AppDangerBrush}" Opacity="0.2"/>
+                                                <Ellipse Name="RecordingLight" Width="16" Height="16" ToolTip.Tip="Recording indicator: pulsing red = microphone live" Fill="{DynamicResource AppDangerBrush}" Opacity="0.2"/>
                                                 <TextBlock Name="RecordingStatusText" Text="READY" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold"/>
                                             </StackPanel>
                                             
                                             <!-- EQ Meter -->
                                             <Border Name="EqMeterTrack" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" MinWidth="250" MaxWidth="400" Height="30" ClipToBounds="True">
-                                                <Rectangle Name="EqMeter" Width="0" Height="30" HorizontalAlignment="Left" Fill="{DynamicResource AppSuccessBrush}" />
+                                                <Canvas Name="EqMeterCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                             </Border>
                                             
                                             <!-- Live Waveform Monitor -->
@@ -161,12 +161,12 @@
                                 <StackPanel Orientation="Vertical" Spacing="5" Margin="0,15,0,0">
                                     <TextBlock Text="GAME AUDIO MIXING" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
                                     <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
-                                        <CheckBox Name="DuckAudioCb" Content="Auto-Duck Game Audio" ToolTip.Tip="Automatically lowers the game volume to make your microphone recordings clearly audible" />
+                                        <CheckBox Name="DuckAudioCb" IsChecked="True" Content="Auto-Duck Game Audio" ToolTip.Tip="Automatically lowers the game volume to make your microphone recordings clearly audible" />
                                     </Border>
                                 </StackPanel>
                                 
                                 <Border BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Background="{DynamicResource AppPanelBrush}">
-                                    <TextBlock Text="Drops the game volume by 85% exactly when you are speaking into your microphone.&#x0a;&#x0a;⚠️ IMPORTANT: This studio is for recording your own voice over the video. It does NOT contain AI to scan the video and mute other players' voices from the original game audio." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Drops the game volume by 85% during your recorded takes.&#x0a;&#x0a;⚠️ IMPORTANT: This studio is for recording your own voice over the video. It does NOT contain AI to scan the video and mute other players' voices from the original game audio." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap"/>
                                 </Border>
                                 
                                 <Border Name="SelectedTakeToolbar" IsVisible="False" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,15,0,0">

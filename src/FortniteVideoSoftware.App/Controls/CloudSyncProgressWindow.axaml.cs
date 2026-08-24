@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -60,7 +60,15 @@ public partial class CloudSyncProgressWindow : Window
                 }
                 catch (OperationCanceledException)
                 {
-                    result = (0, null);
+                    if (!win._cts.Token.IsCancellationRequested)
+                    {
+                        RuntimeLog.Fail("CloudSync", "Download timed out.");
+                        result = (0, "The download timed out. Please check your network connection and try again.");
+                    }
+                    else
+                    {
+                        result = (0, null);
+                    }
                 }
                 catch (Exception ex)
                 {

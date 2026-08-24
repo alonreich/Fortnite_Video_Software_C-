@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -82,6 +82,7 @@ public class MainMediaController
             worker.ApplyLoudnessNormalization = payload.ApplyLoudnessNormalization ?? audioPrefs.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.NeverApply;
             bool peakWanted = payload.ApplyPeakFlattening ?? audioPrefs.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.NeverApply;
             worker.AutoSpikeFlattening = audioPrefs.Defaults.AutoSpikeFlattening && peakWanted;
+            worker.AutoVoiceNormalization = audioPrefs.Defaults.AutoVoiceNormalization;
             
             worker.IsMobileFormat = payload.IsMobileFormat;
             worker.IsBossHp = payload.IsBossHp;

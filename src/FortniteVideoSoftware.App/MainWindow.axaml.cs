@@ -1,4 +1,4 @@
-﻿using Avalonia.Platform.Storage;
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -625,7 +625,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _freezeTimeMs,
                     _freezeDurationS,
                     isMobileForZoom,
-                    zoomSrcRes);
+                    zoomSrcRes,
+                    _voiceOverResult);
 
                 await editor.ShowDialog(this);
                 ReturnToTrimStartPaused();
@@ -752,19 +753,26 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 if (_voiceOverResult != null)
                 {
                     var confirm = new ConfirmDialogWindow();
-                    confirm.SetTitle("Remove Voice Over?");
-                    confirm.SetMessage("This will remove the applied voiceover from the current edit.");
-                    confirm.SetButtonText("REMOVE", "KEEP");
+                    confirm.SetTitle("Edit Voice Over?");
+                    confirm.SetMessage("Would you like to edit your existing voiceover sessions, or remove them entirely?");
+                    confirm.SetButtonText("EDIT", "CANCEL", "REMOVE"); // Alt is REMOVE, Yes is EDIT, No is CANCEL
                     await confirm.ShowDialog(this);
-                    if (!confirm.Result)
+                    
+                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Cancelled || 
+                        confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.No)
                     {
-                        ShowTacticalFeedback("Voice Over Kept");
                         return;
                     }
 
-                    ApplyVoiceOverState(null);
-                    ShowTacticalFeedback("Voice Over Removed");
-                    return;
+                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Alt) // REMOVE
+                    {
+                        ApplyVoiceOverState(null);
+                        ShowTacticalFeedback("Voice Over Removed");
+                        return;
+                    }
+
+                    // If EDIT, fall through to open dialog
+
                 }
 
                 bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
@@ -776,7 +784,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _trimStartMs,
                     _trimEndSet ? _trimEndMs : 0,
                     BuildExportSpeedSegments(),
-                    _baseSpeed);
+                    _baseSpeed)
+                {
+                    InitialState = _voiceOverResult
+                };
                 dialog.SourceMeasuredLufs = _sourceMeasuredLufs;
                 try
                 {
@@ -1036,9 +1047,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _trimStartMs,
                     _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
                     _baseSpeed,
-                    BuildExportSpeedSegments());
+                    BuildExportSpeedSegments(),
+                    _voiceOverResult);
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
-                wizard.SourceMeasuredLufs = _sourceMeasuredLufs;
+
                 await wizard.ShowDialog(this);
                 ReturnToTrimStartPaused();
                 SetTimelinePopupsVisible(true);
@@ -3445,6 +3457,56 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         });
     }
 
+    /// <summary>POPSICLE_01 — x:Name of the visible stick inside a timeline camera/magnifier.</summary>
+    public const string TimelineCameraStickName = "TimelineCameraStick";
+
+    /// <summary>
+    /// POPSICLE_01 — the stick length every marker is BUILT with: head bottom (local y 56) down to
+    /// the bottom of the 103px control. Correct for the Main App's 32px marker canvas, which is the
+    /// only caller that leaves it alone.
+    /// </summary>
+    public const double TimelineCameraDefaultStickPx = 47;
+
+    /// <summary>POPSICLE_01 — local y at which the stick starts, i.e. the bottom of the head.</summary>
+    public const double TimelineCameraStickTopPx = 56;
+
+    /// <summary>
+    /// POPSICLE_01 — LENGTHEN ONE MARKER'S STICK SO THE POPSICLE REACHES THE BOTTOM OF THE TIMELINE.
+    ///
+    /// <para>
+    /// The marker is built 52x103 with a 47px stick, which was sized for the Main App's single
+    /// 32px marker canvas. The Granular editor mounts the same control on a marker overlay that
+    /// spans the ruler AND BOTH 60px lanes (~150px), so the stick died roughly halfway down the
+    /// upper lane and the popsicle read as floating rather than pointing at an instant.
+    /// </para>
+    /// <para>
+    /// ⚠️ THE STICK IS STRETCHED, THE MARKER IS NOT MOVED. Dropping the whole control would take
+    /// the head down with it and destroy the shape — the head must stay above the ruler. Callers
+    /// pass the height they need; every caller that does not call this is bit-identical to before,
+    /// which is what keeps the Main App timeline untouched.
+    /// </para>
+    /// <para>
+    /// ⚠️ ONLY THE DRAWN STICK MOVES — NOT `stemHit`. Its 16x47 grab column is deliberately short
+    /// (HITBOX_02): a full-height grab box over a staggered pair swallows the lower head's clicks,
+    /// which is the exact bug HITBOX_02 exists to prevent. A longer VISIBLE line costs nothing
+    /// because it is `IsHitTestVisible = false`.
+    /// </para>
+    /// </summary>
+    public static void StretchTimelineCameraStick(Control marker, double stickHeightPx)
+    {
+        if (marker is not Canvas outer) return;
+        double h = Math.Max(TimelineCameraDefaultStickPx, stickHeightPx);
+
+        foreach (var child in outer.Children)
+        {
+            if (child is Avalonia.Controls.Shapes.Rectangle r && r.Name == TimelineCameraStickName)
+            {
+                r.Height = h;
+                return;
+            }
+        }
+    }
+
     public static Control CreateTimelineCameraIcon()
     {
         return CreateTimelineCameraIcon(false, 0, out _, out _);
@@ -3585,8 +3647,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var line = new Avalonia.Controls.Shapes.Rectangle
         {
+            // POPSICLE_01 — NAMED so a caller can lengthen it. See StretchTimelineCameraStick.
+            Name = TimelineCameraStickName,
             Width = 2,
-            Height = 47,
+            Height = TimelineCameraDefaultStickPx,
             Fill = Avalonia.Media.Brushes.Gold,
             IsHitTestVisible = false
         };
@@ -3642,86 +3706,71 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var icon = new Border
         {
-            Width = 36,
-            Height = 28,
+            Width = 42,
+            Height = 34,
             Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(220, 15, 23, 42)),
-            BorderBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
             BorderThickness = new Avalonia.Thickness(2),
             CornerRadius = new Avalonia.CornerRadius(4),
             IsHitTestVisible = false
         };
+        icon[!Border.BorderBrushProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppZoomBrush");
 
         var hoverIconGlow = new Avalonia.Controls.Shapes.Rectangle
         {
             Name = "TimelineCameraIconGlow",
-            Width = 44,
-            Height = 36,
-            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            Width = 50,
+            Height = 42,
             StrokeThickness = 2,
             Opacity = 0,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(hoverIconGlow, 4);
-        Avalonia.Controls.Canvas.SetTop(hoverIconGlow, 24);
+        hoverIconGlow[!Avalonia.Controls.Shapes.Rectangle.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppZoomBrush");
+        Avalonia.Controls.Canvas.SetLeft(hoverIconGlow, 1);
+        Avalonia.Controls.Canvas.SetTop(hoverIconGlow, 21);
 
         var hoverLineGlow = new Avalonia.Controls.Shapes.Rectangle
         {
             Name = "TimelineCameraLineGlow",
             Width = 8,
             Height = 53,
-            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
             StrokeThickness = 2,
             Opacity = 0,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(hoverLineGlow, 20);
-        Avalonia.Controls.Canvas.SetTop(hoverLineGlow, 53);
+        hoverLineGlow[!Avalonia.Controls.Shapes.Rectangle.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppZoomBrush");
+        Avalonia.Controls.Canvas.SetLeft(hoverLineGlow, 22);
+        Avalonia.Controls.Canvas.SetTop(hoverLineGlow, 59);
 
         var txt = new Avalonia.Controls.TextBlock
         {
             Text = "🔍",
-            FontSize = 14,
-            Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            FontSize = 17,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             IsHitTestVisible = false
         };
+        txt[!Avalonia.Controls.TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppZoomBrush");
         icon.Child = txt;
 
         var outerCanvas = new Canvas
         {
             Width = 52,
-            Height = 103,
+            Height = 106,
             ClipToBounds = false,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
             Focusable = true
         };
 
         // HITBOX_02 — THE GRAB AREA IS THE HEAD PLUS A NARROW STEM, NOT THE WHOLE 52x103 BOX.
-        //
-        // It used to be one transparent Border filling the entire control. That box is 103px tall
-        // but the drawn marker is a 28px head with a 2px stick hanging off it, so ~60% of the grab
-        // area was empty space around the stick. When two of these overlap — which is exactly what
-        // the vertical stagger produces on a short hold or a short zoom span — the upper marker's
-        // full-height box lies straight over the LOWER marker's HEAD, and since the two are
-        // siblings on the same canvas the one drawn later swallows every click. The lower head then
-        // cannot be grabbed at all, no matter where on it the user aims.
-        //
-        // Splitting the box means the upper marker only occupies a 16px-wide column over the lower
-        // head instead of the full 52px, leaving ~36px of the lower head directly clickable. Paired
-        // with the caller drawing the staggered (lower) marker LAST, both heads are reachable.
-        //
-        // ⚠️ DO NOT COLLAPSE THESE BACK INTO ONE FULL-SIZE BORDER. The geometry below tracks the
-        // drawn shapes: head icon at y 28..56 (glow 24..60), stick at y 56..103 centred on x 24.
         var headHit = new Border
         {
             Width = 52,
-            Height = 36,
+            Height = 42,
             Background = Avalonia.Media.Brushes.Transparent,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
         };
         Avalonia.Controls.Canvas.SetLeft(headHit, 0);
-        Avalonia.Controls.Canvas.SetTop(headHit, 24);
+        Avalonia.Controls.Canvas.SetTop(headHit, 21);
         outerCanvas.Children.Add(headHit);
 
         var stemHit = new Border
@@ -3732,30 +3781,32 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
         };
         Avalonia.Controls.Canvas.SetLeft(stemHit, 18);
-        Avalonia.Controls.Canvas.SetTop(stemHit, 56);
+        Avalonia.Controls.Canvas.SetTop(stemHit, 59);
         outerCanvas.Children.Add(stemHit);
         outerCanvas.Children.Add(hoverIconGlow);
         outerCanvas.Children.Add(hoverLineGlow);
-        Avalonia.Controls.Canvas.SetTop(icon, 28);
-        Avalonia.Controls.Canvas.SetLeft(icon, 8);
+        Avalonia.Controls.Canvas.SetTop(icon, 25);
+        Avalonia.Controls.Canvas.SetLeft(icon, 5);
         outerCanvas.Children.Add(icon);
 
         var line = new Avalonia.Controls.Shapes.Rectangle
         {
+            // POPSICLE_01 — NAMED so a caller can lengthen it. See StretchTimelineCameraStick.
+            Name = TimelineCameraStickName,
             Width = 2,
-            Height = 47,
-            Fill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#d946ef")),
+            Height = TimelineCameraDefaultStickPx,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetTop(line, 56);
-        Avalonia.Controls.Canvas.SetLeft(line, 23);
+        line[!Avalonia.Controls.Shapes.Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppZoomBrush");
+        Avalonia.Controls.Canvas.SetTop(line, 59);
+        Avalonia.Controls.Canvas.SetLeft(line, 25);
         outerCanvas.Children.Add(line);
 
         iconAnts = new Avalonia.Controls.Shapes.Rectangle
         {
             Name = "TimelineCameraIconAnts",
-            Width = 36,
-            Height = 28,
+            Width = 42,
+            Height = 34,
             Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
             StrokeThickness = 1,
             StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
@@ -3763,8 +3814,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             IsVisible = isSelected,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(iconAnts, 8);
-        Avalonia.Controls.Canvas.SetTop(iconAnts, 28);
+        Avalonia.Controls.Canvas.SetLeft(iconAnts, 5);
+        Avalonia.Controls.Canvas.SetTop(iconAnts, 25);
         outerCanvas.Children.Add(iconAnts);
 
         lineAnts = new Avalonia.Controls.Shapes.Rectangle
@@ -3779,8 +3830,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             IsVisible = isSelected,
             IsHitTestVisible = false
         };
-        Avalonia.Controls.Canvas.SetLeft(lineAnts, 21);
-        Avalonia.Controls.Canvas.SetTop(lineAnts, 55);
+        Avalonia.Controls.Canvas.SetLeft(lineAnts, 23);
+        Avalonia.Controls.Canvas.SetTop(lineAnts, 58);
         outerCanvas.Children.Add(lineAnts);
 
         return outerCanvas;
@@ -3789,7 +3840,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     public static double ClampTimelineCameraLeft(double markerCenterX, double canvasWidth)
     {
         const double markerWidth = 52.0;
-        return Math.Max(0, Math.Min(Math.Max(0, canvasWidth - markerWidth), markerCenterX - markerWidth / 2.0));
+        return markerCenterX - markerWidth / 2.0;
     }
 
     public static void SetTimelineCameraHover(Control marker, bool isHovered)
@@ -5243,6 +5294,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ApplyVoiceOverState(VoiceOverWindow.VoiceOverResult? result, bool isRestore = false)
     {
+        var oldResult = _voiceOverResult;
         _voiceOverResult = HasVoiceOverEffect(result) ? result : null;
         var btn = this.FindControl<Button>("VoiceOverButton");
         var text = this.FindControl<TextBlock>("VoiceOverText");
@@ -5254,6 +5306,24 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         DisposeVoiceOverPreviewTakes();
         _voiceOverPreviewTimeMapper = null;
 
+        if (!isRestore && oldResult != null && oldResult != _voiceOverResult)
+        {
+            if (!string.IsNullOrEmpty(oldResult.VoiceOverWavPath))
+            {
+                try { System.IO.File.Delete(oldResult.VoiceOverWavPath); } catch {}
+            }
+            if (oldResult.VoiceOverTakes != null)
+            {
+                foreach (var take in oldResult.VoiceOverTakes)
+                {
+                    if (!string.IsNullOrEmpty(take.Path))
+                    {
+                        try { System.IO.File.Delete(take.Path); } catch {}
+                    }
+                }
+            }
+        }
+
         if (_voiceOverResult != null)
         {
             var takes = GetExistingVoiceOverTakes(_voiceOverResult);
@@ -5261,11 +5331,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (btn != null)
             {
                 btn.Classes.Remove("VoiceOverEntry");
-                btn.Classes.Remove("Primary");
-                if (!btn.Classes.Contains("Danger")) btn.Classes.Add("Danger");
-                ToolTip.SetTip(btn, hasWav ? "Remove the current voiceover" : "Add a voiceover");
+                btn.Classes.Remove("Danger");
+                if (!btn.Classes.Contains("Primary")) btn.Classes.Add("Primary");
+                ToolTip.SetTip(btn, hasWav ? "Edit or remove the current voiceover" : "Record your own voice over the video");
             }
-            if (text != null) text.Text = hasWav ? "REMOVE VOICE" : "ADD VOICE";
+            if (text != null) text.Text = hasWav ? "EDIT VOICE OVER" : "VOICE OVER";
 
             if (hasWav)
             {
@@ -5310,14 +5380,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void InvalidateVoiceOverRecordingForTimingChange()
     {
         if (!HasVoiceOverWav(_voiceOverResult)) return;
-
-        var muteOnly = new VoiceOverWindow.VoiceOverResult
-        {
-            DuckAudio = _voiceOverResult!.DuckAudio
-        };
-
-        ApplyVoiceOverState(HasVoiceOverEffect(muteOnly) ? muteOnly : null);
-        ShowTacticalFeedback("Voice Over recording cleared after timing changed");
+        
+        _voiceOverPreviewTimeMapper = null;
+        GetVoiceOverPreviewTimeMapper();
     }
 
     private Avalonia.Threading.DispatcherTimer? _recoveryDebounceTimer;
@@ -5526,12 +5591,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                           || (this.FindControl<ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false)
                           || (this.FindControl<ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false);
 
+        bool exportTogglesChanged = (this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == false)
+                                    || (this.FindControl<ToggleSwitch>("EnableFadeCheckbox")?.IsChecked == false);
+
         return _trimStartSet || _trimEndSet || _thumbnailSet ||
                _isGranularSpeedActive || _isMusicActive || _voiceOverResult != null ||
                _musicWizardResult != null ||
                _speedSegments.Count > 0 || _freezeTimeMs >= 0 ||
                Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) > 0.01 ||
-               memeSelected || hudToggled ||
+               memeSelected || hudToggled || exportTogglesChanged ||
                !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
     }
 

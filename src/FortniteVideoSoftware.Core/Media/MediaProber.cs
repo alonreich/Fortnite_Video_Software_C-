@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -119,7 +119,7 @@ public class MediaProber
                 }
             }
         }
-        return (1920, 1080);
+        return (0, 0);
     }
 
     public async Task<string> GetResolutionStringAsync()

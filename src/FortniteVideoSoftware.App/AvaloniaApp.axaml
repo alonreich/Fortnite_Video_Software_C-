@@ -1,4 +1,4 @@
-﻿<Application xmlns="https://github.com/avaloniaui"
+<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
              xmlns:collections="using:System.Collections"
@@ -34,10 +34,10 @@
              ⚠️ DO NOT reuse this colour for anything that is not zoom, and do not give zoom a
              second colour "for contrast" — that is the exact problem this token removes.
              ══════════════════════════════════════════════════════════════════════════════════ -->
-        <Color x:Key="AppZoomColor">#d946ef</Color>
+        <Color x:Key="AppZoomColor">#2251c1</Color>
         <SolidColorBrush x:Key="AppZoomBrush" Color="{StaticResource AppZoomColor}" />
-        <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#c026d3" />
-        <SolidColorBrush x:Key="AppZoomDeepBorderBrush" Color="#86198f" />
+        <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#1c449c" />
+        <SolidColorBrush x:Key="AppZoomDeepBorderBrush" Color="#15306b" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />
         <!-- Always-white text/icons for saturated colored buttons (theme-agnostic) -->
@@ -197,6 +197,8 @@
         <!-- ISSUE_05: inline glow shadows tokenized (Merger drop indicator + Phase overlay progress bar) -->
         <BoxShadows x:Key="AppDropIndicatorShadow">0 0 6 1 #6638bdf8</BoxShadows>
         <BoxShadows x:Key="AppPhaseGlowShadow">0 0 15 2 #4ade80</BoxShadows>
+        <!-- VOICE_02: live-microphone glow. Same red as AppDangerBrush (#dc2626). -->
+        <BoxShadows x:Key="AppRecordingGlowShadow">0 0 14 3 #ccdc2626</BoxShadows>
 
         <!-- ISSUE_04 (audit round 4): full-screen dimmer + drop-zone pulse tokens (previously
              raw hex inline in MemeWallControl / AmbientDropzoneControl). -->
@@ -613,6 +615,96 @@
         </Style>
         <Style Selector="Button.Danger:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}"/>
+        </Style>
+
+        <!-- ZOOM_01 — The pulse animation to attract the user's eye to the checkmark.
+             The C# layer adds this class for exactly 5 seconds after dragging the box, then removes it.
+             2.5s per cycle = slow, high contrast blinks.
+             ⚠️ IT PULSES OPACITY, NOT SIZE. A scaling pulse on a button parked against the corner
+             of the box crosses the box edge on every cycle and reads as a rendering fault. -->
+        <Style Selector="Button.zoomconfirmblink">
+            <Style.Animations>
+                <Animation Duration="0:0:2.5" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                        <Setter Property="Background" Value="#2251c1"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="33%">
+                        <Setter Property="Opacity" Value="0.4"/>
+                        <Setter Property="Background" Value="#ffffff"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="66%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                        <Setter Property="Background" Value="#22c55e"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                        <Setter Property="Background" Value="#2251c1"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <Style Selector="Button.zoomconfirmbtn">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.2" />
+                </Transitions>
+            </Setter>
+            <Setter Property="BorderThickness" Value="3" />
+            <Setter Property="BorderBrush" Value="#3b82f6" />
+        </Style>
+        
+        <Style Selector="Button.zoomconfirmbtn /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
+            <Setter Property="BoxShadow" Value="0 4 10 0 #50000000" />
+        </Style>
+        
+        <Style Selector="Button.zoomconfirmbtn:pointerover">
+            <Setter Property="BorderBrush" Value="#93c5fd" />
+            <Setter Property="RenderTransform" Value="scale(1.05)" />
+        </Style>
+
+        <Style Selector="Button.zoomconfirmbtn:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.85)" />
+            <Setter Property="BorderBrush" Value="#1e3a8a" />
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
+
+        <Style Selector="Button.zoomconfirmbtn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BoxShadow" Value="inset 0 4 10 0 #80000000" />
+        </Style>
+
+        <!-- VOICE_02 — THE LIVE-MICROPHONE STATE. `MicRecordButton` and `RecordingLight` have
+             added and removed the class `recording` since the screen shipped, and NO selector
+             for it has ever existed: the mic button looked identical whether or not the
+             microphone was open. Both selectors below are that missing half. Do not delete one
+             without deleting its Classes.Add/Remove call in VoiceOverWindow.axaml.cs. -->
+        <Style Selector="Button.recording">
+            <Style.Animations>
+                <Animation Duration="0:0:0.9" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                    <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.55"/></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Button.recording /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BoxShadow" Value="{DynamicResource AppRecordingGlowShadow}"/>
+        </Style>
+        <Style Selector="Ellipse.recording">
+            <Style.Animations>
+                <Animation Duration="0:0:0.9" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                    <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.15"/></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
         </Style>
 
         <!-- Social media buttons.

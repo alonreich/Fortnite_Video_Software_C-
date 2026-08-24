@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -652,6 +652,22 @@ public partial class SettingsWindow : Window
     {
         if (_waitingForKeyAction != null)
         {
+            if (e.Key == Key.Escape || e.Key == Key.Enter || e.Key == Key.Tab)
+            {
+                _keyButtons[_waitingForKeyAction].Content = _pendingKeys[_waitingForKeyAction].ToString();
+                _waitingForKeyAction = null;
+                e.Handled = true;
+                return;
+            }
+
+            if (_pendingKeys.Values.Contains(e.Key) && _pendingKeys[_waitingForKeyAction] != e.Key)
+            {
+                _keyButtons[_waitingForKeyAction].Content = "In Use! (" + _pendingKeys[_waitingForKeyAction].ToString() + ")";
+                _waitingForKeyAction = null;
+                e.Handled = true;
+                return;
+            }
+
             _pendingKeys[_waitingForKeyAction] = e.Key;
             _keyButtons[_waitingForKeyAction].Content = e.Key.ToString();
             _waitingForKeyAction = null;
@@ -706,7 +722,12 @@ public partial class SettingsWindow : Window
             SettingsManager.Instance.VideoEncoderOverride = _pendingVideoEncoder;
         }
 
-        SettingsManager.Save();
+        if (!SettingsManager.Save())
+        {
+            var btn = this.FindControl<Button>("SaveBtn");
+            if (btn != null) btn.Content = "SAVE FAILED";
+            return;
+        }
         
         try
         {

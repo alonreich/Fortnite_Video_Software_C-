@@ -222,12 +222,12 @@ public static class CoachTours
 
         new CoachStep(
             "See where your voice sits",
-            "Your recording shows up as a shape on this lane. Click anywhere on it to jump to that moment and listen back.",
-            "WaveformLaneGrid", CoachGesture.DragHorizontal),
+            "Your recording shows up as a shape on the ruler. Click a shape to select it and show edit controls.",
+            "TimelineRulerCanvas", CoachGesture.DragHorizontal),
 
         new CoachStep(
             "Keep the game audible",
-            "Leave this on and the game sound dips slightly whenever you are talking, so your voice stays clear.",
+            "Leave this on and the game sound drops strongly during your recorded takes, so your voice stays clear.",
             "DuckAudioCb", CoachGesture.Click),
 
         new CoachStep(

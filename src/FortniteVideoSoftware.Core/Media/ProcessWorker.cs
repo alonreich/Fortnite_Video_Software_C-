@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -795,7 +795,7 @@ public class ProcessWorker : IDisposable
                            ?? (AudioLoudnessProbe.TargetLufs - VolumeNormalizeDb));
                     gameLufsForVoice = Math.Clamp(gameLufsForVoice, -70.0, -5.0);
                     string voLoudnorm = AutoVoiceNormalization
-                        ? $"loudnorm=I={gameLufsForVoice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5"
+                        ? $"loudnorm=I={gameLufsForVoice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:TP=-1.5,aresample=48000"
                         : "anull";
                     CoreLogger.Info("Audio",
                         $"Voice-over target {gameLufsForVoice:F2} LUFS (matched to the game bus), " +
@@ -1183,13 +1183,38 @@ public class ProcessWorker : IDisposable
                 }
 
 
+                // QUIETBOOST_01 — GIVE BACK MOST OF THE LIFT A QUIET CAPTURE WAS HANDED.
+                // `VolumeNormalizeDb` is (TargetLufs - measured_I): positive when the source was
+                // under the target, which is the ordinary case for a gameplay capture. Taking it
+                // in full is correct by the standard and was reported as far too loud, so only
+                // (1 - QuietBoostReductionFactor) of it survives.
+                //   e.g. a -32 LUFS capture asks for +18.00 dB and now keeps +5.40 dB.
+                // ⚠️ ON THE SUM, NOT THE GAME BUS, and ⚠️ ONLY ON A BOOST — see the constant's
+                // remarks in AudioLoudnessProbe for both reasons. Placed BEFORE the limiter so it
+                // has less to hold back rather than clamping a level we are about to lower anyway.
+                double quietBoostTrimDb =
+                    -AudioLoudnessProbe.QuietBoostReductionFactor * Math.Max(0.0, VolumeNormalizeDb);
+                if (quietBoostTrimDb < -0.01)
+                {
+                    coreFilters.Add($"{aOutputFinal}volume={quietBoostTrimDb.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}dB[a_quiet_boost_trimmed]");
+                    aOutputFinal = "[a_quiet_boost_trimmed]";
+                    CoreLogger.Info("Audio",
+                        $"QUIET-BOOST TRIM: source measured {AudioLoudnessProbe.TargetLufs - VolumeNormalizeDb:F2} LUFS " +
+                        $"and asked for {VolumeNormalizeDb:+0.00;-0.00} dB to reach {AudioLoudnessProbe.TargetLufs:F1} LUFS. " +
+                        $"{quietBoostTrimDb:F2} dB given back on the finished mix " +
+                        $"({(1.0 - AudioLoudnessProbe.QuietBoostReductionFactor) * 100:F0}% of the lift kept), " +
+                        $"landing near {AudioLoudnessProbe.TargetLufs + quietBoostTrimDb:F2} LUFS. " +
+                        "Mix balance unchanged — music, voice-over and memes move with it.");
+                }
+
                 if (AutoSpikeFlattening)
                 {
                     CoreLogger.Info("Audio",
-                        "PEAK LIMITER ON: alimiter ceiling -1.0 dB (safety net above the -1.5 dBTP " +
-                        "loudnorm ceiling). Only momentary peaks are held back; it does not change " +
-                        "the overall level set by the normalisation plan.");
-                    coreFilters.Add($"{aOutputFinal}alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]");
+                        "PEAK LIMITER ON: loudnorm + alimiter ceiling -1.0 dB. The summed mix " +
+                        "is dynamically normalized before final limiting to prevent the combined bus " +
+                        "from exceeding the target loudness.");
+                    coreFilters.Add($"{aOutputFinal}loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:TP=-1.0:LRA=11,aresample=48000[a_dyn_master]");
+                    coreFilters.Add($"[a_dyn_master]alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]");
                     aOutputFinal = "[a_flattened]";
                 }
                 else

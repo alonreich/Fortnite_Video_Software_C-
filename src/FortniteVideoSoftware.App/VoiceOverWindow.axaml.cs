@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -141,57 +141,15 @@ public partial class VoiceOverWindow : Window
     /// </summary>
     public double? SourceMeasuredLufs { get; set; }
 
-    private double VoicePreviewOffsetDb =>
-        SourceMeasuredLufs.HasValue
-            ? -Math.Max(0.0, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - SourceMeasuredLufs.Value)
-            : 0.0;
+    private double VoicePreviewOffsetDb => 0.0;
 
     private float GetTakePreviewGain(VoiceOverSession session)
     {
-        string path = session.WavPath;
-        if (string.IsNullOrWhiteSpace(path)) return 1.0f;
-        if (_takePreviewGain.TryGetValue(path, out float cached)) return cached;
-
-        if (_takeGainPending.Add(path))
-            _ = MeasureTakeGainAsync(path);
-
         return 1.0f;
     }
 
-    private async Task MeasureTakeGainAsync(string wavPath)
-    {
-        try
-        {
-            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
-                .MeasureAsync(ResolveBinaryPath("ffmpeg.exe", "backend"), wavPath).ConfigureAwait(true);
 
-            float gain = 1.0f;
-            if (reading != null)
-            {
-                double db = Math.Clamp(
-                    FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - reading.IntegratedLufs,
-                    -24.0, 12.0);
-                db += VoicePreviewOffsetDb;
-                gain = (float)Math.Pow(10, db / 20.0);
-                CoreLogger.Info("VoiceOver",
-                    $"Preview take '{System.IO.Path.GetFileName(wavPath)}' measured {reading.IntegratedLufs:F2} LUFS -> " +
-                    $"{db:+0.00;-0.00} dB applied so it previews at export level.");
-            }
 
-            _takePreviewGain[wavPath] = gain;
-
-            StopPreviewPlayers();
-        }
-        catch (Exception ex)
-        {
-            _takePreviewGain[wavPath] = 1.0f;
-            CoreLogger.Info("VoiceOver", $"Preview take level could not be matched: {ex.Message}");
-        }
-        finally
-        {
-            _takeGainPending.Remove(wavPath);
-        }
-    }
 
     private Button? _micRecordButton;
     private Button? _playPauseButton;
@@ -203,7 +161,7 @@ public partial class VoiceOverWindow : Window
     private TextBlock? _thumbFallbackText;
     private TextBlock? _waveformFallbackText;
     private Ellipse? _recordingLight;
-    private Rectangle? _eqMeter;
+
     private Border? _eqMeterTrack;
     private Canvas? _timelineRulerCanvas;
     private Canvas? _liveWaveformMonitor;
@@ -220,7 +178,9 @@ public partial class VoiceOverWindow : Window
     private Border? _thumbPlayheadLine;
     private Border? _wavePlayheadLine;
 
+    private FortniteVideoSoftware.Core.Media.OutputTimeline? _timeline;
     public VoiceOverResult? Result { get; private set; }
+    public VoiceOverResult? InitialState { get; set; }
 
     public class VoiceOverResult
     {
@@ -348,6 +308,8 @@ public partial class VoiceOverWindow : Window
                         await _videoHost.IpcClient.LoadFileAsync(_videoPath, initialPos);
                         await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
+
+
                         if (_trimStartSec > 0 || _trimEndSec > 0)
                         {
                              await _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", _trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -358,11 +320,36 @@ public partial class VoiceOverWindow : Window
                              initialPos = NormalizePreviewPlaybackPosition(initialPos);
                         }
 
-                        if (initialPos > 0)
-                            await _videoHost.IpcClient.SetPropertyAsync("time-pos", initialPos.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        await _videoHost.IpcClient.SetPropertyAsync("speed", GetSpeedForPosition(initialPos * 1000.0).ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
-                        RuntimeLog.Info("VoiceOver", $"Preview loaded at {initialPos:0.###}s; trimStart={_trimStartSec:0.###}, trimEnd={_trimEndSec:0.###}.");
+                        double videoDuration = _videoHost.IpcClient.Duration;
+                        double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
+                        if (effectiveDuration <= 0) effectiveDuration = videoDuration;
+                        _timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+                            effectiveDuration * 1000.0,
+                            _speedSegments,
+                            _baseSpeed,
+                            _trimStartSec * 1000.0);
+                        
                         previewReady = true;
+                        
+                        if (InitialState != null)
+                        {
+                            var cb = this.FindControl<CheckBox>("DuckAudioCb");
+                            if (cb != null) cb.IsChecked = InitialState.DuckAudio;
+                            if (InitialState.VoiceOverTakes != null)
+                            {
+                                foreach (var t in InitialState.VoiceOverTakes)
+                                {
+                                    if (System.IO.File.Exists(t.Path))
+                                    {
+                                        double dur = 0.1;
+                                        try { using var af = new NAudio.Wave.AudioFileReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch {}
+                                        _sessions.Add(new VoiceOverSession { WavPath = t.Path, StartSec = t.StartSec, EndSec = t.StartSec + dur });
+                                        _renderedSessionCount = -1;
+                                    }
+                                }
+                            }
+                            UpdatePlayheadUI();
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -374,7 +361,7 @@ public partial class VoiceOverWindow : Window
                         _recordingStatusText.Text = "PREVIEW OFF";
                         _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
                     }
-                    UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session. Game audio ducking still works.");
+                    UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session.");
                 }
 
                 // ══════════════════════════════════════════════════════════════════════════════
@@ -400,6 +387,9 @@ public partial class VoiceOverWindow : Window
         };
     }
 
+    /// <summary>VOICE_02 — the take count the current player list was built for. -1 = invalid.</summary>
+    private int _previewPlayersBuiltForCount = -1;
+
     private void StopPreviewPlayers()
     {
         foreach (var player in _previewPlayers)
@@ -407,16 +397,31 @@ public partial class VoiceOverWindow : Window
             player.Dispose();
         }
         _previewPlayers.Clear();
+        _previewPlayersBuiltForCount = -1;
     }
 
     private void UpdatePreviewPlayers()
     {
         if (_videoHost?.IpcClient == null) return;
         
-        bool shouldPlay = !_videoHost.IpcClient.IsPaused && !_isRecording;
+        bool isMpvPaused = _videoHost.IpcClient.IsPaused;
+        bool shouldPlay = (!isMpvPaused || _isCurrentlyFrozen) && !_isRecording;
         double time = _videoHost.IpcClient.CurrentTime;
+        
+        double elapsedFreezeSec = 0;
+        if (_isCurrentlyFrozen)
+        {
+            elapsedFreezeSec = (DateTime.UtcNow - _freezeStartTime).TotalSeconds;
+        }
 
-        if (_sessions.Count != _previewPlayers.Count)
+        // VOICE_02 — THE REBUILD TRIGGER MUST NOT BE THE LIVE PLAYER COUNT. It compared
+        // `_sessions.Count != _previewPlayers.Count`, so a take whose WAV was missing or whose
+        // WaveOutEvent failed to open left the two counts permanently unequal: every 50 ms tick
+        // disposed and recreated EVERY player, nothing survived long enough to be heard, and
+        // the log filled with the same failure. Track what the last rebuild was FOR, not what
+        // it achieved. `_previewPlayersBuiltForCount` is reset to -1 by StopPreviewPlayers so
+        // an external invalidation (MeasureTakeGainAsync) still forces exactly one rebuild.
+        if (_sessions.Count != _previewPlayersBuiltForCount)
         {
             StopPreviewPlayers();
             foreach (var session in _sessions)
@@ -431,6 +436,7 @@ public partial class VoiceOverWindow : Window
                     }
                 }
             }
+            _previewPlayersBuiltForCount = _sessions.Count;
         }
 
         foreach (var player in _previewPlayers)
@@ -444,12 +450,18 @@ public partial class VoiceOverWindow : Window
             }
 
             bool shouldPlayVoice = shouldPlay && time >= take.RenderStartSec && time <= take.RenderEndSec;
+            
+            double mappedTime = _timeline != null ? _timeline.SourceToOutput(time) : time;
+            mappedTime += elapsedFreezeSec;
+            
+            double mappedStart = _timeline != null ? _timeline.SourceToOutput(take.StartSec) : take.StartSec;
+            double mappedOffset = mappedTime - mappedStart;
+            
             if (shouldPlayVoice && player.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
             {
-                double playOffset = time - take.StartSec;
-                if (playOffset >= 0 && playOffset < player.Reader.TotalTime.TotalSeconds)
+                if (mappedOffset >= 0 && mappedOffset < player.Reader.TotalTime.TotalSeconds)
                 {
-                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(playOffset); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
+                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(mappedOffset); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
                 }
                 player.Player.Play();
             }
@@ -459,7 +471,7 @@ public partial class VoiceOverWindow : Window
             }
             else if (shouldPlayVoice && player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
             {
-                double expectedPos = time - take.StartSec;
+                double expectedPos = mappedOffset;
                 double actualPos = player.Reader.CurrentTime.TotalSeconds;
                 if (Math.Abs(expectedPos - actualPos) > 0.15)
                 {
@@ -555,7 +567,7 @@ public partial class VoiceOverWindow : Window
         _thumbFallbackText = this.FindControl<TextBlock>("ThumbFallbackText");
         _waveformFallbackText = this.FindControl<TextBlock>("WaveformFallbackText");
         _recordingLight = this.FindControl<Ellipse>("RecordingLight");
-        _eqMeter = this.FindControl<Rectangle>("EqMeter");
+        _eqMeterCanvas = this.FindControl<Canvas>("EqMeterCanvas");
         _eqMeterTrack = this.FindControl<Border>("EqMeterTrack");
         _timelineRulerCanvas = this.FindControl<Canvas>("TimelineRulerCanvas");
         _liveWaveformMonitor = this.FindControl<Canvas>("LiveWaveformMonitor");
@@ -601,6 +613,8 @@ public partial class VoiceOverWindow : Window
             {
                 if (_selectedSession != null)
                 {
+                    bool isInitial = InitialState?.VoiceOverTakes?.Any(t => string.Equals(t.Path, _selectedSession.WavPath, StringComparison.OrdinalIgnoreCase)) == true;
+                    if (!isInitial) TryDeleteFile(_selectedSession.WavPath);
                     _sessions.Remove(_selectedSession);
                     _selectedSession = null;
                     if (selectedTakeToolbar != null) selectedTakeToolbar.IsVisible = false;
@@ -707,6 +721,8 @@ public partial class VoiceOverWindow : Window
         {
             if (_selectedSession != null)
             {
+                bool isInitial = InitialState?.VoiceOverTakes?.Any(t => string.Equals(t.Path, _selectedSession.WavPath, StringComparison.OrdinalIgnoreCase)) == true;
+                if (!isInitial) TryDeleteFile(_selectedSession.WavPath);
                 _sessions.Remove(_selectedSession);
                 _selectedSession = null;
                 _renderedSessionCount = -1;
@@ -903,7 +919,11 @@ public partial class VoiceOverWindow : Window
                 ? "Start or stop voiceover recording (V)"
                 : "No microphone input device detected");
         }
-        if (_playPauseButton != null) _playPauseButton.IsEnabled = _isMpvReady && !_isRecording;
+        if (_playPauseButton != null)
+        {
+            _playPauseButton.IsEnabled = _isMpvReady && !_isRecording;
+            _playPauseButton.IsVisible = !_isRecording;
+        }
         if (_micDeviceComboBox != null) _micDeviceComboBox.IsEnabled = hasInputDevice && !_isRecording;
 
         if (_pauseResumeButton != null)
@@ -949,7 +969,7 @@ public partial class VoiceOverWindow : Window
         string? effectiveMessage = message;
         if (effectiveMessage == null && !canApply && !VoiceRecorder.HasInputDevice)
         {
-            effectiveMessage = "No microphone input detected. You can still choose to duck game audio.";
+            effectiveMessage = "No microphone input detected. You must record a take to apply voiceover.";
         }
 
         if (_applyButton != null)
@@ -1662,7 +1682,9 @@ public partial class VoiceOverWindow : Window
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
 
         if (_recordingLight != null) _recordingLight.Opacity = 0.6;
-        if (_micRecordButton != null && !_micRecordButton.Classes.Contains("recording")) _micRecordButton.Classes.Add("recording");
+        // VOICE_02 — the `recording` class is now owned solely by UpdateRecordingUi and means
+        // MICROPHONE OPEN. Arming is not recording; adding it here lit the pulse before a
+        // single sample had been captured, which is the opposite of an honest indicator.
         UpdateTransportState();
         return true;
     }
@@ -1678,9 +1700,22 @@ public partial class VoiceOverWindow : Window
         var ipc = _videoHost?.IpcClient;
         if (ipc == null) return;
 
+        // VOICE_02 — THIS BRANCH USED TO RETURN WITHOUT CHECKING THE DEADLINE. A preview that
+        // reported paused or frozen from the instant record was pressed left the window armed
+        // FOREVER: the status text sat on "ARMING", the microphone was never opened, and the
+        // empty WAV was silently discarded by FinalizeCurrentTake. Both "it does not show that
+        // it is recording" and "there is no voice on playback" come out of this one path.
+        // The deadline must be evaluated on EVERY tick, not only on the clock-stalled branch.
         if (_isCurrentlyFrozen || ipc.IsPaused)
         {
             _armPrevTime = ipc.CurrentTime;
+            if (DateTime.UtcNow > _armDeadlineUtc)
+            {
+                RuntimeLog.Fail("VoiceOver", "Recording could not start: the preview never left the paused/frozen state.");
+                _recordArming = false;
+                AbortActiveTake();
+                ShowMicrophoneUnavailable("The video would not start playing, so recording was cancelled.");
+            }
             return;
         }
 
@@ -1777,7 +1812,18 @@ public partial class VoiceOverWindow : Window
 
         if (_currentSession == null) return;
 
-        _currentSession.EndSec = _videoHost?.IpcClient?.CurrentTime ?? _currentSession.StartSec;
+        double dur = 0;
+        try 
+        { 
+            if (System.IO.File.Exists(_currentSession.WavPath))
+            {
+                using var af = new NAudio.Wave.AudioFileReader(_currentSession.WavPath); 
+                dur = af.TotalTime.TotalSeconds; 
+            }
+        } 
+        catch {}
+        
+        _currentSession.EndSec = _currentSession.StartSec + dur;
 
         if (captured &&
             _currentSession.EndSec > _currentSession.StartSec + 0.05 &&
@@ -1828,7 +1874,23 @@ public partial class VoiceOverWindow : Window
 
     private void UpdateRecordingUi(string status, string brushKey)
     {
-        if (_recordingLight != null) _recordingLight.Opacity = status == "RECORDING" ? 1.0 : 0.6;
+        // VOICE_02 — THE PULSE IS THE INDICATION. Opacity alone (0.2 / 0.6 / 1.0 on a
+        // permanently red 16px dot) made ARMING and PAUSED identical and RECORDING barely
+        // distinguishable from idle, and the `recording` class the mic button has always
+        // toggled matched NO style in the whole source tree, so the button never changed at
+        // all. The class now drives the two animations in AvaloniaApp.axaml.
+        bool live = status == "RECORDING";
+        if (_recordingLight != null)
+        {
+            _recordingLight.Opacity = live ? 1.0 : 0.6;
+            _recordingLight.Classes.Remove("recording");
+            if (live) _recordingLight.Classes.Add("recording");
+        }
+        if (_micRecordButton != null)
+        {
+            _micRecordButton.Classes.Remove("recording");
+            if (live) _micRecordButton.Classes.Add("recording");
+        }
         if (_recordingStatusText != null)
         {
             _recordingStatusText.Text = status;
@@ -1850,7 +1912,11 @@ public partial class VoiceOverWindow : Window
     private void ShowMicrophoneUnavailable(string message)
     {
         _isRecording = false;
-        if (_recordingLight != null) _recordingLight.Opacity = 0.2;
+        if (_recordingLight != null)
+        {
+            _recordingLight.Classes.Remove("recording");
+            _recordingLight.Opacity = 0.2;
+        }
         if (_recordingStatusText != null)
         {
             _recordingStatusText.Text = "NO MIC";
@@ -1858,7 +1924,7 @@ public partial class VoiceOverWindow : Window
         }
         if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
         UpdateTransportState();
-        UpdateApplyState($"{message} Game audio ducking still works.");
+        UpdateApplyState(message);
     }
 
     /// <summary>
@@ -1919,7 +1985,11 @@ public partial class VoiceOverWindow : Window
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;
 
-        if (_recordingLight != null) _recordingLight.Opacity = 0.2;
+        if (_recordingLight != null)
+        {
+            _recordingLight.Classes.Remove("recording");
+            _recordingLight.Opacity = 0.2;
+        }
         if (_recordingStatusText != null)
         {
             _recordingStatusText.Text = "READY";
@@ -1946,9 +2016,13 @@ public partial class VoiceOverWindow : Window
         });
     }
 
+    private Canvas? _eqMeterCanvas;
+    private Avalonia.Controls.Shapes.Path? _eqPath;
+    private Random _eqRandom = new Random();
+
     private void UpdateSmoothEqMeter()
     {
-        if (_eqMeter == null) return;
+        if (_eqMeterCanvas == null) return;
 
         double currentPeak = _peakVolume;
         _peakVolume = 0;
@@ -1962,65 +2036,88 @@ public partial class VoiceOverWindow : Window
             _smoothedVolume = Math.Max(0, _smoothedVolume - 0.05);
         }
 
-        double meterWidth = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0
-            ? _eqMeterTrack.Bounds.Width
-            : 150;
-
-        double targetWidth = Math.Min(meterWidth, _smoothedVolume * meterWidth * 2.0);
-        _eqMeter.Width = targetWidth;
+        if (_eqPath == null)
+        {
+            _eqPath = new Avalonia.Controls.Shapes.Path
+            {
+                Stroke = Avalonia.Application.Current?.FindResource("AppSuccessBrush") as Avalonia.Media.IBrush,
+                StrokeThickness = 4,
+                IsHitTestVisible = false
+            };
+            _eqMeterCanvas.Children.Add(_eqPath);
+        }
 
         if (_smoothedVolume > 0.9)
-            _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppWarningBrush");
+            _eqPath.Stroke = Avalonia.Application.Current?.FindResource("AppWarningBrush") as Avalonia.Media.IBrush;
         else
-            _eqMeter[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
+            _eqPath.Stroke = Avalonia.Application.Current?.FindResource("AppSuccessBrush") as Avalonia.Media.IBrush;
+
+        double width = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0 ? _eqMeterTrack.Bounds.Width : 250;
+        double height = 30;
+        int numBars = (int)(width / 8);
+        
+        var geometry = new Avalonia.Media.StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            double x = 4;
+            for (int i = 0; i < numBars; i++)
+            {
+                double targetAmp = _smoothedVolume * 2.0; 
+                double randomized = targetAmp * (0.3 + _eqRandom.NextDouble() * 0.7);
+                double barHeight = Math.Min(height - 4, randomized * height);
+                if (barHeight < 2) barHeight = 2;
+
+                double centerY = height / 2;
+                context.BeginFigure(new Avalonia.Point(x, centerY + barHeight / 2), false);
+                context.LineTo(new Avalonia.Point(x, centerY - barHeight / 2));
+                x += 8;
+            }
+        }
+        _eqPath.Data = geometry;
     }
 
+    private Avalonia.Controls.Shapes.Path? _waveformPath;
+    
     private void UpdateWaveformUI()
     {
         if (_liveWaveformMonitor == null || !_isRecording)
         {
-            foreach (var line in _waveformLinePool) line.IsVisible = false;
+            if (_waveformPath != null) _waveformPath.IsVisible = false;
             return;
         }
 
+        if (_waveformPath == null)
+        {
+            _waveformPath = new Avalonia.Controls.Shapes.Path
+            {
+                Stroke = Avalonia.Application.Current?.FindResource("AppSuccessBrush") as Avalonia.Media.IBrush,
+                StrokeThickness = 1,
+                IsHitTestVisible = false
+            };
+            _liveWaveformMonitor.Children.Add(_waveformPath);
+        }
+
+        _waveformPath.IsVisible = true;
+
         int maxLines = Math.Max(0, (int)(_liveWaveformMonitor.Bounds.Width / 2));
         int visibleLines = Math.Min(maxLines, _waveformSamples.Count);
-        EnsureWaveformLinePool(_liveWaveformMonitor, visibleLines);
-        
         int startIdx = Math.Max(0, _waveformSamples.Count - visibleLines);
         double x = 0;
         double laneHeight = Math.Max(1, _liveWaveformMonitor.Bounds.Height);
         double centerY = laneHeight / 2;
 
-        for (int i = 0; i < visibleLines; i++)
+        var geometry = new Avalonia.Media.StreamGeometry();
+        using (var context = geometry.Open())
         {
-            double height = Math.Max(2, _waveformSamples[startIdx + i] * laneHeight);
-            var line = _waveformLinePool[i];
-            line.IsVisible = true;
-            line.StartPoint = new Point(x, centerY - height / 2);
-            line.EndPoint = new Point(x, centerY + height / 2);
-            x += 2;
-        }
-
-        for (int i = visibleLines; i < _waveformLinePool.Count; i++)
-        {
-            _waveformLinePool[i].IsVisible = false;
-        }
-    }
-
-    private void EnsureWaveformLinePool(Canvas canvas, int requiredLines)
-    {
-        while (_waveformLinePool.Count < requiredLines)
-        {
-            var line = new Line
+            for (int i = 0; i < visibleLines; i++)
             {
-                StrokeThickness = 1,
-                IsHitTestVisible = false
-            };
-            line[!Line.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppSuccessBrush");
-            _waveformLinePool.Add(line);
-            canvas.Children.Add(line);
+                double height = Math.Max(2, _waveformSamples[startIdx + i] * laneHeight);
+                context.BeginFigure(new Avalonia.Point(x, centerY - height / 2), false);
+                context.LineTo(new Avalonia.Point(x, centerY + height / 2));
+                x += 2;
+            }
         }
+        _waveformPath.Data = geometry;
     }
 
     private async void ApplyAndClose()
@@ -2063,7 +2160,11 @@ public partial class VoiceOverWindow : Window
                     
                     if (session.TrimLeftSec > 0 || session.TrimRightSec > 0)
                     {
-                        double dur = session.RenderEndSec - session.RenderStartSec;
+                        double realTrimLeft = _timeline != null ? Math.Max(0, _timeline.SourceToOutput(session.StartSec + session.TrimLeftSec) - _timeline.SourceToOutput(session.StartSec)) : session.TrimLeftSec;
+                        double realTrimRight = _timeline != null ? Math.Max(0, _timeline.SourceToOutput(session.EndSec) - _timeline.SourceToOutput(session.EndSec - session.TrimRightSec)) : session.TrimRightSec;
+                        double totalRealDur = _timeline != null ? Math.Max(0, _timeline.SourceToOutput(session.EndSec) - _timeline.SourceToOutput(session.StartSec)) : (session.EndSec - session.StartSec);
+                        double realDur = Math.Max(0.1, totalRealDur - realTrimLeft - realTrimRight);
+
                         var startInfo = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = ResolveBinaryPath("ffmpeg.exe", "backend"),
@@ -2074,14 +2175,19 @@ public partial class VoiceOverWindow : Window
                         startInfo.ArgumentList.Add("-i");
                         startInfo.ArgumentList.Add(session.WavPath);
                         startInfo.ArgumentList.Add("-ss");
-                        startInfo.ArgumentList.Add(session.TrimLeftSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        startInfo.ArgumentList.Add(realTrimLeft.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
                         startInfo.ArgumentList.Add("-t");
-                        startInfo.ArgumentList.Add(dur.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        startInfo.ArgumentList.Add(realDur.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
                         startInfo.ArgumentList.Add("-c");
                         startInfo.ArgumentList.Add("copy");
                         startInfo.ArgumentList.Add(persistedPath);
                         using var proc = System.Diagnostics.Process.Start(startInfo);
-                        if (proc != null) await proc.WaitForExitAsync();
+                        if (proc == null) throw new Exception($"FFmpeg trim process failed to start for take {i + 1}");
+                        await proc.WaitForExitAsync();
+                        if (proc.ExitCode != 0 || !System.IO.File.Exists(persistedPath) || new System.IO.FileInfo(persistedPath).Length == 0)
+                        {
+                            throw new Exception($"FFmpeg trim failed with code {proc.ExitCode} for take {i + 1}");
+                        }
                     }
                     else
                     {
@@ -2158,6 +2264,17 @@ public partial class VoiceOverWindow : Window
                 }
             }
         }
+        
+        if (InitialState?.VoiceOverTakes != null)
+        {
+            foreach (var take in InitialState.VoiceOverTakes)
+            {
+                if (!string.IsNullOrWhiteSpace(take.Path))
+                {
+                    appliedPaths.Add(take.Path);
+                }
+            }
+        }
 
         foreach (var session in _sessions)
         {
@@ -2206,6 +2323,17 @@ public partial class VoiceOverWindow : Window
         });
     }
 
+    protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (!e.Cancel)
+        {
+            // ZOOMHANG_01 - Must dispose before Hide()/OnClosed() collapses bounds to avoid OpenGL deadlock
+            _videoHost?.Dispose();
+            _videoHost = null;
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         Controls.CoachOverlay.Cancel(this);
@@ -2235,7 +2363,6 @@ public partial class VoiceOverWindow : Window
             try { System.IO.File.Delete(_tempWavePath); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         }
 
-        _videoHost?.Dispose();
         base.OnClosed(e);
     }
 

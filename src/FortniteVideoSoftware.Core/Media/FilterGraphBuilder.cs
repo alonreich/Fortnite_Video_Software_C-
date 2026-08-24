@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
@@ -56,7 +56,7 @@ public class ScaleFilterNode : FilterNode
 public class SidechainCompressNode : FilterNode
 {
     public const double TunedThreshold = 0.15;
-    public const double TunedRatio = 8;
+    public const double TunedRatio = 1.5;
     public const double TunedAttackMs = 1;
     public const double TunedReleaseMs = 800;
     public const string TunedDetection = "peak";

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -211,7 +211,7 @@ public static class MemeCatalog
                 StringComparer.OrdinalIgnoreCase);
 
             using var http = new HttpClient();
-            http.Timeout = Timeout.InfiniteTimeSpan;
+            http.Timeout = TimeSpan.FromSeconds(30);
             http.DefaultRequestHeaders.UserAgent.ParseAdd("FortniteVideoSoftware");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 

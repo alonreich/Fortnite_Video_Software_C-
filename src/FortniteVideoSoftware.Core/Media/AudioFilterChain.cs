@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -158,7 +158,17 @@ public class AudioFilterChain
             if (appliedNormalizeDb != 0)
                 vVol *= Math.Pow(10, appliedNormalizeDb / 20.0);
             chain.Add($"[a_main_raw]{gameNormalizePrefix}volume={vVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
-                      $"aresample={targetSampleRate}:async=1[a_main_prepared]");
+                      $"aresample={targetSampleRate}:async=1[game_leveled_base]");
+
+            if (!string.IsNullOrEmpty(voiceOverLabel))
+            {
+                chain.Add($"[game_leveled_base]{voiceOverLabel}amix=inputs=2:duration=first:dropout_transition=2:normalize=0[a_main_prepared]");
+            }
+            else
+            {
+                chain.Add("[game_leveled_base]anull[a_main_prepared]");
+            }
+
             return (chain, "[a_main_prepared]");
         }
 

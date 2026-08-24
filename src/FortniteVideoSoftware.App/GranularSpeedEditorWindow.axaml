@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -384,26 +384,7 @@
                              deliberately remove-then-redo. Visible only when the selected block
                              actually carries a zoom. -->
                         <Button Name="RemoveZoomBtn" Classes="ZoomAction" Content="🔍 REMOVE ZOOM" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Take the zoom off this block. The block itself and its speed stay exactly as they are."/>
-                        <Button Name="DeleteSegmentBtn" Classes="Danger" Content="DELETE SEGMENT" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment">
-                            <Button.Flyout>
-                                <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
-                                    <StackPanel Spacing="14" Margin="22" MinWidth="380" MaxWidth="440">
-                                        <StackPanel Orientation="Horizontal" Spacing="12">
-                                            <TextBlock Text="🗑" FontSize="{DynamicResource AppFontSize28}" VerticalAlignment="Center"/>
-                                            <TextBlock Text="Delete this speed segment?" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                        <TextBlock Name="DeleteSegmentDetailText" Text="The selected segment will be removed." FontSize="{DynamicResource AppFontSize13}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
-                                        <Border Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10">
-                                            <TextBlock Text="⚠️ This cannot be undone. There is no undo button in the Speed Editor." Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                        </Border>
-                                        <Grid ColumnDefinitions="*,12,*">
-                                            <Button Grid.Column="0" Name="KeepSegmentBtn" Classes="Secondary" Content="KEEP IT" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Close this box and change nothing."/>
-                                            <Button Grid.Column="2" Name="ConfirmDeleteSegmentBtn" Classes="Danger" Content="DELETE IT" MinHeight="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" ToolTip.Tip="Permanently delete this segment." />
-                                        </Grid>
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
+                        <Button Name="DeleteSegmentBtn" Classes="Danger" Content="DELETE SEGMENT" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Delete the currently selected speed segment" />
                         <Button Name="ClearAllSegmentsBtn" Classes="Danger" Content="CLEAR ALL SEGMENTS" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False" ToolTip.Tip="Remove all speed segments">
                             <Button.Flyout>
                                 <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
