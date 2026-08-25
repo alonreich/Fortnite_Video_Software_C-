@@ -239,19 +239,15 @@ public class AudioFilterChain
             //
             // The two do the same job by different routes and only one can be right per track:
             //   BED GAIN places the track at an ABSOLUTE target (AudioLoudnessProbe.MusicBedLufs,
-            //     -20 LUFS). The game bus is separately loudnorm'd to TargetLufs (-14), so a
-            //     bed-normalised track is ALREADY exactly 6 dB under it — finished, nothing owed.
+            //     which is now TargetLufs = -14 LUFS). The game bus is separately loudnorm'd to TargetLufs (-14), so a
+            //     bed-normalised track is perfectly matched to the game bus volume.
             //   FOLLOW GAIN is VolumeNormalizeDb = (-14 - sourceLufs) = X, the same lift loudnorm
             //     gives the game bus. It exists to preserve a PRE-EXISTING RAW balance for elements
             //     that were NOT re-levelled: voice-over, memes, and music whose measurement failed.
             //     Ride the whole mix up together and nothing shifts.
             //
-            // Applied together the music landed at (-20 + X) against a game bus at -14, i.e. a gap
-            // of X - 6 dB instead of the constant -6 dB the two constants were written to produce.
-            // Worked examples, at equal sliders:
-            //     source -28 LUFS -> X = +14 -> music 8 dB ABOVE the game
-            //     source -14 LUFS -> X =   0 -> music 6 dB under      (the only correct case)
-            //     source  -6 LUFS -> X =  -8 -> music 14 dB under     (reported as "extremely low")
+            // Applied together the music would land at (-14 + X) against a game bus at -14, meaning
+            // the relative balance would incorrectly drift with the game's raw capture volume.
             // The gap tracked how loud the CAPTURE happened to be, which is precisely the thing
             // bed normalisation exists to make irrelevant.
             //
@@ -335,8 +331,7 @@ public class AudioFilterChain
             chain.Add("[game_out_pre_raw]anull[game_out_pre]");
         }
         chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
-                  "agate=threshold=0.05:attack=5:release=100[trig_cleaned]");
-        chain.Add("[trig_cleaned]equalizer=f=1000:t=q:w=2:g=10[trig_final]");
+                  "agate=threshold=0.05:attack=5:release=100[trig_final]");
 
         chain.Add($"{bgMusicLabel}acrossover=split=250[mus_low][mus_high]");
 

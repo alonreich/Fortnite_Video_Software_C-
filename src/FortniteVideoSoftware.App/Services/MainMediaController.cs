@@ -73,7 +73,7 @@ public class MainMediaController
             }
             else
             {
-                worker.IntroAbsTimeMs = payload.TrimStartMs;
+                worker.IntroAbsTimeMs = payload.ThumbnailPosMs > 0 ? payload.ThumbnailPosMs : payload.TrimStartMs;
                 worker.IntroStillSec = 0.1;
             }
             

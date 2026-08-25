@@ -44,9 +44,37 @@
             </Canvas>
             <Path x:Name="ZapBolt" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="4" Fill="Transparent" IsVisible="False" IsHitTestVisible="False" Data="M 0,0 L 10,14 L 2,16 L 14,34"/>
 
+            <!-- Logs Trap: a fighter is buried under a pile of heavy wooden logs -->
+            <Canvas x:Name="LogsTrap" Width="70" Height="50" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="60" Height="14" Canvas.Top="30" Canvas.Left="0" Fill="#8B4513" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2" RadiusX="4" RadiusY="4">
+                    <Rectangle.RenderTransform><RotateTransform Angle="10"/></Rectangle.RenderTransform>
+                </Rectangle>
+                <Rectangle Width="64" Height="14" Canvas.Top="15" Canvas.Left="5" Fill="#A0522D" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2" RadiusX="4" RadiusY="4">
+                    <Rectangle.RenderTransform><RotateTransform Angle="-15"/></Rectangle.RenderTransform>
+                </Rectangle>
+                <Rectangle Width="55" Height="14" Canvas.Top="25" Canvas.Left="10" Fill="#CD853F" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2" RadiusX="4" RadiusY="4">
+                    <Rectangle.RenderTransform><RotateTransform Angle="5"/></Rectangle.RenderTransform>
+                </Rectangle>
+                <Rectangle Width="60" Height="14" Canvas.Top="8" Canvas.Left="2" Fill="#8B4513" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2" RadiusX="4" RadiusY="4">
+                    <Rectangle.RenderTransform><RotateTransform Angle="25"/></Rectangle.RenderTransform>
+                </Rectangle>
+                <Path Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="3" Data="M -5,25 Q 35,40 75,20" StrokeDashArray="4,2"/>
+            </Canvas>
+
             <!-- Spinning "seeing stars" above a knocked-out fighter's head -->
             <TextBlock x:Name="StarsA" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
             <TextBlock x:Name="StarsB" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
+            
+            <!-- Hype Meter (Idea 1) -->
+            <Border x:Name="HypeContainer" Canvas.Top="20" Width="200" Height="20" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2" CornerRadius="10" IsVisible="True" IsHitTestVisible="False">
+                <Grid>
+                    <ProgressBar x:Name="HypeMeterBar" Minimum="0" Maximum="100" Value="0" Height="16" Foreground="{DynamicResource AppSuccessBrush}" Background="Transparent" CornerRadius="8" ShowProgressText="False"/>
+                    <TextBlock Text="MASH SPACEBAR FOR ULTIMATE!" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                </Grid>
+            </Border>
+
+            <!-- Boss Fight UI -->
+            <TextBlock x:Name="BossLabel" Text="WARNING: BOSS ENCOUNTER" Foreground="{DynamicResource AppDangerBrush}" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Canvas.Top="20" Canvas.Left="0" IsVisible="False" IsHitTestVisible="False" Opacity="0.8"/>
 
             <Canvas x:Name="FighterA" IsHitTestVisible="False">
                 <Ellipse x:Name="A_Head" Width="30" Height="30" Fill="{DynamicResource AppAccentBrush}" />

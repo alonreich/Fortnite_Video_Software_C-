@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -169,12 +169,30 @@ public partial class PhaseOverlayControl : UserControl
 
     private void ResetFightVisuals()
     {
+        _isBossFight = _rand.NextDouble() < 0.05;
+        _hypeLevel = 0;
+        var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+        if (bar != null) bar.Value = 0;
+        var bossLbl = this.FindControl<TextBlock>("BossLabel");
+        if (bossLbl != null) bossLbl.IsVisible = _isBossFight;
+
         var canvas = this.FindControl<Canvas>("FightCanvas");
         if (canvas != null) canvas.IsVisible = true;
         var fA = this.FindControl<Canvas>("FighterA");
         var fB = this.FindControl<Canvas>("FighterB");
         if (fA != null) fA.RenderTransform = null;
-        if (fB != null) fB.RenderTransform = null;
+        if (fB != null) 
+        {
+            if (_isBossFight)
+            {
+                fB.RenderTransformOrigin = new Avalonia.RelativePoint(15, 120, Avalonia.RelativeUnit.Absolute);
+                fB.RenderTransform = new ScaleTransform(3.0, 3.0);
+            }
+            else
+            {
+                fB.RenderTransform = null;
+            }
+        }
         _avx = _bvx = _avy = _bvy = 0;
         _airA = _airB = false;
         _scaleA = _scaleB = 1; _growUntilA = _growUntilB = 0;
@@ -185,7 +203,7 @@ public partial class PhaseOverlayControl : UserControl
         var glassR = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
         if (glassR != null) glassR.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
         foreach (var n in new[] { "Projectile", "Projectile2", "SuperFlash", "ImpactBurst", "ComicBubble", "ComicText", "TitleFlash", "DustA", "DustB", "Mushroom", "ShockRing",
-                                   "Door", "Ladder", "Bulb", "ZapBolt", "StarsA", "StarsB" })
+                                   "Door", "Ladder", "Bulb", "ZapBolt", "StarsA", "StarsB", "LogsTrap" })
             SetVisible(n, false);
     }
 
@@ -369,6 +387,9 @@ public partial class PhaseOverlayControl : UserControl
     /// </summary>
     public void OnOverlayPointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
+        _hypeLevel = Math.Min(100, _hypeLevel + 10);
+        var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+        if (bar != null) bar.Value = _hypeLevel;
     }
 
     private void LockWindowAndAnchors()
@@ -455,6 +476,11 @@ public partial class PhaseOverlayControl : UserControl
     private double _titleUntil;
     private double _superUntil;
     private bool _finisherDone;
+    // Idea 1 & 5
+    private bool _isBossFight = false;
+    private double _hypeLevel = 0;
+
+    // Cache the resolved fighter controls so we don't spam FindControl 30 times a second.
     private bool _loserIsA;
 
     private const double EntranceDur = 1.05;
@@ -515,6 +541,25 @@ public partial class PhaseOverlayControl : UserControl
         var fB = _fighterBCached ??= this.FindControl<Canvas>("FighterB");
         if (canvas == null || fA == null || fB == null) return;
         fA.IsVisible = true; fB.IsVisible = true;
+
+        if (_vectorState == "Melee" && _moveKind == "")
+        {
+            if (_hypeLevel >= 100)
+            {
+                _hypeLevel = 0;
+                _moveKind = "super";
+                _moveStart = now;
+                _hitResolved = false;
+                _attackerIsA = true;
+                _moveDur = 0.5;
+            }
+            else if (_hypeLevel > 0)
+            {
+                _hypeLevel = Math.Max(0, _hypeLevel - 1.5);
+            }
+            var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+            if (bar != null) bar.Value = _hypeLevel;
+        }
 
         var (midX, fightY, w, h) = FightAnchor(canvas);
 
@@ -799,8 +844,10 @@ public partial class PhaseOverlayControl : UserControl
     private void StartSkit(double now, double midX, double fightY, double w, double h)
     {
         _moveKind = "skit"; _skitStart = now; _skitPhase = 0; _hitResolved = false;
-        _skitKind = _rand.Next(2) == 0 ? "door" : "bulb";
-        _attackerIsA = _rand.Next(2) == 0;
+        
+        int skitRoll = _rand.Next(3);
+        _skitKind = skitRoll == 0 ? "door" : (skitRoll == 1 ? "bulb" : "logs");
+        _attackerIsA = _rand.Next(2) == 0; // for logs: attacker is the one helping, victim is the trapped one
 
         if (_skitKind == "door")
         {
@@ -808,13 +855,22 @@ public partial class PhaseOverlayControl : UserControl
             var door = this.FindControl<Canvas>("Door");
             if (door != null) { door.IsVisible = true; door.RenderTransform = null; Canvas.SetLeft(door, midX - 30); Canvas.SetTop(door, fightY - 20); }
         }
-        else
+        else if (_skitKind == "bulb")
         {
             _skitDur = 4.0;
             var ladder = this.FindControl<Canvas>("Ladder");
             var bulb = this.FindControl<Canvas>("Bulb");
             if (ladder != null) { ladder.IsVisible = true; Canvas.SetLeft(ladder, midX - 25); Canvas.SetTop(ladder, fightY); }
             if (bulb != null) { bulb.IsVisible = true; Canvas.SetLeft(bulb, midX - 13); Canvas.SetTop(bulb, fightY - 62); }
+        }
+        else if (_skitKind == "logs")
+        {
+            _skitDur = 5.5; // Logs take a bit longer to untie
+            var logs = this.FindControl<Canvas>("LogsTrap");
+            if (logs != null) { logs.IsVisible = true; Canvas.SetLeft(logs, midX - 35); Canvas.SetTop(logs, fightY + 60); }
+            // The victim is trapped right away
+            if (!_attackerIsA) { _tgtAy = fightY + 50; _ay = fightY + 50; _ax = midX - 15; }
+            else { _tgtBy = fightY + 50; _by = fightY + 50; _bx = midX - 15; }
         }
         RuntimeLog.Info("EasterEgg", $"Skit: {_skitKind}");
     }
@@ -853,7 +909,7 @@ public partial class PhaseOverlayControl : UserControl
                 _tauntUntil = now + 1.5;
             }
         }
-        else
+        else if (_skitKind == "bulb")
         {
             if (prankIsA) { _ax += (propX - _ax) * 0.15; _ay += ((fightY - 66) - _ay) * 0.12; }
             else { _bx += (propX - _bx) * 0.15; _by += ((fightY - 66) - _by) * 0.12; }
@@ -877,6 +933,49 @@ public partial class PhaseOverlayControl : UserControl
             }
             else if (t > 0.72) SetVisible("ZapBolt", false);
         }
+        else if (_skitKind == "logs")
+        {
+            // victim is trapped
+            if (victimIsA) { _ay = fightY + 50; _ax += (propX - 15 - _ax) * 0.3; }
+            else { _by = fightY + 50; _bx += (propX - 15 - _bx) * 0.3; }
+
+            // prankIsA is the helper
+            if (t < 0.6)
+            {
+                // helper runs over to help
+                double helperTargetX = propX + (prankIsA ? 35 : -35);
+                if (prankIsA) _ax += (helperTargetX - _ax) * 0.1; else _bx += (helperTargetX - _bx) * 0.1;
+
+                if (_skitPhase == 0 && t > 0.05) 
+                { 
+                    _skitPhase = 1; 
+                    ShowTaunt("HHEELPP! I am overwhelmed by all these logs!", (victimIsA ? _ax : _bx) + 15, fightY + 20); 
+                    _tauntUntil = now + 2.5; 
+                }
+                else if (_skitPhase == 1 && t > 0.45) 
+                {
+                    _skitPhase = 2;
+                    ShowTaunt("Hold on!", (prankIsA ? _ax : _bx) + 15, fightY - 26);
+                    _tauntUntil = now + 1.2;
+                }
+            }
+            else if (!_hitResolved)
+            {
+                _hitResolved = true;
+                SetVisible("LogsTrap", false);
+                // victim jumps up
+                if (victimIsA) { _tgtAy = fightY; _airA = true; _avy = -15; }
+                else { _tgtBy = fightY; _airB = true; _bvy = -15; }
+                ShowImpact("FREED!", (victimIsA ? _ax : _bx) + 15, fightY + 30);
+                _impactUntil = now + 0.6;
+            }
+            else if (t > 0.8 && _skitPhase < 3)
+            {
+                _skitPhase = 3;
+                ShowTaunt("Thanks! Back to fighting!", (victimIsA ? _ax : _bx) + 15, fightY - 26);
+                _tauntUntil = now + 1.5;
+            }
+        }
     }
 
     private void EndSkit(double now)
@@ -885,7 +984,7 @@ public partial class PhaseOverlayControl : UserControl
         if (door != null) door.RenderTransform = null;
         var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
         if (glass != null) glass.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
-        foreach (var n in new[] { "Door", "Ladder", "Bulb", "ZapBolt" }) SetVisible(n, false);
+        foreach (var n in new[] { "Door", "Ladder", "Bulb", "ZapBolt", "LogsTrap" }) SetVisible(n, false);
         _skitKind = ""; _moveKind = "";
         _nextSkitTime = now + 6 + _rand.NextDouble() * 6;
         _nextMoveTime = now + 0.5;
@@ -933,6 +1032,7 @@ public partial class PhaseOverlayControl : UserControl
 
     private void ApplyScale(Canvas fighter, double scale)
     {
+        if (_isBossFight && fighter.Name == "FighterB") scale = 3.0;
         if (scale == 1.0) { if (fighter.RenderTransform is ScaleTransform) fighter.RenderTransform = null; return; }
         fighter.RenderTransformOrigin = new Avalonia.RelativePoint(15, 120, Avalonia.RelativeUnit.Absolute);
         fighter.RenderTransform = new ScaleTransform(scale, scale);

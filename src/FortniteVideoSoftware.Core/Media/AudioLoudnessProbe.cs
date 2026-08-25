@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -122,12 +122,11 @@ public static class AudioLoudnessProbe
     /// the gameplay before ducking or carving got a chance to act. Every ducking parameter in the
     /// chain was then being tuned to claw back a head start it should never have had.
     ///
-    /// -20 LUFS puts music about 6 LU under the -14 game bus, which is the usual bed level for
-    /// music sitting beneath speech or action. The user's music slider is applied ON TOP of this,
-    /// so 1.0 now genuinely means "as loud as a background bed should be" instead of "however
-    /// loud this particular record happens to be".
+    /// -14 LUFS puts music perfectly equal to the game bus, which is what the user expects when
+    /// setting the slider to 100%. A 50% slider setting will then correctly attenuate it by 6 dB
+    /// to -20 LUFS for the typical background bed level.
     /// </summary>
-    public const double MusicBedLufs = -20.0;
+    public const double MusicBedLufs = TargetLufs;
 
     /// <summary>
     /// Safety rail for the music match. A very quiet or badly-tagged file could otherwise ask for

@@ -79,6 +79,7 @@ public partial class MainWindow : Window
 
     private double _thumbnailPosMs = 0;
     private bool _thumbnailSet = false;
+    private Avalonia.Controls.Control? _thumbnailCameraControl;
 
     private double _freezeTimeMs = -1;
     private double _freezeDurationS = 1.0;
@@ -138,9 +139,26 @@ public partial class MainWindow : Window
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
+    private void UpdateAutoThumbnailMarker(double canvasWidth, double duration)
+    {
+        if (!_thumbnailSet && _thumbnailCameraControl != null)
+        {
+            double effectiveEnd = _trimEndMs > 0 ? _trimEndMs : duration * 1000.0;
+            double effectiveStart = _trimStartSet ? _trimStartMs : 0;
+            _thumbnailPosMs = effectiveStart + (effectiveEnd - effectiveStart) * 0.6666;
+            
+            double thumbMs = Math.Clamp(_thumbnailPosMs, 0, duration * 1000.0);
+            double thumbX = (thumbMs / 1000.0 / duration) * canvasWidth;
+            Avalonia.Controls.Canvas.SetLeft(_thumbnailCameraControl, ClampTimelineCameraLeft(thumbX, canvasWidth));
+        }
+    }
+
     private void UpdateDraggingVisuals(double canvasWidth, double duration)
     {
         if (duration <= 0) return;
+        
+        UpdateAutoThumbnailMarker(canvasWidth, duration);
+        
         if (_regionRectRef != null)
         {
             double regStartX = (_trimStartMs / 1000.0 / duration) * canvasWidth;
@@ -836,7 +854,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
                 TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
                     Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
-                UpdateButlerSuggestion();
+
             };
         }
 
@@ -873,7 +891,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
                 TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height * 0.7),
                     Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
-                UpdateButlerSuggestion();
+
             };
         }
 
@@ -1862,7 +1880,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         EnableEditingControls();
         SaveRecoveryState();
 
-        UpdateButlerSuggestion();
+
 
         _ = RunAudioLoudnessCheckAsync(path);
     }
@@ -2982,21 +3000,28 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 }
             }
 
-            if (_thumbnailSet)
+            if (!_thumbnailSet)
+            {
+                double effectiveEnd = _trimEndMs > 0 ? _trimEndMs : duration * 1000.0;
+                double effectiveStart = _trimStartSet ? _trimStartMs : 0;
+                _thumbnailPosMs = effectiveStart + (effectiveEnd - effectiveStart) * 0.6666;
+            }
+
             {
                 double thumbMs = Math.Clamp(_thumbnailPosMs, 0, duration * 1000.0);
                 double thumbX = (thumbMs / 1000.0 / duration) * canvasWidth;
 
 
-                var cameraIcon = CreateTimelineCameraIcon(
+                _thumbnailCameraControl = CreateTimelineCameraIcon(
                     _isThumbnailMarkerSelected || _isDraggingThumbnailMarker,
                     _marchingAntsOffset,
                     out _thumbnailMarkerIconAntsRef,
                     out _thumbnailMarkerLineAntsRef);
-                Avalonia.Controls.Canvas.SetTop(cameraIcon, -79);
-                Avalonia.Controls.Canvas.SetLeft(cameraIcon, ClampTimelineCameraLeft(thumbX, canvasWidth));
-                AttachThumbnailCameraMarkerInteractions(cameraIcon, canvas, duration);
-                canvas.Children.Add(cameraIcon);
+                Avalonia.Controls.ToolTip.SetTip(_thumbnailCameraControl, "This exact frame will be used as the cover picture (thumbnail) for your video when you share it.");
+                Avalonia.Controls.Canvas.SetTop(_thumbnailCameraControl, -79);
+                Avalonia.Controls.Canvas.SetLeft(_thumbnailCameraControl, ClampTimelineCameraLeft(thumbX, canvasWidth));
+                AttachThumbnailCameraMarkerInteractions(_thumbnailCameraControl, canvas, duration);
+                canvas.Children.Add(_thumbnailCameraControl);
             }
 
             if (_trimStartSet)
@@ -6136,43 +6161,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void InitializeUxInnovations()
     {
 
-        var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
-        if (butler != null)
-        {
-            butler.ActionInvoked += (id) =>
-            {
-                switch (id)
-                {
-                    case "trim":
-                        var markStart = this.FindControl<Button>("MarkStartButton");
-                        markStart?.Focus();
-                        break;
-                    case "speed":
-                        var speed = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
-                        speed?.Focus();
-                        break;
-                    case "music":
-                        var music = this.FindControl<Button>("AddMusicButton");
-                        music?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        break;
-                    case "portrait":
-                        var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
-                        if (portrait != null && portrait.IsChecked != true)
-                        {
-                            portrait.IsChecked = true;
-                            _ = Controls.LiquidMorph.PunchAsync(portrait);
-                        }
-                        break;
-                    case "hud":
-                        OpenCropTool(null, null);
-                        break;
-                    case "export":
-                        StartProcessing();
-                        break;
-                }
-            };
-        }
-
         var memeWall = this.FindControl<Controls.MemeWallControl>("MemeWall");
         if (memeWall != null)
         {
@@ -6245,15 +6233,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
-    /// <summary>
-    /// IDEA_005: Evaluates the current editing state and suggests the next logical action
-    /// via the Butler ribbon. Called after key state changes (trim, speed, music, etc.).
-    /// </summary>
-    private void UpdateButlerSuggestion()
-    {
-        var butler = this.FindControl<Controls.ButlerRibbon>("Butler");
-        if (butler != null) butler.Clear();
-    }
 
 
     #endregion

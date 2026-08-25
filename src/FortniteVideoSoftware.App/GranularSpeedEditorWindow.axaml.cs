@@ -1113,6 +1113,10 @@ public partial class GranularSpeedEditorWindow : Window
                     var zNow = _segments[_zoomDragSegment];
                     UpdateDragReadout(zNow.StartMs, zNow.EndMs);
                     RedrawTimeline();
+                    
+                    double zFollowRelSec = (_zoomDragIsStart ? zNow.StartMs : zNow.EndMs) / 1000.0;
+                    _ = SeekInternal(zFollowRelSec);
+                    
                     e.Handled = true;
                     return;
                 }
@@ -1149,6 +1153,9 @@ public partial class GranularSpeedEditorWindow : Window
                     UpdateDragReadout(_freezeTimeMs - _trimStartMs,
                                       _freezeTimeMs - _trimStartMs + _freezeDurationS * 1000.0);
                     RedrawTimeline();
+                    
+                    _ = SeekInternal(_freezeTimeMs / 1000.0);
+                    
                     e.Handled = true;
                     return;
                 }
@@ -1862,7 +1869,12 @@ public partial class GranularSpeedEditorWindow : Window
             return;
         }
 
-        double speed = _pendingSpeed;
+        double speed = _baseSpeed;
+        _pendingSpeed = _baseSpeed;
+        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
+        var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+        if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, _baseSpeed);
+        if (speedLbl != null) speedLbl.Text = $"{_baseSpeed:0.0}x";
         _segments.Add(new SpeedSegment((int)start, (int)end, speed));
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 

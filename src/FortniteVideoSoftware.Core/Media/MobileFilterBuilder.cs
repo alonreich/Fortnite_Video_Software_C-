@@ -1,4 +1,4 @@
-﻿
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -139,7 +139,9 @@ public class MobileFilterBuilder
 
         if (!string.IsNullOrEmpty(txtInputLabel))
         {
-            parts.Add($"{currV}{txtInputLabel}overlay=0:0:shortest=1:eof_action=repeat:format=auto[v_final_raw]");
+            // WhatsApp Thumbnail Fix: Shift the text down by 180px ONLY for the first 0.11 seconds
+            // so it falls inside the WhatsApp chat preview safe-zone. As soon as the video plays, it jumps back to 0.
+            parts.Add($"{currV}{txtInputLabel}overlay=x=0:y='if(lt(t,0.11),180,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw]");
             currV = "[v_final_raw]";
         }
 
