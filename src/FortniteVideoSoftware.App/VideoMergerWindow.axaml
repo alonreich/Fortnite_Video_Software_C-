@@ -182,7 +182,7 @@
                                  rule was dead code. Wired up here. BorderThickness/BorderBrush are declared at
                                  rest (2px, transparent) so gaining focus only recolours the stroke and causes
                                  zero layout shift in the video surface. -->
-                            <Border Name="VideoAreaBorder" Classes="InteractiveFocus" Grid.Column="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True" Padding="2" BorderThickness="2" BorderBrush="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Focusable="True" KeyboardNavigation.IsTabStop="True">
+                            <Border Name="VideoAreaBorder" Classes="InteractiveFocus" Grid.Column="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True" Padding="2" BorderThickness="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Focusable="True" KeyboardNavigation.IsTabStop="True">
                                 <Grid ClipToBounds="False" Name="MainVideoGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
@@ -232,7 +232,7 @@
                                                 <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
                                                     <Canvas Grid.Row="0" Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" />
                                                     <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Video merger timeline scrub slider" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
-                                                    <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" AutomationProperties.Name="Video merger timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand" />
+                                                    <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" AutomationProperties.Name="Video merger timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand" />
                                                 </Grid>
                                                 <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Margin="8,0,0,0" />
                                             </Grid>

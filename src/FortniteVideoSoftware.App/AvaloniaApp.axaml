@@ -1,4 +1,4 @@
-<Application xmlns="https://github.com/avaloniaui"
+﻿<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
              xmlns:collections="using:System.Collections"
@@ -10,10 +10,10 @@
         <!-- Semantic / brand / state tokens (theme-agnostic) -->
         <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
         <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
-        <SolidColorBrush x:Key="AppSuccessBrush" Color="#22c55e" />
-        <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#16a34a" />
-        <SolidColorBrush x:Key="AppDangerBrush" Color="#dc2626" />
-        <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#b91c1c" />
+        <SolidColorBrush x:Key="AppSuccessBrush" Color="#3f9c6b" />
+        <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#348456" />
+        <SolidColorBrush x:Key="AppDangerBrush" Color="#a83232" />
+        <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#8f2a2a" />
         <!-- ISSUE_02: Granular timeline "slower-than-normal" segment swatch. Kept distinct from
              AppDangerBrush (#dc2626) because it must equal the block colour drawn in code
              (GetSegmentOverlayColor RGB 239,68,68) so the legend chip matches the timeline. -->
@@ -41,7 +41,7 @@
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />
         <!-- Always-white text/icons for saturated colored buttons (theme-agnostic) -->
-        <SolidColorBrush x:Key="AppOnAccentTextBrush" Color="#ffffff" />
+        <SolidColorBrush x:Key="AppOnAccentTextBrush" Color="#e8eaef" />
 
         <!-- Geometry Resources -->
         <StreamGeometry x:Key="AppPlayIconGeometry">M3,1 L14,8 L3,15 Z</StreamGeometry>
@@ -51,6 +51,9 @@
         <StreamGeometry x:Key="AppFastForwardIconGeometry">M2,2 L8,8 L2,14 Z M8,2 L14,8 L8,14 Z</StreamGeometry>
         <StreamGeometry x:Key="AppImageIconGeometry">M 2,6 L 4,6 L 5,4 L 11,4 L 12,6 L 14,6 Q 15,6 15,7 L 15,12 Q 15,13 14,13 L 2,13 Q 1,13 1,12 L 1,7 Q 1,6 2,6 Z M 8,7.5 A 2.5,2.5 0 1,0 8,12.5 A 2.5,2.5 0 1,0 8,7.5</StreamGeometry>
         <StreamGeometry x:Key="AppSpeakerIconGeometry">M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14</StreamGeometry>
+        <!-- CUT_02 — scissors, on a 24x24 grid to match AppVoiceOverIconGeometry / AppMusicNote.
+             Two finger rings, two blades crossing just above centre, and the pivot. -->
+        <StreamGeometry x:Key="AppScissorsIconGeometry">M9.6,9.1 L19,19.5 L20.6,17.9 L11.9,7.5 Z M14.4,9.1 L5,19.5 L3.4,17.9 L12.1,7.5 Z M6,2 A3,3 0 1,0 6,8 A3,3 0 1,0 6,2 M6,3.6 A1.4,1.4 0 1,1 6,6.4 A1.4,1.4 0 1,1 6,3.6 M18,2 A3,3 0 1,0 18,8 A3,3 0 1,0 18,2 M18,3.6 A1.4,1.4 0 1,1 18,6.4 A1.4,1.4 0 1,1 18,3.6 M12,10.8 A1.1,1.1 0 1,0 12,13 A1.1,1.1 0 1,0 12,10.8</StreamGeometry>
         <StreamGeometry x:Key="AppVoiceOverIconGeometry">M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z</StreamGeometry>
 
         <!-- Global font-size tokens (base defaults; scaled at runtime by ThemeManager.ApplyFontScale) -->
@@ -61,6 +64,13 @@
         <!-- Numbered font-size tokens: every FontSize in the app references one of these
              so the Settings > Appearance > Font Size choice scales EVERY text and button.
              Base value equals the token number; ThemeManager multiplies all of them. -->
+        <!-- ISSUE_30: font family with a real fallback chain, plus a line-height floor. -->
+        <FontFamily x:Key="AppFontFamily">Inter, Segoe UI Variable, Segoe UI, Arial, sans-serif</FontFamily>
+        <!-- TEXTCLIP_01: opt-in only (TextBlock.FixedLineHeight). It is deliberately NOT applied
+             to bare TextBlock, and deliberately NOT in ThemeManager.s_scaledTokens — read the
+             comment on the FixedLineHeight style before touching either fact. -->
+        <sys:Double x:Key="AppLineHeightNormal">18</sys:Double>
+
         <sys:Double x:Key="AppFontSize9">9</sys:Double>
         <sys:Double x:Key="AppFontSize10">10</sys:Double>
         <sys:Double x:Key="AppFontSize11">11</sys:Double>
@@ -119,42 +129,83 @@
 
         <!-- ISSUE_04: Centralized button gradient + border tokens (theme-agnostic saturated
              ramps with guaranteed white AppOnAccentTextBrush text; previously raw hex inline). -->
-        <SolidColorBrush x:Key="AppPrimaryDeepBorderBrush" Color="#172554" />
+        <SolidColorBrush x:Key="AppPrimaryDeepBorderBrush" Color="#053349" />
         <SolidColorBrush x:Key="AppSuccessDeepBorderBrush" Color="#052e16" />
         <SolidColorBrush x:Key="AppDangerDeepBorderBrush" Color="#450a0a" />
+        <!-- BTNHUE_01: the blue action button is now the requested #084C69 (deep teal-blue) at the
+             0.18 stop. The rim and base are tints of that ONE colour, so changing #084C69 alone
+             re-tunes the whole button; do not reintroduce an unrelated blue at either end. -->
         <LinearGradientBrush x:Key="AppPrimaryButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#60a5fa"/>
-            <GradientStop Offset="0.18" Color="#2563eb"/>
-            <GradientStop Offset="1.0" Color="#1e3a8a"/>
+            <GradientStop Offset="0.0" Color="#2ea4d2"/>
+            <GradientStop Offset="0.18" Color="#0c6b91"/>
+            <GradientStop Offset="1.0" Color="#084257"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppPrimaryButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#7cb8fb"/>
-            <GradientStop Offset="0.18" Color="#3b82f6"/>
-            <GradientStop Offset="1.0" Color="#1e40af"/>
+            <GradientStop Offset="0.0" Color="#42b8e2"/>
+            <GradientStop Offset="0.18" Color="#0f7ea9"/>
+            <GradientStop Offset="1.0" Color="#0a536d"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppSuccessButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#4ade80"/>
-            <GradientStop Offset="0.18" Color="#16a34a"/>
-            <GradientStop Offset="1.0" Color="#14532d"/>
+            <GradientStop Offset="0.0" Color="#5fae83"/>
+            <GradientStop Offset="0.18" Color="#2f7149"/>
+            <GradientStop Offset="1.0" Color="#17351f"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppSuccessButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#6ee7a0"/>
-            <GradientStop Offset="0.18" Color="#22c55e"/>
-            <GradientStop Offset="1.0" Color="#166534"/>
+            <GradientStop Offset="0.0" Color="#6fbc92"/>
+            <GradientStop Offset="0.18" Color="#3d8b5f"/>
+            <GradientStop Offset="1.0" Color="#1d4128"/>
         </LinearGradientBrush>
+        <!-- BTNDEPTH_01 — SECONDARY AND ZOOM WERE THE ONLY FLAT BUTTONS IN THE APP.
+             Primary, Success, Danger and VoiceOver all had a 3-stop ramp (bright top rim, the
+             label's own stop at 0.18, deep base) plus a deep border, which is what makes them read
+             as physically raised. Secondary had `Background = AppPanelBrush` — literally the same
+             colour as the panel behind it — so SET THUMBNAIL, VIDEO MERGER, CROP SETTINGS, ADD
+             MUSIC and NEW FILE looked permanently disabled even when fully enabled. There was no
+             way to tell an enabled Secondary from a disabled one at a glance.
+             These ramps are a slate version of the same recipe, so Secondary now sits in the same
+             visual family without competing with Primary for attention. -->
+        <SolidColorBrush x:Key="AppSecondaryDeepBorderBrush" Color="#2d2649" />
+        <!-- BTNHUE_01: the secondary button leaves the slate/grey family entirely for the
+             requested #483D65 (muted violet). Slate still read as "disabled" no matter how much
+             depth it was given, because grey IS the disabled language everywhere else in the app.
+             A different HUE is what makes an enabled secondary unmistakable. -->
+        <LinearGradientBrush x:Key="AppSecondaryButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#8b7cb4"/>
+            <GradientStop Offset="0.18" Color="#61548a"/>
+            <GradientStop Offset="1.0" Color="#3b3159"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AppSecondaryButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#9c8dc6"/>
+            <GradientStop Offset="0.18" Color="#71619d"/>
+            <GradientStop Offset="1.0" Color="#463a67"/>
+        </LinearGradientBrush>
+
+        <!-- BTNDEPTH_01 — the zoom ramp keeps IDEA_6's rule (everything zoom wears AppZoomColor)
+             while gaining the same depth as every other action button. -->
+        <LinearGradientBrush x:Key="AppZoomButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#5b86e8"/>
+            <GradientStop Offset="0.18" Color="#2251c1"/>
+            <GradientStop Offset="1.0" Color="#15306b"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AppZoomButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#7ba0f0"/>
+            <GradientStop Offset="0.18" Color="#2f63d8"/>
+            <GradientStop Offset="1.0" Color="#1c3f85"/>
+        </LinearGradientBrush>
+
         <LinearGradientBrush x:Key="AppDangerButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#f87171"/>
-            <GradientStop Offset="0.18" Color="#dc2626"/>
-            <GradientStop Offset="1.0" Color="#7f1d1d"/>
+            <GradientStop Offset="0.0" Color="#c47070"/>
+            <GradientStop Offset="0.18" Color="#a83232"/>
+            <GradientStop Offset="1.0" Color="#521818"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppDangerButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Offset="0.0" Color="#fb8f8f"/>
-            <GradientStop Offset="0.18" Color="#ef4444"/>
-            <GradientStop Offset="1.0" Color="#991b1b"/>
+            <GradientStop Offset="0.0" Color="#d08585"/>
+            <GradientStop Offset="0.18" Color="#b83b3b"/>
+            <GradientStop Offset="1.0" Color="#66201f"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppVoiceOverButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
             <GradientStop Offset="0.0" Color="#38bdf8"/>
-            <GradientStop Offset="0.18" Color="#0891b2"/>
+            <GradientStop Offset="0.18" Color="#0a7288"/>
             <GradientStop Offset="1.0" Color="#155e75"/>
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="AppVoiceOverButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
@@ -182,7 +233,11 @@
         <SolidColorBrush x:Key="AppPhoneChromeDimBrush" Color="#66FFFFFF" />
 
         <Color x:Key="AppAccentColor">#60a5fa</Color>
-        <Color x:Key="AppSuccessColor">#22c55e</Color>
+        <!-- TONE_01: AppSuccessColor is muted from #22c55e; AppDangerColor is NEW. Code that
+             needs a Color rather than a Brush (alpha-ramped overlays) now has a token for BOTH
+             sides. Its absence was the direct cause of the hardcoded reds in the audit. -->
+        <Color x:Key="AppSuccessColor">#3f9c6b</Color>
+        <Color x:Key="AppDangerColor">#a83232</Color>
         <!-- Interactive state overlay brushes (alpha-variant tokens) -->
         <SolidColorBrush x:Key="AppAccentAlpha10Brush" Color="{DynamicResource AppAccentColor}" Opacity="0.10" />
         <SolidColorBrush x:Key="AppAccentAlpha15Brush" Color="{DynamicResource AppAccentColor}" Opacity="0.15" />
@@ -239,6 +294,11 @@
                      most of the suite in the Light theme. Dark keeps the original white exactly.
                      ══════════════════════════════════════════════════════════════════════════ -->
                 <Color x:Key="AppRippleColor">#ffffff</Color>
+
+                <!-- ISSUE_15: a pressed speed preset paints AppAccentBrush / AppSuccessBrush
+                     behind its label. In Dark those fills are LIGHT (#60a5fa / #22c55e), so the
+                     label must be dark to be readable - white measured 2.55:1 and 2.32:1. -->
+                <SolidColorBrush x:Key="AppOnPresetPressedTextBrush" Color="#0f172a" />
 
                 <!-- ══════════════════════════════════════════════════════════════════════════
                      ISSUE_10 — THE TWO CUSTOM-DRAWN CONTROLS' CHROME.
@@ -309,6 +369,10 @@
                 <!-- ISSUE_08: black ripple on light surfaces. White was invisible here. -->
                 <Color x:Key="AppRippleColor">#000000</Color>
 
+                <!-- ISSUE_15, inverted: in Light those same fills are DARK (#2563eb / #15803d),
+                     so the label must be white. 5.17:1 and 5.02:1. -->
+                <SolidColorBrush x:Key="AppOnPresetPressedTextBrush" Color="#ffffff" />
+
                 <!-- ISSUE_10: the same two controls in brushed-light metal instead of near-black,
                      so they sit inside the page instead of punching a hole in it. The geometry,
                      physics and liquid are untouched — only the chrome changes. -->
@@ -355,6 +419,124 @@
                     <GradientStop Offset="0.81" Color="#6f7780" />
                     <GradientStop Offset="1.00" Color="#b2b8c0" />
                 </LinearGradientBrush>
+
+                <!-- ══════════════════════════════════════════════════════════════════════════
+                     LIGHT-MODE CONTRAST PASS.
+                     Every brush below was previously defined ONCE, outside these theme
+                     dictionaries, with values chosen to sit on a near-black page. On the light
+                     page (#f8fafc) they became pale washes, and the white label on top of them
+                     failed WCAG badly. Measured white-on-fill before this block:
+                         Success hover  2.28:1   VoiceOver hover 2.43:1
+                         SpeedPreset    2.54:1   Success        3.30:1
+                         Primary hover  3.68:1   VoiceOver      3.68:1   Danger hover 3.76:1
+                     and against the page itself: Warning 1.46:1, Info 2.05:1, Success 2.18:1,
+                     Accent 2.43:1 - i.e. the status colours were barely visible at all.
+                     DARK IS UNTOUCHED. These are Light-only overrides; the root definitions
+                     remain the dark-tuned originals.
+                     ══════════════════════════════════════════════════════════════════════════ -->
+
+                <!-- Status / semantic colours, darkened so they read on a white page. -->
+                <SolidColorBrush x:Key="AppAccentBrush" Color="#2563eb" />
+                <SolidColorBrush x:Key="AppInfoBrush" Color="#0284c7" />
+                <SolidColorBrush x:Key="AppSuccessBrush" Color="#2c6b47" />
+                <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#24593b" />
+                <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#7c2323" />
+                <SolidColorBrush x:Key="AppWarningBrush" Color="#a16207" />
+                <SolidColorBrush x:Key="AppSpeedSlowBrush" Color="#dc2626" />
+                <Color x:Key="AppAccentColor">#2563eb</Color>
+                <Color x:Key="AppSuccessColor">#2c6b47</Color>
+                <Color x:Key="AppDangerColor">#8f2a2a</Color>
+                <Color x:Key="AppInfoColor">#0284c7</Color>
+                <SolidColorBrush x:Key="AppAccentAlpha10Brush" Color="#1A2563eb" />
+                <SolidColorBrush x:Key="AppAccentAlpha15Brush" Color="#262563eb" />
+                <SolidColorBrush x:Key="AppAccentAlpha20Brush" Color="#332563eb" />
+                <SolidColorBrush x:Key="AppSuccessAlpha10Brush" Color="#1A15803d" />
+
+                <!-- Button gradients: the top stop is the highlight, the 0.18 stop is what the
+                     label actually sits on, so that stop carries the contrast requirement. -->
+                <LinearGradientBrush x:Key="AppPrimaryButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#1c92bc"/>
+                    <GradientStop Offset="0.18" Color="#0c6b91"/>
+                    <GradientStop Offset="1.0" Color="#06364a"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppPrimaryButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#27a9d5"/>
+                    <GradientStop Offset="0.18" Color="#0f7ea9"/>
+                    <GradientStop Offset="1.0" Color="#06364a"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppSuccessButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#3f8f61"/>
+                    <GradientStop Offset="0.18" Color="#2c6b47"/>
+                    <GradientStop Offset="1.0" Color="#052e16"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppSuccessButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#4d9e70"/>
+                    <GradientStop Offset="0.18" Color="#24593b"/>
+                    <GradientStop Offset="1.0" Color="#052e16"/>
+                </LinearGradientBrush>
+                <!-- BTNDEPTH_01 — light-theme Secondary/Zoom ramps. Darker than the dark-theme
+                     pair on purpose: AppOnAccentTextBrush is white, so the 0.18 stop (what the
+                     label sits on) must stay dark enough to carry the contrast requirement. -->
+                <SolidColorBrush x:Key="AppSecondaryDeepBorderBrush" Color="#2d2649" />
+                <LinearGradientBrush x:Key="AppSecondaryButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#7a6ba4"/>
+                    <GradientStop Offset="0.18" Color="#61548a"/>
+                    <GradientStop Offset="1.0" Color="#332a4f"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppSecondaryButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#8a7ab7"/>
+                    <GradientStop Offset="0.18" Color="#71619d"/>
+                    <GradientStop Offset="1.0" Color="#3b3159"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppZoomButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#3b6fd8"/>
+                    <GradientStop Offset="0.18" Color="#1c449c"/>
+                    <GradientStop Offset="1.0" Color="#15306b"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppZoomButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#5183e4"/>
+                    <GradientStop Offset="0.18" Color="#2251c1"/>
+                    <GradientStop Offset="1.0" Color="#1a3a7d"/>
+                </LinearGradientBrush>
+
+                <LinearGradientBrush x:Key="AppDangerButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#b74040"/>
+                    <GradientStop Offset="0.18" Color="#8f2a2a"/>
+                    <GradientStop Offset="1.0" Color="#450a0a"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppDangerButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#c45252"/>
+                    <GradientStop Offset="0.18" Color="#7c2323"/>
+                    <GradientStop Offset="1.0" Color="#450a0a"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppVoiceOverButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#0ea5e9"/>
+                    <GradientStop Offset="0.18" Color="#0a7288"/>
+                    <GradientStop Offset="1.0" Color="#083344"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppVoiceOverButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#38bdf8"/>
+                    <GradientStop Offset="0.18" Color="#155e75"/>
+                    <GradientStop Offset="1.0" Color="#083344"/>
+                </LinearGradientBrush>
+
+                <!-- ISSUE_13: the hover wash was a 13%-WHITE overlay defined outside the theme
+                     dictionaries. On a #f8fafc panel that is invisible, so hovering a checkbox
+                     or radio button gave no feedback at all in Light. Same inversion the ripple
+                     already uses (AppRippleColor above). -->
+                <SolidColorBrush x:Key="AppHoverOverlayBrush" Color="#1A000000" />
+
+                <!-- ISSUE_14: the dialog close X faded to near-white ON hover (1.27:1). It now
+                     DARKENS on hover instead, so the control gains weight when pointed at. -->
+                <SolidColorBrush x:Key="AppCloseBtnHoverForegroundBrush" Color="#075985" />
+                <SolidColorBrush x:Key="AppCloseBtnHoverBackgroundBrush" Color="#1A0369A1" />
+                <SolidColorBrush x:Key="AppCloseBtnPressedBackgroundBrush" Color="#330369A1" />
+
+                <!-- ISSUE_27: the timeline knob glow used this Color directly and it was pinned
+                     to the Dark focus colour, so the timeline knob and an ordinary slider knob
+                     glowed two different colours in Light - the timeline one nearly invisible
+                     (1.59:1). Now it tracks the theme like AppFocusOuterBrush already did. -->
+                <Color x:Key="AppFocusOuterColor">#0369a1</Color>
             </ResourceDictionary>
         </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -482,7 +664,7 @@
             <Setter Property="Background" Value="{DynamicResource AppSpeedPresetHoverBackground}"/>
         </Style>
         <Style Selector="Button.SpeedPreset:pressed">
-            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnPresetPressedTextBrush}"/>
         </Style>
         <Style Selector="Button.SpeedPreset:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppAccentBrush}"/>
@@ -498,7 +680,7 @@
             <Setter Property="Background" Value="{DynamicResource AppBaseSpeedPresetHoverBackground}"/>
         </Style>
         <Style Selector="Button.BaseSpeedPreset:pressed">
-            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnPresetPressedTextBrush}"/>
         </Style>
         <Style Selector="Button.BaseSpeedPreset:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
@@ -517,14 +699,24 @@
 
         <!-- IDEA_6: the ZOOM-IN button wears the zoom colour, so the button, the box you draw,
              the handles, the timeline bar and the style picker are all visibly one feature. -->
+        <!-- BTNDEPTH_01: was a flat AppZoomBrush fill, the only action button in the Granular
+             editor with no depth. Now the same 3-stop ramp as Primary/Success/Danger, still in the
+             zoom colour so IDEA_6's "everything zoom is one colour" rule is untouched. -->
         <Style Selector="Button.ZoomAction">
             <Setter Property="BorderBrush" Value="{DynamicResource AppZoomDeepBorderBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppZoomButtonGradient}"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.ZoomAction:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AppZoomHoverBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppZoomButtonHoverGradient}"/>
+        </Style>
+        <Style Selector="Button.ZoomAction:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}"/>
+        </Style>
+        <Style Selector="Button.ZoomAction:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}"/>
         </Style>
 
         <!-- Voiceover entry: distinct from general primary actions in the main editing controls. -->
@@ -554,14 +746,21 @@
         </Style>
 
         <!-- Secondary Buttons (Dynamic Resource Tokens) -->
+        <!-- BTNDEPTH_01 — THE FIX FOR "EVERYTHING LOOKS GREYED OUT".
+             Background was AppPanelBrush: the SAME colour as the panel these buttons sit on. With
+             no gradient, no deep border and a muted foreground, an ENABLED Secondary was visually
+             indistinguishable from a DISABLED one — which is exactly how SET THUMBNAIL, VIDEO
+             MERGER, CROP SETTINGS, ADD MUSIC and NEW FILE read. Foreground moves to
+             AppOnAccentTextBrush because the button now has a saturated fill under it.
+             Secondary is used app-wide, so this one style is the whole fix. -->
         <Style Selector="Button.Secondary">
-            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppSecondaryDeepBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppSecondaryButtonGradient}"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.Secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppSecondaryButtonHoverGradient}"/>
         </Style>
         <Style Selector="Button.Secondary:disabled">
             <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}"/>
@@ -627,19 +826,19 @@
                 <Animation Duration="0:0:2.5" IterationCount="INFINITE">
                     <KeyFrame Cue="0%">
                         <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="#2251c1"/>
+                        <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
                     </KeyFrame>
                     <KeyFrame Cue="33%">
                         <Setter Property="Opacity" Value="0.4"/>
-                        <Setter Property="Background" Value="#ffffff"/>
+                        <Setter Property="Background" Value="{DynamicResource AppOnAccentTextBrush}"/>
                     </KeyFrame>
                     <KeyFrame Cue="66%">
                         <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="#22c55e"/>
+                        <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
                     </KeyFrame>
                     <KeyFrame Cue="100%">
                         <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="#2251c1"/>
+                        <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
                     </KeyFrame>
                 </Animation>
             </Style.Animations>
@@ -653,7 +852,7 @@
                 </Transitions>
             </Setter>
             <Setter Property="BorderThickness" Value="3" />
-            <Setter Property="BorderBrush" Value="#3b82f6" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
         </Style>
         
         <Style Selector="Button.zoomconfirmbtn /template/ ContentPresenter#PART_ContentPresenter">
@@ -666,13 +865,13 @@
         </Style>
         
         <Style Selector="Button.zoomconfirmbtn:pointerover">
-            <Setter Property="BorderBrush" Value="#93c5fd" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
             <Setter Property="RenderTransform" Value="scale(1.05)" />
         </Style>
 
         <Style Selector="Button.zoomconfirmbtn:pressed">
             <Setter Property="RenderTransform" Value="scale(0.85)" />
-            <Setter Property="BorderBrush" Value="#1e3a8a" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppZoomDeepBorderBrush}" />
             <Setter Property="Opacity" Value="0.8" />
         </Style>
 
@@ -939,6 +1138,17 @@
             </Setter>
         </Style>
         <!-- CompactSlider (timeline scrubber + vertical volume): resting dot 21px -->
+        <!-- ISSUE_21: the global Slider:horizontal rail inset is 26 = half the 52px BASE thumb.
+             This class overrides the thumb to 44 wide, so its rail must be inset 22 = half of 44,
+             exactly as the file's own SLIDER_04 note requires ("the rail inset below, which must
+             stay at half this value") and exactly as the vertical rules already do. Without these
+             two selectors the dot overhung both ends of its own rail by 4px at 0% and 100%. -->
+        <Style Selector="Slider.CompactSlider:horizontal /template/ RepeatButton#PART_DecreaseButton">
+            <Setter Property="Margin" Value="22,0,-22,0" />
+        </Style>
+        <Style Selector="Slider.CompactSlider:horizontal /template/ RepeatButton#PART_IncreaseButton">
+            <Setter Property="Margin" Value="-22,0,22,0" />
+        </Style>
         <Style Selector="Slider.CompactSlider /template/ Thumb">
             <Setter Property="Width" Value="44" />
             <Setter Property="Height" Value="44" />
@@ -1224,6 +1434,154 @@
                     </Border>
                 </ControlTemplate>
             </Setter>
+        </Style>
+
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             UX AUDIT — ISSUE_10, ISSUE_16, ISSUE_23, ISSUE_30, ISSUE_02, ISSUE_03.
+             ══════════════════════════════════════════════════════════════════════════════════ -->
+
+        <!-- ISSUE_30: a single font family token with a real fallback chain, and a line-height
+             floor. Previously the whole 1200-line dictionary declared neither: the app loaded one
+             family with no backup, so any glyph it did not cover fell back to whatever the OS
+             picked, and vertical rhythm was left entirely to Fluent's defaults. -->
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="{DynamicResource AppFontFamily}" />
+        </Style>
+        <!-- ⚠️ TEXTCLIP_01 — DO NOT PUT `LineHeight` BACK ON A BARE `TextBlock` SELECTOR. ⚠️
+             ISSUE_30 wanted a line-height FLOOR. Avalonia's LineHeight is NOT a floor: when it is
+             set, TextLineMetrics uses it as the line box height OUTRIGHT, and the baseline is
+             positioned from it rather than from the font. So a single hard 18px applied to EVERY
+             TextBlock in the app clipped text at BOTH ends of the size range:
+               - Anything above ~14px (every AppFontSize16/18/20/24/28/36/48/60 heading, icon and
+                 hero glyph) has a natural line box TALLER than 18px, so its descenders and the
+                 bottoms of round caps were cut off. That is why every Settings section title and
+                 the "Drag & drop your gameplay video here" hero line rendered clipped.
+               - The 18px box also never scaled: AppLineHeightNormal is NOT in ThemeManager's
+                 s_scaledTokens, so raising Settings > Appearance > Font Size grew every glyph
+                 while the line box stayed frozen at 18px, making the clipping worse at every step.
+             Removing the setter restores the font's own metrics, which are correct by construction
+             at every size and every font scale. The token below is kept as an OPT-IN class for the
+             few places that genuinely want a fixed rhythm — apply `Classes="FixedLineHeight"`
+             there, never app-wide. -->
+        <Style Selector="TextBlock.FixedLineHeight">
+            <Setter Property="LineHeight" Value="{DynamicResource AppLineHeightNormal}" />
+        </Style>
+
+        <!-- ISSUE_02: the timeline scrub surfaces carried Background="Transparent" as a LOCAL
+             attribute, and in Avalonia a locally-set value outranks any style setter - so the
+             hover and focus tints defined for Canvas.TimelineSeekSurface / Grid.TimelineSeekSurface
+             could never paint. The resting transparent fill is set HERE instead (it must exist,
+             or the Canvas stops hit-testing and seeking breaks), and the local attributes are
+             removed from every consumer so the state styles finally win. -->
+        <Style Selector="Canvas.TimelineSeekSurface">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurface">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <!-- Variant for the two VoiceOver lanes that need a visible panel fill at rest. -->
+        <Style Selector="Canvas.TimelineSeekSurfacePanel">
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}" />
+        </Style>
+        <Style Selector="Canvas.TimelineSeekSurfacePanel:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha10Brush}" />
+        </Style>
+        <Style Selector="Canvas.TimelineSeekSurfacePanel:focus-visible">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha20Brush}" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurfaceSurface">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurfaceSurface:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha10Brush}" />
+        </Style>
+        <Style Selector="Grid.TimelineSeekSurfaceSurface:focus-visible">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha20Brush}" />
+        </Style>
+
+        <!-- ISSUE_03: same local-value trap. Border.InteractiveFocus set BorderBrush="Transparent"
+             locally, so the focus ring below could never recolour it. The resting transparent
+             stroke moves here. -->
+        <Style Selector="Border.InteractiveFocus">
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+
+        <!-- ISSUE_16: no Slider style anywhere matched :focus or :focus-visible, so tabbing to a
+             volume / speed / quality / scrub slider showed nothing at all and a keyboard user
+             could not tell which slider the arrow keys would move. -->
+        <Style Selector="Slider:focus-visible /template/ Thumb">
+            <Setter Property="Background" Value="{DynamicResource AppFocusInnerBrush}" />
+        </Style>
+        <Style Selector="Slider:focus-visible /template/ Track">
+            <Setter Property="Opacity" Value="1.0" />
+        </Style>
+
+        <!-- ISSUE_23: hover / focus / disabled coverage was wildly uneven per control type.
+             Tabs and menu items had NO state feedback at all beyond a cursor; combo boxes and
+             toggle switches had focus but no hover; nothing had a disabled treatment. -->
+        <Style Selector="TabItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{DynamicResource AppHoverOverlayBrush}" />
+        </Style>
+        <Style Selector="TabItem:focus-visible /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{DynamicResource AppAccentAlpha15Brush}" />
+        </Style>
+        <Style Selector="TabItem:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="MenuItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AppHoverOverlayBrush}" />
+        </Style>
+        <Style Selector="MenuItem:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="ComboBox:pointerover /template/ Border#Background">
+            <Setter Property="Background" Value="{DynamicResource AppHoverOverlayBrush}" />
+        </Style>
+        <Style Selector="ComboBox:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="ToggleSwitch:pointerover /template/ Border#OuterBorder">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
+        </Style>
+        <Style Selector="ToggleSwitch:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="CheckBox:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="RadioButton:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+        <Style Selector="TextBox:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}" />
+        </Style>
+
+        <!-- ISSUE_10: nine button families pinned their own Foreground/Background but never
+             defined a :disabled look, so a switched-off zoom, share, preset or close button
+             looked completely live and users kept clicking it. The six that DID have a disabled
+             pair (Primary, Secondary, Success, Danger, VoiceOverEntry, ToggleButton.Primary)
+             are untouched; these nine now match them. -->
+        <Style Selector="Button.SpeedPreset:disabled, Button.BaseSpeedPreset:disabled,
+                         Button.ZoomAction:disabled, Button.zoomconfirmbtn:disabled,
+                         Button.WhatsApp:disabled, Button.Instagram:disabled,
+                         Button.YouTube:disabled, Button.TikTok:disabled,
+                         Button.CloseBtn:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}"/>
+        </Style>
+        <Style Selector="Button.SpeedPreset:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.BaseSpeedPreset:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.ZoomAction:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.zoomconfirmbtn:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.WhatsApp:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.Instagram:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.YouTube:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.TikTok:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.CloseBtn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}"/>
         </Style>
     </Application.Styles>
 </Application>

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -136,6 +136,17 @@ public static class AudioLoudnessProbe
     public const double MinMusicGainDb = -24.0;
 
     /// <summary>
+    /// BEDSEG_01 — the shortest window worth measuring on its own.
+    ///
+    /// EBU R128 integrated loudness gates in 400 ms blocks and then applies a relative gate across
+    /// them; with only a second or two of material the relative gate has almost nothing to work on
+    /// and loudnorm reports a figure that swings wildly or comes back as -70 (silence). Anything
+    /// shorter than this falls back to measuring the whole file, which is what the code did before
+    /// segment measurement existed — a known-imperfect answer beats a random one.
+    /// </summary>
+    public const double MinSegmentSec = 5.0;
+
+    /// <summary>
     /// How far from <see cref="TargetLufs"/> a file may sit before the user is warned.
     ///
     /// Chosen deliberately: at +/-1 LU almost every gameplay capture trips the warning and the
@@ -153,9 +164,12 @@ public static class AudioLoudnessProbe
     /// <summary>
     /// Measures <paramref name="inputPath"/> end to end.
     ///
-    /// Integrated loudness is only meaningful over the WHOLE file — a clip that is silent for a
-    /// minute and then deafening averages out to something neither half resembles — so this
-    /// decodes everything rather than sampling. Video, subtitles and data streams are dropped
+    /// Integrated loudness is only meaningful over a WHOLE CONTIGUOUS STRETCH — a clip that is
+    /// silent for a minute and then deafening averages out to something neither half resembles —
+    /// so this decodes the entire window rather than sampling within it. By default that window is
+    /// the whole file; BEDSEG_01 added the option to narrow it to the part that will actually be
+    /// used, which is what makes a music bed comparable to a trimmed game bus.
+    /// Video, subtitles and data streams are dropped
     /// (<c>-vn -sn -dn</c>) so only the audio is touched, which keeps it fast enough to run in
     /// the background while the user is already working.
     ///
@@ -163,12 +177,36 @@ public static class AudioLoudnessProbe
     /// return must never block the user — it simply means "we could not tell", and the caller
     /// stays silent rather than guessing.
     /// </summary>
+    /// <param name="segmentStartSec">
+    /// BEDSEG_01 — optional: measure only from this point in the file. See <see cref="MinSegmentSec"/>.
+    /// </param>
+    /// <param name="segmentDurationSec">
+    /// BEDSEG_01 — optional: measure only this many seconds. Ignored together with
+    /// <paramref name="segmentStartSec"/> when the window is shorter than <see cref="MinSegmentSec"/>.
+    /// </param>
     public static async Task<LoudnessReading?> MeasureAsync(
         string ffmpegPath,
         string inputPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        double segmentStartSec = 0.0,
+        double segmentDurationSec = 0.0)
     {
         if (string.IsNullOrWhiteSpace(inputPath) || !File.Exists(inputPath)) return null;
+
+        // BEDSEG_01 — MEASURE THE MATERIAL THAT WILL ACTUALLY BE HEARD.
+        //
+        // The game bus has always been measured over exactly the exported range
+        // (ProcessWorker.PerformLoudnormPassAsync passes -ss/-t from actualExtractStart/End). The
+        // music bed was measured over the WHOLE SONG FILE and then pinned to MusicBedLufs, so the
+        // two sides of the mix were referenced to different material. A 45-second export starting
+        // at a song's intro was corrected using an average dominated by its choruses, and the part
+        // that actually played landed well under target — the music sounded disproportionately
+        // quiet against a game bus that was measured correctly.
+        //
+        // A window is only used when it is long enough for EBU R128 integrated loudness to mean
+        // anything; below MinSegmentSec the gating leaves too little material and loudnorm reports
+        // a useless figure, so the whole file is measured instead (the old behaviour).
+        bool useSegment = segmentDurationSec >= MinSegmentSec && segmentStartSec >= 0;
 
         Process? process = null;
         try
@@ -176,13 +214,26 @@ public static class AudioLoudnessProbe
             var args = new List<string>
             {
                 "-y", "-hide_banner", "-nostdin",
+            };
+
+            if (useSegment)
+            {
+                // Before -i, so the decoder seeks instead of decoding and discarding.
+                args.Add("-ss");
+                args.Add(segmentStartSec.ToString("F3", CultureInfo.InvariantCulture));
+                args.Add("-t");
+                args.Add(segmentDurationSec.ToString("F3", CultureInfo.InvariantCulture));
+            }
+
+            args.AddRange(new[]
+            {
                 "-i", inputPath,
                 "-af", $"loudnorm=I={TargetLufs.ToString(CultureInfo.InvariantCulture)}" +
                        $":TP={PeakCeilingDbtp.ToString(CultureInfo.InvariantCulture)}" +
                        ":LRA=11:print_format=json",
                 "-vn", "-sn", "-dn",
                 "-f", "null", "-"
-            };
+            });
 
             var psi = new ProcessStartInfo
             {

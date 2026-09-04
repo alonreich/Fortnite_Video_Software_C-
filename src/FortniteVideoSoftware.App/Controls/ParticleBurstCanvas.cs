@@ -92,8 +92,12 @@ public sealed class ParticleBurstCanvas : Control
         switch (preset)
         {
             case BurstPreset.MarkerDrop:
-                EmitRing(anchor, Color.FromArgb(180, 34, 197, 94), maxRadius: 60, ringCount: 2);
-                EmitSparks(anchor, Color.FromArgb(220, 74, 222, 128), sparkCount: 8, speedMin: 40, speedMax: 120);
+                // TONE_01: the marker burst is the app's success colour, so it must follow the
+                // token. The lighter spark tint is derived from it rather than being a second
+                // literal that could drift out of step with the ring.
+                var okC = TokenColour("AppSuccessColor", Color.FromRgb(63, 156, 107));
+                EmitRing(anchor, Color.FromArgb(180, okC.R, okC.G, okC.B), maxRadius: 60, ringCount: 2);
+                EmitSparks(anchor, Lighten(okC, 220, 45), sparkCount: 8, speedMin: 40, speedMax: 120);
                 break;
             case BurstPreset.ZoomApply:
                 EmitSparks(anchor, Color.FromArgb(220, 217, 70, 239), sparkCount: 16, speedMin: 60, speedMax: 200);
@@ -164,14 +168,32 @@ public sealed class ParticleBurstCanvas : Control
         }
     }
 
+    /// <summary>TONE_01 — a theme colour for the burst palette, with a safe fallback.</summary>
+    private Color TokenColour(string key, Color fallback)
+        => Infrastructure.ThemeResources.Colour(this, key, fallback);
+
+    /// <summary>TONE_01 — the same, pre-multiplied with a fixed alpha.</summary>
+    private Color TokenColourA(string key, Color fallback, byte alpha)
+    {
+        var c = TokenColour(key, fallback);
+        return Color.FromArgb(alpha, c.R, c.G, c.B);
+    }
+
+    /// <summary>TONE_01 — a lighter tint of a token colour, so sparks track their ring.</summary>
+    private static Color Lighten(Color c, byte alpha, int by)
+        => Color.FromArgb(alpha,
+                          (byte)Math.Min(255, c.R + by),
+                          (byte)Math.Min(255, c.G + by),
+                          (byte)Math.Min(255, c.B + by));
+
     private void EmitConfetti(Point center, int count)
     {
         var colors = new[]
         {
-            Color.FromArgb(230, 34, 197, 94),
+            TokenColourA("AppSuccessColor", Color.FromRgb(63, 156, 107), 230),   // TONE_01
             Color.FromArgb(230, 59, 130, 246),
             Color.FromArgb(230, 250, 204, 21),
-            Color.FromArgb(230, 239, 68, 68),
+            TokenColourA("AppDangerColor", Color.FromRgb(168, 50, 50), 230),     // TONE_01
             Color.FromArgb(230, 168, 85, 247),
             Color.FromArgb(230, 236, 72, 153),
         };

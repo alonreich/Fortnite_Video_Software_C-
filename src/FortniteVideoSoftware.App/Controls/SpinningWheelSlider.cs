@@ -30,33 +30,6 @@ namespace FortniteVideoSoftware.App.Controls
         public event EventHandler<int>? ValueChanged;
         public event EventHandler<int>? ValueChangeCompleted;
 
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        // WHEEL_01 — THE DIAL LANDS ON A DETENT INSTEAD OF FLOATING BETWEEN TWO.
-        //
-        // WHAT WAS WRONG. `_rotation` (the visual angle) and `_value` (the committed integer) are
-        // two different quantities, and on release nothing reconciled them. `OnPointerReleased`
-        // called `Value = round(_rotation)`, but the `Value` setter is guarded by
-        // `if (_value != clamped)` — and `_rotation`'s own setter had ALREADY written that same
-        // integer straight into the `_value` FIELD during the drag. So the guard was false, the
-        // setter returned early, and `_rotation` was never pulled onto the detent: the wheel came
-        // to rest at 7.43 while the readout said 7. That is the "floats in between" the user sees,
-        // and it is why the dial never felt like it clicked into anything.
-        //
-        // Three things are fixed here, and they are independent — do not collapse them:
-        //   (1) LANDING. Release always hands `_rotation` to a damped spring aimed at the nearest
-        //       detent, so the dial physically arrives on the value it reports.
-        //   (2) FEEL. The spring is UNDERDAMPED on purpose (see SettleZeta) so it overshoots,
-        //       returns, overshoots smaller, and stops — the two short wiggles that read as a
-        //       mechanical detent catching. A critically damped spring lands correctly and feels
-        //       dead; that was tried and rejected.
-        //   (3) GAIN. Drag distance is no longer a fixed number of units per pixel. A pointer-
-        //       acceleration curve gives fine control when moved gently and long travel when
-        //       flicked, and a flick keeps spinning under friction after release.
-        //
-        // `_value` is now written ONLY through `SetAndRaise`, so the TwoWay bindings in
-        // MainWindow/VideoMergerWindow finally track the dial. They previously never saw an
-        // intermediate value because the field was mutated behind the property system's back.
-        // ══════════════════════════════════════════════════════════════════════════════════════
 
         private enum WheelPhase { Idle, Dragging, Momentum, Settling }
         private WheelPhase _phase = WheelPhase.Idle;
@@ -78,37 +51,18 @@ namespace FortniteVideoSoftware.App.Controls
         private Avalonia.Threading.DispatcherTimer? _animTimer;
         private long _lastFrameStamp;
 
-        // ── drag gain ────────────────────────────────────────────────────────────────────────
-        // Units of dial travel per pixel of pointer travel, interpolated by pointer SPEED. The
-        // curve is the same idea as OS pointer acceleration: at a slow, deliberate drag the dial
-        // moves at the fine rate so a single detent is easy to hit; at speed it approaches the
-        // coarse rate so the far end of a 21-stop range is reachable without clutching.
-        // GainRefSpeedPxPerSec is where the curve is roughly halfway; the exponent below 1 makes
-        // it bite early, which is what makes the control feel responsive rather than sluggish.
         private const double FineGainPerPx = 0.0085;
         private const double CoarseGainPerPx = 0.0320;
         private const double GainRefSpeedPxPerSec = 1500.0;
         private const double GainCurveExponent = 0.85;
 
-        // ── fling ────────────────────────────────────────────────────────────────────────────
         private const double FlickMinVelocity = 1.2;
         private const double MomentumFriction = 5.5;
         private const double MomentumHandoffSpeed = 0.75;
         private const double MaxFlingVelocity = 26.0;
 
-        // ── detent spring ────────────────────────────────────────────────────────────────────
-        // Damped harmonic oscillator. ζ = 0.30 gives a first overshoot of e^(-ζπ/√(1-ζ²)) ≈ 0.37
-        // of the remaining error and decays 0.14x per cycle after that: from a worst-case 0.5-unit
-        // approach that is a 0.19-unit wiggle, then 0.026, then nothing — visibly TWO bounces, both
-        // well inside half a detent so the readout never flickers. ω = 42 rad/s puts the whole
-        // landing at ~0.3s. RAISING ζ TOWARD 1 KILLS THE WIGGLE; LOWERING IT PAST ~0.2 makes the
-        // dial ring like a loose knob. Both were tried.
         private const double SettleOmega = 42.0;
         private const double SettleZeta = 0.30;
-        // Rest thresholds. 0.004 units is ~0.3 SCREEN px on a 160px dial, so cutting the tail here
-        // removes ~90ms of motion nobody can see and lands the whole gesture in ~0.30s. Do not
-        // raise them much further: past ~0.01 the dial visibly stops short of the detent, which is
-        // the exact defect this class of change exists to remove.
         private const double SettleRestPosition = 0.004;
         private const double SettleRestVelocity = 0.12;
 
@@ -176,16 +130,8 @@ namespace FortniteVideoSoftware.App.Controls
             {
                 int clamped = Math.Max(_range.min, Math.Min(_range.max, value));
 
-                // WHEEL_01 — ECHO GUARD. The TwoWay binding writes the dial's own value back into
-                // this setter. Without this line that echo would call StopAnimation() and snap
-                // `_rotation` onto an integer on every detent crossed, killing the drag and the
-                // spring outright. A genuine external change still gets through.
                 if (_phase != WheelPhase.Idle && clamped == _value) return;
 
-                // WHEEL_01 — a PROGRAMMATIC set (preset button, crash-recovery restore, binding)
-                // snaps instantly and silently: no spring, no ValueChangeCompleted. Startup restore
-                // must not animate 21 stops, and must not look like a user edit to the callers that
-                // re-probe on completion.
                 StopAnimation();
                 _valueLocked = false;
 
@@ -277,9 +223,6 @@ namespace FortniteVideoSoftware.App.Controls
         private int PendingDetent()
             => _phase == WheelPhase.Settling ? (int)Math.Round(_settleTarget) : NearestDetent();
 
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        // ANIMATION ENGINE
-        // ══════════════════════════════════════════════════════════════════════════════════════
 
         private void EnsureAnimationTimer()
         {
@@ -310,9 +253,6 @@ namespace FortniteVideoSoftware.App.Controls
             _settleTarget = Math.Max(_range.min, Math.Min(_range.max, detent));
             _valueLocked = true;
 
-            // Pin the readout to the detent immediately, so the label and the highlighted tick
-            // commit the moment the dial is committed — the wiggle is the dial arriving, not the
-            // value still being decided.
             int target = (int)Math.Round(_settleTarget);
             if (target != _value)
             {
@@ -329,7 +269,7 @@ namespace FortniteVideoSoftware.App.Controls
             double dt = SecondsSince(_lastFrameStamp);
             _lastFrameStamp = Stamp();
             if (dt <= 0) return;
-            if (dt > 0.10) dt = 0.10;          // a stalled UI thread must not teleport the dial
+            if (dt > 0.10) dt = 0.10;
 
             if (_phase == WheelPhase.Momentum) StepMomentum(dt);
             else if (_phase == WheelPhase.Settling) StepSettle(dt);
@@ -341,8 +281,6 @@ namespace FortniteVideoSoftware.App.Controls
             SetRotationInternal(_rotation + _velocity * dt);
             _velocity *= Math.Exp(-MomentumFriction * dt);
 
-            // End stops: the dial is already clamped inside ClampRotation, so all that is left is
-            // to bleed the energy off rather than let it grind against the wall.
             if (_rotation <= _range.min - EdgeOverscroll + 1e-6 || _rotation >= _range.max + EdgeOverscroll - 1e-6)
             {
                 _velocity *= EdgeBounceDamping;
@@ -386,9 +324,6 @@ namespace FortniteVideoSoftware.App.Controls
             }
         }
 
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        // INPUT
-        // ══════════════════════════════════════════════════════════════════════════════════════
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
@@ -404,8 +339,6 @@ namespace FortniteVideoSoftware.App.Controls
             _lastMouseX = pt.Position.X;
             _lastMoveStamp = Stamp();
 
-            // WHEEL_01 — capture the pointer. Without it the drag died the instant the cursor left
-            // the 160x44 control, which on a dial you are deliberately flicking is most of the time.
             e.Pointer.Capture(this);
 
             Cursor = new Cursor(StandardCursorType.Hand);
@@ -434,7 +367,6 @@ namespace FortniteVideoSoftware.App.Controls
             double travel = -(dx * gain);
             SetRotationInternal(_rotation + travel);
 
-            // Velocity for the fling, smoothed so one jittery sample cannot launch the dial.
             double instant = travel / dt;
             _velocity = (_velocity * 0.65) + (instant * 0.35);
 
@@ -477,8 +409,6 @@ namespace FortniteVideoSoftware.App.Controls
         {
             Cursor = new Cursor(StandardCursorType.Hand);
 
-            // A stale sample means the pointer was held still before letting go — that is a
-            // deliberate placement, not a flick, so it must not inherit whatever speed it had.
             if (SecondsSince(_lastMoveStamp) > 0.12) _velocity = 0;
 
             _velocity = Math.Max(-MaxFlingVelocity, Math.Min(MaxFlingVelocity, _velocity));
@@ -657,13 +587,6 @@ namespace FortniteVideoSoftware.App.Controls
         {
             ActualThemeVariantChanged -= OnThemeVariantChangedForDial;
 
-            // LEAK_01 — A RUNNING DispatcherTimer KEEPS THIS CONTROL ALIVE AND KEEPS TICKING.
-            // The timer's Tick handler holds a reference to the slider, and the dispatcher holds
-            // the timer, so a window closed mid-settle (or mid-fling) leaves the whole control
-            // rooted and invalidating a visual that is no longer in any tree. WHEEL_01 stops the
-            // animation timer when the dial comes to REST, which is the common case and is exactly
-            // why this was easy to miss: it only leaks when the user closes the window while the
-            // dial is still moving. The tooltip timer has the same shape.
             _animTimer?.Stop();
             _tooltipRestoreTimer?.Stop();
             _phase = WheelPhase.Idle;

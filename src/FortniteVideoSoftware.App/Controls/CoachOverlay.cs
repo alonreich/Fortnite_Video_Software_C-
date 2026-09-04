@@ -165,6 +165,28 @@ public static class CoachOverlay
         catch (Exception ex) { SafeLog($"Replay failed: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// GUIDE_01 — plays an AD-HOC walkthrough once, right now, ignoring the auto-show counter and
+    /// without registering anything.
+    ///
+    /// This is the "you have not selected anything yet" teacher. <see cref="Replay"/> can only
+    /// replay the tour a screen registered at startup; this plays a sequence assembled on the spot
+    /// for the mistake the user just made, then leaves no trace. The counter is deliberately NOT
+    /// touched — a user who keeps pressing a button with nothing selected keeps getting shown how,
+    /// every single time, which is the entire point.
+    ///
+    /// Obeys rule (C1) like every other entry point: it can never throw into its caller.
+    /// </summary>
+    public static void PlayOnce(Window window, IReadOnlyList<CoachStep> steps)
+    {
+        try
+        {
+            if (window == null || steps == null || steps.Count == 0) return;
+            Start(window, screenKey: string.Empty, steps: steps, isAutomatic: false);
+        }
+        catch (Exception ex) { SafeLog($"PlayOnce failed: {ex.Message}"); }
+    }
+
     /// <summary>Closes the walkthrough if one is running on this window. Call from OnClosing.</summary>
     public static void Cancel(Window window)
     {
@@ -426,7 +448,10 @@ public static class CoachOverlay
                 CentreCard(s, ow, oh);
             }
 
-            if (!s.ShownAtLeastOneStep)
+            // GUIDE_01 — an ad-hoc PlayOnce tour has NO screen key and must never touch a counter.
+            // Without this guard it would write a stray "coach_.txt" and, worse, SKIP on it would
+            // burn a counter that belongs to no screen.
+            if (!s.ShownAtLeastOneStep && !string.IsNullOrWhiteSpace(s.ScreenKey))
             {
                 s.ShownAtLeastOneStep = true;
                 int seen = UiStateStore.ReadInt(CounterFile(s.ScreenKey), 0);
@@ -621,7 +646,9 @@ public static class CoachOverlay
 
             s.Root.Children.Remove(s.Overlay);
 
-            if (markSeen) UiStateStore.WriteInt(CounterFile(s.ScreenKey), int.MaxValue / 2);
+            // GUIDE_01 — see the tick guard: keyless ad-hoc tours own no counter.
+            if (markSeen && !string.IsNullOrWhiteSpace(s.ScreenKey))
+                UiStateStore.WriteInt(CounterFile(s.ScreenKey), int.MaxValue / 2);
         }
         catch (Exception ex) { SafeLog($"Finish failed: {ex.Message}"); }
     }

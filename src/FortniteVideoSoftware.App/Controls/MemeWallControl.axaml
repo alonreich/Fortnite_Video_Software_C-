@@ -22,7 +22,10 @@
                 </Transitions>
             </Setter>
         </Style>
+        <!-- ISSUE_32: the tiles are click targets but kept the arrow pointer, so they did not read
+             as clickable and users hunted for a button instead. -->
         <Style Selector="Border.MemeCell">
+            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="MinWidth" Value="100"/>
             <Setter Property="MinHeight" Value="80"/>
             <Setter Property="CornerRadius" Value="8"/>

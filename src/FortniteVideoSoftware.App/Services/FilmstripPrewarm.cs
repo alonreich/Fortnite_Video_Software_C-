@@ -88,22 +88,14 @@ internal static class FilmstripPrewarm
 
         lock (_gate)
         {
-            if (_ready != null && _readyKey.Equals(key)) return;   // already have it
-            if (_cts != null && _wantedKey.Equals(key)) return;    // already rendering it
+            if (_ready != null && _readyKey.Equals(key)) return;
+            if (_cts != null && _wantedKey.Equals(key)) return;
 
-            // A different range is wanted: whatever was held is now unreachable, and whatever is
-            // rendering is for the wrong range. Drop both.
             CancelInFlightLocked();
             DiscardReadyLocked();
             _wantedKey = key;
         }
 
-        // LEAK_01 — the pending request is stored in a FIELD and the Tick handler is attached
-        // EXACTLY ONCE. The obvious version — a local `Fire` closure subscribed per call — adds a
-        // new handler on every Schedule and only removes it when the timer actually ticks. A
-        // marker drag calls this on every pointer-move with a different key, so a five-second drag
-        // at 60Hz accumulates ~300 live closures that all fire together on the next tick. It
-        // self-heals, which is precisely why it would never be noticed.
         lock (_gate) { _pending = (ffmpegPath, videoPath, startSec, durSec, frames, key); }
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -140,7 +132,7 @@ internal static class FilmstripPrewarm
         CancellationToken token;
         lock (_gate)
         {
-            if (!_wantedKey.Equals(key)) return;   // superseded while we waited out the debounce
+            if (!_wantedKey.Equals(key)) return;
             CancelInFlightLocked();
             _cts = new CancellationTokenSource();
             token = _cts.Token;
@@ -164,10 +156,6 @@ internal static class FilmstripPrewarm
 
             lock (_gate)
             {
-                // LEAK_01 — retire the token source once the render is over. Leaving it in place
-                // both holds the object and makes `Schedule` believe this range is still rendering,
-                // so a later request for the SAME range after TryTake emptied the slot would be
-                // dropped as a duplicate and never re-warm.
                 if (_cts != null && _cts.Token == token)
                 {
                     try { _cts.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }

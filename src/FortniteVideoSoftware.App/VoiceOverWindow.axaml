@@ -109,10 +109,10 @@
                                                  SEEK surface (Focusable, tab stop, Hand cursor), and every other seek
                                                  canvas in the suite renders at 32 (MainWindow TimelineMarkersCanvas,
                                                  Merger, CropTool, Granular). Raised to 32 for parity. -->
-                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurface" Grid.Row="0" MinHeight="32" Background="{DynamicResource AppPanelBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
+                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurfacePanel" Grid.Row="0" MinHeight="44" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
 
                                             <!-- Thumbnails -->
-                                            <Grid Name="ThumbnailLaneGrid" Classes="TimelineSeekSurface" Grid.Row="1" MinHeight="54" Background="{DynamicResource AppSurfaceBrush}" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by frame preview" AutomationProperties.Name="Voiceover thumbnail seek lane">
+                                            <Grid Name="ThumbnailLaneGrid" Classes="TimelineSeekSurfaceSurface" Grid.Row="1" MinHeight="54" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by frame preview" AutomationProperties.Name="Voiceover thumbnail seek lane">
                                                 <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
                                                 <Border Name="ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
@@ -133,7 +133,7 @@
                                             </Grid>
 
                                             <!-- Waveform -->
-                                            <Grid Name="WaveformLaneGrid" Classes="TimelineSeekSurface" Grid.Row="2" MinHeight="54" Background="{DynamicResource AppSurfaceBrush}" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by audio waveform" AutomationProperties.Name="Voiceover waveform seek lane">
+                                            <Grid Name="WaveformLaneGrid" Classes="TimelineSeekSurfaceSurface" Grid.Row="2" MinHeight="54" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by audio waveform" AutomationProperties.Name="Voiceover waveform seek lane">
                                                 <Image Name="WaveformLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
                                                 <Border Name="WaveformLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
                                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">

@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -161,7 +161,7 @@
                                      could never fire — the Main App was the ONLY app in the suite whose
                                      timeline was unreachable by keyboard (Merger, CropTool and Granular all
                                      ship IsTabStop="True" on the same control). -->
-                                <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand" AutomationProperties.Name="Main video timeline seek area">
+                                <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand" AutomationProperties.Name="Main video timeline seek area">
                                     <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                         <Border.Transitions>
                                             <Transitions>
@@ -248,6 +248,10 @@
                         <Button Name="MarkEndButton" Classes="Secondary" Focusable="True" Content="MARK END" Padding="16,8" IsEnabled="False" ToolTip.Tip="Cut out everything after this point. The final video will end exactly here."/>
                     </StackPanel>
 
+                    <!-- CUT_02: cuts moved into the Granular Speed Editor (DELETE PARTS, under
+                         ZOOM-IN). This screen still DISPLAYS them as markers on the timeline and
+                         still carries them through save/recovery and export — it just no longer
+                         creates them. -->
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Name="GranularButton" Classes="Secondary" Content="GRANULAR SPEED" Padding="16,8" IsEnabled="False" ToolTip.Tip="Change the speed of specific parts of your video."/>
                     </StackPanel>
@@ -270,7 +274,10 @@
 
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,20,8">
                             <!-- Issue #13: Normalize to 42px standard -->
-                            <Button Name="CancelButton" Classes="Danger" Content="CANCEL" CornerRadius="10" IsVisible="False" ToolTip.Tip="Stop what you are doing right now and cancel it." Padding="20,10">
+                            <!-- ISSUE_35: CANCEL and PROCESS were the same size and shape, separated only by hue, which
+                         leaves colour-blind users nothing to go on at the moment a wrong click throws away
+                         a long encode. CANCEL is now visibly the narrower, squarer, secondary shape. -->
+                    <Button Name="CancelButton" Classes="Danger" Content="CANCEL" CornerRadius="4" IsVisible="False" ToolTip.Tip="Stop what you are doing right now and cancel it." Padding="20,10">
                                 <!-- ISSUE_12: matched to the Speed Editor's dialog — larger, plain English,
                                      an explicit escape button, and skippable via Settings > Confirmation
                                      Dialogs (ConfirmMainAppCancel). The outer CANCEL button acts ONLY when
@@ -361,10 +368,17 @@
                     <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,0">
                         <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,0,0,5"/>
                         
-                            <StackPanel Spacing="10" Margin="0,5,0,0">
+                            <!-- SPACING_01: (A) the OUTER stack separates the three bands, so its
+                                 Spacing is what puts air around each gentle separator line — raised
+                                 10 -> 18. (B) each band's INNER Spacing is lowered separately below
+                                 (4 -> 2), so rows like Boss HP / Teammate HP / Spectating Eye sit
+                                 tighter together while the groups themselves breathe more.
+                                 These two numbers pull in opposite directions on purpose; changing
+                                 only one of them undoes the effect. -->
+                            <StackPanel Spacing="18" Margin="0,8,0,0">
                                 
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="LAYOUTS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="LAYOUTS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Portrait (9:16)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
                                         <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsPortraitMode, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
@@ -372,10 +386,13 @@
                                     <TextBox Name="PortraitTextInput" Text="{Binding $parent[local:MainWindow].OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="36" MaxHeight="80" FontSize="{DynamicResource AppFontSize12}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
                                 </StackPanel>
 
-                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+                                <Separator Name="InGameOverlaysSeparator" Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,6,0,6"/>
 
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                                <!-- NOMASK_01: this whole block (and the separator above it) is collapsed by
+                                     MainWindow.ApplyMaskProfileToOverlayUi when the reserved "No Mask Profile"
+                                     is active, because that profile composites no HUD layers at all. -->
+                                <StackPanel Name="InGameOverlaysPanel" Spacing="2">
+                                    <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                         <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
@@ -390,10 +407,10 @@
                                     </Grid>
                                 </StackPanel>
 
-                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,6,0,6"/>
 
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="EFFECTS &amp; MEMES" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"/>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="EFFECTS &amp; MEMES" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Enable Fade" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                         <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsEnableFade, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -80,7 +80,12 @@ public class AppSettings
     /// </summary>
     public string VideoEncoderOverride { get; set; } = "Auto";
 
-    public ThemeMode ThemeMode { get; set; } = ThemeMode.FollowOS;
+    /// <summary>
+    /// ISSUE_13 — the suite is a dark-first video tool and its Light palette is the weaker of the
+    /// two, so a fresh install starts in Dark rather than inheriting whatever the OS happens to
+    /// be set to. Users who want Light still get it from Settings > Appearance > Theme.
+    /// </summary>
+    public ThemeMode ThemeMode { get; set; } = ThemeMode.Dark;
     public FontScale FontScale { get; set; } = FontScale.Normal;
 
     public bool ConfirmVideoMergerRemove { get; set; } = true;
@@ -98,10 +103,37 @@ public class AppSettings
     public bool ConfirmMainAppCancel { get; set; } = true;
 
     /// <summary>
+    /// CUT_01 / DIALOG_02 — confirm before deleting a section from the middle of the clip, and
+    /// before putting every section back.
+    ///
+    /// ⚠️ DEFAULTS **OFF**, unlike most confirmations here, and that is an owner decision rather
+    /// than an oversight: cutting is a high-frequency editing gesture, not a one-off teardown like
+    /// CLEAR ALL, and a prompt on every cut makes the editor unusable for anyone working quickly.
+    /// It is safe to default off precisely BECAUSE the Speed Editor now has undo — a cut made by
+    /// accident is one Ctrl+Z away, which is not true of the confirmations that default on.
+    /// </summary>
+    public bool ConfirmMainAppCut { get; set; } = false;
+
+    /// <summary>
     /// ISSUE_02 — ask before leaving the Main App for the Video Merger / Crop Tools, which closes
     /// the Main App. Only ever asked when real editing work exists (see MainWindow.HasUnsavedWork).
     /// </summary>
     public bool ConfirmMainAppSwitchTool { get; set; } = true;
+
+    /// <summary>
+    /// ISSUE_07 — ask before DELETE removes a recorded voice-over take. The take's .wav is
+    /// deleted from disk immediately and cannot be recovered, so the option exists; it defaults
+    /// to FALSE deliberately, unlike the eight flags above, so power users keep the one-click
+    /// workflow and only people who have been bitten switch it on.
+    /// </summary>
+    public bool ConfirmVoiceOverDeleteTake { get; set; } = false;
+
+    /// <summary>
+    /// ISSUE_04 — ask before the finished-export dialog's EXIT APP / NEW FILE buttons act. They
+    /// sit 16px from the harmless OPEN FOLDER at the same size, and they end the session or wipe
+    /// the project. Also defaults to FALSE for the same reason as above.
+    /// </summary>
+    public bool ConfirmFinishedDialogExit { get; set; } = false;
 
     /// <summary>
     /// Meme System §1/§3: the unified meme asset directory. Empty = use the default

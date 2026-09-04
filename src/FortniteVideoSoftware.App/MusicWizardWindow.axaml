@@ -103,7 +103,7 @@
                                     <Border Grid.Row="0" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,10">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <TextBlock Text="Selected:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
-                                            <TextBlock Name="SelectedTrackLabel" Text="-" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                                            <TextBlock Name="SelectedTrackLabel" Text="-" TextTrimming="CharacterEllipsis" MaxWidth="420" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Border>
 
@@ -115,7 +115,7 @@
                                     <Border Grid.Row="2" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="1" Margin="0,5" MinHeight="120">
                                         <Panel>
                                             <Image Name="WaveformImage" Stretch="Fill"/>
-                                            <Canvas Name="WaveformCanvas" Classes="TimelineSeekSurface" ClipToBounds="True" Background="Transparent" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
+                                            <Canvas Name="WaveformCanvas" Classes="TimelineSeekSurface" ClipToBounds="True" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start waveform seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                             <TextBlock Name="WaveformLoadingText" Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
                                         </Panel>
                                     </Border>
@@ -126,7 +126,7 @@
                                             <Grid Grid.Row="2" Grid.Column="0" Height="32" ClipToBounds="False" ZIndex="10001">
                                                 <Border Height="4" CornerRadius="2" Background="{DynamicResource AppPanelBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
                                             </Grid>
-                                            <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
+                                            <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                         </Grid>
                                         <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="{DynamicResource AppInfoBrush}" FontWeight="Bold" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}" Margin="0,5,0,5" IsVisible="True"/>
                                         <Grid Margin="0,6,0,0" ColumnDefinitions="Auto,Auto,*">

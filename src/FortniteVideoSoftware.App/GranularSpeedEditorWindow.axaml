@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -244,9 +244,28 @@
                          decode before they know what it affects.
                          IDEA_3: ZOOM-IN is always visible (was IsVisible="False" until a block was
                          selected) — pressing it creates its own container block. -->
-                    <Button Grid.Column="2" Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="120"
-                            HorizontalAlignment="Right" VerticalAlignment="Center"
-                            ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
+                    <!-- CUT_02: DELETE PARTS sits directly under ZOOM-IN. Cuts moved here from the
+                         Main Screen because this editor already owns MARK START / MARK END and the
+                         timeline that has to condense when footage is removed — the selection
+                         gesture and the thing it acts on are now in the same place. -->
+                    <StackPanel Grid.Column="2" Orientation="Vertical" Spacing="6"
+                                HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="140"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
+                        <Button Name="DeletePartsBtn" Classes="Danger" MinWidth="140"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                ToolTip.Tip="DELETE ENTIRE SCENE FROM THE VIDEO">
+                            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Path Data="{DynamicResource AppScissorsIconGeometry}"
+                                      Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"
+                                      Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}"
+                                      VerticalAlignment="Center"/>
+                                <TextBlock Text="DELETE PARTS" FontWeight="Bold"
+                                           FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <!-- ROW 3: Speed presets + slider
@@ -291,7 +310,8 @@
                      height across the entire window to show one line of text and two buttons, and
                      height is the scarce axis here while width is not. Rows: header / count /
                      legend / list (fills) / STATUS / actions. -->
-                <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto">
+                <!-- UNDO_01: row 5 added for the undo/redo pair; the action stack moved to row 6. -->
+                <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto, Auto, Auto">
                     <!-- Header: title + Help button (#8) -->
                     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,5">
                         <TextBlock Grid.Column="0" Text="SPEED SEGMENTS" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize13}" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -361,7 +381,42 @@
                         </StackPanel>
                     </Border>
 
-                    <StackPanel Grid.Row="5" Orientation="Vertical" Spacing="8" Margin="0,0,0,0" HorizontalAlignment="Stretch">
+                    <!-- UNDO_01: undo/redo live at the BOTTOM of the segment pane, directly under the
+                         stack of segments they act on. Icons only would be ambiguous next to the
+                         destructive buttons below, so both carry their shortcut in the tooltip. -->
+                    <!-- ⚠️ NO `ColumnSpacing` HERE — see the identical warning on the CANCEL/APPLY
+                         row below. Avalonia's Grid has no such property and the compiler rejects the
+                         WHOLE FILE with AVLN:0004. The 8px gutter is 4px of Margin on the facing
+                         edge of each button, matching every other two-up button row in this suite. -->
+                    <Grid Grid.Row="5" ColumnDefinitions="*,*" Margin="0,0,0,8">
+                        <Button Name="UndoBtn" Grid.Column="0" Classes="Secondary" IsEnabled="False"
+                                Margin="0,0,4,0"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                Content="&#x21B6; UNDO" FontSize="{DynamicResource AppFontSize11}"
+                                ToolTip.Tip="Undo the last change (Ctrl+Z)"/>
+                        <Button Name="RedoBtn" Grid.Column="1" Classes="Secondary" IsEnabled="False"
+                                Margin="4,0,0,0"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                Content="&#x21B7; REDO" FontSize="{DynamicResource AppFontSize11}"
+                                ToolTip.Tip="Redo the change you just undid (Ctrl+Y)"/>
+                    </Grid>
+
+                    <!-- UNDOHINT_01: the shortcut hint lives HERE, immediately under the two buttons
+                         it describes, so the key and the control it drives are read together. A
+                         floating toast cannot do that — FloatingNotice is centred over the window by
+                         design and shared by every screen. This label always names the EXACT action
+                         Ctrl+Z would take back, so the user never has to guess what "undo" means
+                         right now. RefreshUndoRedoButtons owns its text. -->
+                    <Border Grid.Row="6" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4"
+                            Padding="8,5" Margin="0,0,0,8">
+                        <TextBlock Name="UndoHintText"
+                                   Text="Every change can be taken back with Ctrl+Z"
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize10}"
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                    </Border>
+
+                    <StackPanel Grid.Row="7" Orientation="Vertical" Spacing="8" Margin="0,0,0,0" HorizontalAlignment="Stretch">
                         <!-- ══════════════════════════════════════════════════════════════════════
                              ⚠️⚠️ ISSUE_01 — THESE TWO PROMPTS USED TO BE PURE DECORATION. ⚠️⚠️
                              A Button that owns a Flyout opens that Flyout by itself AND still raises

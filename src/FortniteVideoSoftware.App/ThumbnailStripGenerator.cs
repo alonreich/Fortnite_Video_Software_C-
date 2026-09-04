@@ -155,8 +155,6 @@ public static class ThumbnailStripGenerator
         double span = durationSec / frames;
         for (int i = 0; i < frames; i++)
         {
-            // Sample the MIDDLE of the slice this thumbnail stands for, not its leading edge: the
-            // first frame of a range is frequently a cut or a fade and makes a poor index picture.
             double t = startSec + ((i + 0.5) * span);
             if (t < 0) t = 0;
 
@@ -183,7 +181,6 @@ public static class ThumbnailStripGenerator
         }
         else
         {
-            // hstack with a single input is not worth relying on; alias the lone frame instead.
             filter.Append(";[s0]null[strip]");
         }
 
@@ -384,10 +381,6 @@ public static class ThumbnailStripGenerator
         int stripW = FrameWidthPx * frames;
         int stripRow = stripW * 4;
 
-        // The whole strip is kept as one managed buffer and re-uploaded after each frame. 15 x
-        // ~385 KB of memcpy is far cheaper than reasoning about partial-rect uploads, and it means
-        // the untouched tail is deterministic zeros (black) rather than whatever the graphics
-        // allocator handed back.
         byte[] strip = new byte[stripRow * StripHeightPx];
         byte[] frameBuf = new byte[frameBytes];
 
@@ -436,13 +429,6 @@ public static class ThumbnailStripGenerator
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    // LEAK_01 — THIS GUARD IS LOAD-BEARING, DO NOT REMOVE IT.
-                    // Cancellation and the caller's teardown both happen on the UI thread, and so
-                    // does this callback, so a post queued before a window closed runs AFTER that
-                    // window disposed the very bitmap being written here. Without the check this
-                    // calls Lock() on a disposed WriteableBitmap — a native handle, so the failure
-                    // is an access violation rather than a catchable exception. Re-checking the
-                    // token here is what makes the ordering safe; the try/catch is the second net.
                     if (ct.IsCancellationRequested) return;
 
                     for (int y = 0; y < StripHeightPx; y++)
@@ -460,8 +446,6 @@ public static class ThumbnailStripGenerator
 
                     using (var fb = bitmap.Lock())
                     {
-                        // Row by row: the locked framebuffer's stride is not required to equal
-                        // width * 4, and a flat copy silently shears the image where it does not.
                         for (int y = 0; y < StripHeightPx; y++)
                         {
                             System.Runtime.InteropServices.Marshal.Copy(
@@ -497,9 +481,6 @@ public static class ThumbnailStripGenerator
             try { if (process != null && !process.HasExited) process.Kill(entireProcessTree: true); }
             catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
 
-            // LEAK_01 — only a REAL cancellation propagates. A watchdog expiry is a failure, and
-            // callers must be able to fall back rather than have it surface as "the user closed
-            // the window".
             if (cancellationToken.IsCancellationRequested) throw;
 
             RuntimeLog.Fail(logTag, $"Filmstrip stream exceeded {StreamWatchdogSeconds}s and was killed.");

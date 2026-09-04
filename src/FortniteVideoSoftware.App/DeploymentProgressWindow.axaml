@@ -11,7 +11,7 @@
         WindowStartupLocation="Manual"
         CanResize="True">
     <!-- ISSUE_01: window has no OS title bar; the background surface is the drag handle -->
-    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="{DynamicResource AppInfoBrush}" BorderThickness="2" Margin="8" PointerPressed="OnRootPointerPressed">
+    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="8" BorderBrush="{DynamicResource AppInfoBrush}" BorderThickness="2" Margin="8" Cursor="SizeAll" PointerPressed="OnRootPointerPressed">
         <Grid Margin="20" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
             <TextBlock Name="TitleText"
                        Grid.Row="0"

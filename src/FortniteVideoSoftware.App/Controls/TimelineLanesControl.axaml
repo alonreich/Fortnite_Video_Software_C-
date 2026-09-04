@@ -92,7 +92,9 @@
                  badge. Spans all three rows so the ruler, both lanes and the playhead always agree. -->
             <Panel Grid.Row="0" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"
                    IsHitTestVisible="False" ClipToBounds="False">
-                <Border Name="CaretGrab" Width="14" Background="Transparent" Cursor="SizeWestEast"
+                <!-- ISSUE_34: 14px was narrower than the playhead itself was easy to aim at, so most grab
+                 attempts missed and registered as a click-to-seek jump instead of a drag. -->
+            <Border Name="CaretGrab" Width="28" Background="Transparent" Cursor="SizeWestEast"
                         HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="True"
                         ToolTip.Tip="Drag to scrub through the video">
                     <Border Name="CaretLine" Width="3" Background="{DynamicResource AppDangerBrush}"

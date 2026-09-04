@@ -73,7 +73,15 @@ internal static unsafe partial class TaskbarProgress
     }
 
     private const uint FLASHW_TRAY = 0x00000002;
-    private const uint FLASHW_TIMERNOFG = 0x0000000C;
+
+    /// <summary>
+    /// FLASHW_TIMER | 0x08. This means "keep flashing until the window is brought to the
+    /// foreground" and it makes FLASHWINFO.uCount IRRELEVANT - Windows ignores the count when
+    /// this bit is set. Flash() used to pass it together with uCount = uint.MaxValue, which is
+    /// why the finished-export flash blinked forever instead of a fixed number of times.
+    /// Kept named here so nobody re-adds it by accident thinking it is a no-op.
+    /// </summary>
+    private const uint FLASHW_TIMERNOFG_UNUSED = 0x0000000C;
 
     /// <summary>Creates the shell object once. Returns false forever after the first failure.</summary>
     private static bool TryGetTaskbar(out void** taskbar)
@@ -175,10 +183,20 @@ internal static unsafe partial class TaskbarProgress
     public static void Clear(IntPtr hwnd) => SetState(hwnd, State.NoProgress);
 
     /// <summary>
-    /// Flashes the taskbar button until the user focuses the window. Used when an export finishes,
-    /// because that is precisely when the user has walked away from the machine.
+    /// Flashes the taskbar button a FIXED number of times and then stops, whether or not the user
+    /// ever comes back to the window.
+    ///
+    /// This used to flash forever (FLASHW_TIMERNOFG, uCount ignored), which is hostile on a
+    /// machine the user has walked away from: come back an hour later and the button is still
+    /// blinking. Five slow blinks reads as "it finished" and then leaves the taskbar alone.
+    ///
+    /// dwTimeout is the interval between blinks in milliseconds. Zero would mean "use the system
+    /// cursor blink rate", which is roughly 500 ms and reads as an alarm rather than a
+    /// notification, so it is passed explicitly.
     /// </summary>
-    public static void Flash(IntPtr hwnd)
+    /// <param name="count">Number of blinks. Clamped to 1-30.</param>
+    /// <param name="intervalMs">Milliseconds per blink. Clamped to 120-3000.</param>
+    public static void Flash(IntPtr hwnd, int count = 5, int intervalMs = 750)
     {
         if (hwnd == IntPtr.Zero) return;
 
@@ -188,8 +206,28 @@ internal static unsafe partial class TaskbarProgress
             {
                 cbSize = (uint)Unsafe.SizeOf<FLASHWINFO>(),
                 hwnd = hwnd,
-                dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG,
-                uCount = uint.MaxValue,
+                dwFlags = FLASHW_TRAY,
+                uCount = (uint)Math.Clamp(count, 1, 30),
+                dwTimeout = (uint)Math.Clamp(intervalMs, 120, 3000)
+            };
+            FlashWindowEx(ref info);
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+    }
+
+    /// <summary>Cancels an in-flight flash, e.g. if a new export starts before the blinks finish.</summary>
+    public static void StopFlash(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+
+        try
+        {
+            var info = new FLASHWINFO
+            {
+                cbSize = (uint)Unsafe.SizeOf<FLASHWINFO>(),
+                hwnd = hwnd,
+                dwFlags = 0,
+                uCount = 0,
                 dwTimeout = 0
             };
             FlashWindowEx(ref info);

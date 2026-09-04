@@ -1,4 +1,4 @@
-
+﻿
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -17,6 +17,12 @@ namespace FortniteVideoSoftware.Core.Media;
 /// 5. Pad onto 1080x1920 black canvas with 150px top offset
 /// 6. Overlay optional text PNG at y=0 (the 150px text strip)
 /// 7. Force yuv420p format
+///
+/// ZERO-LAYER CASE (NOMASK_01): when no crop rectangle is active — every rect is [0,0,0,0], which
+/// is what the reserved "No Mask Profile" ships — steps 2 and 3 are skipped entirely, the HUD pad
+/// is terminated with nullsink, and the result is the Portrait Canvas Trick plus the optional text
+/// strip and nothing else. Steps 1, 4, 5, 6 and 7 are byte-for-byte identical to a masked profile,
+/// so the framing of a no-mask export matches a HUD export exactly.
 /// </summary>
 public class MobileFilterBuilder
 {
@@ -129,6 +135,21 @@ public class MobileFilterBuilder
             parts.Add($"{inputMainPad}scale={plan.scaledW}:{plan.scaledH}:flags=lanczos," +
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:{plan.cropX}:{plan.cropY}[main_base]");
             currV = "[main_base]";
+
+            // NOMASK_01 — THE HUD PAD MUST STILL BE TERMINATED WHEN THERE ARE NO LAYERS.
+            // ProcessWorker ALWAYS hands this method a HUD pad: either the granular chain's
+            // [gVHud], or a `split=2[v_mob_main][v_mob_hud]` it inserts when there is none. With
+            // zero active layers nothing above consumes it, and an unconnected output pad makes
+            // ffmpeg reject the whole filter_complex — the export dies before it encodes a frame.
+            // The landscape branch in ProcessWorker already terminates the same pad with nullsink
+            // for exactly this reason; this is the portrait counterpart.
+            // This branch was unreachable until the reserved "No Mask Profile" existed (every
+            // shipped profile has layers), which is why the fault never surfaced.
+            // DO NOT remove this because "the pad looks unused" — unused is precisely the problem.
+            if (!string.IsNullOrEmpty(inputHudPad) && inputHudPad != inputMainPad)
+            {
+                parts.Add($"{inputHudPad}nullsink");
+            }
         }
 
         parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
@@ -139,8 +160,6 @@ public class MobileFilterBuilder
 
         if (!string.IsNullOrEmpty(txtInputLabel))
         {
-            // WhatsApp Thumbnail Fix: Shift the text down by 180px ONLY for the first 0.11 seconds
-            // so it falls inside the WhatsApp chat preview safe-zone. As soon as the video plays, it jumps back to 0.
             parts.Add($"{currV}{txtInputLabel}overlay=x=0:y='if(lt(t,0.11),180,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw]");
             currV = "[v_final_raw]";
         }

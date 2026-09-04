@@ -1,5 +1,7 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using System.Collections.Immutable;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using FortniteVideoSoftware.Core.Media;
@@ -61,6 +63,18 @@ public partial class GranularSpeedEditorWindow : Window
 
     private bool _isMobileFormat;
     private string _originalResolution = "1920x1080";
+    /// <summary>
+    /// CUT_02 — sections deleted from the middle of the clip, TRIM-RELATIVE ms while this window
+    /// is open. Same frame of reference as <c>_segments</c>.
+    /// </summary>
+    private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
+
+    /// <summary>CUT_02 — the cut list in ABSOLUTE source ms, for the Main App.</summary>
+    public IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange> ResultCuts => _cuts
+        .Select(c => new FortniteVideoSoftware.Core.Media.CutRange(c.StartMs + _trimStartMs, c.EndMs + _trimStartMs))
+        .ToList()
+        .AsReadOnly();
+
     public double ResultBaseSpeed => _baseSpeed;
     public double ResultFreezeTimeMs => _freezeTimeMs;
     public double ResultFreezeDurationS => _freezeDurationS;
@@ -480,9 +494,17 @@ public partial class GranularSpeedEditorWindow : Window
     /// The editor will only show/seek between trimStartMs and trimEndMs.
     /// Segments are stored in absolute video timestamps.
     /// </summary>
-    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null)
+    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null, IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null)
     {
         _voiceOverPlayer.Result = voiceOverResult;
+
+        // CUT_02 — cuts arrive in ABSOLUTE source ms and are held TRIM-RELATIVE inside this window,
+        // exactly like _segments. ResultCuts adds _trimStartMs back on the way out.
+        if (existingCuts != null)
+        {
+            foreach (var c in existingCuts)
+                _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(c.StartMs - trimStartMs, c.EndMs - trimStartMs));
+        }
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
@@ -524,6 +546,7 @@ public partial class GranularSpeedEditorWindow : Window
                 bool zStart = _zoomDragIsStart;
                 _zoomDragSegment = -1;
                 _isDraggingZoomMarker = false;
+                EndUndoGesture();   // UNDO_02
                 e.Pointer.Capture(null);
                 RedrawTimeline();
 
@@ -533,8 +556,6 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     var zseg = _segments[zi];
                     double edgeMs = zStart ? (zseg.ZoomStartMs ?? zseg.StartMs) : (zseg.ZoomEndMs ?? zseg.EndMs);
-                    // ZOOMLINK_01 — the drag moved the BLOCK as well, so the segment list's
-                    // start/end/duration text is stale until it is rebuilt.
                     RefreshSegmentList();
                     RuntimeLog.Info("Granular",
                         $"Zoom {(zStart ? "START" : "END")} settled on segment #{zi + 1}: {FormatMs(edgeMs)} (block now {FormatMs(zseg.StartMs)}–{FormatMs(zseg.EndMs)}).");
@@ -548,6 +569,7 @@ public partial class GranularSpeedEditorWindow : Window
             {
                 var finished = _freezeDragMode;
                 _freezeDragMode = FreezeDragMode.None;
+                EndUndoGesture();   // UNDO_02
                 e.Pointer.Capture(null);
                 HideDragReadout();
                 ClampFreezeIntoClip();
@@ -590,6 +612,7 @@ public partial class GranularSpeedEditorWindow : Window
                 }
                 _segDragMode = SegDragMode.None;
                 _draggingSegmentIndex = -1;
+                EndUndoGesture();   // UNDO_02
                 e.Pointer.Capture(null);
                 HideDragReadout();
                 RefreshSegmentList();
@@ -631,6 +654,7 @@ public partial class GranularSpeedEditorWindow : Window
                     relStart = Math.Max(0, relStart);
                     int maxEnd = _trimEndMs > 0 ? (int)(_trimEndMs - _trimStartMs) : int.MaxValue;
                     relEnd = Math.Min(relEnd, maxEnd);
+                    PushUndo("add segment", "seg-drag-create");   // UNDO_02
                     _segments.Add(new SpeedSegment(relStart, relEnd, seg.Speed,
                         seg.ZoomX, seg.ZoomY, seg.ZoomW, seg.ZoomH, seg.ZoomOrigRes, seg.ZoomSlow,
                         seg.ZoomStartMs.HasValue ? seg.ZoomStartMs.Value - _trimStartMs : (double?)null,
@@ -897,7 +921,6 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.SizeChanged += (s, e) => RedrawTimeline();
 
             canvas.IsHitTestVisible = true;
-            canvas.Background = Avalonia.Media.Brushes.Transparent;
 
             canvas.PointerPressed += (s, e) =>
             {
@@ -1045,39 +1068,14 @@ public partial class GranularSpeedEditorWindow : Window
                     return;
                 }
 
-                // ZOOMPOP_01 — zoom popsicle drag, routed through the canvas exactly like the
-                // freeze popsicle so a mid-drag RedrawTimeline cannot drop the capture.
                 if (_zoomDragSegment >= 0 && _zoomDragSegment < _segments.Count)
                 {
-                    // ZOOMMAP_01 — the inverse map, NOT a linear one.
-                    // The lane is drawn in OUTPUT time (TIME_02): every zoom edge is placed with
-                    // SrcMsToX, which runs the source ms through OutputTimeline. The drag inherited
-                    // a pre-TIME_02 linear inverse, `(x / w) * totalMs`. The two agree only on a
-                    // clip with no speed segment and no freeze — and a zoom edge lives on a speed
-                    // segment by definition, so in practice they never agreed: the head was written
-                    // at one source instant and redrawn at a different pixel, so it slid away from
-                    // the cursor and the fuchsia bar with it. XToSrcMs is the exact inverse of
-                    // SrcMsToX; the pair must always be used together.
                     double zx = Math.Clamp(e.GetPosition(canvas).X, 0, w);
                     double newMs = ClampZoomEdgeAgainstSlowNeighbours(
                         _zoomDragSegment, XToSrcMs(zx, w), _zoomDragIsStart);
 
                     var zseg = _segments[_zoomDragSegment];
 
-                    // ZOOMLINK_01 — THE ZOOM EDGE AND THE SPEED-BLOCK EDGE MOVE AS ONE.
-                    //
-                    // ⚠️ THIS IS A DELIBERATE REVERSAL of "zoom is completely detached from the
-                    // green speed segments, allowing independent X-axis resizing" (owner's
-                    // decision). Dragging a magnifier now drags the block edge underneath it, so
-                    // the light-green body and its SeaGreen edge stick follow the handle. Do not
-                    // restore the detached behaviour without the owner asking for it back.
-                    //
-                    // The edge therefore has to satisfy the BLOCK's rules, not just the zoom's:
-                    // the SegGapMs (1000ms) clearance from the neighbouring blocks and the
-                    // SegMinWidthMs (200ms) floor on its own width. Writing the zoom field alone
-                    // and leaving the block behind is what produced the reported mismatch; writing
-                    // the block WITHOUT these bounds is worse — it lets a block cross into its
-                    // neighbour, which the export splitter cannot represent.
                     double zLower = 0;
                     double zUpper = totalMs;
                     for (int j = 0; j < _segments.Count; j++)
@@ -1093,6 +1091,7 @@ public partial class GranularSpeedEditorWindow : Window
                     {
                         double zNewStart = Math.Clamp(newMs, zLower,
                             Math.Max(zLower, zseg.EndMs - SegMinWidthMs));
+                        PushUndo("move zoom box", "zoom-edge");   // UNDO_02
                         _segments[_zoomDragSegment] = zseg with
                         {
                             StartMs = zNewStart,
@@ -1123,6 +1122,11 @@ public partial class GranularSpeedEditorWindow : Window
 
                 if (_freezeDragMode != FreezeDragMode.None)
                 {
+                    // UNDO_02 — hoisted ABOVE the switch on purpose: all three drag modes change
+                    // the freeze, and one snapshot per gesture must cover whichever one is running.
+                    PushUndo(_freezeDragMode == FreezeDragMode.Move ? "move freeze" : "change freeze length",
+                             "freeze-drag");
+
                     double px = e.GetPosition(canvas).X;
                     double holdStartNow = FreezeHoldStartOutSec();
 
@@ -1270,6 +1274,7 @@ public partial class GranularSpeedEditorWindow : Window
                 else
                     SetStatus(_segDragMode == SegDragMode.Move ? $"Moving segment #{idx + 1} — release to set." : $"Resizing segment #{idx + 1} — release to set.");
 
+                PushUndo("resize segment", "seg-edge");   // UNDO_02
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
                 UpdateDragReadout(newStart, newEnd);
                 UpdateDraggingVisuals(idx, newStart, newEnd);
@@ -1292,6 +1297,9 @@ public partial class GranularSpeedEditorWindow : Window
             if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
         });
 
+
+        WireDeletePartsButton();   // CUT_02
+        WireUndoRedo();            // UNDO_01
 
         var markStart = this.FindControl<Button>("MarkStartBtn");
         markStart?.AddHandler(Button.ClickEvent, (_, _) =>
@@ -1383,7 +1391,7 @@ public partial class GranularSpeedEditorWindow : Window
                 }
             }
 
-            ShowFeedbackSuccess($"SEGMENT ADDED: {FormatMs(_pendingEndMs)}");
+            NotifyUndoable($"Segment added at {FormatMs(_pendingEndMs)}", "MarkEndBtn");   // ANCHOR_01
             
             AddPendingSegment();
 
@@ -1407,6 +1415,7 @@ public partial class GranularSpeedEditorWindow : Window
                 if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
                 {
                     var seg = _segments[_selectedSegmentIndex];
+                    PushUndo("change speed", "seg-speed");   // UNDO_02
                     _segments[_selectedSegmentIndex] = seg with { Speed = _pendingSpeed };
                     RefreshSegmentList();
                     RedrawTimeline();
@@ -1454,6 +1463,9 @@ public partial class GranularSpeedEditorWindow : Window
         if (acceptBtn != null) acceptBtn.Click += (s, e) => {
             RuntimeLog.Info("UI", "User clicked Accept in Granular Speed Editor.");
             Accepted = true;
+            // UNDO_01 — the project has been handed to the Main App. Undoing into a state that was
+            // never applied would show the user history that no longer matches their project.
+            ClearUndoHistory("changes applied");
             Close();
         };
 
@@ -1597,6 +1609,7 @@ public partial class GranularSpeedEditorWindow : Window
 
                     if (_freezeTimeMs >= 0)
                     {
+                        PushUndo("change freeze length", "freeze-len");   // UNDO_02
                         _freezeDurationS = val;
                         RedrawTimeline();
                         FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked freeze preset button. Set freeze duration to {val}s.");
@@ -1637,6 +1650,7 @@ public partial class GranularSpeedEditorWindow : Window
                     }
                     if (currentAbsMs < _trimStartMs) currentAbsMs = _trimStartMs;
                     if (_trimEndMs > 0 && currentAbsMs > _trimEndMs) currentAbsMs = _trimEndMs;
+                    PushUndo("set freeze");   // UNDO_01
                     _freezeTimeMs = currentAbsMs;
 
                     _freezeDurationS = promptPreset ? Infrastructure.SettingsManager.Instance.Defaults.DefaultFreezeDurationS : _selectedFreezePresetS;
@@ -1649,14 +1663,12 @@ public partial class GranularSpeedEditorWindow : Window
                     freezeImageToggle.Classes.Add("Danger");
 
                     RedrawTimeline();
-                    // FREEZE_CLEAR_01 — CLEAR ALL SEGMENTS is now also the freeze's delete button,
-                    // so its visibility has to be re-evaluated the moment a freeze appears.
                     UpdateDeleteButtonVisibility();
                     FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked 'Freeze Image' toggle. Button set to State 2 (Active/Red - UNFREEZE IMAGE).");
 
                     if (!promptPreset)
                     {
-                        ShowFeedback($"FREEZE CREATED: {_freezeDurationS:0.0}s");
+                        NotifyUndoable($"Freeze created ({_freezeDurationS:0.0}s)", "FreezeImageToggle");   // ANCHOR_01
                         for (int k = 0; k < presetValues.Length; k++)
                         {
                             if (Math.Abs(presetValues[k] - _selectedFreezePresetS) < 0.01)
@@ -1693,6 +1705,7 @@ public partial class GranularSpeedEditorWindow : Window
             if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
             {
                 var seg = _segments[_selectedSegmentIndex];
+                PushUndo("change speed");   // UNDO_02
                 _segments[_selectedSegmentIndex] = seg with { Speed = s };
                 RefreshSegmentList();
                 RedrawTimeline();
@@ -1761,8 +1774,6 @@ public partial class GranularSpeedEditorWindow : Window
         if (deleteSegBtn != null)
             deleteSegBtn.IsVisible = segSelected;
 
-        // FREEZE_CLEAR_01 — the button also clears the frozen frame, so a timeline whose ONLY
-        // edit is a freeze must still be able to reach it.
         if (clearAllBtn != null)
             clearAllBtn.IsVisible = _segments.Count > 0 || _freezeTimeMs >= 0;
 
@@ -1825,6 +1836,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void AddPendingSegment()
     {
+        PushUndo("add segment");   // UNDO_01 — before the list changes
         if (_pendingStartMs < 0 || _pendingEndMs < 0)
         {
             NotifyError("Mark a START and END time first.");
@@ -1875,6 +1887,7 @@ public partial class GranularSpeedEditorWindow : Window
         var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
         if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, _baseSpeed);
         if (speedLbl != null) speedLbl.Text = $"{_baseSpeed:0.0}x";
+        PushUndo("add segment");   // UNDO_02
         _segments.Add(new SpeedSegment((int)start, (int)end, speed));
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
@@ -1944,7 +1957,7 @@ public partial class GranularSpeedEditorWindow : Window
                 FontSize = Infrastructure.ThemeManager.ScaledFontSize(11),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#7f1d1d")),
+                Background = Infrastructure.ThemeResources.Brush(this, "AppDangerDeepBorderBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#521818"))),   // TONE_01
                 Foreground = Avalonia.Media.Brushes.White,
                 CornerRadius = new CornerRadius(3),
                 Margin = new Thickness(4, 0, 0, 0)
@@ -2049,13 +2062,6 @@ public partial class GranularSpeedEditorWindow : Window
             double holdStart = FreezeHoldStartOutSec();
             double holdEnd = holdStart + _freezeDurationS;
 
-            // GRAB_01 — the grabbed end is the end this marker IS, never the end the pointer
-            // happens to sit nearest. The heads are 52px wide and anchored at their own edge of
-            // the hold, so for any hold shorter than ~2 head-widths the START head physically
-            // extends past the hold's midpoint. Inferring from pointer X therefore resolved the
-            // START head to ResizeEnd, which drove the far grip while the head under the cursor
-            // stayed put — read by the user as stutter/stick/blocked movement. `which` is passed
-            // in by the builder and is authoritative; do NOT reintroduce positional inference.
             var grabbed = which;
             if (grabbed == FreezeMarkerEnd.None) return;
 
@@ -2188,6 +2194,7 @@ public partial class GranularSpeedEditorWindow : Window
         double deltaMs = (1000.0 / fps) * frameDelta;
         double minMs = _trimStartMs;
         double maxMs = _trimStartMs + duration * 1000.0;
+        PushUndo("move freeze", "freeze-drag");   // UNDO_02
         _freezeTimeMs = Math.Clamp(_freezeTimeMs + deltaMs, minMs, maxMs);
         SeekGranularPreviewToFreezeMarker();
         RedrawTimeline();
@@ -2289,7 +2296,6 @@ public partial class GranularSpeedEditorWindow : Window
         var segCanvas = new Avalonia.Controls.Canvas
         {
             Name = "GranularTimelineCanvas",
-            Background = Avalonia.Media.Brushes.Transparent,
             IsHitTestVisible = true,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
             Focusable = true,
@@ -2376,11 +2382,6 @@ public partial class GranularSpeedEditorWindow : Window
             double h = Math.Max(canvas.Bounds.Height, LaneBlockHeight);
             if (dur <= 0 || w <= 0) return;
 
-            // ZOOMPOP_01 — zoom heads are COLLECTED here and MOUNTED after the marker overlay has
-            // been cleared further down. They live on the overlay host, not on the lane canvas, so
-            // that they can hang above the ruler at a negative Y like the freeze heads do; mounting
-            // them inside the loop would put them on the canvas, and mounting them on the overlay
-            // inside the loop would have them wiped by that Children.Clear().
             var pendingZoomHeads = new List<(int Index, double StartX, double EndX)>();
 
             for (int i = 0; i < _segments.Count; i++)
@@ -2410,16 +2411,6 @@ public partial class GranularSpeedEditorWindow : Window
                     double zx1 = SrcMsToX(zsMs, w);
                     double zx2 = SrcMsToX(zeMs, w);
 
-                    // ZOOMBAR_01 — THE HORIZONTAL ZOOM BAR IS GONE, ON PURPOSE.
-                    // A 6px fuchsia line used to be drawn across the block at LaneZoomBarY. It
-                    // predates ZOOMPOP_01, which gave the zoom a START and an END popsicle that
-                    // already mark the same span far more legibly and are the things the user
-                    // actually drags. The bar duplicated that information, sat inside the block
-                    // where it competed with the speed colour, and answered no question the two
-                    // magnifier heads do not answer better. Removed rather than restyled.
-                    // ⚠️ `pendingZoomHeads` IS STILL POPULATED HERE — the popsicles are built from
-                    // it further down, so this is a deletion of the DRAWING only, not of the data.
-                    // `LaneZoomBarY` is retired with it; see its remarks.
 
                     pendingZoomHeads.Add((i, zx1, zx2));
                 }
@@ -2505,17 +2496,6 @@ public partial class GranularSpeedEditorWindow : Window
             markerOverlay?.Children.Clear();
             _freezeMarkerAnts.Clear();
 
-            // POPSICLE_01 — HOW LONG THE STICK HAS TO BE FOR THIS MARKER.
-            // The marker control is built with a 47px stick, which spans the Main App's single
-            // marker canvas exactly. Here the overlay spans the ruler AND BOTH LANES, so 47px
-            // stopped the stick roughly halfway down the UPPER lane: the head floated with a stub
-            // under it instead of a line pointing at an instant all the way through the timeline.
-            // The stick now runs from the head's bottom edge to the overlay's bottom edge.
-            // ⚠️ IT IS PER MARKER, BECAUSE A STAGGERED END HEAD STARTS LOWER (LEVEL_01) and would
-            // otherwise overshoot by exactly its stagger. Feeding each marker its own top makes
-            // every stick in a pair finish on the same line.
-            // ⚠️ THE MARKER IS NOT MOVED DOWN — see StretchTimelineCameraStick. Dropping the whole
-            // control would take the head below the ruler and destroy the popsicle shape.
             double MarkerStickHeight(double markerTopPx)
             {
                 double overlayH = markerOverlay is { } mo && mo.Bounds.Height > 1
@@ -2532,11 +2512,6 @@ public partial class GranularSpeedEditorWindow : Window
 
                 DecorateFrozenSpan(canvas, freezeX, freezeHoldPx, h, withLabel: false, withGrips: true);
 
-                // LEVEL_01 — decide the stagger from the CLAMPED lefts, before either head is built.
-                // ClampTimelineCameraLeft pins a head against the canvas edge, so two instants that
-                // are far apart in time can still land on top of each other at the ruler ends, and
-                // two instants that are close can be pushed apart. Only the post-clamp geometry
-                // tells the truth about whether the heads occlude.
                 double startLeftPx = MainWindow.ClampTimelineCameraLeft(freezeX + LaneBorderInsetPx, w);
                 double endLeftPx = MainWindow.ClampTimelineCameraLeft(freezeX + freezeHoldPx + LaneBorderInsetPx, w);
                 double headStaggerPx = Math.Abs(endLeftPx - startLeftPx) >= FreezeMarkerHeadWidthPx
@@ -2569,13 +2544,6 @@ public partial class GranularSpeedEditorWindow : Window
                 var endCam = BuildFreezeMarker(FreezeMarkerEnd.End, endLeftPx,
                     held + "\nDrag to change how long the frame is held.");
 
-                // HITBOX_02 — WHICHEVER MARKER IS STAGGERED DOWN IS ADDED LAST.
-                // Siblings on a Canvas resolve a pointer by draw order, last on top. When the pair
-                // is staggered the START head hangs directly over the END head's row, so START on
-                // top makes the END head unreachable; the END head's own box, in turn, only clips a
-                // few pixels of the START head's underside, so END-on-top costs nothing. When the
-                // pair is level (headStaggerPx == 0) they cannot overlap at all and the order is
-                // arbitrary — keep the original START-last so the common case is unchanged.
                 var markerParent = markerOverlay ?? canvas;
                 if (headStaggerPx > 0)
                 {
@@ -2589,11 +2557,6 @@ public partial class GranularSpeedEditorWindow : Window
                 }
             }
 
-            // ZOOMPOP_01 — the zoom popsicles, built to the same recipe as the freeze pair:
-            // mounted on the marker overlay at FreezeMarkerOverlayTop so the head floats above the
-            // ruler and the stem drops through it into the lane, the end head staggered ONLY when
-            // the two clamped heads would occlude (LEVEL_01), both ants rectangles registered so
-            // the selection border actually marches, and focus exclusive across the timeline.
             if (pendingZoomHeads.Count > 0)
             {
                 var zoomParent = markerOverlay ?? canvas;
@@ -2628,7 +2591,6 @@ public partial class GranularSpeedEditorWindow : Window
                     var zEndCam = BuildZoomMarker(false, zEndLeft, FreezeMarkerOverlayTop + zStagger,
                         $"Zoom on segment #{index + 1}.\nDrag to move where the zoom ends.");
 
-                    // HITBOX_02 — same rule as the freeze pair above: staggered marker last.
                     if (zStagger > 0)
                     {
                         zoomParent.Children.Add(zStartCam);
@@ -2708,8 +2670,6 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void FocusZoomMarker(int segIndex, bool isStart)
     {
-        // Order matters: SelectSegment drops zoom focus (it is the "a block was selected" path),
-        // so the zoom focus must be claimed AFTER it, never before.
         if (_selectedSegmentIndex != segIndex) SelectSegment(segIndex);
         _isFreezeCameraSelected = false;
         _freezeFocus = FreezeMarkerEnd.None;
@@ -2913,7 +2873,14 @@ public partial class GranularSpeedEditorWindow : Window
     private void WireZoomControls()
     {
         var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
-        if (zoomBtn != null) zoomBtn.Click += (_, __) => ToggleZoomMode();
+        if (zoomBtn != null) zoomBtn.Click += (_, __) =>
+        {
+            // GUIDE_01 — ZOOM-IN needs a marked range for the same reason DELETE PARTS does, and
+            // gets the same guided walkthrough instead of a dead click or a silent auto-created
+            // block the user never asked for.
+            if (GuideWhenNothingMarked("ZOOM-IN")) return;
+            ToggleZoomMode();
+        };
 
         var removeZoomBtn = this.FindControl<Button>("RemoveZoomBtn");
         if (removeZoomBtn != null) removeZoomBtn.Click += (_, __) => RemoveZoomFromSelectedSegment();
@@ -3011,12 +2978,14 @@ public partial class GranularSpeedEditorWindow : Window
 
         var seg = _segments[_selectedSegmentIndex];
         RuntimeLog.Info("UI", $"User deleted a speed segment in the Granular Speed Editor ({FormatMs(seg.StartMs)} to {FormatMs(seg.EndMs)}).");
+        PushUndo("delete segment");   // UNDO_01
         _segments.RemoveAt(_selectedSegmentIndex);
         _selectedSegmentIndex = -1;
         RefreshSegmentList();
         RedrawTimeline();
         UpdateDeleteButtonVisibility();
-        Notify("Selected segment deleted.");
+        SetStatus("Selected segment deleted.");
+        NotifyUndoable("Segment deleted", "DeleteSegmentBtn");   // ANCHOR_01
     }
 
     /// <summary>
@@ -3126,6 +3095,8 @@ public partial class GranularSpeedEditorWindow : Window
         bool hadFreeze = _freezeTimeMs >= 0;
         RuntimeLog.Info("UI", $"User cleared ALL {_segments.Count} speed segment(s){(hadFreeze ? " and the frozen frame" : "")} in the Granular Speed Editor.");
 
+        PushUndo("clear all");   // UNDO_01 — the most destructive action here, and the one most
+                                 // worth being able to take back.
         _segments.Clear();
         _selectedSegmentIndex = -1;
         _zoomFocus = null;
@@ -3134,18 +3105,19 @@ public partial class GranularSpeedEditorWindow : Window
         _pendingStartMs = -1;
         _pendingEndMs = -1;
 
-        // Clears the freeze AND repaints; call it before the local redraw so the lane is rebuilt
-        // once from fully settled state rather than twice from a half-cleared one.
         if (hadFreeze) ClearFreezeImage(null);
 
         RefreshSegmentList();
         RedrawTimeline();
         UpdateDeleteButtonVisibility();
-        Notify(hadFreeze
+        SetStatus(hadFreeze
             ? "All segments, the frozen frame and pending selections cleared."
             : "All segments and pending selections cleared.");
+        // UNDOHINT_01 — the most destructive action in the window is also the one that most needs
+        // the user to know it is reversible.
+        NotifyUndoable(hadFreeze ? "Cleared everything, including the frozen frame" : "Cleared all segments",
+            "ClearAllSegmentsBtn");   // ANCHOR_01
     }
-
 
 
     /// <summary>ISSUE_01 — tells the user exactly how much is about to be erased.</summary>
@@ -3202,6 +3174,7 @@ public partial class GranularSpeedEditorWindow : Window
             var seg = _segments[_selectedSegmentIndex];
             if (seg.ZoomW.HasValue && seg.ZoomSlow != slow)
             {
+                PushUndo("change zoom style");   // UNDO_02
                 _segments[_selectedSegmentIndex] = seg with { ZoomSlow = slow };
                 RuntimeLog.Info("Granular", $"Zoom ramp mode → {(slow ? "SLOW" : "INSTANT")} on segment #{_selectedSegmentIndex + 1}.");
                 RefreshSegmentList();
@@ -3316,6 +3289,7 @@ public partial class GranularSpeedEditorWindow : Window
         {
             if (_zoomSessionCreatedSegment)
             {
+                PushUndo("remove zoom");   // UNDO_02
                 _segments.RemoveAt(idx);
                 _selectedSegmentIndex = -1;
                 removedBlock = true;
@@ -3352,6 +3326,7 @@ public partial class GranularSpeedEditorWindow : Window
         var seg = _segments[_selectedSegmentIndex];
         if (!seg.ZoomW.HasValue) { NotifyError("That block has no zoom to remove."); return; }
 
+        PushUndo("apply zoom");   // UNDO_02
         _segments[_selectedSegmentIndex] = seg with
         {
             ZoomX = null, ZoomY = null, ZoomW = null, ZoomH = null,
@@ -3438,6 +3413,7 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         var created = new SpeedSegment(start, end, _baseSpeed);
+        PushUndo("apply zoom");   // UNDO_02
         _segments.Add(created);
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
@@ -3520,6 +3496,7 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         var created = new SpeedSegment(start, end, _baseSpeed);
+        PushUndo("apply zoom");   // UNDO_02
         _segments.Add(created);
         _segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
@@ -4231,7 +4208,6 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         CommitZoomToSegment(wasDraw ? "Created" : wasResize ? "Resized" : "Moved");
-        // ZOOMCONF_01 — the box just changed and nothing is committed until the ✅ is pressed.
         StartZoomConfirmBlink();
         e.Handled = true;
     }
@@ -4375,6 +4351,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         var seg = _segments[_selectedSegmentIndex];
         bool slow = ZoomSlowSelected;
+        PushUndo("apply zoom");   // UNDO_02
         _segments[_selectedSegmentIndex] = seg with
         {
             ZoomX = zx, ZoomY = zy, ZoomW = zw, ZoomH = zh, ZoomOrigRes = $"{sw}x{sh}", ZoomSlow = slow
@@ -4641,11 +4618,6 @@ public partial class GranularSpeedEditorWindow : Window
             string ffmpeg = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
             string temp = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory;
 
-            // STRIP_03 — the lane is MOUNTED AND PAINTED on the first decoded frame (~0.2s) and
-            // fills in as the rest arrive, rather than staying blank until the whole strip exists.
-            // DeleteThumbStrip() runs first because it disposes the previous bitmap and nulls the
-            // host; the fallback below therefore assigns _thumbStripFile AFTER mounting, or it
-            // would delete the file it had just rendered.
             void MountLane(Avalonia.Media.Imaging.Bitmap bmp)
             {
                 DeleteThumbStrip();
@@ -4658,9 +4630,6 @@ public partial class GranularSpeedEditorWindow : Window
                 RelayoutFrameLane();
             }
 
-            // PREWARM_01 — the Main App may already have rendered this exact range in the
-            // background while the user was setting the trim. Take it and paint at once. A miss
-            // returns null and costs nothing; we simply render as normal.
             var warmed = FortniteVideoSoftware.App.Services.FilmstripPrewarm.TryTake(
                 _videoPath, _trimStartMs / 1000.0, dur);
             if (warmed != null)
@@ -4679,8 +4648,6 @@ public partial class GranularSpeedEditorWindow : Window
             if (token.IsCancellationRequested) return;
             if (streamed) return;
 
-            // Nothing streamed — an exotic container, or a codec whose keyframes the fast path
-            // cannot walk. Fall back to the tolerant tiled render and mount it whole.
             string? strip = await ThumbnailStripGenerator.GenerateAsync(
                 ffmpeg, _videoPath, temp,
                 _trimStartMs / 1000.0, dur, token, logTag: "Granular");
@@ -4914,11 +4881,16 @@ public partial class GranularSpeedEditorWindow : Window
         sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
         foreach (var s in segs)
             sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
+        // CUT_02 — the cuts MUST be part of the cache signature. Without them the ruler would keep
+        // serving the pre-cut timeline until some unrelated edit changed the signature, and the
+        // video would silently be shorter than the timeline claimed.
+        foreach (var c in _cuts) sb.Append('X').Append(c.StartMs).Append(',').Append(c.EndMs).Append(';');
         string sig = sb.ToString();
 
         if (_outTimeline == null || sig != _outTimelineSig)
         {
-            _outTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(durSec * 1000.0, segs, 1.0, 0);
+            _outTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+                durSec * 1000.0, segs, 1.0, 0, null, CutsForTimeline());
             _outTimelineSig = sig;
         }
         return _outTimeline;
@@ -4955,12 +4927,14 @@ public partial class GranularSpeedEditorWindow : Window
         sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
         foreach (var s in _segments)
             sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
+        // CUT_02 — see OutTimeline: cuts belong in the signature and in the model.
+        foreach (var c in _cuts) sb.Append('X').Append(c.StartMs).Append(',').Append(c.EndMs).Append(';');
         string sig = sb.ToString();
 
         if (_baseTimeline == null || sig != _baseTimelineSig)
         {
             _baseTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
-                durSec * 1000.0, _segments, 1.0, 0);
+                durSec * 1000.0, _segments, 1.0, 0, null, CutsForTimeline());
             _baseTimelineSig = sig;
         }
         return _baseTimeline;
@@ -4999,6 +4973,7 @@ public partial class GranularSpeedEditorWindow : Window
     {
         double relSec = BaseTimeline().OutputToSourceRelative(
             Math.Clamp(baseOutSec, 0, BaseTimeline().TotalOutputSeconds));
+        PushUndo("move freeze", "freeze-drag");   // UNDO_02
         _freezeTimeMs = _trimStartMs + relSec * 1000.0;
     }
 
@@ -5074,15 +5049,766 @@ public partial class GranularSpeedEditorWindow : Window
         {
             double factor = Math.Clamp((baseSpd - speed) / Math.Max(0.001, baseSpd - 0.1), 0.0, 1.0);
             byte alpha = (byte)(51 + factor * (230 - 51));
-            return Avalonia.Media.Color.FromArgb(alpha, 239, 68, 68);
+            // TONE_01: the RED half of the speed ramp. The alpha still encodes "how far below
+            // base speed", so only the HUE moves to the token — the intensity maths is untouched.
+            var slow = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Avalonia.Media.Color.FromRgb(168, 50, 50));
+            return Avalonia.Media.Color.FromArgb(alpha, slow.R, slow.G, slow.B);
         }
         else
         {
             double factor = Math.Clamp((speed - baseSpd) / Math.Max(0.001, 4.1 - baseSpd), 0.0, 1.0);
             byte alpha = (byte)(51 + factor * (230 - 51));
-            return Avalonia.Media.Color.FromArgb(alpha, 34, 197, 94);
+            // TONE_01: the GREEN half of the same ramp.
+            var fast = Infrastructure.ThemeResources.Colour(this, "AppSuccessColor", Avalonia.Media.Color.FromRgb(63, 156, 107));
+            return Avalonia.Media.Color.FromArgb(alpha, fast.R, fast.G, fast.B);
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // CUT_02 — DELETE PARTS. Removes the marked stretch from the video entirely.
+    //
+    // Moved here from the Main Screen because this window already owns MARK START / MARK END and
+    // the timeline that has to condense afterwards. The heavy lifting is all in OutputTimeline and
+    // GranularSpeedBuilder, which already splice the timeline for slow-motion, freezes and memes;
+    // a cut is simply the chunk kind that consumes source time and occupies NO output time.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// CUT_02 — the marked range to act on, TRIM-RELATIVE ms, or null when nothing is marked.
+    ///
+    /// Two ways to have a selection, and both are honoured: a committed block the user clicked, or
+    /// a live MARK START + MARK END pair not yet turned into one. Reading both is what stops
+    /// DELETE PARTS from lecturing a user who has visibly marked a range.
+    /// </summary>
+    private (double startMs, double endMs)? CurrentMarkedRange()
+    {
+        if (_pendingStartMs >= 0 && _pendingEndMs >= 0 && _pendingEndMs > _pendingStartMs)
+            return (_pendingStartMs, _pendingEndMs);
+
+        if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+        {
+            var seg = _segments[_selectedSegmentIndex];
+            if (seg.EndMs > seg.StartMs) return (seg.StartMs, seg.EndMs);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// GUIDE_01 — THE DUMMY-PROOF PATH. Shown when an action that needs a marked range is pressed
+    /// without one.
+    ///
+    /// A short red warning first, then a ONE SECOND pause so the user actually reads it, then the
+    /// walkthrough: the app dims, a ghost cursor presses MARK START, presses PLAY, sweeps the
+    /// timeline as the video runs, and presses MARK END — the exact sequence they were missing.
+    ///
+    /// Drawn, not recorded. ISSUE_04 explains why the suite has no GIF assets: mandate #2 forbids
+    /// shipping loose files beside the .exe, and a recording would go stale the moment a button
+    /// moves or the font scale changes. CoachOverlay renders vector shapes over the window's own
+    /// live controls, so it follows the real layout at any size, theme or scale, and costs nothing
+    /// to ship. Returns true when it took over, so the caller aborts.
+    /// </summary>
+    private bool GuideWhenNothingMarked(string actionName)
+    {
+        if (CurrentMarkedRange() != null) return false;
+
+        RuntimeLog.Info("GUIDE", $"{actionName} pressed with no marked range. Showing the MARK START / MARK END walkthrough.");
+        NotifyError("You did not selected an area on time the timeline yet!");
+
+        // The pause is the point: firing the walkthrough instantly buries the message it explains.
+        var delay = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        delay.Tick += (_, _) =>
+        {
+            delay.Stop();
+            try
+            {
+                Controls.CoachOverlay.PlayOnce(this, new List<Controls.CoachStep>
+                {
+                    new("First, mark where it starts",
+                        "Move the video to where your section should BEGIN, then press MARK START.",
+                        "MarkStartBtn", Controls.CoachGesture.Click),
+                    new("Now play the video",
+                        "Press PLAY and let it run to where your section should END.",
+                        "GranularPlayPause", Controls.CoachGesture.Click),
+                    new("Watch it play",
+                        "The line sweeps along the timeline as the video plays. Stop when you reach the end of the bit you want.",
+                        "GranularLanes", Controls.CoachGesture.DragHorizontal),
+                    new("Then mark where it ends",
+                        "Press MARK END. The stretch between your two marks is now selected — and THAT is what "
+                        + actionName + " works on.",
+                        "MarkEndBtn", Controls.CoachGesture.Click),
+                });
+            }
+            catch (Exception ex) { RuntimeLog.Fail("GUIDE", ex); }
+        };
+        delay.Start();
+
+        return true;
+    }
+
+    private void WireDeletePartsButton()
+    {
+        var btn = this.FindControl<Button>("DeletePartsBtn");
+        if (btn == null) return;
+        btn.AddHandler(Button.ClickEvent, (_, _) => OnDeletePartsClicked());
+    }
+
+    private async void OnDeletePartsClicked()
+    {
+        try
+        {
+            RuntimeLog.Info("CUT", "User clicked DELETE PARTS in the Granular Speed Editor.");
+
+            if (GuideWhenNothingMarked("DELETE PARTS")) return;
+
+            var range = CurrentMarkedRange()!.Value;
+            double durMs = GetDuration() * 1000.0;
+
+            double startMs = Math.Max(0, Math.Min(range.startMs, durMs));
+            double endMs = Math.Max(0, Math.Min(range.endMs, durMs));
+
+            var candidate = new List<FortniteVideoSoftware.Core.Media.CutRange>(_cuts)
+            {
+                new(startMs, endMs)
+            };
+            double survivingMs = SurvivingMsAfterCuts(candidate, durMs);
+
+            RuntimeLog.Info("CUT",
+                $"DELETE PARTS requested: {FormatMs(startMs)} -> {FormatMs(endMs)} " +
+                $"({(endMs - startMs) / 1000.0:F2}s). Clip is {durMs / 1000.0:F2}s, " +
+                $"{survivingMs / 1000.0:F2}s would survive across {candidate.Count} cut(s).");
+
+            if (survivingMs < MinSurvivingMs)
+            {
+                RuntimeLog.Fail("CUT", $"DELETE PARTS refused — only {survivingMs:F0}ms would be left.");
+                NotifyError("That would delete almost the whole video. At least half a second has to be left.");
+                return;
+            }
+
+            if (FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmMainAppCut)
+            {
+                // DIALOG_01 — themed Avalonia dialog, not the Win32 MessageBox. It inherits the
+                // app's fonts, colours and font scale, so it belongs to the editor it interrupts.
+                // DIALOG_02 — destructive: DELETE IT is red, KEEP IT is green, Enter is KEEP IT.
+                bool ok = await Controls.ConfirmDialogWindow.AskAsync(
+                    this,
+                    $"Delete this whole scene from the video?\n\n" +
+                    $"{FormatMs(startMs)} to {FormatMs(endMs)}  —  {(endMs - startMs) / 1000.0:F1} seconds.\n\n" +
+                    "The timeline closes up and the video gets shorter. Your original recording is not touched, " +
+                    "and CLEAR ALL puts everything back.",
+                    "Delete Entire Scene?",
+                    yesText: "DELETE IT",
+                    noText: "KEEP IT",
+                    destructive: true);
+                if (!ok)
+                {
+                    RuntimeLog.Info("CUT", "DELETE PARTS cancelled by the user at the confirmation.");
+                    return;
+                }
+            }
+
+            // UNDO_01 — one snapshot covers the cut AND the segment/freeze reconciliation that
+            // follows, so a single Ctrl+Z puts the whole scene back exactly as it was.
+            PushUndo("delete parts");
+            _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(startMs, endMs));
+            NormalizeCutsInPlace(durMs);
+
+            // CUT_03 — THE DELETED RANGE MUST STOP EXISTING AS A SEGMENT.
+            // MARK END calls AddPendingSegment, so by the time DELETE PARTS runs the range the user
+            // marked is already a committed speed block. Leaving it there made the right-hand list
+            // show a block over footage that no longer exists, and made the editor's own state
+            // disagree with the exported file. This wipes the deleted footage out of the segment
+            // list and the freeze, then the timeline is rebuilt from what is actually left.
+            ApplyCutToSegmentsAndFreeze(startMs, endMs);
+
+            // The marks are spent — leaving them armed would invite deleting the same stretch twice.
+            _pendingStartMs = -1;
+            _pendingEndMs = -1;
+            _selectedSegmentIndex = -1;
+
+            // The ruler is drawn against OutTimeline(), which now has to know about the hole. Both
+            // caches are keyed on a signature that includes the cuts, so clearing them is what
+            // makes the timeline visibly condense on the next redraw.
+            _outTimeline = null; _outTimelineSig = "";
+            _baseTimeline = null; _baseTimelineSig = "";
+
+            double removedSec = TotalCutSeconds();
+            RuntimeLog.Success("CUT",
+                $"DELETE PARTS applied. {_cuts.Count} cut(s) now removing {removedSec:F2}s total. " +
+                $"{_segments.Count} speed segment(s) survive, freeze={(_freezeTimeMs >= 0 ? FormatMs(_freezeTimeMs - _trimStartMs) : "none")}. " +
+                $"Finished video is about {OutDurationSec():F2}s. Timeline condensed and recalculated.");
+
+            // CUT_03 — the voice-over needs no realignment here and that is BY DESIGN: takes are
+            // stored in SOURCE time and converted at export through the same OutputTimeline the
+            // ruler above now uses, so removing footage slides them automatically. What DOES change
+            // is the finished length a take was recorded against, so the preview player is told to
+            // re-read the timeline rather than keep a stale duration.
+            _voiceOverPlayer.Reload();
+
+            // CUT_03 — ⚠️ THE LIST, NOT JUST THE TIMELINE. ApplyCutToSegmentsAndFreeze already
+            // removed the blocks from `_segments`, but without this the right-hand pane keeps
+            // rendering the OLD rows, so deleted footage still looks like a live segment. A cut is
+            // a gonner: it must leave no trace in the list.
+            RefreshSegmentList();
+            UpdateDeleteButtonVisibility();
+            RedrawTimeline();
+            SetStatus($"Scene deleted — {(endMs - startMs) / 1000.0:F1}s removed. Video is now about {OutDurationSec():F1}s.");
+            NotifyUndoable($"Deleted {(endMs - startMs) / 1000.0:F1}s of video", "DeletePartsBtn");   // ANCHOR_01
+        }
+        catch (Exception ex) { RuntimeLog.Fail("CUT", ex); }
+    }
+
+    /// <summary>
+    /// CUT_03 — removes deleted footage from the speed segments and the freeze.
+    ///
+    /// Everything here is in SOURCE time, which is what makes this simple: footage after a cut does
+    /// NOT move, because OutputTimeline does the source-to-output mapping. Only blocks that overlap
+    /// the hole need surgery, and there are exactly four cases:
+    ///
+    ///   fully inside the cut          -> deleted outright, it covers nothing that survives
+    ///   starts before, ends inside    -> truncated to the cut's start
+    ///   starts inside, ends after     -> moved forward to the cut's end
+    ///   spans the whole cut           -> LEFT ALONE. Its source range still covers surviving
+    ///                                    footage on both sides, and OutputTimeline already splits
+    ///                                    it around the hole and applies the speed to both halves.
+    ///                                    Shortening it here would double-count the removal.
+    ///
+    /// A survivor trimmed below <see cref="MinSegmentAfterCutMs"/> is dropped: a sliver of a speed
+    /// block is not something the user chose, and each one costs a whole parallel branch at export.
+    /// Every change is logged individually — after a cut the log alone should explain why a block
+    /// the user created is no longer in the list.
+    /// </summary>
+    private void ApplyCutToSegmentsAndFreeze(double cutStartMs, double cutEndMs)
+    {
+        int removed = 0, trimmed = 0;
+
+        for (int i = _segments.Count - 1; i >= 0; i--)
+        {
+            var seg = _segments[i];
+            double ss = seg.StartMs, se = seg.EndMs;
+
+            bool startsInside = ss >= cutStartMs - 0.5 && ss < cutEndMs - 0.5;
+            bool endsInside = se > cutStartMs + 0.5 && se <= cutEndMs + 0.5;
+
+            if (startsInside && endsInside)
+            {
+                RuntimeLog.Info("CUT",
+                    $"  segment #{i + 1} [{FormatMs(ss)}-{FormatMs(se)}] {seg.Speed:0.00}x was entirely inside the "
+                    + "deleted scene — removed.");
+                _segments.RemoveAt(i);
+                removed++;
+                continue;
+            }
+
+            if (!startsInside && endsInside)
+            {
+                if (cutStartMs - ss < MinSegmentAfterCutMs)
+                {
+                    RuntimeLog.Info("CUT",
+                        $"  segment #{i + 1} [{FormatMs(ss)}-{FormatMs(se)}] would be left with only "
+                        + $"{cutStartMs - ss:F0}ms — removed instead of leaving a sliver.");
+                    _segments.RemoveAt(i);
+                    removed++;
+                }
+                else
+                {
+                    _segments[i] = seg with { EndMs = cutStartMs };
+                    RuntimeLog.Info("CUT", $"  segment #{i + 1} truncated to end at {FormatMs(cutStartMs)}.");
+                    trimmed++;
+                }
+                continue;
+            }
+
+            if (startsInside && !endsInside)
+            {
+                if (se - cutEndMs < MinSegmentAfterCutMs)
+                {
+                    RuntimeLog.Info("CUT",
+                        $"  segment #{i + 1} [{FormatMs(ss)}-{FormatMs(se)}] would be left with only "
+                        + $"{se - cutEndMs:F0}ms — removed instead of leaving a sliver.");
+                    _segments.RemoveAt(i);
+                    removed++;
+                }
+                else
+                {
+                    _segments[i] = seg with { StartMs = cutEndMs };
+                    RuntimeLog.Info("CUT", $"  segment #{i + 1} moved to start at {FormatMs(cutEndMs)}.");
+                    trimmed++;
+                }
+            }
+            // spans the cut entirely -> untouched, on purpose. See the remarks above.
+        }
+
+        // The freeze holds ONE frame. If that frame was deleted there is nothing left to hold, so
+        // the freeze goes with it — the same rule OutputTimeline.Create applies when it builds the
+        // chunk list, kept in step here so the UI and the export never disagree.
+        if (_freezeTimeMs >= 0)
+        {
+            double freezeRel = _freezeTimeMs - _trimStartMs;
+            if (freezeRel > cutStartMs - 0.5 && freezeRel < cutEndMs - 0.5)
+            {
+                RuntimeLog.Info("CUT",
+                    $"  freeze at {FormatMs(freezeRel)} held a frame inside the deleted scene — cleared.");
+                _freezeTimeMs = -1;
+                _selectedFreezePresetS = -1.0;
+            }
+        }
+
+        RuntimeLog.Info("CUT",
+            $"Segment reconciliation done: {removed} removed, {trimmed} trimmed, {_segments.Count} remaining.");
+    }
+
+    /// <summary>
+    /// CUT_03 — a speed block left shorter than this by a cut is dropped rather than kept.
+    /// Below a fifth of a second nobody perceives a speed change, and every surviving block costs a
+    /// parallel branch in the export graph (GranularSpeedBuilder.HighChunkCountWarnThreshold).
+    /// </summary>
+    private const double MinSegmentAfterCutMs = 200.0;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // UNDO_01 — UNDO / REDO FOR THIS EDITOR.
+    //
+    // ⚠️ MEMORY IS THE WHOLE DESIGN PROBLEM HERE, SO READ THIS BEFORE CHANGING ANY OF IT.
+    // A naive "snapshot everything on every change" undo in a window that fires on every slider
+    // tick will grow without bound and hold references to disposed objects. Four rules keep it
+    // bounded and safe, and all four matter:
+    //
+    //   (U1) A SNAPSHOT IS PLAIN DATA, NEVER A CONTROL OR A STREAM. It holds value types and an
+    //        immutable array of SpeedSegment RECORDS. It never touches _videoHost, the IPC client,
+    //        NAudio readers, bitmaps or canvases — so an old snapshot can never keep a disposed
+    //        native handle alive, and can never resurrect one.
+    //   (U2) HARD CAP, ENFORCED ON PUSH. MaxUndoDepth entries. The oldest is dropped the moment the
+    //        cap is exceeded, so the list has a fixed ceiling no matter how long the window is open.
+    //        At ~40 bytes per segment, 40 states of a heavy 25-segment project is roughly 40 KB —
+    //        the ceiling, not a typical case.
+    //   (U3) REDO IS TRUNCATED ON EVERY NEW EDIT. Editing after an undo drops the whole redo tail
+    //        immediately. Without this, branch after branch accumulates and is unreachable forever.
+    //   (U4) SNAPSHOTS ARE DEDUPED. PushUndo compares against the top of the stack and does nothing
+    //        if the state is identical, so slider drags and repeated redraws cannot flood it.
+    //
+    // Restoring a snapshot deliberately does NOT touch the video position, the zoom overlay or the
+    // playback state — only project data. Undo must never yank the playhead around.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// UNDO_01 — one restorable state. A readonly record struct of value types plus one immutable
+    /// array: see rule (U1). Deliberately NOT a class holding live objects.
+    /// </summary>
+    private readonly record struct EditorSnapshot(
+        ImmutableArray<SpeedSegment> Segments,
+        ImmutableArray<FortniteVideoSoftware.Core.Media.CutRange> Cuts,
+        double BaseSpeed,
+        double FreezeTimeMs,
+        double FreezeDurationS,
+        string Label,
+        int SelectedIndex)
+    {
+        /// <summary>Value equality for (U4). The Label is excluded — it is only for the log.</summary>
+        public bool SameStateAs(EditorSnapshot other)
+        {
+            if (Math.Abs(BaseSpeed - other.BaseSpeed) > 0.0001) return false;
+            if (Math.Abs(FreezeTimeMs - other.FreezeTimeMs) > 0.5) return false;
+            if (Math.Abs(FreezeDurationS - other.FreezeDurationS) > 0.0001) return false;
+            if (Segments.Length != other.Segments.Length) return false;
+            if (Cuts.Length != other.Cuts.Length) return false;
+            for (int i = 0; i < Segments.Length; i++)
+                if (!Segments[i].Equals(other.Segments[i])) return false;
+            for (int i = 0; i < Cuts.Length; i++)
+                if (!Cuts[i].Equals(other.Cuts[i])) return false;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// UNDO_01 (U2) — the hard ceiling. 40 steps is far more than anyone reaches in one session and
+    /// keeps the worst case in tens of kilobytes. Raising this raises the memory ceiling linearly;
+    /// removing it removes the ceiling entirely, which is the bug this constant exists to prevent.
+    /// </summary>
+    private const int MaxUndoDepth = 40;
+
+    private readonly List<EditorSnapshot> _undoStack = new();
+    private readonly List<EditorSnapshot> _redoStack = new();
+
+    /// <summary>
+    /// UNDO_02 (rules 2 and 3) — GESTURE COALESCING.
+    ///
+    /// A drag fires continuously and a speed wheel passes through dozens of values on the way from
+    /// 1.0x to 0.5x. Snapshotting each one would mean two hundred presses of Ctrl+Z to undo a
+    /// single drag — undo would technically work and be useless.
+    ///
+    /// A caller passes a coalesce key; the FIRST push of a burst is kept (it holds the state from
+    /// before the gesture started, which is exactly what undo needs) and every later push with the
+    /// same key inside the idle window is dropped. The window is measured from the LAST call, not
+    /// the first, so a slow ten-second drag stays one entry. Releasing the pointer calls
+    /// <see cref="EndUndoGesture"/>, which closes the burst immediately.
+    /// </summary>
+    private string _undoGestureKey = "";
+    private DateTime _undoGestureAt = DateTime.MinValue;
+    private const int UndoGestureIdleMs = 700;
+
+    /// <summary>Guards against a restore re-entering PushUndo through the redraw it triggers.</summary>
+    private bool _restoringSnapshot;
+
+    private EditorSnapshot CaptureSnapshot(string label) => new(
+        ImmutableArray.CreateRange(_segments),
+        ImmutableArray.CreateRange(_cuts),
+        _baseSpeed, _freezeTimeMs, _freezeDurationS, label, _selectedSegmentIndex);
+
+    /// <summary>
+    /// UNDO_01 — records the state BEFORE a change. Call this at the TOP of any action that alters
+    /// segments, cuts, base speed or the freeze; the label is what the tooltip and the log show.
+    /// </summary>
+    /// <summary>
+    /// UNDO_02 — ends the current gesture, so the next change starts a new undo entry even if it
+    /// carries the same coalesce key. Call from pointer-release handlers.
+    /// </summary>
+    private void EndUndoGesture()
+    {
+        _undoGestureKey = "";
+        _undoGestureAt = DateTime.MinValue;
+    }
+
+    /// <param name="coalesceKey">
+    /// UNDO_02 — non-null for CONTINUOUS controls (drags, wheels, spinners). Repeated pushes with
+    /// the same key inside <see cref="UndoGestureIdleMs"/> collapse into the first one, so one
+    /// gesture costs one Ctrl+Z. Leave null for discrete clicks.
+    /// </param>
+    private void PushUndo(string label, string? coalesceKey = null)
+    {
+        if (_restoringSnapshot) return;
+
+        if (coalesceKey != null)
+        {
+            bool sameGesture = _undoGestureKey == coalesceKey
+                               && (DateTime.UtcNow - _undoGestureAt).TotalMilliseconds < UndoGestureIdleMs;
+
+            // Refresh the clock even when dropping, so the window tracks the LAST movement.
+            _undoGestureAt = DateTime.UtcNow;
+            if (sameGesture) return;
+
+            _undoGestureKey = coalesceKey;
+        }
+        else
+        {
+            EndUndoGesture();
+        }
+
+        var snap = CaptureSnapshot(label);
+
+        // (U4) nothing actually changed since the last push — do not grow the stack.
+        if (_undoStack.Count > 0 && _undoStack[^1].SameStateAs(snap)) return;
+
+        _undoStack.Add(snap);
+
+        // (U2) enforce the ceiling on push, so the list can never exceed it even briefly.
+        while (_undoStack.Count > MaxUndoDepth) _undoStack.RemoveAt(0);
+
+        // (U3) a new edit invalidates every redo branch.
+        if (_redoStack.Count > 0)
+        {
+            RuntimeLog.Info("UNDO", $"New edit after undo — discarding {_redoStack.Count} redo state(s).");
+            _redoStack.Clear();
+        }
+
+        RefreshUndoRedoButtons();
+    }
+
+    /// <summary>
+    /// UNDO_02 (rule 7) — plain-English description of what a restore actually does, worked out by
+    /// DIFFING the two states rather than from a hand-written string per call site. "Undid change
+    /// speed" tells the user nothing; "Speed back to 1.0x" tells them the result. Self-maintaining:
+    /// a new undoable action gets a sensible sentence without touching this method.
+    /// </summary>
+    private static string DescribeRestore(EditorSnapshot from, EditorSnapshot to)
+    {
+        int segDelta = to.Segments.Length - from.Segments.Length;
+        if (segDelta > 0)
+            return segDelta == 1 ? "Brought back 1 segment" : $"Brought back {segDelta} segments";
+        if (segDelta < 0)
+            return segDelta == -1 ? "Removed the segment again" : $"Removed {-segDelta} segments again";
+
+        double cutDelta = 0;
+        foreach (var c in to.Cuts) cutDelta += c.EndMs - c.StartMs;
+        foreach (var c in from.Cuts) cutDelta -= c.EndMs - c.StartMs;
+        if (cutDelta > 1) return $"Put back the {cutDelta / 1000.0:0.0}s you deleted";
+        if (cutDelta < -1) return $"Deleted {-cutDelta / 1000.0:0.0}s again";
+
+        if (Math.Abs(to.BaseSpeed - from.BaseSpeed) > 0.001)
+            return $"Overall speed back to {to.BaseSpeed:0.0}x";
+
+        if (to.FreezeTimeMs < 0 && from.FreezeTimeMs >= 0) return "Removed the frozen frame";
+        if (to.FreezeTimeMs >= 0 && from.FreezeTimeMs < 0) return "Brought back the frozen frame";
+        if (Math.Abs(to.FreezeDurationS - from.FreezeDurationS) > 0.005)
+            return $"Freeze back to {to.FreezeDurationS:0.0}s";
+
+        // Same count on both sides: something INSIDE a segment changed. Name it.
+        for (int i = 0; i < to.Segments.Length && i < from.Segments.Length; i++)
+        {
+            var a = from.Segments[i];
+            var b = to.Segments[i];
+            if (Math.Abs(a.Speed - b.Speed) > 0.001) return $"Speed back to {b.Speed:0.0}x";
+            if (Math.Abs(a.StartMs - b.StartMs) > 0.5 || Math.Abs(a.EndMs - b.EndMs) > 0.5)
+                return "Segment back where it was";
+            if (a.ZoomW.HasValue != b.ZoomW.HasValue)
+                return b.ZoomW.HasValue ? "Brought back the zoom" : "Removed the zoom";
+            if (a.ZoomW != b.ZoomW || a.ZoomX != b.ZoomX || a.ZoomY != b.ZoomY || a.ZoomH != b.ZoomH)
+                return "Zoom box back where it was";
+            if (a.ZoomSlow != b.ZoomSlow) return b.ZoomSlow ? "Zoom back to slow" : "Zoom back to instant";
+        }
+
+        return $"Undid {to.Label}";
+    }
+
+    private void PerformUndo()
+    {
+        if (_undoStack.Count == 0)
+        {
+            ShowUndoNotice("Nothing left to undo", "UndoBtn");
+            return;
+        }
+
+        var previous = _undoStack[^1];
+        _undoStack.RemoveAt(_undoStack.Count - 1);
+
+        // The CURRENT state becomes the redo entry, so redo is exact rather than reconstructed.
+        var current = CaptureSnapshot(previous.Label);
+        _redoStack.Add(current);
+        while (_redoStack.Count > MaxUndoDepth) _redoStack.RemoveAt(0);
+
+        RuntimeLog.Info("UNDO",
+            $"UNDO '{previous.Label}': segments {current.Segments.Length} -> {previous.Segments.Length}, " +
+            $"cuts {current.Cuts.Length} -> {previous.Cuts.Length}, " +
+            $"base {current.BaseSpeed:0.00}x -> {previous.BaseSpeed:0.00}x. " +
+            $"Depth now undo={_undoStack.Count} redo={_redoStack.Count}.");
+
+        RestoreSnapshot(previous);
+        // UNDOHINT_01 / UNDO_02 (rules 6+7) — say what came BACK, beside the button that did it.
+        ShowUndoNotice($"{DescribeRestore(current, previous)} \u2014 Ctrl+Y to redo", "UndoBtn");
+    }
+
+    private void PerformRedo()
+    {
+        if (_redoStack.Count == 0)
+        {
+            ShowUndoNotice("Nothing left to redo", "RedoBtn");
+            return;
+        }
+
+        var next = _redoStack[^1];
+        _redoStack.RemoveAt(_redoStack.Count - 1);
+
+        _undoStack.Add(CaptureSnapshot(next.Label));
+        while (_undoStack.Count > MaxUndoDepth) _undoStack.RemoveAt(0);
+
+        RuntimeLog.Info("UNDO",
+            $"REDO '{next.Label}': back to {next.Segments.Length} segment(s), {next.Cuts.Length} cut(s). " +
+            $"Depth now undo={_undoStack.Count} redo={_redoStack.Count}.");
+
+        RestoreSnapshot(next);
+        ShowUndoNotice($"{DescribeRestore(_undoStack[^1], next)} \u2014 Ctrl+Z to undo again", "RedoBtn");
+    }
+
+    /// <summary>
+    /// UNDO_01 — puts project data back. Touches ONLY project data: never the playhead, never the
+    /// zoom overlay, never playback. The timeline caches are invalidated by hand because their
+    /// signatures are built from exactly the fields this replaces.
+    /// </summary>
+    private void RestoreSnapshot(EditorSnapshot snap)
+    {
+        _restoringSnapshot = true;
+        try
+        {
+            _segments.Clear();
+            _segments.AddRange(snap.Segments);
+
+            _cuts.Clear();
+            _cuts.AddRange(snap.Cuts);
+
+            _baseSpeed = snap.BaseSpeed;
+            _freezeTimeMs = snap.FreezeTimeMs;
+            _freezeDurationS = snap.FreezeDurationS;
+
+            // UNDO_02 (rule 4) — KEEP THE SELECTION. This used to blank it, so an undo also
+            // emptied the side panel and felt like more had been taken back than was asked for.
+            // The snapshot carries the selection from before the change; clamped in case the list
+            // it pointed into is now shorter.
+            _selectedSegmentIndex = (snap.SelectedIndex >= 0 && snap.SelectedIndex < _segments.Count)
+                ? snap.SelectedIndex
+                : -1;
+            _pendingStartMs = -1;
+            _pendingEndMs = -1;
+
+            _outTimeline = null; _outTimelineSig = "";
+            _baseTimeline = null; _baseTimelineSig = "";
+
+            if (_zoomModeActive) ExitZoomMode();
+
+            // UNDO_01 — same reason as CUT_03: restoring `_segments` is not visible until the
+            // pane is rebuilt from it.
+            RefreshSegmentList();
+            UpdateDeleteButtonVisibility();
+            RedrawTimeline();
+            RefreshUndoRedoButtons();
+        }
+        catch (Exception ex) { RuntimeLog.Fail("UNDO", ex); }
+        finally { _restoringSnapshot = false; }
+    }
+
+    /// <summary>
+    /// UNDOHINT_01 — the standing prompt under the UNDO / REDO pair.
+    ///
+    /// It always names the SPECIFIC action the shortcut would take back or put back, so the key and
+    /// its consequence are read together, right beside the buttons that do the same thing. Redo is
+    /// offered first when a redo is pending, because that is the state the user just created by
+    /// pressing Ctrl+Z and it is the thing they are most likely to want next.
+    /// </summary>
+    private void RefreshUndoHintText()
+    {
+        var hint = this.FindControl<TextBlock>("UndoHintText");
+        if (hint == null) return;
+
+        // UNDO_02 (rule 5) — SHOW BOTH WHEN BOTH ARE POSSIBLE. This used to switch entirely to the
+        // redo wording the moment a redo existed, so after one Ctrl+Z it stopped mentioning undo
+        // even with ten more undos still available — it was telling the user the wrong key.
+        bool canUndo = _undoStack.Count > 0;
+        bool canRedo = _redoStack.Count > 0;
+
+        if (canUndo && canRedo)
+            hint.Text = $"Ctrl+Z: undo \u201c{_undoStack[^1].Label}\u201d   \u00b7   Ctrl+Y: redo \u201c{_redoStack[^1].Label}\u201d";
+        else if (canUndo)
+            hint.Text = $"Press Ctrl + Z to undo \u201c{_undoStack[^1].Label}\u201d";
+        else if (canRedo)
+            hint.Text = $"Press Ctrl + Y to redo \u201c{_redoStack[^1].Label}\u201d";
+        else
+            hint.Text = "Every change can be taken back with Ctrl+Z";
+    }
+
+    /// <summary>
+    /// UNDOHINT_01 — announces a change AND teaches the shortcut in the same breath. Every action
+    /// that pushes an undo state should report through here rather than calling ShowFeedback
+    /// directly, so the offer to undo is never missing from a step that can be undone.
+    /// </summary>
+    private void NotifyUndoable(string what, string? anchorName = null)
+    {
+        ShowUndoNotice($"{what} \u2014 press Ctrl + Z to undo", anchorName);
+        RefreshUndoHintText();
+    }
+
+    /// <summary>
+    /// ANCHOR_01 / UNDO_02 (rule 6) — floats an undo message NEXT TO the control that caused it.
+    ///
+    /// The eye is on the button that was just pressed, so that is where the words belong. Falls
+    /// back to the UNDO button itself (the thing the message is telling you to use) and, failing
+    /// that, to the centred notice — a message must never be lost because a control could not be
+    /// found or is off-screen.
+    /// </summary>
+    private void ShowUndoNotice(string text, string? anchorName = null)
+    {
+        Control? anchor = null;
+        if (anchorName != null) anchor = this.FindControl<Control>(anchorName);
+        anchor ??= this.FindControl<Button>("UndoBtn");
+
+        Controls.FloatingNotice.ShowAt(this, anchor, text, Controls.NoticeKind.Success);
+    }
+
+    private void RefreshUndoRedoButtons()
+    {
+        RefreshUndoHintText();
+
+        var u = this.FindControl<Button>("UndoBtn");
+        var r = this.FindControl<Button>("RedoBtn");
+        if (u != null)
+        {
+            u.IsEnabled = _undoStack.Count > 0;
+            // UNDO_02 (rule 8) — name the action so hovering answers "what will this take back?"
+            ToolTip.SetTip(u, _undoStack.Count > 0
+                ? $"Undo \u201c{_undoStack[^1].Label}\u201d  (Ctrl+Z)"
+                : "Nothing to undo yet (Ctrl+Z)");
+        }
+        if (r != null)
+        {
+            r.IsEnabled = _redoStack.Count > 0;
+            ToolTip.SetTip(r, _redoStack.Count > 0
+                ? $"Redo \u201c{_redoStack[^1].Label}\u201d  (Ctrl+Y)"
+                : "Nothing to redo (Ctrl+Y)");
+        }
+    }
+
+    private void WireUndoRedo()
+    {
+        var u = this.FindControl<Button>("UndoBtn");
+        if (u != null) u.AddHandler(Button.ClickEvent, (_, _) => PerformUndo());
+
+        var r = this.FindControl<Button>("RedoBtn");
+        if (r != null) r.AddHandler(Button.ClickEvent, (_, _) => PerformRedo());
+
+        // Ctrl+Z / Ctrl+Y. Tunnel so the shortcut works wherever focus happens to be, and marked
+        // Handled so a focused text field cannot also act on it.
+        this.AddHandler(InputElement.KeyDownEvent, (_, e) =>
+        {
+            if (e.KeyModifiers != KeyModifiers.Control) return;
+            if (e.Key == Key.Z) { PerformUndo(); e.Handled = true; }
+            else if (e.Key == Key.Y) { PerformRedo(); e.Handled = true; }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
+        RefreshUndoRedoButtons();
+    }
+
+    /// <summary>
+    /// UNDO_01 — drops both stacks. Called when the window closes so no snapshot outlives the
+    /// editor, and after APPLY, where the project has been handed to the Main App and undoing into
+    /// a state that was never exported would be misleading.
+    /// </summary>
+    private void ClearUndoHistory(string why)
+    {
+        if (_undoStack.Count == 0 && _redoStack.Count == 0) return;
+        RuntimeLog.Info("UNDO", $"Clearing history ({why}): {_undoStack.Count} undo, {_redoStack.Count} redo.");
+        _undoStack.Clear();
+        _redoStack.Clear();
+        RefreshUndoRedoButtons();
+    }
+
+    /// <summary>CUT_02 — minimum surviving footage, in ms. See MainWindow's identical guard.</summary>
+    private const double MinSurvivingMs = 500.0;
+
+    /// <summary>Runs the export's own normalisation so this window can never show a cut the export would not make.</summary>
+    private void NormalizeCutsInPlace(double durMs)
+    {
+        var rel = _cuts
+            .Select(c => new FortniteVideoSoftware.Core.Media.OutputTimeline.Cut(c.StartMs / 1000.0, c.EndMs / 1000.0))
+            .ToList();
+        var norm = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(rel, durMs / 1000.0);
+
+        _cuts.Clear();
+        foreach (var c in norm)
+            _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(c.StartSec * 1000.0, c.EndSec * 1000.0));
+    }
+
+    private static double SurvivingMsAfterCuts(
+        IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange> cuts, double durMs)
+    {
+        var rel = cuts
+            .Select(c => new FortniteVideoSoftware.Core.Media.OutputTimeline.Cut(c.StartMs / 1000.0, c.EndMs / 1000.0))
+            .ToList();
+        var norm = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(rel, durMs / 1000.0);
+
+        double removed = 0;
+        foreach (var c in norm) removed += c.LengthSec * 1000.0;
+        return Math.Max(0, durMs - removed);
+    }
+
+    private double TotalCutSeconds()
+    {
+        double t = 0;
+        foreach (var c in _cuts) t += (c.EndMs - c.StartMs) / 1000.0;
+        return t;
+    }
+
+    /// <summary>CUT_02 — the cut list in the units OutputTimeline wants: clip-relative SECONDS.</summary>
+    private List<FortniteVideoSoftware.Core.Media.OutputTimeline.Cut> CutsForTimeline()
+        => _cuts
+            .Select(c => new FortniteVideoSoftware.Core.Media.OutputTimeline.Cut(c.StartMs / 1000.0, c.EndMs / 1000.0))
+            .ToList();
 
     /// <summary>ISSUE_09 — the one suite-wide notice. See MainWindow.ShowTacticalFeedback.</summary>
     private void ShowFeedback(string text)
@@ -5134,29 +5860,6 @@ public partial class GranularSpeedEditorWindow : Window
         ClearLiveZoomCrop();
         _playbackTimer?.Stop();
 
-        // ═══════════════════════════════════════════════════════════════════════════════════════
-        // ZOOMHANG_01 — THE PREVIEW IS TORN DOWN HERE, BEFORE Hide(), NOT IN OnClosed AFTER IT.
-        //
-        // The old order was Hide() -> Post(Close) -> OnClosed -> _videoHost.Dispose(). Between the
-        // Hide and the Dispose the render pipeline is still live but can no longer complete a
-        // frame: Avalonia stops a hidden window's renderer, so the UI-thread continuation that
-        // hands the keyed mutex back never runs, and Hide() collapses Bounds so the render thread
-        // takes the `width <= 1` decline branch on every pass. The render thread therefore spends
-        // that whole window inside UpdateSurface — holding _renderLock and blocking on
-        // Dispatcher.UIThread.Invoke — which is precisely when Dispose then tried to take the same
-        // lock from the UI thread. That is the APPLY SEGMENTS freeze, and the endless
-        // "[libmpv_render] after creating texture: OpenGL error INVALID_OPERATION" is the OTHER
-        // MpvVideoView in the process free-running its retry loop once the UI thread is dead.
-        //
-        // Disposing first means the render thread is stopped and the GL/D3D resources are released
-        // while the window is still shown and the dispatcher is still pumping, so the Invoke the
-        // render thread may be sitting in can actually complete.
-        //
-        // ⚠️ DO NOT MOVE THIS BACK BELOW Hide(), AND DO NOT "TIDY" IT INTO OnClosed. The two
-        // MpvVideoView-side guards (bounded import wait, TryEnter in Dispose) make the deadlock
-        // survivable; this ordering is what stops it being reached in the first place. Both halves
-        // are wanted — the guards alone leave a 3-second stall on every close.
-        // ═══════════════════════════════════════════════════════════════════════════════════════
         try { _videoHost?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         _videoHost = null;
 
@@ -5168,6 +5871,10 @@ public partial class GranularSpeedEditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        // UNDO_01 — snapshots are plain data (rule U1), so they cannot pin a native handle, but the
+        // lists still go here so nothing survives the window that owned them.
+        ClearUndoHistory("editor closed");
+
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -139,16 +139,75 @@ public partial class VoiceOverWindow : Window
     /// export's relationship. NAudio has no 0-100 ceiling, but going DOWN is still the right
     /// direction: it keeps the preview honest without ever amplifying a noisy take.
     /// </summary>
-    public double? SourceMeasuredLufs { get; set; }
-
-    private double VoicePreviewOffsetDb => 0.0;
-
-    private float GetTakePreviewGain(VoiceOverSession session)
+    public double? SourceMeasuredLufs
     {
-        return 1.0f;
+        get => _sourceMeasuredLufs;
+        set
+        {
+            if (_sourceMeasuredLufs == value) return;
+            _sourceMeasuredLufs = value;
+            // PREVIEW_03 — the Main App may set this after the window is up, and any gain already
+            // memoised was computed from a null measurement (i.e. no shift at all).
+            InvalidateTakePreviewGains();
+        }
+    }
+    private double? _sourceMeasuredLufs;
+
+    /// <summary>
+    /// PREVIEW_03 — THE SHIFT THAT MAKES THIS WINDOW HONEST. Was hard-coded to 0.0, which is why
+    /// the compensation the comment above describes never actually happened.
+    ///
+    /// The export lifts the game bus to TargetLufs and aims the voice at that same figure, so the
+    /// two land together. Here the video plays RAW through mpv. If the clip measured -25 LUFS, the
+    /// export is going to add 11 dB to it — but in this window it is still at -25, so an unshifted
+    /// take sounds 11 dB too loud against it. The user turns the take down to fix that, and the
+    /// exported voice ends up 11 dB too quiet.
+    ///
+    /// So the VOICE is shifted DOWN by exactly the boost the video has not received yet. Going
+    /// down is the only safe direction: it reproduces the export's relationship without ever
+    /// amplifying a noisy take. A clip already at or above the target needs no shift, and an
+    /// unmeasured clip gets none — which is the old behaviour, restored as the fallback.
+    /// </summary>
+    private double VoicePreviewOffsetDb
+    {
+        get
+        {
+            if (SourceMeasuredLufs is not double measured) return 0.0;
+
+            double missingBoost = FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs - measured;
+            if (missingBoost <= 0.0) return 0.0;
+
+            // Same rail the export clamps its own corrections to, so a badly-measured or nearly
+            // silent clip cannot drive the preview take down to nothing.
+            return -Math.Min(missingBoost, FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MaxMusicGainDb);
+        }
     }
 
+    /// <summary>
+    /// PREVIEW_03 — the linear NAudio gain for one take. Was hard-coded to 1.0f.
+    /// Memoised per take path so the value cannot drift between rebuilds of the preview players
+    /// (they are torn down and recreated whenever the take count changes).
+    /// </summary>
+    private float GetTakePreviewGain(VoiceOverSession session)
+    {
+        string key = session.WavPath ?? string.Empty;
+        if (key.Length > 0 && _takePreviewGain.TryGetValue(key, out float cached)) return cached;
 
+        float gain = (float)Math.Pow(10.0, VoicePreviewOffsetDb / 20.0);
+        if (key.Length > 0) _takePreviewGain[key] = gain;
+        return gain;
+    }
+
+    /// <summary>
+    /// PREVIEW_03 — drops the memoised gains so the next preview rebuild recomputes them. Called
+    /// when SourceMeasuredLufs arrives after the takes were already built.
+    /// </summary>
+    private void InvalidateTakePreviewGains()
+    {
+        _takePreviewGain.Clear();
+        _takeGainPending.Clear();
+        _previewPlayersBuiltForCount = -1;
+    }
 
 
     private Button? _micRecordButton;
@@ -309,16 +368,25 @@ public partial class VoiceOverWindow : Window
                         await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
 
-
-                        if (_trimStartSec > 0 || _trimEndSec > 0)
-                        {
-                             await _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", _trimStartSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                             if (_trimEndSec > 0)
-                             {
-                                 await _videoHost.IpcClient.SetPropertyAsync("ab-loop-b", _trimEndSec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                             }
-                             initialPos = NormalizePreviewPlaybackPosition(initialPos);
-                        }
+                        // ⚠️ VOFIX_01 — THE CAUSE OF "IT KEEPS LOOPING AND REPLAYING THE VIDEO".
+                        //
+                        // This used to set `ab-loop-a` / `ab-loop-b`. Those are mpv's A-B REPEAT
+                        // properties: on reaching B, mpv SEEKS BACK TO A and plays the range again,
+                        // forever. The intent was clearly "confine playback to the trim region",
+                        // but the property chosen does the opposite of stopping there.
+                        //
+                        // The damage went well past an annoying replay. Recording arms by watching
+                        // for the video clock to MOVE FORWARD (PumpRecordArming); a loop-back makes
+                        // the clock jump backwards mid-take, which is why takes came out empty or
+                        // misanchored and why the transport felt unstable. One property, all three
+                        // reported symptoms.
+                        //
+                        // The range is now enforced in Timer_Tick, which pauses at the trim end
+                        // instead of rewinding. Any leftover A-B loop from a previous session on
+                        // this mpv instance is explicitly cleared.
+                        await _videoHost.IpcClient.SetPropertyAsync("ab-loop-a", "no");
+                        await _videoHost.IpcClient.SetPropertyAsync("ab-loop-b", "no");
+                        await _videoHost.IpcClient.SetPropertyAsync("keep-open", "yes");
 
                         double videoDuration = _videoHost.IpcClient.Duration;
                         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
@@ -364,16 +432,6 @@ public partial class VoiceOverWindow : Window
                     UpdateApplyState(previewReady ? null : "Preview could not start on this graphics session.");
                 }
 
-                // ══════════════════════════════════════════════════════════════════════════════
-                // VOICE_01 — THE TRANSPORT WAS PERMANENTLY DEAD ON THIS SCREEN.
-                // `_isMpvReady` gates PlayPauseButton and MicRecordButton (UpdateTransportState),
-                // and both start IsEnabled="False" in XAML. The field was declared `= false` and
-                // READ in four places — but never once ASSIGNED. A refactor left the readiness
-                // signal in this local `previewReady` and orphaned the field the UI depends on, so
-                // Play and Record could never enable and the only working control was CANCEL.
-                // Nothing about it looks broken at a glance, which is why it survived: the flag
-                // exists, is named correctly, and is wired to exactly the right controls.
-                // ══════════════════════════════════════════════════════════════════════════════
                 _isMpvReady = previewReady;
 
                 UpdateTransportState();
@@ -414,13 +472,6 @@ public partial class VoiceOverWindow : Window
             elapsedFreezeSec = (DateTime.UtcNow - _freezeStartTime).TotalSeconds;
         }
 
-        // VOICE_02 — THE REBUILD TRIGGER MUST NOT BE THE LIVE PLAYER COUNT. It compared
-        // `_sessions.Count != _previewPlayers.Count`, so a take whose WAV was missing or whose
-        // WaveOutEvent failed to open left the two counts permanently unequal: every 50 ms tick
-        // disposed and recreated EVERY player, nothing survived long enough to be heard, and
-        // the log filled with the same failure. Track what the last rebuild was FOR, not what
-        // it achieved. `_previewPlayersBuiltForCount` is reset to -1 by StopPreviewPlayers so
-        // an external invalidation (MeasureTakeGainAsync) still forces exactly one rebuild.
         if (_sessions.Count != _previewPlayersBuiltForCount)
         {
             StopPreviewPlayers();
@@ -483,6 +534,7 @@ public partial class VoiceOverWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        EnforceTrimEndStop();   // VOFIX_01 — replaces the A-B repeat loop
         PumpRecordArming();
         UpdateWaveformUI();
         UpdatePlayPauseIconUI();
@@ -609,10 +661,20 @@ public partial class VoiceOverWindow : Window
 
         if (deleteTakeBtn != null)
         {
-            deleteTakeBtn.Click += (s, e) =>
+            deleteTakeBtn.Click += async (s, e) =>
             {
                 if (_selectedSession != null)
                 {
+                    if (FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVoiceOverDeleteTake)
+                    {
+                        var confirm = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
+                        confirm.SetTitle("Delete Take");
+                        confirm.SetMessage("Delete this voice-over take?\nThe recording is removed from disk and cannot be undone.");
+                        confirm.SetButtonText("YES, DELETE", "CANCEL");
+                        await confirm.ShowDialog(this);
+                        if (!confirm.Result) return;
+                    }
+
                     bool isInitial = InitialState?.VoiceOverTakes?.Any(t => string.Equals(t.Path, _selectedSession.WavPath, StringComparison.OrdinalIgnoreCase)) == true;
                     if (!isInitial) TryDeleteFile(_selectedSession.WavPath);
                     _sessions.Remove(_selectedSession);
@@ -818,12 +880,51 @@ public partial class VoiceOverWindow : Window
             return start;
         }
 
+        // ⚠️ VOFIX_02 — SECOND, INDEPENDENT LOOP. This returned `start`, so any position at or
+        // near the trim end silently REWOUND to the beginning. Pressing record late in the clip
+        // therefore threw the playhead back to the start before the take even began. Clamp to just
+        // inside the end instead: the caller asked to be constrained, not rewound.
         if (!double.IsInfinity(end) && seconds >= end - 0.05)
         {
-            return start;
+            return Math.Max(start, end - 0.05);
         }
 
         return seconds;
+    }
+
+    /// <summary>
+    /// VOFIX_01 — stops at the trim end instead of looping back to the trim start.
+    ///
+    /// This is what the removed `ab-loop-a`/`ab-loop-b` pair was reaching for. Reaching the end of
+    /// the clip PAUSES, and if a take is open it is finalised first, so the recording that was
+    /// running is kept rather than being cut mid-loop. Idempotent: once paused at the end it does
+    /// nothing on subsequent ticks, so it cannot fight the user pressing play.
+    /// </summary>
+    private void EnforceTrimEndStop()
+    {
+        try
+        {
+            var ipc = _videoHost?.IpcClient;
+            if (ipc == null || !_isMpvReady) return;
+            if (_trimEndSec <= _trimStartSec) return;
+            if (ipc.IsPaused) return;
+
+            double now = ipc.CurrentTime;
+            if (now < _trimEndSec - 0.05) return;
+
+            if (_isRecording && !_recordPaused)
+            {
+                RuntimeLog.Info("VoiceOver",
+                    $"Reached the end of the clip at {now:F2}s while recording — finalising the take and stopping.");
+                StopRecordingAndPlayback();
+                return;
+            }
+
+            RuntimeLog.Info("VoiceOver", $"Reached the end of the clip at {now:F2}s — pausing (no loop).");
+            _ = ipc.SetPropertyAsync("pause", "yes");
+            UpdatePlayPauseIconUI();
+        }
+        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
     }
 
     private SpeedSegment? FindFreezeSegment(double positionMs)
@@ -1019,21 +1120,7 @@ public partial class VoiceOverWindow : Window
         string localVideoPath = _videoPath ?? "";
         double localTrimStart = _trimStartSec;
 
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        // STRIP_01 — this was a SECOND, WORSE copy of the filmstrip command, inline. It:
-        //   * decoded the entire range to keep 15 frames, exactly like the shared generator used
-        //     to (that is the delay the user reported on this screen);
-        //   * asked `fps` for 16 frames while tiling 15, so the strip never contained the frames
-        //     it claimed to;
-        //   * wrote into the OS temp directory rather than the app's, outside the job cleanup;
-        //   * did not redirect stderr, so every failure was silent;
-        //   * paid `-hwaccel auto` initialisation for a fifteen-frame job — the same CUDA decoder
-        //     init that logs `cuvidCreateDecoder ... CUDA_ERROR_INVALID_VALUE` on this hardware.
-        // It now calls the one implementation, which picks its own strategy by sample spacing.
-        // ══════════════════════════════════════════════════════════════════════════════════════
         string thumbTempDir = FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().TempDirectory;
-        // PREWARM_01 — take the background-rendered strip if the Main App already built this
-        // exact range. Null on any mismatch, in which case we stream it as usual.
         var warmedStrip = FortniteVideoSoftware.App.Services.FilmstripPrewarm.TryTake(
             localVideoPath, localTrimStart, durationSec);
         bool warmedMounted = false;
@@ -1050,15 +1137,10 @@ public partial class VoiceOverWindow : Window
             }
             else
             {
-                // LEAK_01 — TryTake TRANSFERS OWNERSHIP. With no Image to mount it on we are
-                // holding an orphan that nothing else will ever dispose, and reporting success
-                // for a lane that was never shown. Release it and render normally.
                 try { warmedStrip.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
             }
         }
 
-        // STRIP_03 — stream the lane so the first frame is on screen in ~0.2s instead of after the
-        // whole strip is rendered. The callbacks are marshalled to the UI thread by StreamAsync.
         var thumbTask = warmedMounted ? Task.FromResult(true) : Task.Run(async () =>
         {
             try
@@ -1103,7 +1185,6 @@ public partial class VoiceOverWindow : Window
 
         if (token.IsCancellationRequested) return;
 
-        // STRIP_03 — the stream is the normal path; this only runs when it yielded no frames.
         string? thumbPath = null;
         if (!thumbStreamed)
         {
@@ -1299,7 +1380,7 @@ public partial class VoiceOverWindow : Window
                 {
                     Width = 10,
                     Height = height,
-                    Fill = Avalonia.Media.Brushes.LimeGreen,
+                    Fill = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen),   // TONE_01
                     IsHitTestVisible = true,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
                 };
@@ -1320,7 +1401,7 @@ public partial class VoiceOverWindow : Window
                 {
                     Width = 10,
                     Height = height,
-                    Fill = Avalonia.Media.Brushes.LimeGreen,
+                    Fill = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen),   // TONE_01
                     IsHitTestVisible = true,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
                 };
@@ -1682,9 +1763,6 @@ public partial class VoiceOverWindow : Window
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
 
         if (_recordingLight != null) _recordingLight.Opacity = 0.6;
-        // VOICE_02 — the `recording` class is now owned solely by UpdateRecordingUi and means
-        // MICROPHONE OPEN. Arming is not recording; adding it here lit the pulse before a
-        // single sample had been captured, which is the opposite of an honest indicator.
         UpdateTransportState();
         return true;
     }
@@ -1700,12 +1778,6 @@ public partial class VoiceOverWindow : Window
         var ipc = _videoHost?.IpcClient;
         if (ipc == null) return;
 
-        // VOICE_02 — THIS BRANCH USED TO RETURN WITHOUT CHECKING THE DEADLINE. A preview that
-        // reported paused or frozen from the instant record was pressed left the window armed
-        // FOREVER: the status text sat on "ARMING", the microphone was never opened, and the
-        // empty WAV was silently discarded by FinalizeCurrentTake. Both "it does not show that
-        // it is recording" and "there is no voice on playback" come out of this one path.
-        // The deadline must be evaluated on EVERY tick, not only on the clock-stalled branch.
         if (_isCurrentlyFrozen || ipc.IsPaused)
         {
             _armPrevTime = ipc.CurrentTime;
@@ -1720,6 +1792,23 @@ public partial class VoiceOverWindow : Window
         }
 
         double now = ipc.CurrentTime;
+
+        // VOFIX_04 — a BACKWARDS jump must re-baseline, not stall the arm.
+        // Arming waits for the clock to move FORWARD. The A-B repeat loop (VOFIX_01) made the clock
+        // jump backwards, so `now <= _armPrevTime` stayed true until the 3-second deadline aborted
+        // the take — which is why recordings came out empty, and why RecordPauseButton stayed
+        // disabled (`IsEnabled = _isRecording && !_recordArming`) and looked broken. The loop is
+        // gone, but a user seek during the arm window would reproduce it exactly, so re-baseline on
+        // any backwards movement and let the deadline keep its meaning.
+        if (now < _armPrevTime - 1e-4)
+        {
+            RuntimeLog.Info("VoiceOver",
+                $"Preview jumped backwards while arming ({_armPrevTime:F2}s -> {now:F2}s). Re-baselining the arm.");
+            _armPrevTime = now;
+            _armDeadlineUtc = DateTime.UtcNow.AddSeconds(3);
+            return;
+        }
+
         if (now <= _armPrevTime + 1e-4)
         {
             if (DateTime.UtcNow > _armDeadlineUtc)
@@ -1874,11 +1963,6 @@ public partial class VoiceOverWindow : Window
 
     private void UpdateRecordingUi(string status, string brushKey)
     {
-        // VOICE_02 — THE PULSE IS THE INDICATION. Opacity alone (0.2 / 0.6 / 1.0 on a
-        // permanently red 16px dot) made ARMING and PAUSED identical and RECORDING barely
-        // distinguishable from idle, and the `recording` class the mic button has always
-        // toggled matched NO style in the whole source tree, so the button never changed at
-        // all. The class now drives the two animations in AvaloniaApp.axaml.
         bool live = status == "RECORDING";
         if (_recordingLight != null)
         {
@@ -2328,7 +2412,6 @@ public partial class VoiceOverWindow : Window
         base.OnClosing(e);
         if (!e.Cancel)
         {
-            // ZOOMHANG_01 - Must dispose before Hide()/OnClosed() collapses bounds to avoid OpenGL deadlock
             _videoHost?.Dispose();
             _videoHost = null;
         }

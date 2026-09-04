@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -227,6 +227,27 @@ public partial class MainWindow : Window
     private string _hardwareMode = HardwareScanner.ScanFailed;
     private System.Threading.CancellationTokenSource? _processCts;
 private readonly RecoveryManager _recovery = new RecoveryManager();
+
+/// <summary>
+/// RECOVERY / WRONG-STATE FIX. True from the moment an export finishes successfully until the
+/// user makes their next real edit.
+///
+/// THE BUG THIS CLOSES. The success path showed FinishedDialogWindow and never cleared the
+/// recovery state, while every edit flag (_trimStartSet, _isMusicActive, _speedSegments, ...)
+/// stayed set. HasUnsavedWork() therefore still reported TRUE for work that had just been
+/// exported and saved, which produced three separate wrong behaviours:
+///   1. switching to Video Merger / Crop Tools re-saved recovery data for finished work and
+///      then asked "you have unsaved work, are you sure?" about a file already on disk;
+///   2. the same switch path wrote a fresh state file on the way out;
+///   3. the NEXT launch saw that state file, RecoveryManager.CheckFault() returned true, and the
+///      user was asked to "restore your previous work" after a session that completed perfectly.
+///
+/// Clearing the state file alone is enough to silence CheckFault (it early-returns when the file
+/// is absent), but not enough on its own: SaveRecoveryState is wired to ~25 UI events and the
+/// very next one would re-arm it, because HasUnsavedWork was still true. Hence this flag, which
+/// HasUnsavedWork honours and which the first genuine edit clears.
+/// </summary>
+private bool _exportedCleanSinceLastEdit;
     private bool _isGranularSpeedActive = false;
     private bool _isMusicActive = false;
     private bool _isRestoring = false;
@@ -382,6 +403,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             if (e.Key == Key.Space)
             {
+                if (Controls.PhaseOverlayControl.FightInputActive) return;
+
                 var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
                 if (focused is TextBox) return;
 
@@ -406,6 +429,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         SettingsManager.Load();
         ThemeManager.ApplyFromSettings();
         FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.ApplyProfile(FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay);
+        ApplyMaskProfileToOverlayUi();
 
         var settingsBtn = this.FindControl<MenuItem>("MenuSettingsBtn");
         if (settingsBtn != null)
@@ -415,7 +439,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 RuntimeLog.Info("UI", "User clicked Settings menu button.");
                 var settingsWin = new FortniteVideoSoftware.App.Controls.SettingsWindow();
                 bool changed = await settingsWin.ShowDialog<bool>(this);
-                if (changed) UpdateTooltips();
+                if (changed)
+                {
+                    UpdateTooltips();
+                    // NOMASK_01 — the Mask Overlay tab is the only place the profile changes at
+                    // runtime, and SettingsWindow.Save has already called ApplyProfile by now.
+                    ApplyMaskProfileToOverlayUi();
+                }
             };
         }
 
@@ -644,7 +674,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _freezeDurationS,
                     isMobileForZoom,
                     zoomSrcRes,
-                    _voiceOverResult);
+                    _voiceOverResult,
+                    _cuts);          // CUT_02 — cuts are edited in the Granular editor now
 
                 await editor.ShowDialog(this);
                 ReturnToTrimStartPaused();
@@ -660,10 +691,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     _freezeTimeMs = editor.ResultFreezeTimeMs;
                     _freezeDurationS = editor.ResultFreezeDurationS;
 
+                    // CUT_02 — cuts come home in absolute source ms, same as the segments above.
+                    _cuts.Clear();
+                    _cuts.AddRange(editor.ResultCuts);
+
                     ClearLiveZoomCrop();
 
                     int count = _speedSegments.Count;
-                    RuntimeLog.Info("UI", $"Granular editor closed. {count} segment(s) saved. Base speed={_baseSpeed:F2}x. FreezeTimeMs={_freezeTimeMs}");
+                    RuntimeLog.Info("UI", $"Granular editor closed. {count} segment(s) saved. " +
+                        $"Base speed={_baseSpeed:F2}x. FreezeTimeMs={_freezeTimeMs}. " +
+                        $"{_cuts.Count} cut(s) removing {RemovedCutSeconds():F2}s.");
 
                     bool hasGranularEdits = count > 0 || _freezeTimeMs >= 0;
 
@@ -702,7 +739,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var cropSettingsButton = this.FindControl<Button>("CropSettingsButton");
         if (cropSettingsButton != null)
         {
-            cropSettingsButton.Click += async (s, e) => await SwitchToCompanionAppAsync("--crop-tool", "Crop Tools");
+            cropSettingsButton.Click += async (s, e) =>
+            {
+                // NOMASK_01 — the reserved profile has nothing to edit and must not be edited.
+                // Crop Tools CLOSES the Main App to launch, so this check has to happen before
+                // that hand-off, not inside the Crop Tools window.
+                if (BlockCropToolsForNoMaskProfile()) return;
+                await SwitchToCompanionAppAsync("--crop-tool", "Crop Tools");
+            };
         }
 
         var playPauseButton = this.FindControl<Button>("PlayPauseButton");
@@ -773,7 +817,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     var confirm = new ConfirmDialogWindow();
                     confirm.SetTitle("Edit Voice Over?");
                     confirm.SetMessage("Would you like to edit your existing voiceover sessions, or remove them entirely?");
-                    confirm.SetButtonText("EDIT", "CANCEL", "REMOVE"); // Alt is REMOVE, Yes is EDIT, No is CANCEL
+                    confirm.SetButtonText("EDIT", "CANCEL", "REMOVE");
                     await confirm.ShowDialog(this);
                     
                     if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Cancelled || 
@@ -782,14 +826,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                         return;
                     }
 
-                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Alt) // REMOVE
+                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Alt)
                     {
                         ApplyVoiceOverState(null);
                         ShowTacticalFeedback("Voice Over Removed");
                         return;
                     }
 
-                    // If EDIT, fall through to open dialog
 
                 }
 
@@ -1068,6 +1111,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     BuildExportSpeedSegments(),
                     _voiceOverResult);
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+
+                // PREVIEW_04 — let the wizard preview the balance the EXPORT will produce, instead
+                // of two raw files at slider level. Without these the music previews 10-15 dB above
+                // the game (loud commercial master vs quiet capture), the user compensates on the
+                // slider, and the exported mix ends up with the music far too low.
+                wizard.SourceMeasuredLufs = _sourceMeasuredLufs;
+                wizard.GameBusTargetLufs = _applyLoudnessNormalization == true
+                    ? FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs
+                    : (double?)null;
 
                 await wizard.ShowDialog(this);
                 ReturnToTrimStartPaused();
@@ -1374,7 +1426,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
             else if (isPortrait && item.AspectRatio > 0.85f)
             {
-                tb.Foreground = Avalonia.Media.Brushes.Red;
+                tb.Foreground = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red);   // TONE_01
                 ToolTip.SetTip(tb, "Fit for landscape");
             }
             return tb;
@@ -1881,7 +1933,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         SaveRecoveryState();
 
 
-
         _ = RunAudioLoudnessCheckAsync(path);
     }
 
@@ -2040,6 +2091,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (gran != null) gran.IsEnabled = false;
         var voBtn = this.FindControl<Button>("VoiceOverButton");
         if (voBtn != null) voBtn.IsEnabled = false;
+        // CUT_02 — cuts belong to the Granular editor now, so there are no buttons to disable
+        // here; the list itself still has to be cleared with the rest of the project state.
+        _cuts.Clear();
         
         SaveRecoveryState();
     }
@@ -2142,6 +2196,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
         if (enableFade != null) enableFade.IsChecked = d.EnableFade;
+
+        // NOMASK_01 — MUST run last. The lines above restore BossHp/ShowTeammates from the saved
+        // defaults, which would switch the HUD flags back ON underneath the reserved profile.
+        ApplyMaskProfileToOverlayUi();
     }
 
     /// <summary>
@@ -2179,6 +2237,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var markStart = this.FindControl<Button>("MarkStartButton");
         if (markStart != null) markStart.IsEnabled = true;
+
 
         var playPause = this.FindControl<Button>("PlayPauseButton");
         if (playPause != null) playPause.IsEnabled = true;
@@ -2909,6 +2968,67 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
 
 
+            // ══════════════════════════════════════════════════════════════════════════════
+            // CUT_01 — CUTS ARE DRAWN AS FIXED-WIDTH MARKERS, NOT AS BLOCKS.
+            //
+            // This is THE design decision that makes the whole feature workable, and it is the
+            // answer to the "invisible ghost" objection that sank the original proposal. A cut
+            // occupies ZERO time in the finished video, so on an output-time ruler it is zero
+            // pixels wide — there is nothing to grab, nothing to drag, nothing to point a coach
+            // cursor at. Every professional editor solves this the same way: draw a constant-size
+            // glyph at the join. It is always CutMarkerWidth px, whether it removed half a second
+            // or half an hour, so it is always clickable and never "violently glitches".
+            //
+            // This canvas is a SOURCE-time ruler (it is drawn against the full clip duration), so
+            // the deleted span CAN be shaded here to show what is gone. The zero-width problem is
+            // real on the OUTPUT ruler — which is exactly why cuts are set on this screen and not
+            // in the Granular editor, whose timeline is output time.
+            // ══════════════════════════════════════════════════════════════════════════════
+            if (_cuts.Count > 0)
+            {
+                const double CutMarkerWidth = 9.0;
+                // TONE_01: the deleted-span shading and its handle both come off AppDangerColor
+                // now, so darkening the token darkens the cut markers with everything else.
+                var cutBase = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Avalonia.Media.Color.FromRgb(168, 50, 50));
+                var cutFill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(150, cutBase.R, cutBase.G, cutBase.B));
+                var cutEdge = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255,
+                    (byte)Math.Min(255, cutBase.R + 60), (byte)Math.Min(255, cutBase.G + 45), (byte)Math.Min(255, cutBase.B + 45)));
+
+                foreach (var cut in _cuts)
+                {
+                    double cx0 = (cut.StartMs / 1000.0 / duration) * canvasWidth;
+                    double cx1 = (cut.EndMs / 1000.0 / duration) * canvasWidth;
+
+                    var removedBand = new Avalonia.Controls.Shapes.Rectangle
+                    {
+                        Fill = cutFill,
+                        Width = Math.Max(2, cx1 - cx0),
+                        Height = trimMarkerHeight,
+                        IsHitTestVisible = false
+                    };
+                    Avalonia.Controls.Canvas.SetLeft(removedBand, cx0);
+                    Avalonia.Controls.Canvas.SetTop(removedBand, trimMarkerTop);
+                    canvas.Children.Add(removedBand);
+
+                    // The constant-size handle. Centred on the deleted span so it stays reachable
+                    // even when the span itself is thinner than the glyph.
+                    var handle = new Avalonia.Controls.Border
+                    {
+                        Background = cutEdge,
+                        CornerRadius = new Avalonia.CornerRadius(2),
+                        Width = CutMarkerWidth,
+                        Height = trimMarkerHeight,
+                        IsHitTestVisible = false
+                    };
+                    Avalonia.Controls.Canvas.SetLeft(handle, Math.Max(0, (cx0 + cx1) / 2.0 - CutMarkerWidth / 2.0));
+                    Avalonia.Controls.Canvas.SetTop(handle, trimMarkerTop);
+                    ToolTip.SetTip(handle,
+                        $"Deleted: {TimeSpan.FromMilliseconds(cut.StartMs):mm\\:ss\\.f} to " +
+                        $"{TimeSpan.FromMilliseconds(cut.EndMs):mm\\:ss\\.f}");
+                    canvas.Children.Add(handle);
+                }
+            }
+
             if (_speedSegments != null && _speedSegments.Count > 0)
             {
                 foreach (var seg in _speedSegments)
@@ -2929,13 +3049,17 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     {
                         double factor = Math.Clamp((baseSpd - speed) / Math.Max(0.001, baseSpd - 0.1), 0.0, 1.0);
                         byte alpha = (byte)(51 + factor * (230 - 51));
-                        segColor = Avalonia.Media.Color.FromArgb(alpha, 239, 68, 68);
+                        // TONE_01 — mirrors GranularSpeedEditorWindow.GetSegmentOverlayColor exactly.
+                var slowC = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Avalonia.Media.Color.FromRgb(168, 50, 50));
+                segColor = Avalonia.Media.Color.FromArgb(alpha, slowC.R, slowC.G, slowC.B);
                     }
                     else
                     {
                         double factor = Math.Clamp((speed - baseSpd) / Math.Max(0.001, 4.1 - baseSpd), 0.0, 1.0);
                         byte alpha = (byte)(51 + factor * (230 - 51));
-                        segColor = Avalonia.Media.Color.FromArgb(alpha, 34, 197, 94);
+                        // TONE_01
+                var fastC = Infrastructure.ThemeResources.Colour(this, "AppSuccessColor", Avalonia.Media.Color.FromRgb(63, 156, 107));
+                segColor = Avalonia.Media.Color.FromArgb(alpha, fastC.R, fastC.G, fastC.B);
                     }
 
                     var segRect = new Avalonia.Controls.Shapes.Rectangle
@@ -3627,22 +3751,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Focusable = true
         };
 
-        // HITBOX_02 — THE GRAB AREA IS THE HEAD PLUS A NARROW STEM, NOT THE WHOLE 52x103 BOX.
-        //
-        // It used to be one transparent Border filling the entire control. That box is 103px tall
-        // but the drawn marker is a 28px head with a 2px stick hanging off it, so ~60% of the grab
-        // area was empty space around the stick. When two of these overlap — which is exactly what
-        // the vertical stagger produces on a short hold or a short zoom span — the upper marker's
-        // full-height box lies straight over the LOWER marker's HEAD, and since the two are
-        // siblings on the same canvas the one drawn later swallows every click. The lower head then
-        // cannot be grabbed at all, no matter where on it the user aims.
-        //
-        // Splitting the box means the upper marker only occupies a 16px-wide column over the lower
-        // head instead of the full 52px, leaving ~36px of the lower head directly clickable. Paired
-        // with the caller drawing the staggered (lower) marker LAST, both heads are reachable.
-        //
-        // ⚠️ DO NOT COLLAPSE THESE BACK INTO ONE FULL-SIZE BORDER. The geometry below tracks the
-        // drawn shapes: head icon at y 28..56 (glow 24..60), stick at y 56..103 centred on x 24.
         var headHit = new Border
         {
             Width = 52,
@@ -3672,7 +3780,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var line = new Avalonia.Controls.Shapes.Rectangle
         {
-            // POPSICLE_01 — NAMED so a caller can lengthen it. See StretchTimelineCameraStick.
             Name = TimelineCameraStickName,
             Width = 2,
             Height = TimelineCameraDefaultStickPx,
@@ -3786,7 +3893,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Focusable = true
         };
 
-        // HITBOX_02 — THE GRAB AREA IS THE HEAD PLUS A NARROW STEM, NOT THE WHOLE 52x103 BOX.
         var headHit = new Border
         {
             Width = 52,
@@ -3816,7 +3922,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var line = new Avalonia.Controls.Shapes.Rectangle
         {
-            // POPSICLE_01 — NAMED so a caller can lengthen it. See StretchTimelineCameraStick.
             Name = TimelineCameraStickName,
             Width = 2,
             Height = TimelineCameraDefaultStickPx,
@@ -4001,9 +4106,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 _trimEndSet = true;
                 _trimStartMs = 0;
                 _trimEndMs = dur * 1000.0;
-                // PREWARM_01 — a freshly loaded clip gets a full-range trim automatically. That is
-                // not a user decision, so it does not arm the prewarm; anything held for the
-                // previous video is now unreachable and is dropped.
                 _prewarmArmed = false;
                 FortniteVideoSoftware.App.Services.FilmstripPrewarm.Clear();
                 var markStartBtn = this.FindControl<Button>("MarkStartButton");
@@ -4068,6 +4170,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void PlaybackTimerTickCore()
     {
+        // CUT_01 — SKIP, DO NOT PLAY THROUGH. When playback wanders into deleted footage the
+        // player is seeked past it in ONE jump, so the user never watches frames that are not in
+        // their video. Fire-and-forget on purpose: the seek is asynchronous and this tick must
+        // never block the UI thread waiting on mpv (ZOOMHANG_01 — no unbounded wait may cross
+        // between the render thread and the UI thread, in either direction).
+        if (_cuts.Count > 0) _ = SkipPlayheadOutOfCutAsync();
+
         if (ActiveVideoHost?.IpcClient == null) return;
 
         UpdateLiveZoomCrop();
@@ -4262,7 +4371,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     {
                         RuntimeLog.Fail("Hardware", "RDP Session detected with blocked GPU.");
                         hwLabel.Text = "RDP: CPU BLOCKED";
-                        hwLabel.Foreground = Avalonia.Media.Brushes.Red;
+                        hwLabel.Foreground = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red);   // TONE_01
                     }
                     string effective = ResolveHardwareMode();
 
@@ -4407,6 +4516,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void GlobalKeyUpHandler(object? sender, KeyEventArgs e)
     {
+        if (Controls.PhaseOverlayControl.FightInputActive) return;
+
         if (FocusManager?.GetFocusedElement() is TextBox or NumericUpDown)
             return;
 
@@ -4423,6 +4534,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void GlobalKeyDownHandler(object? sender, KeyEventArgs e)
     {
+        if (Controls.PhaseOverlayControl.FightInputActive) return;
+
         if (FocusManager?.GetFocusedElement() is TextBox or NumericUpDown)
         {
             return;
@@ -4709,6 +4822,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
             musicConfig = new System.Text.Json.Nodes.JsonObject
             {
+                // DUCKOFF_01 — the EXPLICIT flag is what AudioFilterChain reads now. The
+                // threshold/ratio below stay for the checked case (and as the legacy fallback for
+                // configs written before this key existed).
+                ["ducking_enabled"] = _musicWizardResult.EnableDucking,
                 ["ducking_threshold"] = _musicWizardResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedThreshold : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassThreshold,
                 ["ducking_ratio"] = _musicWizardResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedRatio : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassRatio,
                 ["main_vol"] = _musicWizardResult.VideoVolume,
@@ -4752,6 +4869,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                           Infrastructure.MemePlacementStore.Get(memeFile!) == Infrastructure.MemePlacement.Start,
             PortraitText = this.FindControl<Avalonia.Controls.TextBox>("PortraitTextInput")?.Text,
             SpeedSegments = allSegments,
+            // CUT_01 — absolute source ms, converted to clip-relative inside ProcessWorker.
+            Cuts = new List<FortniteVideoSoftware.Core.Media.CutRange>(_cuts),
             QualityLevel = resolvedQuality,
             TargetMbOverride = resolvedTargetMb,
             MusicLeadFadeIn = musicLeadIn,
@@ -4792,6 +4911,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ShowTacticalFeedback(result.Warning == null ? "Processing complete" : "Complete — thumbnail failed");
             PlayUiSound();
 
+            _exportedCleanSinceLastEdit = true;
+            _recovery.ClearState();
+            RuntimeLog.Info("RECOVERY", "Export completed successfully - recovery state cleared; no crash prompt is due for this session.");
+
             var dlg = new FortniteVideoSoftware.App.Controls.FinishedDialogWindow();
             dlg.SetOutputPath(result.OutputPath ?? string.Empty);
             await dlg.ShowDialog(this);
@@ -4831,7 +4954,22 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var segments = BuildExportSpeedSegments();
         int segmentCount = segments?.Count ?? 0;
 
-        int estimatedChunks = (segmentCount * 2) + 1;
+        // CUT_01 — a cut splits one stretch of footage in two, so it costs ONE extra branch: half
+        // what a speed segment costs (which adds itself plus the gap after it). A cut touching the
+        // very start or end of the clip splits nothing and is free, which is what ExtraChunkCost
+        // works out. Counting cuts here is what keeps "many tiny snips" — the one real performance
+        // danger of this feature — in front of the user before the encode starts rather than after.
+        int cutChunks = 0;
+        if (_cuts.Count > 0)
+        {
+            EnsureTrimPointsSet();
+            var relCuts = FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartMs);
+            cutChunks = FortniteVideoSoftware.Core.Media.OutputTimeline
+                .Create(_trimEndMs - _trimStartMs, null, _baseSpeed, _trimStartMs, null, relCuts)
+                .ExtraChunkCost();
+        }
+
+        int estimatedChunks = (segmentCount * 2) + 1 + cutChunks;
         if (estimatedChunks <= FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.HighChunkCountWarnThreshold)
         {
             return true;
@@ -5461,7 +5599,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _companionHandoffInProgress = true;
         RuntimeLog.Info("UI", $"Opening {toolName} and closing Main app.");
 
-        SaveRecoveryState(sync: true);
+        SaveRecoveryState(sync: true, isUserEdit: false);
         _recovery.ReleaseLockOnly();
 
         ShowCompanionHandoffOverlay(toolName);
@@ -5609,6 +5747,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private bool HasUnsavedWork()
     {
+        if (_exportedCleanSinceLastEdit) return false;
+
         bool memeSelected = (this.FindControl<ToggleSwitch>("AddMemeCheckbox")?.IsChecked ?? false)
                             || this.FindControl<ComboBox>("MemeComboBox")?.SelectedItem is MemeItem;
 
@@ -5622,17 +5762,33 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         return _trimStartSet || _trimEndSet || _thumbnailSet ||
                _isGranularSpeedActive || _isMusicActive || _voiceOverResult != null ||
                _musicWizardResult != null ||
+               // CUT_02 — deleted sections ARE work. Without this a project whose only edit was a
+               // DELETE PARTS would report "nothing to save", SaveRecoveryState would CLEAR the
+               // state file, and a crash or power loss would lose the cuts silently — the exact
+               // failure this whole method exists to prevent.
+               _cuts.Count > 0 ||
                _speedSegments.Count > 0 || _freezeTimeMs >= 0 ||
                Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) > 0.01 ||
                memeSelected || hudToggled || exportTogglesChanged ||
                !string.IsNullOrWhiteSpace(this.FindControl<TextBox>("PortraitTextInput")?.Text);
     }
 
-    private void SaveRecoveryState(bool sync = false)
+    /// <param name="isUserEdit">
+    /// True for the ~25 call sites that fire because the user actually changed something. Those
+    /// re-dirty a project that had just been exported. False for bookkeeping saves such as the
+    /// Video Merger / Crop Tools handoff, which must NOT resurrect a finished project.
+    /// </param>
+    private void SaveRecoveryState(bool sync = false, bool isUserEdit = true)
     {
         if (_isRestoring) return;
         try
         {
+            if (isUserEdit && _exportedCleanSinceLastEdit)
+            {
+                _exportedCleanSinceLastEdit = false;
+                RuntimeLog.Info("RECOVERY", "Edit made after a successful export - project is dirty again, recovery re-armed.");
+            }
+
             bool hasWork = HasUnsavedWork();
 
             if (!hasWork)
@@ -5641,9 +5797,26 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 return;
             }
 
+            // RECOVERY_05 — one auditable line per save. After a crash the log alone should say
+            // what the state file was supposed to contain, so a restore that comes back wrong can
+            // be diagnosed without reproducing the crash.
+            RuntimeLog.Info("RECOVERY",
+                $"Saving project state: trim[{_trimStartMs:F0}-{_trimEndMs:F0}ms set={_trimStartSet}/{_trimEndSet}] " +
+                $"speed[base={_baseSpeed:F2}x segs={_speedSegments.Count}] " +
+                $"freeze[at={_freezeTimeMs:F0}ms for={_freezeDurationS:F2}s] " +
+                $"cuts[{_cuts.Count} removing {RemovedCutSeconds():F2}s] " +
+                $"thumb[set={_thumbnailSet} at={_thumbnailPosMs:F0}ms] " +
+                $"voiceOver[{(_voiceOverResult != null ? "yes" : "no")}] " +
+                $"music[{(_musicWizardResult != null ? "yes" : "no")}].");
+
             var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
             var state = new System.Text.Json.Nodes.JsonObject
             {
+                // CUT_02 — still 1. The "cuts" array is ADDITIVE and absent-is-legal, so a state
+                // file written by an older build loads unchanged and simply has no cuts. Bumping
+                // the version would gain nothing and risks the exact data loss CropConfigDefaults
+                // .MinimumUsableSchemaVersion documents: a reader that rejects an older version
+                // replaces the user's project with defaults instead of migrating it.
                 ["schemaVersion"] = 1,
                 ["loadedVideoPath"] = _loadedVideoPath,
                 ["trimStartMs"] = _trimStartMs,
@@ -5711,6 +5884,21 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 segArray.Add(segObj);
             }
             state["speedSegments"] = segArray;
+
+            // CUT_01 — ADDITIVE, ABSENT-IS-LEGAL. Exactly the shape of the crops_source addition in
+            // the v3 -> v4 crop-config bump: an older session file simply has no "cuts" key, loads
+            // unchanged, and behaves as one unbroken clip. Nothing about the existing schema moves,
+            // so no saved project can be invalidated by this feature.
+            var cutArray = new System.Text.Json.Nodes.JsonArray();
+            foreach (var c in _cuts)
+            {
+                cutArray.Add(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["startMs"] = c.StartMs,
+                    ["endMs"] = c.EndMs
+                });
+            }
+            state["cuts"] = cutArray;
 
             if (_musicWizardResult != null)
             {
@@ -5826,6 +6014,23 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             _freezeDurationS = state["freezeDurationS"]?.GetValue<double>() ?? 1.0;
             if (_freezeTimeMs >= 0)
                 RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: Successfully reinstated Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
+
+            // CUT_01 — a session saved before cuts existed has no "cuts" key; the list simply
+            // stays empty and the clip behaves exactly as it always did.
+            _cuts.Clear();
+            if (state.TryGetPropertyValue("cuts", out var cutsNode) && cutsNode is System.Text.Json.Nodes.JsonArray cutsArray)
+            {
+                foreach (var cutNode in cutsArray)
+                {
+                    var cutObj = cutNode?.AsObject();
+                    if (cutObj == null) continue;
+                    double cs = cutObj["startMs"]?.GetValue<double>() ?? 0;
+                    double ce = cutObj["endMs"]?.GetValue<double>() ?? 0;
+                    if (ce > cs) _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(cs, ce));
+                }
+                if (_cuts.Count > 0)
+                    RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: {_cuts.Count} deleted section(s) reinstated.");
+            }
 
             _speedSegments.Clear();
             if (state.TryGetPropertyValue("speedSegments", out var speedsNode) && speedsNode is System.Text.Json.Nodes.JsonArray speedsArray)
@@ -6050,6 +6255,21 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         finally
         {
             _isRestoring = false;
+
+            // RECOVERY_05 — the mirror of the save line. Put side by side in the log these two
+            // lines prove a restore was faithful, field for field, without re-running the crash.
+            try
+            {
+                RuntimeLog.Info("RECOVERY",
+                    $"Restored project state: trim[{_trimStartMs:F0}-{_trimEndMs:F0}ms set={_trimStartSet}/{_trimEndSet}] " +
+                    $"speed[base={_baseSpeed:F2}x segs={_speedSegments.Count}] " +
+                    $"freeze[at={_freezeTimeMs:F0}ms for={_freezeDurationS:F2}s] " +
+                    $"cuts[{_cuts.Count} removing {RemovedCutSeconds():F2}s] " +
+                    $"thumb[set={_thumbnailSet} at={_thumbnailPosMs:F0}ms] " +
+                    $"voiceOver[{(_voiceOverResult != null ? "yes" : "no")}] " +
+                    $"music[{(_musicWizardResult != null ? "yes" : "no")}].");
+            }
+            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
         }
     }
 
@@ -6133,13 +6353,199 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// <summary>Launches the Crop Tools process and exits the Main App.</summary>
     private void OpenCropTool(object? sender, RoutedEventArgs? e)
     {
-        SaveRecoveryState(sync: true);
+        // NOMASK_01 — second entry point to the same hand-off; see BlockCropToolsForNoMaskProfile.
+        if (BlockCropToolsForNoMaskProfile()) return;
+
+        SaveRecoveryState(sync: true, isUserEdit: false);
         _recovery.ReleaseLockOnly();
         RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
         ShutdownVideoPipeline();
         Environment.Exit(0);
+    }
+
+    /// <summary>
+    /// NOMASK_01 — refuses the Crop Tools hand-off while the reserved "No Mask Profile" is active,
+    /// and tells the user how to get out of it. Returns true when the caller must abort.
+    ///
+    /// Why block rather than open read-only: Crop Tools is a SEPARATE PROCESS that closes the Main
+    /// App to start (see Section 2 of project_structure.txt). Launching it only to disable every
+    /// control would cost the user their whole session for a window that can do nothing.
+    /// </summary>
+    private bool BlockCropToolsForNoMaskProfile()
+    {
+        if (!FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.IsNoMask(
+                FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay))
+        {
+            return false;
+        }
+
+        RuntimeLog.Info("UI", "Crop Tools blocked: the reserved No Mask Profile is active.");
+        NativeDialog.ShowError(
+            "\"" + FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.NoMaskProfileName + "\" has no overlay elements to edit.\n\n" +
+            "It converts your video to portrait with the text strip and nothing else, on purpose.\n\n" +
+            "To edit overlay positions, pick a different profile first: Settings \u2192 Mask Overlay.",
+            "Nothing to Edit");
+        return true;
+    }
+
+    /// <summary>
+    /// NOMASK_01 — collapses the IN-GAME OVERLAYS block (and its separator) while the reserved
+    /// "No Mask Profile" is active, and forces the three HUD toggles off so a stale ON state
+    /// cannot survive the profile switch into an export payload.
+    ///
+    /// Forcing the toggles off is belt-and-braces, not the mechanism: the profile carries zero-size
+    /// rects, so MobileFilterBuilder.RegisterLayer skips every layer regardless of these flags.
+    /// It matters for what gets SAVED — the toggles are persisted in the recovery state and read
+    /// back by BuildExportPayload — so leaving them ON would silently re-enable the HUD the moment
+    /// the user switches back to a masked profile.
+    /// </summary>
+    private void ApplyMaskProfileToOverlayUi()
+    {
+        try
+        {
+            bool noMask = FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.IsNoMask(
+                FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay);
+
+            var panel = this.FindControl<StackPanel>("InGameOverlaysPanel");
+            if (panel != null) panel.IsVisible = !noMask;
+
+            var sep = this.FindControl<Separator>("InGameOverlaysSeparator");
+            if (sep != null) sep.IsVisible = !noMask;
+
+            if (noMask)
+            {
+                var boss = this.FindControl<ToggleSwitch>("BossHpCheckbox");
+                if (boss != null) boss.IsChecked = false;
+
+                var team = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+                if (team != null) team.IsChecked = false;
+
+                var spec = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+                if (spec != null) spec.IsChecked = false;
+            }
+
+            RuntimeLog.Info("UI", $"ApplyMaskProfileToOverlayUi: noMask={noMask}.");
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // CUT_01 — DELETE A SECTION FROM THE MIDDLE OF THE CLIP.
+    //
+    // A cut is the mirror image of a freeze: a freeze consumes no source time and occupies output
+    // time; a cut consumes source time and occupies NONE. All of the real work lives in
+    // OutputTimeline and GranularSpeedBuilder, which already splice the timeline for slow-motion,
+    // freezes and memes. This screen only collects the ranges.
+    //
+    // Cuts are stored in ABSOLUTE SOURCE MILLISECONDS, exactly like _trimStartMs and
+    // SpeedSegment.StartMs, so they survive a trim change and convert cleanly at the export
+    // boundary via CutRange.ToClipRelative.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
+
+    /// <summary>
+    /// CUT_01 — at least this much footage must survive, in ms. A clip cut down to nothing has no
+    /// frames to encode and would fall through GranularSpeedBuilder's "no chunks" path, which
+    /// exports the WHOLE clip with the cuts ignored — a silent, total failure. Refusing the last
+    /// cut is far kinder than producing that.
+    /// </summary>
+    private const double MinSurvivingMs = 500.0;
+
+    /// <summary>
+    /// CUT_01 — everything that must happen after the cut list changes, in one place so no caller
+    /// can forget one. The music wizard's Smart Fit aligned a beat drop to the OLD length, so a
+    /// length change has to invalidate it — that is objection #3 from the design doc, and it is
+    /// handled the same way a trim change already handles it.
+    /// </summary>
+    private async Task AfterCutsChangedAsync()
+    {
+        NormalizeCutsInPlace();
+        UpdateTimelineMarkers();
+        UpdateEstimatedQuality();
+        SaveRecoveryState();
+
+        if (_musicWizardResult != null && _cuts.Count > 0)
+        {
+            ShowTacticalFeedback("♪ Video length changed — re-run ADD MUSIC to re-align the beat drop.");
+        }
+
+        await SkipPlayheadOutOfCutAsync();
+    }
+
+    /// <summary>Runs the SAME normalisation the export will run, so the UI can never show a cut list the export would not honour.</summary>
+    private void NormalizeCutsInPlace()
+    {
+        EnsureTrimPointsSet();
+        double spanMs = Math.Max(0, _trimEndMs - _trimStartMs);
+
+        var relative = FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartMs);
+        var normalized = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(relative, spanMs / 1000.0);
+
+        _cuts.Clear();
+        foreach (var c in normalized)
+        {
+            _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(
+                _trimStartMs + c.StartSec * 1000.0,
+                _trimStartMs + c.EndSec * 1000.0));
+        }
+    }
+
+    private double SurvivingMsFor(IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange> cuts)
+    {
+        EnsureTrimPointsSet();
+        double spanMs = Math.Max(0, _trimEndMs - _trimStartMs);
+
+        var relative = FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(cuts, _trimStartMs);
+        var normalized = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(relative, spanMs / 1000.0);
+
+        double removedMs = 0;
+        foreach (var c in normalized) removedMs += c.LengthSec * 1000.0;
+        return Math.Max(0, spanMs - removedMs);
+    }
+
+    /// <summary>Total seconds the cuts remove, for the summary line and the quality estimate.</summary>
+    private double RemovedCutSeconds()
+    {
+        EnsureTrimPointsSet();
+        double spanMs = Math.Max(0, _trimEndMs - _trimStartMs);
+        return Math.Max(0, (spanMs - SurvivingMsFor(_cuts)) / 1000.0);
+    }
+
+
+    /// <summary>
+    /// CUT_01 — PREVIEW SKIPS, IT NEVER SCRUBS THROUGH.
+    ///
+    /// If the playhead lands inside deleted footage — during playback, or because the user dragged
+    /// there — it is seeked straight to the far side in ONE jump. That is deliberate: dragging
+    /// frame-by-frame across missing footage is exactly the non-linear texture churn that caused
+    /// the render-thread deadlock patched as ZOOMHANG_01, and it also shows the user frames that
+    /// are not in their video.
+    /// </summary>
+    private async Task SkipPlayheadOutOfCutAsync()
+    {
+        try
+        {
+            if (_cuts.Count == 0) return;
+            var client = ActiveVideoHost?.IpcClient;
+            if (client == null) return;
+
+            double nowMs = client.CurrentTime * 1000.0;
+            foreach (var c in _cuts)
+            {
+                if (nowMs > c.StartMs + 1 && nowMs < c.EndMs - 1)
+                {
+                    double toSec = c.EndMs / 1000.0;
+                    RuntimeLog.Info("CUT", $"Playhead was inside a deleted section; skipping to {toSec:F2}s.");
+                    await client.SendCommandAsync("seek",
+                        toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "absolute");
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>Triggers the export process (alias for clicking the PROCESS button).</summary>
@@ -6232,7 +6638,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             particleLayer.Burst(new Point(particleLayer.Bounds.Width / 2, particleLayer.Bounds.Height / 2), preset);
         }
     }
-
 
 
     #endregion

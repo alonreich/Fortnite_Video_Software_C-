@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -82,7 +82,10 @@ public partial class SettingsWindow : Window
         ConfirmGranularDeleteSegment = SettingsManager.Instance.ConfirmGranularDeleteSegment;
         ConfirmGranularClearAll = SettingsManager.Instance.ConfirmGranularClearAll;
         ConfirmMainAppCancel = SettingsManager.Instance.ConfirmMainAppCancel;
+        ConfirmMainAppCut = SettingsManager.Instance.ConfirmMainAppCut;   // CUT_01
         ConfirmMainAppSwitchTool = SettingsManager.Instance.ConfirmMainAppSwitchTool;
+        ConfirmVoiceOverDeleteTake = SettingsManager.Instance.ConfirmVoiceOverDeleteTake;
+        ConfirmFinishedDialogExit = SettingsManager.Instance.ConfirmFinishedDialogExit;
 
         UiSoundsEnabled = SettingsManager.Instance.UiSoundsEnabled;
         UiSoundVolume = SettingsManager.Instance.UiSoundVolume;
@@ -136,7 +139,14 @@ public partial class SettingsWindow : Window
     public bool ConfirmGranularDeleteSegment { get; set; }
     public bool ConfirmGranularClearAll { get; set; }
     public bool ConfirmMainAppCancel { get; set; }
+
+    /// <summary>CUT_01 — confirm before deleting a section from the middle of the clip.</summary>
+    public bool ConfirmMainAppCut { get; set; }
     public bool ConfirmMainAppSwitchTool { get; set; }
+
+    /// <summary>ISSUE_07 / ISSUE_04 — pending values. Both ship OFF; see SettingsManager.</summary>
+    public bool ConfirmVoiceOverDeleteTake { get; set; }
+    public bool ConfirmFinishedDialogExit { get; set; }
 
     /// <summary>AUDIO_06 — pending value for the UI sound master switch; committed by APPLY.</summary>
     public bool UiSoundsEnabled { get; set; } = true;
@@ -332,8 +342,15 @@ public partial class SettingsWindow : Window
         var resetBtn = this.FindControl<Button>("ResetKeyBindsBtn");
         if (resetBtn != null)
         {
-            resetBtn.Click += (s, e) =>
+            resetBtn.Click += async (s, e) =>
             {
+                var confirm = new ConfirmDialogWindow();
+                confirm.SetTitle("Reset to Factory Defaults");
+                confirm.SetMessage("Reset every keyboard shortcut back to its default?\nAll of your custom key binds will be lost.");
+                confirm.SetButtonText("YES, RESET", "CANCEL");
+                await confirm.ShowDialog(this);
+                if (!confirm.Result) return;
+
                 ResetPendingKeyBinds();
             };
         }
@@ -699,7 +716,10 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmGranularDeleteSegment = ConfirmGranularDeleteSegment;
         SettingsManager.Instance.ConfirmGranularClearAll = ConfirmGranularClearAll;
         SettingsManager.Instance.ConfirmMainAppCancel = ConfirmMainAppCancel;
+        SettingsManager.Instance.ConfirmMainAppCut = ConfirmMainAppCut;   // CUT_01
         SettingsManager.Instance.ConfirmMainAppSwitchTool = ConfirmMainAppSwitchTool;
+        SettingsManager.Instance.ConfirmVoiceOverDeleteTake = ConfirmVoiceOverDeleteTake;
+        SettingsManager.Instance.ConfirmFinishedDialogExit = ConfirmFinishedDialogExit;
 
         SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
         SettingsManager.Instance.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);

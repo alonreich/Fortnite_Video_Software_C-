@@ -203,7 +203,19 @@
                                 <!-- ISSUE_12 / ISSUE_02 -->
                                 <TextBlock Text="Main App" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
                                 <CheckBox Content="Show warning before the CANCEL button closes the app" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppCancel, Mode=TwoWay}" />
+                                <!-- CUT_01 / DIALOG_02: OFF by default. Cutting is a high-frequency
+                                     editing gesture and the Speed Editor has undo, so an accidental
+                                     cut is one Ctrl+Z away — unlike the confirmations above it. -->
+                                <CheckBox Content="Ask before deleting a section from the middle of the video (DELETE PARTS)" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppCut, Mode=TwoWay}" ToolTip.Tip="Off by default so cutting stays fast. The Speed Editor has undo (Ctrl+Z), so a cut made by accident can be taken straight back." />
                                 <CheckBox Content="Show warning before switching to Video Merger / Crop Tools" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppSwitchTool, Mode=TwoWay}" ToolTip.Tip="Those tools replace the Main App window. You are only asked when you actually have edits in progress — never straight after uploading a video." />
+                        <CheckBox Content="Show warning before deleting a voice-over take"
+                                  Foreground="{DynamicResource AppTextMutedBrush}"
+                                  ToolTip.Tip="Off by default. The take's audio file is deleted from disk straight away and cannot be undone."
+                                  IsChecked="{Binding ConfirmVoiceOverDeleteTake, Mode=TwoWay}" />
+                        <CheckBox Content="Show warning before 'Exit App' / 'New File' on the finished screen"
+                                  Foreground="{DynamicResource AppTextMutedBrush}"
+                                  ToolTip.Tip="Off by default. These two buttons sit next to OPEN FOLDER and either close the app or discard the current project."
+                                  IsChecked="{Binding ConfirmFinishedDialogExit, Mode=TwoWay}" />
                             </StackPanel>
                             </ScrollViewer>
                         </TabItem>

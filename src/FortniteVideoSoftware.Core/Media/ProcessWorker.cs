@@ -1,4 +1,4 @@
-
+﻿
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -77,6 +77,12 @@ public class ProcessWorker : IDisposable
     public string? PortraitText { get; set; }
     public JsonObject? MusicConfig { get; set; }
     public List<SpeedSegment>? SpeedSegments { get; set; }
+
+    /// <summary>
+    /// CUT_01 — stretches of footage deleted from the middle of the clip, in ABSOLUTE source ms.
+    /// Null or empty is the historical behaviour: one unbroken clip.
+    /// </summary>
+    public List<CutRange>? Cuts { get; set; }
     public string HardwareStrategy { get; set; } = "CPU";
     public List<MusicTrack>? MusicTracks { get; set; }
     public double? TargetMbOverride { get; set; }
@@ -516,7 +522,14 @@ public class ProcessWorker : IDisposable
                 double gDur = (actualExtractEndMs - actualExtractStartMs) / 1000.0 / SpeedFactor;
                 Func<double, double>? granularTimeMapper = null;
 
-                if (SpeedSegments != null && SpeedSegments.Count > 0)
+                // CUT_01 — cuts are built by the SAME chunk/concat engine as speed segments, so
+                // the granular path must be taken when there are cuts even with no speed segments.
+                // Without this the export silently ignored every cut whenever the user had not also
+                // used the speed editor — which is the normal case.
+                var exportCuts = CutRange.ToClipRelative(Cuts, actualExtractStartMs);
+                bool hasCuts = exportCuts.Count > 0;
+
+                if ((SpeedSegments != null && SpeedSegments.Count > 0) || hasCuts)
                 {
                     var (filterGraph, vLabel, hudLabel, aLabel, finalDur, timeMapper) = GranularSpeedBuilder.Build(
                         actualExtractEndMs - actualExtractStartMs,
@@ -526,7 +539,8 @@ public class ProcessWorker : IDisposable
                         "[0:v]",
                         sourceHasAudio ? baseAudioLabel : null,
                         targetFps,
-                        needHudBranch: IsMobileFormat);
+                        needHudBranch: IsMobileFormat,
+                        cuts: exportCuts);
                     granularFilters = filterGraph;
                     gV = vLabel;
                     gVHud = hudLabel;
@@ -1183,15 +1197,6 @@ public class ProcessWorker : IDisposable
                 }
 
 
-                // QUIETBOOST_01 — GIVE BACK MOST OF THE LIFT A QUIET CAPTURE WAS HANDED.
-                // `VolumeNormalizeDb` is (TargetLufs - measured_I): positive when the source was
-                // under the target, which is the ordinary case for a gameplay capture. Taking it
-                // in full is correct by the standard and was reported as far too loud, so only
-                // (1 - QuietBoostReductionFactor) of it survives.
-                //   e.g. a -32 LUFS capture asks for +18.00 dB and now keeps +5.40 dB.
-                // ⚠️ ON THE SUM, NOT THE GAME BUS, and ⚠️ ONLY ON A BOOST — see the constant's
-                // remarks in AudioLoudnessProbe for both reasons. Placed BEFORE the limiter so it
-                // has less to hold back rather than clamping a level we are about to lower anyway.
                 double quietBoostTrimDb =
                     -AudioLoudnessProbe.QuietBoostReductionFactor * Math.Max(0.0, VolumeNormalizeDb);
                 if (quietBoostTrimDb < -0.01)
@@ -2144,22 +2149,107 @@ public class ProcessWorker : IDisposable
     private static void CleanupTwoPassArtifacts(string masterPath, string passLogPrefix)
         => TwoPassEncoding.Cleanup(masterPath, passLogPrefix);
 
+    /// <summary>
+    /// CUT_01 — the export span minus every cut, as ABSOLUTE SOURCE SECONDS ranges, in order.
+    ///
+    /// Returns a single range covering the whole span when there are no cuts, so the caller keeps
+    /// the cheap `-ss`/`-t` path and nothing changes for the overwhelmingly common case. Ranges
+    /// shorter than a frame are dropped: they contribute nothing measurable and each one would cost
+    /// an extra branch in the measurement graph.
+    /// </summary>
+    private List<(double, double)> SurvivingAudioRangesSec(double spanStartMs, double spanEndMs)
+    {
+        double spanStart = spanStartMs / 1000.0;
+        double spanEnd = spanEndMs / 1000.0;
+
+        var ranges = new List<(double, double)>();
+        if (spanEnd <= spanStart) return ranges;
+
+        var cuts = CutRange.ToClipRelative(Cuts, spanStartMs);
+        var normalized = OutputTimeline.NormalizeCuts(cuts, spanEnd - spanStart);
+        if (normalized.Count == 0)
+        {
+            ranges.Add((spanStart, spanEnd));
+            return ranges;
+        }
+
+        double cursor = spanStart;
+        foreach (var c in normalized)
+        {
+            double holeStart = spanStart + c.StartSec;
+            double holeEnd = spanStart + c.EndSec;
+            if (holeStart > cursor + 0.02) ranges.Add((cursor, holeStart));
+            cursor = Math.Max(cursor, holeEnd);
+        }
+        if (spanEnd > cursor + 0.02) ranges.Add((cursor, spanEnd));
+
+        return ranges;
+    }
+
     private async Task PerformLoudnormPassAsync(double measureStartMs, double measureEndMs, CancellationToken cancellationToken)
     {
         try
         {
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
             double targetLufs = AudioLoudnessProbe.TargetLufs;
-            var args = new List<string>
+
+            string loudnormArg =
+                $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", ci)}" +
+                $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", ci)}:LRA=11:print_format=json";
+
+            // CUT_01 / BEDSEG_01 — MEASURE ONLY WHAT THE VIEWER WILL HEAR.
+            //
+            // This used to be a single `-ss`/`-t` window, which was correct while the export was
+            // always one unbroken stretch. With cuts it is not: the window still spans the deleted
+            // footage, so the game bus would be normalised against audio that never reaches the
+            // finished file — a long silent stretch the user deleted would drag the measurement
+            // down and push everything else up. This is the same fault we fixed for the music bed,
+            // and it is the objection the original Cut_Feature_Design.txt never raised.
+            //
+            // The surviving ranges are trimmed and concatenated in the filter graph first, so
+            // loudnorm sees exactly the audio the export will produce.
+            var survivingRanges = SurvivingAudioRangesSec(measureStartMs, measureEndMs);
+
+            var args = new List<string> { "-y", "-hide_banner" };
+
+            if (survivingRanges.Count <= 1)
             {
-                "-y", "-hide_banner",
-                "-ss", (measureStartMs / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                "-t", ((measureEndMs - measureStartMs) / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                "-i", InputPath,
-                "-af", $"loudnorm=I={AudioLoudnessProbe.TargetLufs.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}" +
-                       $":TP={AudioLoudnessProbe.PeakCeilingDbtp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}:LRA=11:print_format=json",
-                "-vn", "-sn", "-dn",
-                "-f", "null", "-"
-            };
+                var only = survivingRanges.Count == 1
+                    ? survivingRanges[0]
+                    : (measureStartMs / 1000.0, measureEndMs / 1000.0);
+
+                args.Add("-ss"); args.Add(only.Item1.ToString("F3", ci));
+                args.Add("-t"); args.Add((only.Item2 - only.Item1).ToString("F3", ci));
+                args.Add("-i"); args.Add(InputPath);
+                args.Add("-af"); args.Add(loudnormArg);
+            }
+            else
+            {
+                var trims = new List<string>();
+                var labels = new System.Text.StringBuilder();
+                for (int i = 0; i < survivingRanges.Count; i++)
+                {
+                    var (rs, re) = survivingRanges[i];
+                    trims.Add($"[0:a]atrim=start={rs.ToString("F3", ci)}:end={re.ToString("F3", ci)}," +
+                              $"asetpts=PTS-STARTPTS[lnseg{i}]");
+                    labels.Append($"[lnseg{i}]");
+                }
+                string graph = string.Join(";", trims) +
+                               $";{labels}concat=n={survivingRanges.Count}:v=0:a=1," +
+                               $"{loudnormArg}[lnout]";
+
+                args.Add("-i"); args.Add(InputPath);
+                args.Add("-filter_complex"); args.Add(graph);
+                args.Add("-map"); args.Add("[lnout]");
+
+                CoreLogger.Info("Loudnorm",
+                    $"CUT-AWARE MEASUREMENT: {survivingRanges.Count} surviving range(s) totalling " +
+                    $"{survivingRanges.Sum(r => r.Item2 - r.Item1):F2}s, out of a " +
+                    $"{(measureEndMs - measureStartMs) / 1000.0:F2}s span. Deleted footage is excluded.");
+            }
+
+            args.Add("-vn"); args.Add("-sn"); args.Add("-dn");
+            args.Add("-f"); args.Add("null"); args.Add("-");
 
             CoreLogger.Info("Loudnorm", "Executing pass 1 (measurement).");
             CoreLogger.Debug("Loudnorm", $"Executing pass 1: {_ffmpegPath} {FormatForLog(args)}");
@@ -2184,7 +2274,11 @@ public class ProcessWorker : IDisposable
             });
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
-            double totalDurationSec = (measureEndMs - measureStartMs) / 1000.0;
+            // CUT_01 — the progress bar counts the audio ffmpeg actually decodes, which after cuts
+            // is shorter than the span. Using the span here would stall the bar short of 100%.
+            double totalDurationSec = survivingRanges.Count > 0
+                ? survivingRanges.Sum(r => r.Item2 - r.Item1)
+                : (measureEndMs - measureStartMs) / 1000.0;
             
             using var reader = process.StandardError;
             while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
@@ -2305,10 +2399,26 @@ public class ProcessWorker : IDisposable
         var gains = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         foreach (var track in tracks)
         {
+            // BEDSEG_01 note — the dictionary stays keyed on PATH because that is how
+            // AudioFilterChain looks a gain up (musicBedGainDb.TryGetValue(track.Path, ...)).
+            // So if the SAME song is queued twice at different offsets, both uses take the first
+            // occurrence's segment gain. Changing that means re-keying the lookup on both sides;
+            // it is not worth it until someone actually queues one song twice.
             if (string.IsNullOrWhiteSpace(track.Path) || gains.ContainsKey(track.Path)) continue;
             try
             {
-                var reading = await AudioLoudnessProbe.MeasureAsync(_ffmpegPath, track.Path, cancellationToken)
+                // BEDSEG_01 — measure the SEGMENT that will play, not the whole song.
+                // track.Offset is the seek point into the file and track.Duration is how much of
+                // it is used, and both were being thrown away here. The game bus is already
+                // measured over exactly its exported range (PerformLoudnormPassAsync), so passing
+                // these makes the two sides of the mix symmetrical; without them a 45-second cut
+                // of a 4-minute song was corrected using an average it never plays.
+                // The probe falls back to the whole file when the window is under
+                // AudioLoudnessProbe.MinSegmentSec, so a very short cut still gets an answer.
+                var reading = await AudioLoudnessProbe.MeasureAsync(
+                                          _ffmpegPath, track.Path, cancellationToken,
+                                          segmentStartSec: Math.Max(0.0, track.Offset),
+                                          segmentDurationSec: Math.Max(0.0, track.Duration))
                                                       .ConfigureAwait(false);
                 if (reading == null)
                 {
@@ -2321,8 +2431,13 @@ public class ProcessWorker : IDisposable
                 double clamped = Math.Clamp(raw, AudioLoudnessProbe.MinMusicGainDb, AudioLoudnessProbe.MaxMusicGainDb);
                 gains[track.Path] = clamped;
 
+                bool measuredSegment = track.Duration >= AudioLoudnessProbe.MinSegmentSec && track.Offset >= 0;
+                string scope = measuredSegment
+                    ? $"segment {Math.Max(0.0, track.Offset):F1}s +{track.Duration:F1}s"
+                    : "whole file (segment too short to measure)";
+
                 CoreLogger.Info("Audio",
-                    $"MUSIC BED PLAN: '{Path.GetFileName(track.Path)}' measured {reading.IntegratedLufs:F2} LUFS -> " +
+                    $"MUSIC BED PLAN: '{Path.GetFileName(track.Path)}' [{scope}] measured {reading.IntegratedLufs:F2} LUFS -> " +
                     $"bed target {AudioLoudnessProbe.MusicBedLufs:F1} LUFS = {clamped:+0.00;-0.00} dB" +
                     (Math.Abs(raw - clamped) > 0.01 ? $" (clamped from {raw:+0.00;-0.00} dB)" : "") +
                     ". The music slider is applied on top of this.");

@@ -177,6 +177,20 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         };
     }
 
+
+    /// <summary>
+    /// TONE_01 — the HUD ghost fill, at the caller's alpha.
+    ///
+    /// This used to be <c>Color.FromArgb(alpha, 0, 255, 0)</c> — pure lime, hardcoded in two
+    /// places, and completely immune to the theme. It was the harshest colour in the whole suite
+    /// and the single most visible thing the red/green audit found. Reading AppSuccessColor means
+    /// muting the token now mutes the ghosts too, in both themes, without touching this file again.
+    /// </summary>
+    private Color GhostFillColor(byte alpha)
+    {
+        var c = Infrastructure.ThemeResources.Colour(this, "AppSuccessColor", Color.FromRgb(63, 156, 107));
+        return Color.FromArgb(alpha, c.R, c.G, c.B);
+    }
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
@@ -415,6 +429,19 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             {
                 if (combo.SelectedItem is string selected && selected != FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay)
                 {
+                    // NOMASK_01 — the reserved HUD-free profile cannot be selected HERE.
+                    // Switching to it inside Crop Tools would make every subsequent save call
+                    // SyncActiveProfileFromCurrentConfig against a profile that must stay empty.
+                    // The Main App blocks launching Crop Tools while it is active; this stops the
+                    // other direction. It is switched from Settings -> Mask Overlay instead.
+                    if (FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.IsNoMask(selected))
+                    {
+                        combo.SelectedItem = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ActiveMaskOverlay;
+                        SetStatus("\"" + FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.NoMaskProfileName +
+                                  "\" has no elements to edit. Switch to it from Settings \u2192 Mask Overlay in the main app.");
+                        return;
+                    }
+
                     if (_dirty && _items.Count > 0)
                     {
                         bool discard = NativeDialog.ShowQuestion(
@@ -452,6 +479,16 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
                 if (safeName == null)
                 {
                     SetStatus("Invalid profile name. Avoid characters like \\ / : * ? \" < > |.");
+                    return;
+                }
+
+                // NOMASK_01 — the reserved name cannot be claimed. MaskOverlayManager.CreateNewProfile
+                // already refuses it, but it refuses SILENTLY: without this the handler would carry on
+                // to SaveConfigAsync and set combo.SelectedItem to a profile that was never created.
+                if (FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.IsNoMask(safeName))
+                {
+                    SetStatus("\"" + FortniteVideoSoftware.App.Infrastructure.MaskOverlayManager.NoMaskProfileName +
+                              "\" is a reserved built-in profile. Choose another name.");
                     return;
                 }
 
@@ -1326,7 +1363,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         {
             Width = HandleSize,
             Height = HandleSize,
-            Fill = Brushes.Red,
+            Fill = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Brushes.Red),   // TONE_01
             Stroke = Brushes.White,
             StrokeThickness = 2,
             Cursor = new Cursor(cursor),
@@ -1829,8 +1866,11 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
                 {
                     Width = scaledW,
                     Height = scaledH,
-                    Fill = new SolidColorBrush(Color.FromArgb(alpha, 0, 255, 0)),
-                    Stroke = new SolidColorBrush(Color.Parse("#22c55e")),
+                    // TONE_01: was FromArgb(alpha, 0, 255, 0) — PURE LIME, the single harshest colour in the
+                    // suite and immune to any theme change. Now the muted AppSuccessColor token,
+                    // with the caller's computed alpha preserved.
+                    Fill = new SolidColorBrush(GhostFillColor(alpha)),
+                    Stroke = new SolidColorBrush(Infrastructure.ThemeResources.Colour(this, "AppSuccessColor", Color.Parse("#3f9c6b"))),
                     StrokeThickness = 2,
                     IsHitTestVisible = false,
                     IsVisible = visible,
@@ -1869,7 +1909,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         {
             if (control is Rectangle rect)
             {
-                rect.Fill = new SolidColorBrush(Color.FromArgb(alpha, 0, 255, 0));
+                rect.Fill = new SolidColorBrush(GhostFillColor(alpha));   // TONE_01
             }
         }
     }
@@ -1993,7 +2033,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
                 }
                 
                 summaryOverlay.IsVisible = true;
-                await Task.Delay(2500);
+                await Task.Delay(6000);
             }
             await ReturnToMainAppAsync();
             return;

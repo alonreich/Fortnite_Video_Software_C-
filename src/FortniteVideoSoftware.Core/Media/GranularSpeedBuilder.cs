@@ -8,6 +8,38 @@ namespace FortniteVideoSoftware.Core.Media;
 /// <summary>
 /// A speed or freeze segment for the granular timeline.
 /// </summary>
+/// <summary>
+/// CUT_01 — a stretch of footage the user deleted, in ABSOLUTE SOURCE MILLISECONDS.
+///
+/// ⚠️ TWO FRAMES OF REFERENCE, ON PURPOSE. This mirrors <see cref="SpeedSegment"/>: the UI and the
+/// saved session speak absolute source milliseconds, because that is what trim handles and speed
+/// segments already use and what survives a trim change. The Core timeline model speaks
+/// CLIP-RELATIVE seconds (<see cref="OutputTimeline.Cut"/>), because that is what
+/// <see cref="OutputTimeline.Insertion"/> uses. <see cref="ToClipRelative"/> is the ONE conversion
+/// between them — do not hand a CutRange straight to OutputTimeline, and do not "simplify" either
+/// type into the other's units.
+/// </summary>
+public readonly record struct CutRange(double StartMs, double EndMs)
+{
+    /// <summary>
+    /// Converts to the Core timeline's clip-relative seconds, given the export's trim-in point.
+    /// Clamping is left to <see cref="OutputTimeline.NormalizeCuts"/>, which owns every rule about
+    /// ordering, merging and minimum length.
+    /// </summary>
+    public OutputTimeline.Cut ToClipRelative(double sourceCutStartMs) =>
+        new((StartMs - sourceCutStartMs) / 1000.0, (EndMs - sourceCutStartMs) / 1000.0);
+
+    /// <summary>Convenience for the common "convert a whole list" call at an export boundary.</summary>
+    public static List<OutputTimeline.Cut> ToClipRelative(
+        IReadOnlyList<CutRange>? cuts, double sourceCutStartMs)
+    {
+        var list = new List<OutputTimeline.Cut>();
+        if (cuts == null) return list;
+        foreach (var c in cuts) list.Add(c.ToClipRelative(sourceCutStartMs));
+        return list;
+    }
+}
+
 public record SpeedSegment(double StartMs, double EndMs, double Speed,
     int? ZoomX = null, int? ZoomY = null, int? ZoomW = null, int? ZoomH = null, string? ZoomOrigRes = null,
     bool ZoomSlow = false,
@@ -34,9 +66,15 @@ public class GranularSpeedBuilder
         double totalDurationMs,
         IReadOnlyList<SpeedSegment>? segments,
         double baseSpeed = 1.0,
-        double sourceCutStartMs = 0)
+        double sourceCutStartMs = 0,
+        IReadOnlyList<OutputTimeline.Cut>? cuts = null)
     {
-        return OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs).SourceToOutput;
+        // CUT_01 — cuts ride the SAME mapper every other feature already uses. This is the whole
+        // reason voice-overs, memes and the music timeline need no changes to survive a cut: they
+        // are all stored in SOURCE time and converted through here, so removing footage slides
+        // them exactly as slow-motion and freezes already do.
+        return OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs, null, cuts)
+                             .SourceToOutput;
     }
 
     /// <summary>
@@ -45,6 +83,31 @@ public class GranularSpeedBuilder
     /// Exposed so the UI can warn BEFORE the render starts rather than after the machine swaps.
     /// </summary>
     public const int HighChunkCountWarnThreshold = 24;
+
+    /// <summary>
+    /// SPLICE_01 — length of the de-click fade applied at each end of every concatenated audio
+    /// chunk, in seconds. 8 ms is under half a frame at 60fps: long enough to turn a step
+    /// discontinuity into a ramp the ear reads as continuous, short enough that no one perceives a
+    /// gap. Raising this into the tens of milliseconds starts to be audible as a stutter at every
+    /// speed change; lowering it below ~3 ms stops suppressing the click.
+    /// </summary>
+    public const double SpliceFadeSec = 0.008;
+
+    /// <summary>
+    /// SPLICE_01 — the fade pair for one audio chunk, or an empty string when the chunk is too
+    /// short to carry one. A chunk shorter than twice the fade would have its fade-in and fade-out
+    /// overlap, which attenuates the middle and audibly ducks very short chunks — so those are
+    /// left alone; they are far too brief for a click to register anyway.
+    /// </summary>
+    private static string BuildSpliceFade(double chunkDurationSec)
+    {
+        if (chunkDurationSec <= SpliceFadeSec * 3) return string.Empty;
+
+        double outStart = Math.Max(0, chunkDurationSec - SpliceFadeSec);
+        return $",afade=t=in:st=0:d={SpliceFadeSec.ToString("F4", CultureInfo.InvariantCulture)}" +
+               $",afade=t=out:st={outStart.ToString("F4", CultureInfo.InvariantCulture)}" +
+               $":d={SpliceFadeSec.ToString("F4", CultureInfo.InvariantCulture)}";
+    }
 
     private const double MaxZoomWorkingPixels = 100_000_000.0;
 
@@ -213,11 +276,23 @@ public class GranularSpeedBuilder
         string inputVideoLabel = "[0:v]",
         string? inputAudioLabel = "[0:a]",
         string targetFps = "60",
-        bool needHudBranch = true)
+        bool needHudBranch = true,
+        IReadOnlyList<OutputTimeline.Cut>? cuts = null)
     {
         double totalDurationSec = totalDurationMs / 1000.0;
         double timelineOriginSec = sourceCutStartMs / 1000.0;
         var preChainParts = new List<string>();
+
+        // CUT_01 — normalised through the SAME method OutputTimeline uses, so the graph this
+        // builds and the timeline the UI draws can never disagree about where the holes are.
+        var activeCuts = OutputTimeline.NormalizeCuts(cuts, totalDurationSec);
+
+        bool InsideCut(double at)
+        {
+            foreach (var c in activeCuts)
+                if (at > c.StartSec - 0.0005 && at < c.EndSec - 0.0005) return true;
+            return false;
+        }
 
         double ToClipRelative(double absSec)
         {
@@ -317,6 +392,16 @@ public class GranularSpeedBuilder
                 if (sp.start > rangeStart && sp.start < rangeEnd) subBounds.Add(sp.start);
                 if (sp.end > rangeStart && sp.end < rangeEnd) subBounds.Add(sp.end);
             }
+            // CUT_01 — a cut edge is a subdivision boundary exactly like a speed or zoom edge.
+            // Adding them here means the existing boundary machinery does the splitting, and the
+            // only extra work below is DROPPING the sub-ranges that fall inside a hole. This is
+            // also what makes "a cut through the middle of a slow-mo + zoom block" fall out for
+            // free: the block was already going to be subdivided at those boundaries.
+            foreach (var c in activeCuts)
+            {
+                if (c.StartSec > rangeStart && c.StartSec < rangeEnd) subBounds.Add(c.StartSec);
+                if (c.EndSec > rangeStart && c.EndSec < rangeEnd) subBounds.Add(c.EndSec);
+            }
             foreach (var zp in zoomPhases)
             {
                 if (zp.Start > rangeStart && zp.Start < rangeEnd) subBounds.Add(zp.Start);
@@ -331,6 +416,13 @@ public class GranularSpeedBuilder
                 double cEnd = blist[i + 1];
                 if (cEnd <= cStart + 0.001) continue;
                 double mid = (cStart + cEnd) / 2.0;
+
+                // CUT_01 — THE ENTIRE REMOVAL, RIGHT HERE. A sub-range whose midpoint is inside a
+                // cut never becomes a chunk, so it is never trimmed, never decoded, never handed to
+                // concat, and never reaches the output file. Testing the MIDPOINT rather than an
+                // edge is deliberate: edges are shared with the neighbouring surviving range, and
+                // an edge test would drop the wrong side.
+                if (InsideCut(mid)) continue;
 
                 double cSpeed = baseSpeed;
                 foreach (var sp in speedPhases)
@@ -354,6 +446,11 @@ public class GranularSpeedBuilder
             double fEnd = Math.Max(fStart, f.end);
             if (fEnd <= sourceCursor + 0.001) continue;
 
+            // CUT_01 — must match OutputTimeline.Create exactly: a freeze whose held frame was
+            // deleted is dropped. If these two ever disagree the exported length and the length the
+            // UI predicts drift apart, which is the class of bug OutputTimeline was created to end.
+            if (InsideCut(fStart)) continue;
+
             if (fStart > sourceCursor + 0.001)
                 AppendSourceRange(sourceCursor, fStart);
 
@@ -369,10 +466,32 @@ public class GranularSpeedBuilder
         if (totalDurationSec > sourceCursor + 0.001)
             AppendSourceRange(sourceCursor, totalDurationSec);
 
-        var sharedTimeline = OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs);
+        var sharedTimeline = OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs, null, cuts);
         double TimeMapper(double timelineSec) => sharedTimeline.SourceToOutput(timelineSec);
 
         int nChunks = chunks.Count;
+
+        // CUT_01 — a cut list that removes every surviving frame would fall through to the
+        // "no chunks" fast path below and silently export the WHOLE clip, cuts ignored — the worst
+        // possible failure, because it looks like the feature simply did not work. The UI refuses
+        // to leave less than one frame, so reaching here means a bad saved state; fail loudly.
+        if (nChunks == 0 && activeCuts.Count > 0)
+        {
+            CoreLogger.Fail("GranularSpeed",
+                $"CUT: {activeCuts.Count} cut(s) removed every frame of the clip. Nothing left to " +
+                "export. Ignoring the cut list for this render so the export still produces a file.");
+            activeCuts.Clear();
+            AppendSourceRange(0, totalDurationSec);
+            nChunks = chunks.Count;
+        }
+
+        if (activeCuts.Count > 0)
+        {
+            CoreLogger.Info("GranularSpeed",
+                $"CUT: {activeCuts.Count} cut(s) removing " +
+                $"{activeCuts.Sum(c => c.LengthSec):F2}s of source. " +
+                $"{nChunks} chunk(s) after removal.");
+        }
 
         if (nChunks == 0)
         {
@@ -471,16 +590,6 @@ public class GranularSpeedBuilder
                 {
                     if (p1 >= 0.999 && !zc.Slow)
                     {
-                        // DEDUPE_01 — THIS WAS A VERBATIM COPY OF BuildConstantZoomFilter AT p = 1.0.
-                        // At p = 1 that method's `zVal` collapses to `targetZ` and `viewCx`/`viewCy`
-                        // collapse to `cxTarget`/`cyTarget` — EXACTLY, not approximately: every input
-                        // here is integer-derived, so `1 + (z - 1)` and `a + (c - a)` are both exact in
-                        // IEEE754 at these magnitudes. The emitted filter string is byte-identical.
-                        // ⚠️ THE LITERAL 1.0 IS DELIBERATE AND IS NOT `p1`. This branch only fires for a
-                        // NON-Slow zoom, and a non-Slow zoom gets a single ZoomPhase with
-                        // ProgStart = ProgEnd = 1.0, so `p1` is already exactly 1.0. Passing the literal
-                        // keeps the graph identical even if the `>= 0.999` guard is ever loosened; passing
-                        // `p1` would silently let a 0.999x zoom through as a slightly weaker one.
                         zoomFilter = BuildConstantZoomFilter(preScale, zc, resW, resH, outW, outH, 1.0);
                     }
                     else
@@ -492,8 +601,6 @@ public class GranularSpeedBuilder
                 {
                     if (!zc.Slow)
                     {
-                        // DEDUPE_01 — identical to the freeze branch above: BuildConstantZoomFilter at
-                        // p = 1.0. See the note there for why the literal 1.0 is used rather than `p1`.
                         zoomFilter = BuildConstantZoomFilter(preScale, zc, resW, resH, outW, outH, 1.0);
                     }
                     else if (Math.Abs(p1 - p2) < 0.001)
@@ -535,26 +642,6 @@ public class GranularSpeedBuilder
                         string cxExpr = $"({padX.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cxTarget - resW / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resW.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
                         string cyExpr = $"({padY.ToString("0.000000", CultureInfo.InvariantCulture)}+{(resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)}+({(cyTarget - resH / 2.0).ToString("0.000000", CultureInfo.InvariantCulture)})*({pExpr})-({resH.ToString("0.000000", CultureInfo.InvariantCulture)}/({zExpr}))/2.0)";
 
-                        // ── DRIFT_01, RAMP HALF ────────────────────────────────────────────────
-                        // `crop` TRUNCATES x/y to int and then masks them DOWN onto the chroma grid
-                        // (`& ~1` on yuv420p). A FRACTIONAL origin is therefore a BIASED snap of up
-                        // to 2px toward zero — a real leftward/upward shift, not noise — which the
-                        // live zoom magnifies by z and the portrait 2:3 slice magnifies again.
-                        // The constant-zoom paths fix this by emitting whole even integers
-                        // (see SnapZoomWindow); a per-frame ramp cannot, so the quantisation is
-                        // moved INSIDE the expression: `round(v/2)*2` lands on the NEAREST even
-                        // value, which makes FFmpeg's own floor-and-mask a no-op. Residual <=1px
-                        // and — the point — UNBIASED, so it reads as sub-pixel shimmer instead of
-                        // a sideways offset, and the ramp hands off to the held zoom without a jump.
-                        //
-                        // ⚠️ DO NOT "IMPROVE" THIS WITH `in_w` / `in_h`. It was tried and it is
-                        // WRONG: the preceding `scale=...:eval=frame` grows the picture per frame
-                        // but the LINK dimensions crop's expression sees are frozen at config time
-                        // (measured: in_w reported 5120 — the pad width — while real frames were
-                        // ~20800 wide). Any clamp or normalisation built on in_w/out_w collapses
-                        // the crop into the black margin and the chunk renders solid black.
-                        // For the same reason there is NO clamp here: FFmpeg clamps x/y against the
-                        // true frame internally, and the padded canvas guarantees the window fits.
                         string cropX = $"round((({cxExpr})*({zExpr})*{sStr})/2)*2";
                         string cropY = $"round((({cyExpr})*({zExpr})*{sStr})/2)*2";
 
@@ -645,13 +732,21 @@ public class GranularSpeedBuilder
                 var audioFilters = BuildAtempoChain(chunk.Speed);
                 if (!string.IsNullOrEmpty(aSrc))
                 {
+                    // CUT_01 / SPLICE_01 — a few milliseconds of fade on each end of every audio
+                    // chunk. `concat` butt-joins waveforms, and a butt-join between two unrelated
+                    // instants is a step discontinuity, which is heard as a click or pop. This has
+                    // ALWAYS been true at speed-change and freeze boundaries; cuts just make it far
+                    // more likely, because the two sides of a cut are arbitrarily far apart.
+                    // Deliberately shorter than one frame at 60fps, so it cannot be heard as a dip.
+                    string spliceFade = BuildSpliceFade(quantizedDur);
+
                     fullParts.Add(
                         $"{aSrc}atrim=start={chunk.Start:F4}:end={chunk.End:F4}," +
                         $"aresample=48000:async=1:min_comp=0.001," +
                         $"asetpts='PTS-({chunk.Start:F4}/TB)'," +
                         $"{string.Join(",", audioFilters)}," +
                         $"apad,atrim=duration={quantizedDur.ToString("F5", CultureInfo.InvariantCulture)}," +
-                        $"asetpts=PTS-STARTPTS{aChunkLabel}");
+                        $"asetpts=PTS-STARTPTS{spliceFade}{aChunkLabel}");
                 }
                 else
                 {
@@ -714,7 +809,6 @@ public class GranularSpeedBuilder
         double viewCx = resW / 2.0 + (cxTarget - resW / 2.0) * p;
         double viewCy = resH / 2.0 + (cyTarget - resH / 2.0) * p;
 
-        // DRIFT_01 — hand FFmpeg a whole, chroma-aligned window; see SnapZoomWindow.
         var zwin = SnapZoomWindow(resW / zVal, resH / zVal, resW, resH, viewCx, viewCy);
 
         return new FilterChain()

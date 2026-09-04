@@ -113,20 +113,6 @@ internal static class DeploymentLifecycle
                 return 0;
             }
 
-            // ══════════════════════════════════════════════════════════════════════════════════
-            // INSTALL_01 — ASK WHENEVER THERE IS SOMETHING TO LOSE, NOT ONLY ON AN "UPGRADE".
-            //
-            // This prompt used to sit inside `if (isUpgrade)`. `isUpgrade` reports on the INSTALL
-            // FOLDER and the uninstall REGISTRY KEY; the cleanup below deletes PROGRAMDATA. Those
-            // are different questions, and when they disagreed the user lost. Delete the install
-            // folder by hand, or only ever run the compiled exe or the dev build, and `isUpgrade`
-            // is false while a complete set of settings — crop profiles, window layout, recovery
-            // state — is still sitting in ProgramData. No prompt was shown, `preserve` stayed
-            // false, `includeUserData: !preserve` came out TRUE, and the lot was purged silently.
-            //
-            // The gate is now the data itself. The dialog already carries MB_TOPMOST |
-            // MB_SETFOREGROUND, so it was never a z-order problem — it was never reached.
-            // ══════════════════════════════════════════════════════════════════════════════════
             bool hasUserData = DeploymentFootprint.UserDataExists();
             if (isUpgrade || hasUserData)
             {

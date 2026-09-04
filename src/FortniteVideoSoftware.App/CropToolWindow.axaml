@@ -177,7 +177,7 @@
                                 <Canvas Grid.Row="0" Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" />
                                 <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
                                 <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Crop tool video timeline scrub slider" ToolTip.Tip="Drag to scrub through the video" />
-                                <Canvas Grid.Row="1" Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32">
+                                <Canvas Grid.Row="1" Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32">
                                     <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                         <Border.Transitions>
                                             <Transitions>
@@ -222,7 +222,7 @@
                                     <StackPanel Name="ResetConfirmPanel" Orientation="Horizontal" Spacing="8" IsVisible="False" VerticalAlignment="Center">
                                         <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
                                         <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" ToolTip.Tip="Permanently wipe everything clean and reset the canvas." />
-                                        <Button Name="CancelResetButton" Classes="Secondary" Content="CANCEL" />
+                                        <Button Name="CancelResetButton" Classes="Secondary" Content="CANCEL" ToolTip.Tip="Keep the current layout and close this menu. Nothing is reset." />
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>
@@ -402,7 +402,7 @@
                                            Foreground="{DynamicResource AppTextMutedBrush}"
                                            FontSize="{DynamicResource AppFontSize10}"
                                            FontWeight="Bold" />
-                                <ListBox Name="LayerList"
+                                <ListBox Name="LayerList" Cursor="Hand"
                                          Grid.Row="1"
                                          Background="Transparent"
                                          Foreground="{DynamicResource AppTextPrimaryBrush}"
@@ -442,7 +442,7 @@
                                     <StackPanel Name="DeleteConfirmPanel" Orientation="Horizontal" Spacing="8" IsVisible="False" VerticalAlignment="Center">
                                         <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
                                         <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" ToolTip.Tip="Permanently delete the selected layer." />
-                                        <Button Name="CancelDeleteButton" Classes="Secondary" Content="CANCEL" />
+                                        <Button Name="CancelDeleteButton" Classes="Secondary" Content="CANCEL" ToolTip.Tip="Keep this layer and close this menu. Nothing is deleted." />
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>

@@ -1438,6 +1438,9 @@ public partial class VideoMergerWindow : Window
 
                     worker.MusicConfig = new System.Text.Json.Nodes.JsonObject
                     {
+                        // DUCKOFF_01 — see MainWindow. The Merger must send the same flag or an
+                        // unchecked box would still build the full ducking apparatus here.
+                        ["ducking_enabled"] = _musicResult.EnableDucking,
                         ["ducking_threshold"] = _musicResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedThreshold : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassThreshold,
                         ["ducking_ratio"] = _musicResult.EnableDucking ? FortniteVideoSoftware.Core.Media.SidechainCompressNode.TunedRatio : FortniteVideoSoftware.Core.Media.SidechainCompressNode.BypassRatio,
                         ["main_vol"] = currentMainVol,
@@ -1646,6 +1649,8 @@ public partial class VideoMergerWindow : Window
 
     private void MergerKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
+        if (FortniteVideoSoftware.App.Controls.PhaseOverlayControl.FightInputActive) return;
+
         if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown) return;
         var fEl = Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
         if (fEl is Avalonia.Controls.Button sb && sb.Name == "SpeakerHitBox" && e.Key == Avalonia.Input.Key.Space) return;

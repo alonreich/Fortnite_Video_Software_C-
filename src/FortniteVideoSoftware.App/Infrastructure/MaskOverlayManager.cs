@@ -14,6 +14,16 @@ public static class MaskOverlayManager
     public static string ProfilesDirectory => Path.Combine(ApplicationPaths.CreateDefault().ProgramDataRoot, "MaskProfiles");
 
     /// <summary>
+    /// NOMASK_01 — the reserved, HUD-free profile. Name lives in Core so the Main App, the
+    /// Settings window and the Crop Tools app all compare against the same literal.
+    /// </summary>
+    public static string NoMaskProfileName => CropConfigDefaults.NoMaskProfileName;
+
+    /// <summary>NOMASK_01 — true when <paramref name="profileName"/> is the reserved HUD-free profile.</summary>
+    public static bool IsNoMask(string? profileName)
+        => string.Equals(profileName?.Trim(), CropConfigDefaults.NoMaskProfileName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// ISSUE_3: all reads/writes of the shared crops_coordinations.conf must hold the
     /// same named system mutex that CropConfigStore/StateTransferStore use, because
     /// Main App and Crop Tools are both alive during process handoff.
@@ -50,10 +60,33 @@ public static class MaskOverlayManager
         if (!Directory.Exists(ProfilesDirectory))
             Directory.CreateDirectory(ProfilesDirectory);
 
-        string[] defaultProfiles = { "Fortnite", "Counter Strike", "Battlefield", "DJI Drones", "Apex Legends", "Call of Duty" };
+        string[] defaultProfiles = { "Fortnite", "Counter Strike", "Battlefield", "DJI Drones", "Apex Legends", "Call of Duty", CropConfigDefaults.NoMaskProfileName };
         foreach (var p in defaultProfiles)
         {
             var pPath = Path.Combine(ProfilesDirectory, p + ".json");
+
+            // NOMASK_01 — the reserved profile is SELF-HEALING, not merely seeded-if-absent.
+            // Every other profile is the user's to shape; this one is a guarantee ("no HUD, ever"),
+            // so a file that has drifted — hand-edited, or written by a build before the write
+            // guards below existed — is rewritten from CreateNoMask rather than trusted.
+            if (IsNoMask(p))
+            {
+                JsonObject? existing = null;
+                if (File.Exists(pPath))
+                {
+                    try { existing = AtomicJsonFile.ReadObject(pPath); }
+                    catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+                }
+
+                if (!CropConfigDefaults.IsHudFree(existing))
+                {
+                    if (existing != null)
+                        RuntimeLog.Info("MASK PROFILE", $"'{p}' had HUD layers or missing keys. Restoring the HUD-free document.");
+                    AtomicJsonFile.WriteObject(pPath, CropConfigDefaults.CreateNoMask());
+                }
+                continue;
+            }
+
             if (!File.Exists(pPath))
             {
                 if (p == "Fortnite" && File.Exists(ApplicationPaths.CreateDefault().CropCoordinatesFile))
@@ -135,6 +168,17 @@ public static class MaskOverlayManager
             var active = SettingsManager.Instance.ActiveMaskOverlay;
             if (string.IsNullOrWhiteSpace(active)) return;
 
+            // NOMASK_01 — NEVER write the live crop config back into the reserved profile.
+            // This method exists so Crop Tools edits follow the active profile. The Main App
+            // blocks Crop Tools while the reserved profile is active, but this is the last line
+            // of defence: one save through here would bake HUD layers into "No Mask Profile"
+            // permanently, and the name would be a lie from then on.
+            if (IsNoMask(active))
+            {
+                RuntimeLog.Info("MASK PROFILE", $"'{active}' is read-only. Live crop config NOT written back to it.");
+                return;
+            }
+
             var pPath = Path.Combine(ProfilesDirectory, active + ".json");
             JsonObject? current;
             using (AcquireConfigLock())
@@ -158,6 +202,16 @@ public static class MaskOverlayManager
     {
         string? safeName = SanitizeProfileName(newName);
         if (safeName == null) return;
+
+        // NOMASK_01 — the reserved name cannot be claimed by a user-created profile. Without this,
+        // "Create new overlay" named "No Mask Profile" would snapshot the CURRENT crop config over
+        // the reserved file and hand the user a fully-masked profile wearing the no-mask name.
+        if (IsNoMask(safeName))
+        {
+            RuntimeLog.Info("MASK PROFILE", $"'{safeName}' is a reserved profile name. Creation refused.");
+            return;
+        }
+
         EnsureDefaults();
 
         var pPath = Path.Combine(ProfilesDirectory, safeName + ".json");

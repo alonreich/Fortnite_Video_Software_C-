@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -488,8 +488,6 @@ public partial class MusicWizardWindow : Window
             };
         }
 
-        // AUDIOPROT_01 — CarvingCheckBox previously had NO change handler of any kind, so ticking
-        // it did not even refresh the problem-flag panel, let alone the preview.
         var carvingCheckWire = this.FindControl<CheckBox>("CarvingCheckBox");
         if (carvingCheckWire != null)
         {
@@ -929,7 +927,7 @@ public partial class MusicWizardWindow : Window
             {
 
 
-                dots[i].Item1!.Background = Avalonia.Media.Brush.Parse("#22c55e");
+                dots[i].Item1!.Background = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"));   // TONE_01
 
                 dots[i].Item2!.Text = "✓";
 
@@ -1404,6 +1402,10 @@ public partial class MusicWizardWindow : Window
         if (wasPlaying) StopPreview();
 
         _songStartSeconds = Math.Clamp(startSeconds, 0, Math.Max(0, _trackDuration - 0.01));
+
+        // PREVIEW_04 — the cached loudness belongs to the OLD song-start window. Moving the start
+        // moves the material, so the measurement has to be retaken or the preview balance is stale.
+        if (_selectedTrack?.FilePath is string movedPath) _musicSegmentLufs.Remove(movedPath);
         ResetAutoFillQueueState();
         _previewCurrentOffset = _songStartSeconds;
 
@@ -1505,19 +1507,6 @@ public partial class MusicWizardWindow : Window
                 ? FindSmartFitStart(analysis, videoDuration)
                 : 0.0;
 
-            // AUDIOPROT_01 — SMART FIT NO LONGER RE-TICKS DUCKING AND CARVING.
-            //
-            // ⚠️ IT USED TO FORCE BOTH TO `IsChecked = true` HERE, SILENTLY. Smart Fit answers ONE
-            // question — where in the song to start — and has no business overruling the two audio
-            // protection switches. A user who deliberately turned ducking or carving off and then
-            // pressed Smart Fit had both quietly turned back on with no toast, no log line and no
-            // visible reason, and `BuildResult` reads the checkboxes directly, so the reversal
-            // travelled straight into `EnableDucking` / `EnableCarving` and into the export. That
-            // is the "unchecking is not respected" report. Do not reinstate this.
-            //
-            // The MusicVolSlider nudge below is DIFFERENT and is kept: it only fires when the
-            // slider is still sitting on its 100 default, i.e. when the user has expressed no
-            // preference, whereas an unticked checkbox IS an expressed preference.
             var musicVolSlider = this.FindControl<Slider>("MusicVolSlider");
             if (musicVolSlider != null && Math.Abs(musicVolSlider.Value - 100.0) < 0.5)
                 musicVolSlider.Value = 85.0;
@@ -2285,7 +2274,6 @@ public partial class MusicWizardWindow : Window
                 RefreshDetachButtonState();
 
 
-
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
                     await wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
@@ -2322,17 +2310,6 @@ public partial class MusicWizardWindow : Window
                 _phase3ClipDurationsSec.Clear();
                 _phase3ClipDurationsSec.AddRange(videoDurs.Select(d => Math.Max(0.1, d / Math.Max(0.001, _phase3BaseSpeed))));
 
-                // ══════════════════════════════════════════════════════════════════════════
-                // STRIP_02/03 — MOUNT THE LANE FIRST, THEN STREAM INTO IT.
-                // Two defects were stacked here. The loop `await`ed each clip's strip before
-                // starting the next, so in Merger mode the wait was the SUM over the queue; and
-                // nothing appeared for any clip until its strip was complete. The lane's Images
-                // are now created up front so each one has a surface to stream into, the renders
-                // run concurrently, and every clip fills in as its own frames decode.
-                // The semaphore is not ceremony: a merge queue can hold a dozen clips and an
-                // unbounded fan-out puts a dozen decoders on the machine at once, which on a
-                // laptop loses to the serial version it replaced.
-                // ══════════════════════════════════════════════════════════════════════════
                 var laneImages = new System.Collections.Generic.List<Avalonia.Controls.Image>(videosToThumb.Count);
                 for (int i = 0; i < videosToThumb.Count; i++)
                 {
@@ -2378,7 +2355,6 @@ public partial class MusicWizardWindow : Window
 
                             if (streamed) return;
 
-                            // Nothing streamed for this clip — fall back to the tiled render.
                             string? path = await GenerateThumbnailsStripAsync(
                                 ffmpeg, videoForStrip, startOffset, vDur, cancellationToken, framesCount);
                             if (path == null) return;
@@ -2675,20 +2651,21 @@ public partial class MusicWizardWindow : Window
         {
             double panelWidth = this.FindControl<Avalonia.Controls.Control>("MultiSongHelperPanel")?.Bounds.Width ?? 200;
             fill.Width = Math.Max(0, panelWidth * (coveragePercent / 100.0) - 24);
+            // TONE_01: all three coverage states come off tokens now.
             fill.Background = coveragePercent >= 99.9
-                ? Avalonia.Media.Brush.Parse("#22c55e")
+                ? Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"))
                 : coveragePercent >= 50
-                    ? Avalonia.Media.Brush.Parse("#facc15")
-                    : Avalonia.Media.Brush.Parse("#ef4444");
+                    ? Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", Avalonia.Media.Brush.Parse("#facc15"))
+                    : Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brush.Parse("#a83232"));
         }
 
         var pctText = this.FindControl<TextBlock>("CoveragePercentText");
         if (pctText != null)
         {
             pctText.Text = $"{coveragePercent:0}%";
-            pctText.Foreground = coveragePercent >= 99.9
-                ? Avalonia.Media.Brush.Parse("#22c55e")
-                : Avalonia.Media.Brush.Parse("#facc15");
+            pctText.Foreground = coveragePercent >= 99.9   // TONE_01
+                ? Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"))
+                : Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", Avalonia.Media.Brush.Parse("#facc15"));
         }
 
         var barText = this.FindControl<TextBlock>("CoverageBarText");
@@ -2926,7 +2903,6 @@ public partial class MusicWizardWindow : Window
             : "";
 
 
-
         _ = _audioIpcClient.SetPropertyAsync("af", af);
     }
 
@@ -2960,18 +2936,118 @@ public partial class MusicWizardWindow : Window
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         videoVolume = videoVolume * master / 100.0;
 
+        // PREVIEW_04 — the other half of the balance match: when the correction says the music
+        // should come UP, the video comes down by the same amount instead. 0 dB when unmeasured.
+        videoVolume *= DbToLinear(PreviewVideoAttenuationDb());
+
         return Math.Clamp(videoVolume, 0.0, 100.0);
     }
 
 
+    /// <summary>
+    /// PREVIEW_04 — the raw integrated loudness of the gameplay clip, supplied by the Main App
+    /// (its `_sourceMeasuredLufs`). Null when it could not be measured; the preview then leaves
+    /// both sides alone, exactly as before.
+    /// </summary>
+    public double? SourceMeasuredLufs { get; set; }
 
     /// <summary>
-    /// Measures the chosen track once and caches how far it sits from the bed target. Failures
-    /// leave the gain at 0 dB, i.e. exactly the old behaviour — this must never block the preview.
+    /// PREVIEW_04 — where the EXPORT will put the game bus. Set to
+    /// <see cref="FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.TargetLufs"/> when loudness
+    /// normalisation will run, and left null when the game bus is exported untouched.
     /// </summary>
-    private Task EnsureMusicBedGainAsync(string musicPath)
+    public double? GameBusTargetLufs { get; set; }
+
+    /// <summary>Measured integrated loudness of each music SEGMENT, keyed by file path.</summary>
+    private readonly System.Collections.Generic.Dictionary<string, double> _musicSegmentLufs =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// PREVIEW_04 — HOW MUCH THE MUSIC MUST MOVE, IN dB, FOR THIS PREVIEW TO SOUND LIKE THE EXPORT.
+    ///
+    /// This window plays both files RAW through mpv at nothing but the slider value, while the
+    /// export pins the game bus to TargetLufs and the music bed to MusicBedLufs. Commercial masters
+    /// sit around -8 to -10 LUFS and a gameplay capture around -20 to -25, so the untouched preview
+    /// puts the music 10-15 dB above the game — and the user, hearing that, pulls the music slider
+    /// down to fix a problem that only exists here. The exported file then has music far below
+    /// where they wanted it. This is the same fault PREVIEW_03 documents for the voice-over window.
+    ///
+    ///   export delta (music - game) = MusicBedLufs - (GameBusTargetLufs ?? rawGame)
+    ///   preview delta if untouched  = rawMusic - rawGame
+    ///   correction                  = export delta - preview delta
+    ///
+    /// Returns 0 when either side could not be measured, which restores the old behaviour exactly.
+    /// </summary>
+    private double PreviewMusicBalanceDb()
     {
-        return Task.CompletedTask;
+        string? path = _selectedTrack?.FilePath;
+        if (path == null || !_musicSegmentLufs.TryGetValue(path, out double rawMusic)) return 0.0;
+        if (SourceMeasuredLufs is not double rawGame) return 0.0;
+
+        double exportGame = GameBusTargetLufs ?? rawGame;
+        double exportDelta = FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MusicBedLufs - exportGame;
+        double previewDelta = rawMusic - rawGame;
+
+        // Clamped to the same rails the export clamps its bed gain to, so a badly-tagged file
+        // cannot silence one side of the preview.
+        return Math.Clamp(
+            exportDelta - previewDelta,
+            FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MinMusicGainDb,
+            FortniteVideoSoftware.Core.Media.AudioLoudnessProbe.MaxMusicGainDb);
+    }
+
+    /// <summary>
+    /// PREVIEW_04 — the correction is applied by ATTENUATING ONE SIDE, NEVER BOOSTING EITHER.
+    /// mpv's volume property is a 0-100 percentage, so "turn the music up 12 dB" is not available
+    /// above 100 and would clip if it were. Only the RELATIVE distance matters for judging a mix,
+    /// so a positive correction is applied as a cut to the VIDEO instead of a lift to the music.
+    /// </summary>
+    private double PreviewMusicAttenuationDb() => Math.Min(0.0, PreviewMusicBalanceDb());
+
+    private double PreviewVideoAttenuationDb() => Math.Min(0.0, -PreviewMusicBalanceDb());
+
+    private static double DbToLinear(double db) => Math.Pow(10.0, db / 20.0);
+
+    /// <summary>
+    /// PREVIEW_04 — measures the SEGMENT of the track that will actually play and caches it.
+    ///
+    /// Was a stub returning Task.CompletedTask, which is why the preview never matched the export.
+    /// Measures the same window the export's BEDSEG_01 measurement uses — from the chosen song
+    /// start, for as long as the video runs — so the two agree. Failures leave the gain at 0 dB,
+    /// i.e. exactly the old behaviour: this must never block or slow the preview.
+    /// </summary>
+    private async Task EnsureMusicBedGainAsync(string musicPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(musicPath) || !File.Exists(musicPath)) return;
+            if (_musicSegmentLufs.ContainsKey(musicPath)) return;
+
+            bool isSelected = string.Equals(musicPath, _selectedTrack?.FilePath, StringComparison.OrdinalIgnoreCase);
+            double startSec = isSelected ? Math.Max(0.0, _songStartSeconds) : 0.0;
+
+            double videoDur = GetPhase3VideoDurationSeconds();
+            double trackDur = isSelected && _selectedTrack != null ? _selectedTrack.DurationSec : 0.0;
+            double available = trackDur > 0 ? Math.Max(0.0, trackDur - startSec) : videoDur;
+            double window = videoDur > 0 ? Math.Min(videoDur, available) : available;
+
+            string ffmpeg = BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
+
+            var reading = await FortniteVideoSoftware.Core.Media.AudioLoudnessProbe
+                .MeasureAsync(ffmpeg, musicPath, CancellationToken.None,
+                              segmentStartSec: startSec,
+                              segmentDurationSec: window)
+                .ConfigureAwait(true);
+
+            if (reading == null) return;
+
+            _musicSegmentLufs[musicPath] = reading.IntegratedLufs;
+            RuntimeLog.Info("MUSIC_WIZARD",
+                $"PREVIEW LEVEL MATCH: '{Path.GetFileName(musicPath)}' segment {startSec:F1}s +{window:F1}s " +
+                $"measured {reading.IntegratedLufs:F2} LUFS. Music {PreviewMusicAttenuationDb():F2} dB / " +
+                $"video {PreviewVideoAttenuationDb():F2} dB applied to the preview only.");
+        }
+        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private double GetPreviewMusicVolume(double? masterVolume = null)
@@ -2979,6 +3055,9 @@ public partial class MusicWizardWindow : Window
         double musicVolume = this.FindControl<Slider>("MusicVolSlider")?.Value ?? 100.0;
         double master = masterVolume ?? FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolume;
         musicVolume = musicVolume * master / 100.0;
+
+        // PREVIEW_04 — see PreviewMusicBalanceDb. 0 dB when unmeasured, so this is a no-op then.
+        musicVolume *= DbToLinear(PreviewMusicAttenuationDb());
 
         return Math.Clamp(musicVolume, 0.0, 100.0);
     }
@@ -3610,7 +3689,8 @@ public partial class MusicWizardWindow : Window
         EnsurePlayheadLine(
             canvas,
             ref _waveformPlayheadLine,
-            Avalonia.Media.Brushes.Red,
+            // TONE_01: the playhead is the app's red, not raw #FF0000.
+            Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red),
             dashed: false);
         _waveformPlayheadLine!.StartPoint = new Avalonia.Point(playheadXPos, 0);
         _waveformPlayheadLine.EndPoint = new Avalonia.Point(playheadXPos, canvas.Bounds.Height);
@@ -3625,7 +3705,7 @@ public partial class MusicWizardWindow : Window
             EnsurePlayheadLine(
                 timelineCanvas,
                 ref _timelinePlayheadLine,
-                Avalonia.Media.Brushes.Red,
+                Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red),   // TONE_01
                 dashed: false);
             _timelinePlayheadLine!.StartPoint = new Avalonia.Point(txPos, 0);
             _timelinePlayheadLine.EndPoint = new Avalonia.Point(txPos, timelineCanvas.Bounds.Height);

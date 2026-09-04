@@ -867,7 +867,7 @@ public sealed class MpvVideoView : Control, IDisposable
                 if (frameReady && imageForAvalonia != null && surfaceForAvalonia != null)
                 {
                     _retryPending = false;
-                    _consecutiveDeclines = 0;   // ZOOMHANG_01
+                    _consecutiveDeclines = 0;
                     ImportAndPresentTexture(_currentBufferIndex, surfaceForAvalonia, imageForAvalonia);
                 }
                 else
@@ -932,17 +932,6 @@ public sealed class MpvVideoView : Control, IDisposable
     /// </summary>
     private void PumpEmptyRender()
     {
-        // ZOOMHANG_01 — THE RETRY IS NOW BOUNDED.
-        // `_retryPending` makes RenderThreadLoop spin on a 66ms wait instead of blocking, and it is
-        // cleared ONLY when a frame is successfully presented. If frames stop permanently — the
-        // window is hidden, the surface is gone, or the UI thread has stopped answering — nothing
-        // ever cleared it, so the loop free-ran at ~15/sec forever, and each pass made mpv re-emit
-        // "after creating texture: OpenGL error INVALID_OPERATION" plus its status line. That log
-        // flood was the visible half of the freeze.
-        // After ConsecutiveDeclineLimit passes (~6s) we stop asking for the short retry and let the
-        // loop block on `_renderSignal` again. mpv's update callback still wakes it the instant a
-        // real frame is offered, so a preview that CAN recover still recovers; a preview that
-        // cannot now idles silently instead of burning a core and filling the log.
         if (++_consecutiveDeclines <= ConsecutiveDeclineLimit)
         {
             _retryPending = true;
@@ -1160,27 +1149,6 @@ public sealed class MpvVideoView : Control, IDisposable
             return gpu.ImportImage(platformHandle, props);
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════════════════
-        // ZOOMHANG_01 — BOUNDED HAND-OFF. THIS WAS `Dispatcher.UIThread.Invoke(...)`, AND IT IS
-        // CALLED FROM THE RENDER THREAD WHILE THAT THREAD HOLDS `_renderLock`.
-        //
-        // `Invoke` blocks until the UI thread runs the callback. If the UI thread is itself inside
-        // MpvVideoView.Dispose waiting for `_renderLock`, neither side can ever move: the classic
-        // lock-order inversion, and a hard freeze of the entire application with no error and no
-        // recovery. It is reached most easily on window close, because a size change nulls all
-        // SwapChainSize imported images and the render thread then makes a burst of these
-        // round-trips at exactly the moment Dispose runs.
-        //
-        // A timed wait cannot deadlock. Returning null on timeout is already a supported outcome —
-        // every caller treats a null import as "cannot draw this frame", pumps a skip-render so
-        // mpv's clock keeps moving, and retries on the next pass.
-        //
-        // ⚠️ ON A HEALTHY MACHINE THIS CHANGES NOTHING. The UI thread services the post in well
-        // under a millisecond, so the wait returns immediately and the frame is imported exactly as
-        // before. The timeout only ever fires in the state that used to be fatal.
-        // ⚠️ DO NOT PUT `Invoke` BACK, and do not "simplify" this to `.Result` or `.Wait()` with no
-        // timeout — an unbounded wait here is the bug, whatever syntax it is spelled in.
-        // ═══════════════════════════════════════════════════════════════════════════════════════
         if (_disposing) return null;
 
         var importCompletion = new System.Threading.Tasks.TaskCompletionSource<ICompositionImportedGpuImage?>();
@@ -1405,27 +1373,6 @@ public sealed class MpvVideoView : Control, IDisposable
                 "GPU render thread is unaccounted for — abandoning the render context, the mpv handle and the interop GCHandle instead of freeing them.");
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════════════
-        // ZOOMHANG_01 — TIMED ACQUIRE, NOT `lock`. THIS LINE USED TO DEADLOCK THE WHOLE APP.
-        //
-        // Everything above this point is written to survive a render thread that will not stop:
-        // Join has a 3s timeout, `_renderThreadExited` is consulted, and `gpuThreadAccountedFor`
-        // drives an explicit "abandon the context rather than free it" branch. Then the very next
-        // statement was an UNBOUNDED `lock (_renderLock)` — the one lock that stuck thread is
-        // guaranteed to be holding. Every one of those escape hatches led straight into a wall.
-        //
-        // The render thread holds `_renderLock` for the whole of UpdateSurface and, inside it,
-        // could block on `Dispatcher.UIThread.Invoke` (TryImportSharedTexture). Dispose runs ON
-        // the UI thread. So: render thread waits for the UI thread, UI thread waits for the render
-        // thread's lock, and the process is dead — with mpv's render loop left free-running, which
-        // is where the endless "after creating texture: OpenGL error INVALID_OPERATION" came from.
-        //
-        // `Monitor.TryEnter` with a timeout mirrors what `_swRenderGate` already does a few lines
-        // up. ⚠️ ON FAILURE WE ABANDON, WE DO NOT FORCE: the GL/D3D objects and the mpv handle are
-        // left for the OS to reclaim at process exit, exactly as the unaccounted-thread branch
-        // already does. Freeing GL resources out from under a thread that is still inside
-        // mpv_render_context_render is a crash, not a cleanup.
-        // ═══════════════════════════════════════════════════════════════════════════════════
         bool renderLockAcquired = false;
         try { renderLockAcquired = System.Threading.Monitor.TryEnter(_renderLock, TimeSpan.FromSeconds(2)); }
         catch { renderLockAcquired = false; }

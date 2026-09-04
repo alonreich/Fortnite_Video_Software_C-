@@ -63,10 +63,10 @@
                             Spacing="15" Margin="0,0,0,16">
                     <!-- ISSUE_04 (audit round 5): MinHeight="38" removed — it overrode the global
                          AppButtonMinHeight token (44) and blocked font-scale growth. -->
-                    <Button Name="YesBtn" Classes="Success" Content="YES"
+                    <Button Name="YesBtn" Classes="Success" Content="YES" ToolTip.Tip="Re-encode the audio so it plays correctly everywhere. Takes a little longer."
                             MinWidth="150" Cursor="Hand" IsDefault="True"
                             AutomationProperties.Name="Yes, fix the audio" />
-                    <Button Name="NoBtn" Classes="Secondary" Content="NO"
+                    <Button Name="NoBtn" Classes="Secondary" Content="NO" ToolTip.Tip="Leave the audio exactly as it is. Some players may not play it correctly."
                             MinWidth="150" Cursor="Hand" IsCancel="True"
                             AutomationProperties.Name="No, leave the audio alone" />
                 </StackPanel>

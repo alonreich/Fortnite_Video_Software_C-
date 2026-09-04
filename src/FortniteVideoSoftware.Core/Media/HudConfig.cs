@@ -317,6 +317,19 @@ public static class HudConfig
             }
             int w = ReadArrayInt(rect, 0);
             int h = ReadArrayInt(rect, 1);
+
+            // NOMASK_01 — A FULLY ZERO RECT IS "LAYER SWITCHED OFF", NOT A FAULT.
+            // This is the documented representation: CropConfigDefaults.Create's remarks say a
+            // zero-size rect is the canonical way to express a disabled layer, CropToolWindow
+            // .SaveConfig writes [0,0,0,0] when the user deletes one, MobileFilterBuilder
+            // .RegisterLayer skips anything with w < 1 || h < 1, and the Crop Tools ghost renderer
+            // skips w <= 1 || h <= 1. Such a rect can never reach the filter graph.
+            // Flagging it was wrong for EVERY profile — deleting a layer produced a bogus
+            // "Invalid crop dimensions" issue for it on every export — and the reserved
+            // "No Mask Profile" is six of them by design.
+            // A PARTIALLY zero rect (one axis only) is still a real fault and still flagged.
+            if (w == 0 && h == 0) continue;
+
             if (w <= 0 || h <= 0 || h > CoordinateConstants.ContentH)
                 issues.Add($"Invalid crop dimensions for '{kvp.Key}'");
         }

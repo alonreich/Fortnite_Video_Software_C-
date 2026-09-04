@@ -170,16 +170,16 @@ namespace FortniteVideoSoftware.App
                 if (_phaseText != null)
                 {
                     _phaseText.Text = "FINISHED SUCCESSFULLY";
-                    _phaseText.Foreground = Avalonia.Media.Brushes.LimeGreen;
+                    _phaseText.Foreground = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen);
                 }
                 if (_progressBar != null)
                 {
                     _progressBar.Value = 100;
-                    _progressBar.Foreground = Avalonia.Media.Brushes.LimeGreen;
+                    _progressBar.Foreground = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen);
                 }
                 if (_titleText != null)
                 {
-                    _titleText.Foreground = Avalonia.Media.Brushes.LimeGreen;
+                    _titleText.Foreground = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen);
                 }
             });
 
@@ -194,16 +194,16 @@ namespace FortniteVideoSoftware.App
                 if (_phaseText != null)
                 {
                     _phaseText.Text = "INSTALLATION FAILED";
-                    _phaseText.Foreground = Avalonia.Media.Brushes.Red;
+                    _phaseText.Foreground = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red);
                 }
                 if (_progressBar != null)
                 {
-                    _progressBar.Foreground = Avalonia.Media.Brushes.Red;
+                    _progressBar.Foreground = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red);
                     _progressBar.Value = 100;
                 }
                 if (_titleText != null)
                 {
-                    _titleText.Foreground = Avalonia.Media.Brushes.Red;
+                    _titleText.Foreground = Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red);
                 }
                 
                 AppendLogLine("========================================");

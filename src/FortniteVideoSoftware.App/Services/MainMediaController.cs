@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -62,6 +62,9 @@ public class MainMediaController
             worker.EndTimeMs = effectiveEndMs;
             
             if (payload.SpeedSegments != null) worker.SpeedSegments = payload.SpeedSegments;
+            // CUT_01 — carry the cut list across to the encoder. Without this the payload would
+            // hold the cuts and the export would quietly ignore every one of them.
+            if (payload.Cuts != null) worker.Cuts = payload.Cuts;
             worker.SpeedFactor = payload.BaseSpeed;
             worker.HardwareStrategy = payload.HardwareMode;
             

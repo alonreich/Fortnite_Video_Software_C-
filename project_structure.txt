@@ -177,10 +177,29 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
         |                                   surfaces (Granular, Main App, Music Wizard phase 3).
         |                                   Reads its ramp timing off GranularSpeedBuilder so the
         |                                   previews and the exported file cannot drift apart.
+        |-- Media/OutputTimeline.cs       : SINGLE SOURCE OF TRUTH for source<->output time
+        |                                   (TIME_01). Owns the chunk model: normal, freeze,
+        |                                   insertion (meme) and — since CUT_01 — CUT chunks.
+        |                                   Full spec in Section 5E.
         |-- Ipc/                          : Atomic state transfer between the isolated processes.
         |   (App layer) Controls/VoiceOverPreviewPlayer.cs : Reusable NAudio encapsulation for VoiceOver live playback in any preview surface.
         |   (App layer) ThumbnailStripGenerator.cs : the ONE film-strip renderer, shared by Music
         |      Wizard phase 3 and the Granular editor's frame lane. Caller owns/deletes the temp PNG.
+        |   (App layer) Infrastructure/ThemeResources.cs : THE ONLY safe way to read a brush or a
+        |      colour from code-behind (THEME_01). `FindResource` returns UnsetValue, not null, so
+        |      the "?? fallback" idiom throws at the cast — that exact line once stopped the Video
+        |      Merger from opening. `Brush()` / `Colour()` take a host control and a fallback and
+        |      never throw. ⚠️ After TONE_01 every red/green in code-behind reads a token through
+        |      this class; do not reintroduce a literal.
+        |   (App layer) Controls/CoachOverlay.cs : the suite's ONE walkthrough engine — dimmed
+        |      spotlight + ghost cursor, drawn as vectors over the window's own live controls (the
+        |      repo ships NO tutorial GIFs; mandate #2 forbids loose files beside the .exe).
+        |      `Register()` auto-shows per screen; `Replay()` re-runs a registered tour;
+        |      `PlayOnce()` (GUIDE_01) plays an AD-HOC tour with no screen key and no counter.
+        |   (App layer) Controls/ConfirmDialogWindow.cs : the THEMED confirm dialog.
+        |      `AskAsync(owner, message, title, yes, no)` (DIALOG_01) is the replacement for
+        |      `NativeDialog.ShowQuestion` anywhere a real owner window exists. NativeDialog is
+        |      still correct in DeploymentLifecycle/Program.cs, which run with no Avalonia window.
         |   ⚠️ `Media/FilterBuilder.cs` DOES NOT EXIST — this map used to list it. It was deleted
         |      along with FfmpegWorker.cs and TimeSyncEngine.cs (see the Pipeline Audit Fixes entry
         |      in Section 9). Do not go looking for it; `MobileFilterBuilder.cs` and
@@ -760,8 +779,12 @@ SO: TRUST THE PREVIEW FOR BALANCE, NEVER FOR DYNAMICS.
                        and covered the band where a gunshot's WEIGHT lives (~80-250 Hz), so the
                        music's body kept masking shots that the treble had politely made room
                        for. 250-300 Hz is the useful range; higher starts thinning the music.
-  4. Ducker          : `sidechaincompress=threshold=0.15:ratio=8:attack=1:release=800:
+  4. Ducker          : `sidechaincompress=threshold=0.15:ratio=1.13:attack=1:release=800:
                        detection=peak`  (`FilterGraphBuilder.SidechainCompressNode` defaults).
+                       ⚠️ THE RATIO IN THIS DOCUMENT SAID 8 AND THE CODE SAID 1.13. The code is
+                       authoritative; `SidechainCompressNode.TunedRatio` is the only place to
+                       read it from. The prose below about 2.5 -> 8 is kept as HISTORY of the
+                       reasoning, not as a description of the shipped value.
                        - ratio was 2.5 (a mix-glue setting; ~6 dB of reduction, inaudible as a
                          duck). 8:1 gives ~8.75 dB at the same overshoot.
                        - detection was `rms`, which AVERAGES — exactly wrong for gunfire, the
@@ -771,6 +794,25 @@ SO: TRUST THE PREVIEW FOR BALANCE, NEVER FOR DYNAMICS.
                          stands in for one. attack=1 ms was already correct.
   5. Reconstruct     : `[mus_low][mus_high_ducked]amix=weights='1 1':normalize=0`.
   6. Final mix       : game + reconstructed music, `weights='1 1':normalize=0`.
+
+  ⚠️ DUCKOFF_01 — "DUCKING OFF" MEANS THE FILTERS ARE ABSENT, NOT NEUTRALISED.
+  Unchecking Volume Ducking in the Music Wizard used to send `BypassThreshold`/`BypassRatio`
+  (1.0 / 1.0) while the WHOLE apparatus still ran: the game `asplit`, the trigger bus, the 250 Hz
+  `acrossover`, the compressor and the re-sum. ratio=1 is mathematically unity so the LEVEL was
+  right, but unity is not nothing — the crossover split-and-sum is an allpass round trip that
+  shifts phase around 250 Hz, and the trigger bus was decoded and filtered for a result nobody
+  consumed. `AudioFilterChain` now reads an EXPLICIT `ducking_enabled` flag (written by both
+  MainWindow and VideoMergerWindow) and, when false, emits `[game_leveled] -> [game_out_pre]` and
+  mixes the music in untouched — no asplit, no acrossover, no agate, no sidechaincompress. The
+  threshold/ratio fallback survives ONLY to read configs written before that key existed.
+  EQ carving was already a true removal and still is. Phase4Gate asserts both, and asserts that an
+  EMPTY cut list produces a byte-identical graph.
+
+  ⚠️ SPLICE_01 — every concatenated audio chunk carries an 8 ms `afade` in and out
+  (`GranularSpeedBuilder.SpliceFadeSec`). `concat` butt-joins waveforms, and a butt-join between
+  two unrelated instants is a step discontinuity heard as a click. This was always true at speed
+  and freeze boundaries; cuts make it far more likely because the two sides are arbitrarily far
+  apart. 8 ms is under half a frame at 60fps — long enough to ramp, too short to hear as a dip.
   ⚠️ TUNE IN THIS ORDER if it over-ducks: Ratio, then Release, then MusicBedLufs. Threshold
   LAST — it interacts with the bed level, so moving it first makes the other two unreadable.
 
@@ -781,6 +823,22 @@ SO: TRUST THE PREVIEW FOR BALANCE, NEVER FOR DYNAMICS.
 `FortniteVideoSoftware.Core.Media.OutputTimeline` (TIME_01) is the SINGLE SOURCE OF TRUTH for
 converting between SOURCE time (a position in the original file) and OUTPUT time (a position in
 the finished, exported video). Nothing else in the codebase is permitted to re-derive this.
+
+FOUR CHUNK KINDS (CUT_01 added the fourth):
+  * NORMAL    — plays a source range at a speed. Consumes source time, occupies output time.
+  * FREEZE    — holds one frame. Consumes NO source time, occupies output time.
+  * INSERTION — a meme. Foreign footage: consumes NO source time, occupies output time.
+  * CUT       — deleted footage. Consumes source time, occupies ZERO output time. The exact
+                mirror of a freeze, which is why the model absorbed it without new mathematics.
+A cut is kept IN the chunk list rather than deleted from it, so the timeline can still answer
+"is this source moment gone?" (`IsCutAtSource`) and "where does the footage resume?"
+(`NextSurvivingSource`). `OutputLengthSec` returns 0 for it, and every output->source walker skips
+it — without that skip a query landing exactly on a join would match the cut's zero-length window
+and return deleted footage.
+⚠️ `OutputToSourceRelative` is AMBIGUOUS AT A JOIN, deliberately, by the same logic that makes it
+lossy inside a freeze: two source positions map to one output instant and it returns the EARLIER
+one. A player wants the resuming side, so the preview composes
+`NextSurvivingSource(OutputToSourceRelative(t))`. Do not "fix" the boundary in the shared loop.
 
 THREE FRAMES OF REFERENCE — mixing them up is the classic bug here:
   * ABSOLUTE SOURCE seconds     — position in the original file, trim offset included.
@@ -931,6 +989,41 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   * Multi-select upload dialogs: BOTH the Main App and the Video Merger file pickers use `AllowMultiple = true`. The Merger queues every marked file. The Main App is a single-video editor, so it INTENTIONALLY loads only the file with the NEWEST modified date/time among the marked files — multi-select exists purely for end-user convenience (e.g. deleting several files directly inside the picker window). Do not "fix" the main app picker back to single-select.
 - FFmpeg Rendering (ProcessWorker.cs) — ⚠️ FULL BACKEND SPEC LIVES IN SECTION 5C; READ IT BEFORE EDITING ENCODER SELECTION, `-hwaccel`, RATE CONTROL, TWO-PASS OR THE SIZE-TARGET RETRY. Translates all UI selections (crops, time segments, speeds, audio) into complex FFmpeg filter graphs (AudioFilterChain.cs, GranularSpeedBuilder.cs, MobileFilterBuilder.cs) and executes them. Encoder choice runs through the ONE shared resolver `ExportEncoderStrategy.Resolve` — Settings-override -> this process's own boot scan -> the suite-wide published result -> "unknown, re-probe" (5C.0/5C.1), never an app-local default; decode flags are emitted per video input (5C.2); size-locked exports use the two-pass complexity-map route on libx264 (5C.4) while ORIGINAL QUALITY stays single-pass CRF (5C.3). (Legacy FfmpegWorker.cs / FilterBuilder.cs / TimeSyncEngine.cs shims were deleted; Phase4Gate now validates the production classes directly.) Granular speed segments flow `_segments` (rel ms, Granular) -> `ResultSegments` (abs ms) -> `_speedSegments` (Main App) -> `BuildExportSpeedSegments()` -> `worker.SpeedSegments`, millisecond-accurate on the X-axis end to end.
 - Crash Recovery of Speed Segments: `SaveRecoveryState()` serializes `_speedSegments` (startMs/endMs/speed) and is invoked IMMEDIATELY when the Granular editor closes with Accept, so segment edits survive a crash/force-kill right after the editor closes.
+- DELETE PARTS — cutting footage out of the middle (CUT_01/CUT_02/CUT_03): the Granular Speed
+  Editor's `DELETE PARTS` button (under `ZOOM-IN`, scissors icon, tooltip "DELETE ENTIRE SCENE FROM
+  THE VIDEO") removes the marked stretch from the finished video. It acts on the current MARK
+  START/END pair or on the selected block. THE OUTPUT IS ALWAYS ONE FILE — the surviving stretches
+  are trimmed and concatenated inside the SAME single FFmpeg run that already handles slow motion,
+  freezes and memes; the removed footage is simply never written, and the source file is untouched.
+  ⚠️ A CUT ALSO RECONCILES THE SEGMENT LIST (CUT_03). `MARK END` calls `AddPendingSegment`, so the
+  marked range is already a committed speed block by the time DELETE PARTS runs; leaving it would
+  show a block over footage that no longer exists. Blocks fully inside a cut are removed, partial
+  overlaps trimmed, remnants under 200ms dropped, and a freeze whose held frame was deleted is
+  cleared. A block SPANNING a cut is deliberately left alone — its source range still covers
+  surviving footage on both sides and OutputTimeline already splits it. ⚠️ `RefreshSegmentList()`
+  MUST follow — reconciling `_segments` is invisible until the right-hand pane is rebuilt from it,
+  and a stale pane makes deleted footage still look like a live segment. Undo needs it too.
+  The confirmation (Settings › Confirmation Dialogs) defaults OFF: cutting is a high-frequency
+  gesture and Ctrl+Z covers a mistake. When on, DELETE IT is red, KEEP IT is green, and Enter is
+  bound to KEEP IT (DIALOG_02).
+  Voice-overs, memes and music need NO realignment: all three are stored in SOURCE time and
+  converted through the same `OutputTimeline`, so removing footage slides them automatically.
+  COST: 1 speed segment = 2 export chunks, 1 cut = 1 chunk, a cut touching the clip start or end =
+  0. `ConfirmHighSegmentCountAsync` prices cuts in against `HighChunkCountWarnThreshold` (24).
+- Undo / Redo in the Granular Speed Editor (UNDO_01): Ctrl+Z / Ctrl+Y, plus a button pair at the
+  bottom of the segment pane and a live hint strip under them naming the exact action the shortcut
+  would take back (UNDOHINT_01). Covers add/delete segment, clear all, set freeze and delete parts.
+  ⚠️ MEMORY IS THE DESIGN CONSTRAINT — four rules, all load-bearing: (U1) a snapshot is a readonly
+  record struct of value types plus an ImmutableArray, and NEVER a control, stream, bitmap or IPC
+  client, so it cannot pin a disposed native handle; (U2) a HARD cap of `MaxUndoDepth` (40) enforced
+  on push; (U3) the redo tail is truncated on every new edit; (U4) snapshots are deduped so slider
+  drags cannot flood the stack. Worst case is tens of KB. History is cleared on close and on APPLY.
+- No Mask Profile (NOMASK_01): a reserved, read-only mask profile that does the portrait conversion
+  — Portrait Canvas Trick, the 150/1620/150 layout and the optional canvas-text strip — with ZERO
+  HUD layers. It ships explicit `[0,0,0,0]` rects for all six HudKeys, NOT an empty `crops_1080p`:
+  `HudConfig.Sanitize` re-injects the Fortnite default for any MISSING key, so an empty section
+  would be silently repopulated with the full HUD on the next ApplyProfile. Crop Tools refuses to
+  edit it and MaskOverlayManager refuses to overwrite it; `EnsureDefaults` self-heals a drifted file.
 
 7. ACTIVE ARCHITECTURAL DECISIONS
 ------------------------------------------------------------------------------
@@ -939,6 +1032,20 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
 
 8. KNOWN LIMITATIONS & TODOS FOR THE NEXT AI AGENT
 ------------------------------------------------------------------------------
+- ⚠️ NOTHING FROM THE CUT / UNDO / TONE SESSION HAS BEEN EXPORT-TESTED ON REAL FOOTAGE. It compiles
+  and is statically verified (chunk-model simulation across ~20 scenarios, filter-graph pad audit,
+  Phase4Gate assertions), but no rendered file has been inspected. Owed: (1) a cut mid-clip plays
+  with no A/V drift at the seam; (2) a cut through a slow-mo + zoom block subdivides correctly;
+  (3) the cut-aware loudnorm pass produces the same perceived level as an uncut export; (4) music
+  and voice-over stay aligned across a cut; (5) 20+ small cuts trip the chunk warning and still
+  export.
+- ⚠️ A CUT CAN NOW LAND INSIDE AN EXISTING SLOW-MO + ZOOM BLOCK. Cuts were originally planned for
+  the Main Screen precisely to avoid this (see Cut_Feature_Design_v2.txt); the owner moved them
+  into the Granular editor, which makes that path reachable. The subdivision handles it — cut edges
+  are just another boundary in the existing boundary set — and it is covered in simulation, but it
+  is the case most worth testing first.
+- The Granular editor's undo history is WINDOW-SCOPED. It is not persisted and is cleared on APPLY,
+  so a crash mid-edit loses the history (though not the project — recovery covers that).
 - ⚠️⚠️ G07 "FULL-VRAM / ZERO-COPY EXPORT PATH" — CLOSED AS NOT ACHIEVABLE. DO NOT RE-OPEN WITHOUT READING THIS. ⚠️⚠️
   The idea (keep frames in VRAM from NVDEC through the filter graph to NVENC, instead of
   NVDEC -> PCIe download -> CPU filters -> PCIe upload -> NVENC) has been investigated twice and
@@ -1021,6 +1128,118 @@ When the app is freshly installed and no config exists, the default upload video
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- CUT_01/CUT_02/CUT_03 — DELETE PARTS: REMOVING FOOTAGE FROM THE MIDDLE OF THE CLIP
+  (`OutputTimeline.cs`, `GranularSpeedBuilder.cs`, `ProcessWorker.cs`, `ExportPayload.cs`,
+  `MainMediaController.cs`, `MainWindow`, `GranularSpeedEditorWindow`, `Phase4Gate.cs`).
+  A cut is the MIRROR OF A FREEZE — it consumes source time and occupies ZERO output time — which
+  is why the existing chunk model absorbed it with no new time mathematics. Everything already
+  rides `SourceToOutput`, so voice-overs, memes and music realign across a cut with NO changes to
+  their code. `OutputTimeline` gained the Cut chunk kind, `NormalizeCuts` (merges gaps under 0.30s,
+  drops slivers under 0.04s, merges overlaps — overlapping holes would emit chunks out of source
+  order and corrupt every mapping), `IsCutAtSource`, `NextSurvivingSource`, `SurvivingSourceSeconds`
+  and `ExtraChunkCost`. `GranularSpeedBuilder` treats a cut edge as another subdivision boundary and
+  drops any sub-range whose MIDPOINT falls inside a hole (an edge test would drop the wrong side);
+  that one line is the entire removal, and it is why a cut through a slow-mo + zoom block needed no
+  new subdivision code. `CutRange` (absolute ms, UI/state) converts to `OutputTimeline.Cut`
+  (clip-relative seconds, Core) at the export boundary — TWO FRAMES OF REFERENCE, mirroring
+  SpeedSegment vs Insertion; do not collapse them. ⚠️ TWO TRAPS FOUND AND FIXED WHILE BUILDING:
+  (a) `MobileFilterBuilder`'s zero-layer branch never consumed its HUD pad, and an unconnected
+  output pad makes ffmpeg reject the WHOLE filter_complex — unreachable until No Mask Profile
+  existed, then fatal; (b) `ProcessWorker` gated the granular path on `SpeedSegments.Count > 0`, so
+  cuts were silently ignored whenever the user had not ALSO used the speed editor, which is the
+  normal case. CUT_03: a cut now reconciles the segment list and the freeze rather than leaving a
+  block over deleted footage. VERIFIED by porting BOTH chunk models to Python and cross-checking
+  ~20 scenarios: graph duration always equals model duration, chunks stay in source order, no
+  `trim=` ever covers deleted footage, the round trip is exact outside joins, and the preview
+  mapping never lands on a removed frame. Phase4Gate asserts eight of these at runtime, including
+  that an EMPTY cut list produces a BYTE-IDENTICAL graph.
+- BEDSEG_01 — THE MUSIC BED WAS MEASURED OVER THE WRONG MATERIAL (`AudioLoudnessProbe.cs`,
+  `ProcessWorker.MeasureMusicBedGainsAsync`). REPORTED as "the music sounds disproportionately
+  quiet against the gameplay". Both buses aim at the same absolute -14 LUFS, so unequal GAINS are
+  expected and harmless — the fault was that the two targets were computed from different material.
+  The game bus has always been measured over exactly the exported range (`-ss`/`-t`); the music bed
+  was measured over the ENTIRE SONG FILE, then a slice of it was played. `MeasureMusicBedGainsAsync`
+  was iterating MusicTrack records carrying `Offset` and `Duration` and passing only `Path`.
+  `OffsetSeconds` defaults to 0, so the typical export uses a song's intro and first verse while the
+  gain was computed including its choruses — 6-12 dB out on a modern master, one-sided, all of it
+  landing on the music. `MeasureAsync` gained optional `segmentStartSec`/`segmentDurationSec`
+  (emitted as `-ss`/`-t` BEFORE `-i`), with a whole-file fallback under `MinSegmentSec` (5s) because
+  EBU R128's relative gate is meaningless on less. ⚠️ The same fault then applied to the GAME bus
+  once cuts existed: `PerformLoudnormPassAsync` measured one contiguous window spanning the deleted
+  footage, so it now trims and concatenates the SURVIVING ranges in the filter graph first.
+- PREVIEW_03/PREVIEW_04 — TWO PREVIEW COMPENSATIONS WERE STUBBED OUT, DOC COMMENTS LEFT BEHIND
+  (`VoiceOverWindow`, `MusicWizardWindow`). `VoicePreviewOffsetDb` returned `0.0` and
+  `GetTakePreviewGain` returned `1.0f`; `EnsureMusicBedGainAsync` was `Task.CompletedTask`. Both
+  windows therefore previewed RAW files at slider level while the export pins everything to -14
+  LUFS — so the wizard put music 10-15 dB above the game, the user compensated on the slider, and
+  the exported mix came out with the music far too low. The wizard now measures the SAME segment
+  window the export measures and applies the correction by ATTENUATING ONE SIDE ONLY (mpv's volume
+  is a 0-100 percentage; "turn the music up 12 dB" is not available above 100), and the voice-over
+  take is shifted DOWN by the boost the video has not received yet — never up, so a noisy take is
+  never amplified.
+- VOFIX_01..04 — THE VOICE-OVER WINDOW: ONE ROOT CAUSE, THREE SYMPTOMS (`VoiceOverWindow`).
+  REPORTED as "it keeps looping and replaying the video, it does not actually record the segments,
+  and the record button cannot pause". All three were `ab-loop-a`/`ab-loop-b`, set on load to
+  "confine playback to the trim region". Those are mpv's A-B REPEAT properties: on reaching B, mpv
+  SEEKS BACK TO A and plays the range again, forever. Recording arms by watching for the video
+  clock to move FORWARD (`PumpRecordArming`), so every loop-back froze `now <= _armPrevTime` until
+  the 3-second deadline aborted the take — empty recordings — and while `_recordArming` stayed
+  true, `RecordPauseButton.IsEnabled = _isRecording && !_recordArming` kept pause disabled and
+  looking broken. Replaced with `EnforceTrimEndStop`, which PAUSES at the trim end and finalises
+  any open take. VOFIX_02: `NormalizePreviewPlaybackPosition` was a SECOND, INDEPENDENT loop — it
+  returned `start` for any position within 0.05s of the end, so pressing record late in a clip
+  silently rewound to the beginning; it now clamps just inside the end. VOFIX_04: a backwards jump
+  during arming re-baselines instead of stalling, so a user seek cannot reproduce the same wedge.
+- TONE_01 — THE RED/GREEN CASCADE WAS BLOCKED IN CODE-BEHIND (root dictionary + 8 files).
+  An audit of all three apps found the XAML 100% tokenised — ZERO hardcoded colour attributes in
+  21 files — and 322 colour literals in code-behind, 23 of them red/green. The worst was Crop
+  Tools' HUD ghost at `FromArgb(alpha, 0, 255, 0)`: PURE LIME, hardcoded twice, immune to any theme
+  change. ROOT CAUSE OF THE PATTERN: `AppSuccessColor` existed but `AppDangerColor` DID NOT, so code
+  needing a Color rather than a Brush had no red token to reach for. Added it (both themes), routed
+  every Tier-1 site through `ThemeResources.Colour`/`Brush`, then darkened Danger (#dc2626 ->
+  #a83232) and muted Success (#22c55e -> #3f9c6b) across both themes and every gradient.
+- BTNDEPTH_01 / BTNHUE_01..03 — "EVERY BUTTON LOOKS GREYED OUT" (root dictionary).
+  `Button.Secondary` set `Background = AppPanelBrush` — literally the same colour as the panel
+  behind it — with no gradient and no deep border, while Primary/Success/Danger/VoiceOver all had a
+  3-stop ramp. An ENABLED Secondary was visually indistinguishable from a DISABLED one, which is
+  how SET THUMBNAIL, VIDEO MERGER, CROP SETTINGS, ADD MUSIC and NEW FILE read. `Button.ZoomAction`
+  had the same flat-fill problem. Both gained the ramp; then the owner picked the final hues:
+  Primary #0c6b91 (deep teal-blue), Secondary #61548a (muted violet). ⚠️ SECONDARY DELIBERATELY
+  LEAVES THE GREY FAMILY. Grey IS the disabled language everywhere else in the app, so no amount of
+  depth was going to fix it while the hue stayed neutral. `AppOnAccentTextBrush` softened
+  #ffffff -> #e8eaef; that pushed Success and VOICE OVER under the 4.5:1 floor, so their label bands
+  were deepened (VOICE OVER was ALREADY failing at 3.68:1 under pure white — the softer label only
+  made an existing fault visible). All twelve accent gradients now clear 4.5:1 in both themes.
+- TEXTCLIP_01 — EVERY HEADING IN THE APP WAS CLIPPED AT THE BOTTOM (root dictionary).
+  A bare `TextBlock` selector set `LineHeight` from a hard `18`. Avalonia's LineHeight is NOT a
+  floor: when set it becomes the line box height outright and the baseline is derived from it, so
+  anything above ~14px lost its descenders and the bottoms of round caps — every Settings section
+  title and the drag-and-drop hero line. Worse, `AppLineHeightNormal` is NOT in ThemeManager's
+  `s_scaledTokens`, so raising the font scale grew every glyph while the box stayed frozen at 18px.
+  The setter is now opt-in (`TextBlock.FixedLineHeight`) and nothing uses it, so natural font
+  metrics apply everywhere. ⚠️ DO NOT PUT IT BACK ON A BARE `TextBlock` SELECTOR.
+- DUCKOFF_01 / AUDIOCHK_01 — "OFF" NOW MEANS ABSENT (`AudioFilterChain.cs`, both writers).
+  See Section 5D.2. Also: `carving_enabled` was the ONLY unguarded read in that method
+  (`GetValue<bool>()` with no try/catch — the same exact-type trap CROPCHK_01 and HardwareCapability
+  were both bitten by, and an export-path throw), now parsed off the raw text; and the class doc
+  claimed a 150 Hz crossover (it is 250) and a `dynaudnorm + alimiter` that lives in ProcessWorker
+  behind `AutoSpikeFlattening`, not in that file at all.
+- UNDO_01 / UNDOHINT_01 — UNDO/REDO IN THE GRANULAR EDITOR. See Section 6. The four memory rules
+  are the design, not decoration: a snapshot that held a control or a stream would keep disposed
+  native handles alive, and an uncapped stack in a window that fires on every slider tick grows
+  without bound.
+- GUIDE_01 / DIALOG_01 — ZOOM-IN and DELETE PARTS pressed with nothing marked now show a short
+  warning, wait one second, then play a four-step CoachOverlay walkthrough (MARK START -> PLAY ->
+  watch the timeline -> MARK END). `PlayOnce` runs an ad-hoc tour with NO screen key, so it replays
+  every time rather than burning an auto-show counter. DELETE PARTS' confirmation moved off
+  `NativeDialog` (a raw Win32 MessageBox that ignores the theme, the fonts and the font scale) onto
+  the themed `ConfirmDialogWindow.AskAsync`.
+- SPACING_01 — Main App overlay panel: outer group spacing 10 -> 18 with 6px separator margins so
+  the three bands breathe, inner spacing 4 -> 2 so Boss HP / Teammate HP / Spectating Eye sit
+  tight, and LAYOUTS / IN-GAME OVERLAYS / EFFECTS & MEMES centred.
+- NOMASK_01 — the reserved HUD-free mask profile. See Section 6. Also fixed `HudConfig.Validate`,
+  which flagged every all-zero rect as "Invalid crop dimensions" — wrong for EVERY profile, since a
+  zero rect is the documented way to switch a layer off and deleting a layer writes exactly that.
 - INSTALL_01 — THE "PRESERVE MY SETTINGS?" PROMPT COULD SILENTLY NOT APPEAR, AND THE SETTINGS
   WERE THEN DELETED (`DeploymentLifecycle`, `DeploymentFootprint.UserDataExists` NEW).
   REPORTED as "I never saw the preserve dialog". It was NOT a z-order problem — `NativeDialog

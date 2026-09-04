@@ -60,10 +60,29 @@ public partial class FinishedDialogWindow : Window
         Close();
     }
     
-    private void OnUploadNewClicked(object? sender, RoutedEventArgs e)
+    private async void OnUploadNewClicked(object? sender, RoutedEventArgs e)
     {
+        if (Infrastructure.SettingsManager.Instance.ConfirmFinishedDialogExit
+            && !await ConfirmAsync("Start a New File",
+                                   "Discard the current project and start a new one?\nThe file you just exported is safe on disk.",
+                                   "YES, START NEW"))
+        {
+            return;
+        }
+
         DialogResult = 2;
         Close();
+    }
+
+    /// <summary>Shared opt-in guard for the two session-ending buttons (ISSUE_04).</summary>
+    private async System.Threading.Tasks.Task<bool> ConfirmAsync(string title, string message, string yesText)
+    {
+        var dlg = new ConfirmDialogWindow();
+        dlg.SetTitle(title);
+        dlg.SetMessage(message);
+        dlg.SetButtonText(yesText, "CANCEL");
+        await dlg.ShowDialog(this);
+        return dlg.Result;
     }
 
     private void OnWhatsAppClicked(object? sender, RoutedEventArgs e)
@@ -136,8 +155,16 @@ public partial class FinishedDialogWindow : Window
         Close();
     }
 
-    private void OnExitClicked(object? sender, RoutedEventArgs e)
+    private async void OnExitClicked(object? sender, RoutedEventArgs e)
     {
+        if (Infrastructure.SettingsManager.Instance.ConfirmFinishedDialogExit
+            && !await ConfirmAsync("Exit the App",
+                                   "Close the application now?\nThe file you just exported is safe on disk.",
+                                   "YES, EXIT"))
+        {
+            return;
+        }
+
         DialogResult = 1;
         Close();
     }

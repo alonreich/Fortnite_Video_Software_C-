@@ -1,4 +1,4 @@
-
+﻿
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -14,8 +14,26 @@ namespace FortniteVideoSoftware.Core.Media;
 /// 1. Game audio: volume normalize, optional fade-in
 /// 2. For each music track: atrim, fade in/out, volume, delay to align
 /// 3. Mix multiple music tracks if present
-/// 4. Sidechain ducking: split music at 150Hz, duck high freq against game audio
-/// 5. Reconstruct music, mix with game audio, dynaudnorm + alimiter
+/// 4. Sidechain ducking: split music at 250Hz (acrossover), duck the high band against game audio
+/// 5. Reconstruct music, mix with game audio at weights '1 1', normalize=0
+///
+/// AUDIOCHK_01 — CORRECTIONS TO THIS SUMMARY, WHICH WAS WRONG ON TWO COUNTS:
+///   - The crossover is at 250 Hz (`acrossover=split=250`), not 150 Hz.
+///   - dynaudnorm/alimiter are NOT in this method. The final loudnorm + alimiter ceiling lives in
+///     ProcessWorker and is gated behind `AutoSpikeFlattening`; with that off, NOTHING limits the
+///     summed bus. Do not go looking for a limiter here.
+///
+/// LEVEL CONTRACT (why the game/music balance comes out right):
+///   - The game bus reaches this method ALREADY normalised to AudioLoudnessProbe.TargetLufs by
+///     ProcessWorker's second-pass loudnorm, which is why `volumeNormalizeDb` is passed as 0 when
+///     `hasSecondPass` — applying it again would double-correct.
+///   - Each music track is shifted by its own measured `musicBedGainDb` to the SAME absolute
+///     AudioLoudnessProbe.MusicBedLufs.
+///   - `musicFollowGainDb` is the fallback for tracks that could NOT be measured, which is why it
+///     is applied only when `!bedApplied`. Applying both to one track is a bug.
+///   - Both buses are then scaled by their own slider and summed with weights '1 1', normalize=0.
+/// So with both sliders at 100% the two buses are level-matched by construction. Anything that
+/// changes one side's reference level without changing the other's breaks that contract.
 /// </summary>
 public class AudioFilterChain
 {
@@ -234,27 +252,6 @@ public class AudioFilterChain
 
             double mVol = GetDouble(musicConfig, "music_vol", GetDouble(musicConfig, "volume", 0.8));
 
-            // MUSICBED_01 — BED GAIN AND FOLLOW GAIN ARE MUTUALLY EXCLUSIVE. APPLYING BOTH DOUBLE-
-            // COUNTS THE SAME NUMBER AND IS WHY THE MUSIC LEVEL MOVED WITH THE CLIP'S LOUDNESS.
-            //
-            // The two do the same job by different routes and only one can be right per track:
-            //   BED GAIN places the track at an ABSOLUTE target (AudioLoudnessProbe.MusicBedLufs,
-            //     which is now TargetLufs = -14 LUFS). The game bus is separately loudnorm'd to TargetLufs (-14), so a
-            //     bed-normalised track is perfectly matched to the game bus volume.
-            //   FOLLOW GAIN is VolumeNormalizeDb = (-14 - sourceLufs) = X, the same lift loudnorm
-            //     gives the game bus. It exists to preserve a PRE-EXISTING RAW balance for elements
-            //     that were NOT re-levelled: voice-over, memes, and music whose measurement failed.
-            //     Ride the whole mix up together and nothing shifts.
-            //
-            // Applied together the music would land at (-14 + X) against a game bus at -14, meaning
-            // the relative balance would incorrectly drift with the game's raw capture volume.
-            // The gap tracked how loud the CAPTURE happened to be, which is precisely the thing
-            // bed normalisation exists to make irrelevant.
-            //
-            // ⚠️ THE TEST IS DICTIONARY MEMBERSHIP, NOT `Math.Abs(bedDb) > 0.01`. A track that
-            // already measures -20 LUFS needs 0 dB of bed gain and IS bed-normalised; a magnitude
-            // test calls that "no bed applied" and hands it the follow gain — the one track in the
-            // library that must not get it.
             double bedDb = 0.0;
             bool bedApplied = musicBedGainDb != null
                               && musicBedGainDb.TryGetValue(track.Path, out bedDb);
@@ -299,7 +296,16 @@ public class AudioFilterChain
             bgMusicLabel = preparedMusicLabels[0];
         }
 
-        bool carvingEnabled = musicConfig != null && (musicConfig["carving_enabled"]?.GetValue<bool>() ?? true);
+        // AUDIOCHK_01 — READ THE FLAG WITHOUT CARING HOW IT WAS STORED, AND NEVER THROW HERE.
+        // This was `musicConfig["carving_enabled"]?.GetValue<bool>() ?? true` with NO try/catch,
+        // while every other value in this method goes through GetDouble's guarded read. It is the
+        // same trap CROPCHK_01 and HardwareCapability were both bitten by: System.Text.Json's
+        // GetValue<T> demands the EXACT stored type, so a flag that ever arrives as a quoted
+        // "true" or a 0/1 number throws — and this throw is on the export path, where it kills
+        // the whole job. Parsed off the raw text instead: true/false, "true"/"false" and 0/1 all
+        // work, and anything unrecognised degrades to the safe default (carving ON) rather than
+        // failing the render.
+        bool carvingEnabled = ReadBool(musicConfig, "carving_enabled", true);
         if (carvingEnabled)
         {
             chain.Add($"{bgMusicLabel}equalizer=f=2000:width_type=h:width=1800:g=-4[a_bg_music]");
@@ -321,40 +327,99 @@ public class AudioFilterChain
             chain.Add("[game_leveled_base]anull[game_leveled]");
         }
 
-        chain.Add("[game_leveled]asplit=2[game_out_pre_raw][game_trig]");
-        if (useLoudnorm)
-        {
-            chain.Add($"[game_out_pre_raw]{gameLoudnormFilter},aresample={targetSampleRate}[game_out_pre]");
-        }
-        else
-        {
-            chain.Add("[game_out_pre_raw]anull[game_out_pre]");
-        }
-        chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
-                  "agate=threshold=0.05:attack=5:release=100[trig_final]");
-
-        chain.Add($"{bgMusicLabel}acrossover=split=250[mus_low][mus_high]");
-
         double dThresh = GetDouble(musicConfig, "ducking_threshold", SidechainCompressNode.TunedThreshold);
         double dRatio = GetDouble(musicConfig, "ducking_ratio", SidechainCompressNode.TunedRatio);
 
-        chain.Add(new FilterChain()
-            .WithInputs("mus_high", "trig_final")
-            .AddNode(new SidechainCompressNode { Threshold = dThresh, Ratio = dRatio })
-            .WithOutputs("mus_high_ducked")
-            .ToFFmpegString());
+        // DUCKOFF_01 — "DUCKING OFF" NOW MEANS THE FILTERS ARE ABSENT, NOT NEUTRALISED.
+        //
+        // It used to mean BYPASS: the wizard sent SidechainCompressNode.BypassThreshold/BypassRatio
+        // (1.0 / 1.0) and the whole apparatus still ran — the game bus was split with asplit, a
+        // trigger bus was built with highpass+lowpass+agate, the music was split at 250 Hz with
+        // acrossover, pushed through sidechaincompress and summed back. ratio=1 does make the
+        // compressor mathematically unity, so the LEVEL was right, but "unity" is not "nothing":
+        // the acrossover split-and-sum is an allpass round trip that shifts phase around 250 Hz,
+        // and the whole trigger bus was decoded and filtered for a result nobody consumed.
+        //
+        // Unchecked now means the music goes to the mix UNTOUCHED and the trigger bus is never
+        // built. Checked is byte-for-byte the graph that shipped before.
+        //
+        // The flag is explicit ("ducking_enabled"). The threshold/ratio fallback below is only for
+        // configs written before that key existed — a bypass ratio of 1.0 is how "off" used to be
+        // encoded, so an old recovery file still behaves the way the user left it.
+        bool duckingEnabled = ReadBool(musicConfig, "ducking_enabled",
+                                       dRatio > SidechainCompressNode.BypassRatio + 0.0001);
 
-        chain.Add(new FilterChain()
-            .WithInputs("mus_low", "mus_high_ducked")
-            .AddNode(new AmixNode { Inputs = 2, Weights = "1 1", Normalize = 0 })
-            .WithOutputs("a_music_reconstructed")
-            .ToFFmpegString());
+        string gameForMix;
 
-        chain.Add($"[game_out_pre][a_music_reconstructed]amix=inputs=2:" +
+        if (duckingEnabled)
+        {
+            chain.Add("[game_leveled]asplit=2[game_out_pre_raw][game_trig]");
+            if (useLoudnorm)
+            {
+                chain.Add($"[game_out_pre_raw]{gameLoudnormFilter},aresample={targetSampleRate}[game_out_pre]");
+            }
+            else
+            {
+                chain.Add("[game_out_pre_raw]anull[game_out_pre]");
+            }
+            chain.Add("[game_trig]highpass=f=200,lowpass=f=3500," +
+                      "agate=threshold=0.05:attack=5:release=100[trig_final]");
+
+            chain.Add($"{bgMusicLabel}acrossover=split=250[mus_low][mus_high]");
+
+            chain.Add(new FilterChain()
+                .WithInputs("mus_high", "trig_final")
+                .AddNode(new SidechainCompressNode { Threshold = dThresh, Ratio = dRatio })
+                .WithOutputs("mus_high_ducked")
+                .ToFFmpegString());
+
+            chain.Add(new FilterChain()
+                .WithInputs("mus_low", "mus_high_ducked")
+                .AddNode(new AmixNode { Inputs = 2, Weights = "1 1", Normalize = 0 })
+                .WithOutputs("a_music_reconstructed")
+                .ToFFmpegString());
+
+            gameForMix = "[game_out_pre]";
+            bgMusicLabel = "[a_music_reconstructed]";
+        }
+        else
+        {
+            // DUCKOFF_01 — NO asplit. The split existed ONLY to feed the trigger bus; with no
+            // sidechain there is no second consumer, and an unconsumed asplit output pad makes
+            // ffmpeg reject the whole filter_complex.
+            if (useLoudnorm)
+            {
+                chain.Add($"[game_leveled]{gameLoudnormFilter},aresample={targetSampleRate}[game_out_pre]");
+            }
+            else
+            {
+                chain.Add("[game_leveled]anull[game_out_pre]");
+            }
+
+            gameForMix = "[game_out_pre]";
+            // bgMusicLabel is carried through untouched: no crossover, no compressor, no re-sum.
+        }
+
+        chain.Add($"{gameForMix}{bgMusicLabel}amix=inputs=2:" +
                   $"duration=first:dropout_transition=3:weights='1 1':normalize=0," +
                   $"aresample={targetSampleRate}:async=1[a_music_prepared]");
 
         return (chain, "[a_music_prepared]");
+    }
+
+    /// <summary>
+    /// AUDIOCHK_01 — type-agnostic, non-throwing bool read. See the comment at the call site.
+    /// </summary>
+    private static bool ReadBool(JsonObject? obj, string key, bool defaultValue)
+    {
+        var node = obj?[key];
+        if (node == null) return defaultValue;
+
+        string raw = node.ToString().Trim().Trim('"');
+        if (bool.TryParse(raw, out bool parsed)) return parsed;
+        if (raw == "1") return true;
+        if (raw == "0") return false;
+        return defaultValue;
     }
 
     private static double GetDouble(JsonObject? obj, string key, double defaultValue)

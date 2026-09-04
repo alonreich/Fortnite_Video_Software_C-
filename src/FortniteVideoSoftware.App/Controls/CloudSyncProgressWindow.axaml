@@ -52,7 +52,7 @@
                             Spacing="15" Margin="0,6,0,22">
                     <!-- ISSUE_04 (audit round 5): MinHeight="34" removed — it overrode the global
                          AppButtonMinHeight token (44) and blocked font-scale growth. -->
-                    <Button Name="CancelSyncBtn" Classes="Danger" Content="CANCEL DOWNLOAD"
+                    <Button Name="CancelSyncBtn" ToolTip.Tip="Stop the download now. Anything already downloaded is kept." Classes="Danger" Content="CANCEL DOWNLOAD"
                             MinWidth="180" Cursor="Hand"
                             AutomationProperties.Name="Cancel the download" />
                 </StackPanel>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Media;
@@ -43,6 +43,13 @@ public record ExportPayload
     public bool MemeAtStart { get; init; }
     public string? PortraitText { get; init; }
     public List<SpeedSegment>? SpeedSegments { get; init; }
+
+    /// <summary>
+    /// CUT_01 — sections deleted from the middle of the clip, in ABSOLUTE source milliseconds
+    /// (the same frame of reference as <see cref="SpeedSegments"/> and the trim points).
+    /// Null or empty means one unbroken clip, which is the historical behaviour.
+    /// </summary>
+    public List<CutRange>? Cuts { get; init; }
     
     public int QualityLevel { get; init; } = 7;
     public double? TargetMbOverride { get; init; }

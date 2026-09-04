@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -98,10 +99,36 @@ public static class FloatingNotice
 
         try
         {
-            if (Dispatcher.UIThread.CheckAccess()) ShowCore(window, text, kind);
-            else Dispatcher.UIThread.Post(() => ShowCore(window, text, kind));
+            if (Dispatcher.UIThread.CheckAccess()) ShowCore(window, text, kind, null);
+            else Dispatcher.UIThread.Post(() => ShowCore(window, text, kind, null));
         }
         catch (Exception ex) { SafeLog($"Show failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// ANCHOR_01 — floats the message NEXT TO a specific control instead of over the middle of the
+    /// window.
+    ///
+    /// WHY THIS IS OPT-IN AND NOT THE DEFAULT: every screen in the suite shares this component, and
+    /// a centred notice is the right answer for messages about the project as a whole ("export
+    /// finished", "nothing to undo"). It is the WRONG answer for a message about a button the user
+    /// just pressed — the eye is on the button, and the words appear somewhere else entirely. This
+    /// overload is for that second case.
+    ///
+    /// Falls back to the centred placement whenever the anchor cannot be located: not attached to
+    /// a visual tree yet, zero-sized mid-layout, or in a different window. A notice must never be
+    /// lost because the thing it points at moved.
+    /// </summary>
+    public static void ShowAt(Window? window, Control? anchor, string text, NoticeKind kind = NoticeKind.Warning)
+    {
+        if (window == null || string.IsNullOrWhiteSpace(text)) return;
+
+        try
+        {
+            if (Dispatcher.UIThread.CheckAccess()) ShowCore(window, text, kind, anchor);
+            else Dispatcher.UIThread.Post(() => ShowCore(window, text, kind, anchor));
+        }
+        catch (Exception ex) { SafeLog($"ShowAt failed: {ex.Message}"); }
     }
 
     /// <summary>Convenience wrappers so call sites read as English rather than as an enum.</summary>
@@ -131,7 +158,7 @@ public static class FloatingNotice
         catch (Exception ex) { SafeLog($"Clear failed: {ex.Message}"); }
     }
 
-    private static void ShowCore(Window window, string text, NoticeKind kind)
+    private static void ShowCore(Window window, string text, NoticeKind kind, Control? anchor)
     {
         try
         {
@@ -158,7 +185,9 @@ public static class FloatingNotice
             {
                 Text = text,
                 Foreground = accent,
-                FontSize = Infrastructure.ThemeManager.ScaledFontSize(24),
+                // ANCHOR_01: an anchored notice sits beside a control, so it is sized like a
+                // tooltip. The centred one is a full-window banner and keeps its 24pt.
+                FontSize = Infrastructure.ThemeManager.ScaledFontSize(anchor != null ? 12 : 24),
                 FontWeight = FontWeight.Bold,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
@@ -171,8 +200,8 @@ public static class FloatingNotice
                 BorderBrush = accent,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(24, 12),
-                MaxWidth = 620,
+                Padding = anchor != null ? new Thickness(12, 7) : new Thickness(24, 12),
+                MaxWidth = anchor != null ? 340 : 620,
                 IsHitTestVisible = false,
                 Opacity = 0,
                 Child = label
@@ -180,8 +209,8 @@ public static class FloatingNotice
 
             host.Children.Add(pill);
             st.Live.Add(pill);
-            Place(host, pill);
-            _ = AnimateAsync(st, host, pill);
+            Place(host, pill, anchor);
+            _ = AnimateAsync(st, host, pill, anchor);
         }
         catch (Exception ex) { SafeLog($"ShowCore failed: {ex.Message}"); }
     }
@@ -197,8 +226,48 @@ public static class FloatingNotice
     /// top-left corner. So it is placed immediately (best effort, using fallbacks), and placed
     /// AGAIN on the first animation frame once real sizes exist. Do not collapse this back inline.
     /// </summary>
-    private static (double StartY, double EndY) Place(Canvas host, Border pill)
+    private static (double StartY, double EndY) Place(Canvas host, Border pill, Control? anchor)
     {
+        // ANCHOR_01 — park it just ABOVE the anchor, horizontally centred on it, and let it drift
+        // up only a short way so it never leaves the control's neighbourhood. Any failure to map
+        // the anchor's position falls through to the centred placement below.
+        if (anchor != null)
+        {
+            try
+            {
+                if (anchor.GetVisualRoot() != null && anchor.Bounds.Width > 0)
+                {
+                    Point? tl = anchor.TranslatePoint(new Point(0, 0), host);
+                    if (tl.HasValue)
+                    {
+                        double hostWa = host.Bounds.Width;
+                        pill.Measure(new Size(hostWa > 0 ? hostWa : 340, double.PositiveInfinity));
+                        double pwA = pill.DesiredSize.Width;
+                        double phA = pill.DesiredSize.Height;
+
+                        double ax = tl.Value.X + (anchor.Bounds.Width - pwA) / 2.0;
+                        double ay = tl.Value.Y - phA - 10;
+
+                        // If there is no room above, sit under it instead.
+                        if (ay < 4) ay = tl.Value.Y + anchor.Bounds.Height + 10;
+
+                        // Keep it inside the host no matter where the control is.
+                        if (hostWa > 0) ax = Math.Max(4, Math.Min(hostWa - pwA - 4, ax));
+                        else ax = Math.Max(4, ax);
+
+                        double hostHa = host.Bounds.Height;
+                        if (hostHa > 0) ay = Math.Max(4, Math.Min(hostHa - phA - 4, ay));
+                        else ay = Math.Max(4, ay);
+
+                        Canvas.SetLeft(pill, ax);
+                        Canvas.SetTop(pill, ay);
+                        return (ay, Math.Max(4, ay - 26));
+                    }
+                }
+            }
+            catch (Exception ex) { SafeLog($"Anchored placement failed, centring instead: {ex.Message}"); }
+        }
+
         double hostW = host.Bounds.Width;
         double hostH = host.Bounds.Height;
 
@@ -218,7 +287,7 @@ public static class FloatingNotice
         return (startY, endY);
     }
 
-    private static async Task AnimateAsync(HostState st, Canvas host, Border pill)
+    private static async Task AnimateAsync(HostState st, Canvas host, Border pill, Control? anchor)
     {
         try
         {
@@ -226,7 +295,7 @@ public static class FloatingNotice
 
             await Task.Delay(1);
             if (!st.Live.Contains(pill)) return;
-            (double startY, double endY) = Place(host, pill);
+            (double startY, double endY) = Place(host, pill, anchor);
 
             await Task.Delay(HoldMs);
 

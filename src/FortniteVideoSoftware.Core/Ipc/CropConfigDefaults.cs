@@ -1,4 +1,6 @@
-﻿using System.Text.Json.Nodes;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.Core.Ipc;
 
@@ -26,6 +28,25 @@ public static class CropConfigDefaults
     public const int MinimumUsableSchemaVersion = 3;
 
     public const string CoordinateSpace = "content_1080x1620";
+
+    /// <summary>
+    /// NOMASK_01 — the RESERVED, HUD-FREE profile name.
+    ///
+    /// A profile by this name means "portrait conversion only": the Portrait Canvas Trick, the
+    /// 150 / 1620 / 150 layout and the optional canvas-text strip, with ZERO HUD layers composited.
+    /// It is produced by <see cref="CreateNoMask"/> and is read-only — MaskOverlayManager refuses
+    /// to overwrite it and the Crop Tools app refuses to edit it — because the instant a layer is
+    /// added to it, it stops being what its name promises.
+    ///
+    /// ⚠️ IT MUST STORE EXPLICIT ZERO RECTS, NOT AN EMPTY "crops_1080p".
+    /// HudConfig.Sanitize builds its key set from HudKeys UNION the keys present in the file, and
+    /// for any key whose rect is MISSING it falls back to CropConfigDefaults.Create()'s rect. An
+    /// empty crops section would therefore be silently repopulated with the full Fortnite HUD on
+    /// the next ApplyProfile. A present-but-zero rect is read as-is and is the documented way to
+    /// express "this layer is switched off" (MobileFilterBuilder.RegisterLayer requires w >= 1 and
+    /// h >= 1). DO NOT "simplify" CreateNoMask to an empty object.
+    /// </summary>
+    public const string NoMaskProfileName = "No Mask Profile";
 
     /// <summary>
     /// IDEA_1 — the AUTHORITATIVE crop rectangles, in SOURCE-video pixels, `[width, height, x, y]`
@@ -124,6 +145,63 @@ public static class CropConfigDefaults
                 ["spectating"] = 100
             }
         };
+    }
+
+    /// <summary>
+    /// NOMASK_01 — the reserved "No Mask Profile" document: the exact same schema, scales,
+    /// overlay positions and z-orders as <see cref="Create"/>, with EVERY crop rectangle zeroed.
+    ///
+    /// Derived from Create() on purpose so the six HudKeys are guaranteed present (see the
+    /// remarks on <see cref="NoMaskProfileName"/> for why a missing key is not the same as a zero
+    /// key). The scales/overlays/z_orders values are left intact and are simply never read: with
+    /// no active layer, MobileFilterBuilder takes its zero-layer branch and composites nothing.
+    ///
+    /// "crops_source" is dropped — it only exists so the Crop Tool can rehydrate a saved layer for
+    /// editing, and there is nothing here to rehydrate.
+    /// </summary>
+    public static JsonObject CreateNoMask()
+    {
+        var doc = Create();
+        var crops = doc["crops_1080p"]!.AsObject();
+        foreach (string key in new List<string>(crops.Select(kvp => kvp.Key)))
+        {
+            crops[key] = Rect(0, 0, 0, 0);
+        }
+        doc.Remove(SourceCropsSection);
+        return doc;
+    }
+
+    /// <summary>
+    /// NOMASK_01 — true when <paramref name="config"/> is a well-formed HUD-free document: every
+    /// key Create() ships is PRESENT (so Sanitize cannot fall back to a default rect) and no rect
+    /// anywhere in the section has both width and height >= 1 (so no layer can be composited).
+    ///
+    /// Used to self-heal the reserved profile in MaskOverlayManager.EnsureDefaults — a file that
+    /// has drifted is rewritten rather than trusted.
+    /// </summary>
+    public static bool IsHudFree(JsonObject? config)
+    {
+        var crops = config?["crops_1080p"]?.AsObject();
+        if (crops == null) return false;
+
+        var required = Create()["crops_1080p"]!.AsObject();
+        foreach (var kvp in required)
+        {
+            if (crops[kvp.Key] is not JsonArray) return false;
+        }
+
+        foreach (var kvp in crops)
+        {
+            if (kvp.Value is not JsonArray arr || arr.Count < 4) continue;
+            if (int.TryParse(arr[0]?.ToString(), out int w)
+                && int.TryParse(arr[1]?.ToString(), out int h)
+                && w >= 1 && h >= 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
