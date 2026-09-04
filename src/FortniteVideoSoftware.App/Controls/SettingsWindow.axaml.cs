@@ -34,6 +34,10 @@ public partial class SettingsWindow : Window
     private AudioFixPrompt _pendingLoudnessPrompt = AudioFixPrompt.Ask;
     private AudioFixPrompt _pendingPeakPrompt = AudioFixPrompt.Ask;
 
+    /// <summary>VOPROT_02 — pending voice-protection policy, applied on APPLY like the two above.</summary>
+    private VoiceProtectionMode _pendingVoiceProtectGame = VoiceProtectionMode.RememberLastChoice;
+    private VoiceProtectionMode _pendingVoiceProtectMusic = VoiceProtectionMode.RememberLastChoice;
+
     public SettingsWindow()
     {
         InitializeComponent();
@@ -66,6 +70,8 @@ public partial class SettingsWindow : Window
         _pendingFontScale = SettingsManager.Instance.FontScale;
         _pendingLoudnessPrompt = SettingsManager.Instance.LoudnessNormalizationPrompt;
         _pendingPeakPrompt = SettingsManager.Instance.PeakFlatteningPrompt;
+        _pendingVoiceProtectGame = SettingsManager.Instance.VoiceProtectGameMode;
+        _pendingVoiceProtectMusic = SettingsManager.Instance.VoiceProtectMusicMode;
 
         LoadCurrentKeybinds();
         BuildKeyBindsUi();
@@ -274,6 +280,42 @@ public partial class SettingsWindow : Window
             {
                 if (peaks.SelectedIndex >= 0)
                     _pendingPeakPrompt = (AudioFixPrompt)peaks.SelectedIndex;
+            };
+        }
+
+        // VOPROT_02 — option order IS VoiceProtectionMode's declaration order
+        // (RememberLastChoice / AlwaysOn / AlwaysOff), so the index is the enum value.
+        var protectGame = this.FindControl<ComboBox>("VoiceProtectGameComboBox");
+        if (protectGame != null)
+        {
+            protectGame.ItemsSource = new List<string>
+            {
+                "Remember what I picked last time",
+                "Always protect my voice (checkbox locked on)",
+                "Never protect my voice (checkbox locked off)"
+            };
+            protectGame.SelectedIndex = (int)_pendingVoiceProtectGame;
+            protectGame.SelectionChanged += (_, _) =>
+            {
+                if (protectGame.SelectedIndex >= 0)
+                    _pendingVoiceProtectGame = (VoiceProtectionMode)protectGame.SelectedIndex;
+            };
+        }
+
+        var protectMusic = this.FindControl<ComboBox>("VoiceProtectMusicComboBox");
+        if (protectMusic != null)
+        {
+            protectMusic.ItemsSource = new List<string>
+            {
+                "Remember what I picked last time",
+                "Always protect my voice (checkbox locked on)",
+                "Never protect my voice (checkbox locked off)"
+            };
+            protectMusic.SelectedIndex = (int)_pendingVoiceProtectMusic;
+            protectMusic.SelectionChanged += (_, _) =>
+            {
+                if (protectMusic.SelectedIndex >= 0)
+                    _pendingVoiceProtectMusic = (VoiceProtectionMode)protectMusic.SelectedIndex;
             };
         }
     }
@@ -728,6 +770,8 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.FontScale = _pendingFontScale;
         SettingsManager.Instance.LoudnessNormalizationPrompt = _pendingLoudnessPrompt;
         SettingsManager.Instance.PeakFlatteningPrompt = _pendingPeakPrompt;
+        SettingsManager.Instance.VoiceProtectGameMode = _pendingVoiceProtectGame;
+        SettingsManager.Instance.VoiceProtectMusicMode = _pendingVoiceProtectMusic;
         ThemeManager.ApplyTheme(_pendingThemeMode);
         ThemeManager.ApplyFontScale(_pendingFontScale);
 

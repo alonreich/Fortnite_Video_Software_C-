@@ -21,6 +21,9 @@ public record ExportPayload
     public double VoiceOverStartSec { get; init; }
     public List<VoiceOverTake>? VoiceOverTakes { get; init; }
     public bool VoiceOverDuckAudio { get; init; }
+
+    /// <summary>VOPROT_01 — duck + carve the MUSIC bed across the voice-over takes.</summary>
+    public bool VoiceOverProtectFromMusic { get; init; }
     
     public string HardwareMode { get; init; } = "Auto";
     public double? SourceMeasuredLufs { get; init; }

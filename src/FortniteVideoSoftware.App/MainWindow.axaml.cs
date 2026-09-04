@@ -628,21 +628,54 @@ private bool _exportedCleanSinceLastEdit;
             {
                 RuntimeLog.Info("UI", "User clicked GRANULAR SPEED button.");
 
+                // ══════════════════════════════════════════════════════════════════════
+                // EDIT3_01 — WAS A ONE-CLICK WIPE WITH NO PROMPT AT ALL.
+                //
+                // Pressing this button while speeds existed deleted every segment, the freeze and
+                // every cut on the spot. The editor it opens has ALWAYS been able to load the
+                // existing work — it is handed `_speedSegments`, `_freezeTimeMs` and `_cuts` a few
+                // lines below — so "change one of my twelve segments" was possible the whole time
+                // and simply had no route to it. The only way in was to destroy the twelve and
+                // rebuild them.
+                // ══════════════════════════════════════════════════════════════════════
                 if (_isGranularSpeedActive)
                 {
-                    _speedSegments.Clear();
-                    _freezeTimeMs = -1;
-                    SetGranularButtonActive(false);
-                    _lastAppliedSpeed = _baseSpeed;
-                    if (ActiveVideoHost?.IpcClient != null)
-                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
-                            _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
-                    InvalidateVoiceOverRecordingForTimingChange();
-                    UpdateEstimatedQuality();
-                    ShowTacticalFeedback("Speed segments removed");
-                    UpdateTimelineMarkers();
-                    RuntimeLog.Info("UI", "User removed all granular speed segments via REMOVE SPEEDS button.");
-                    return;
+                    var choice = await ConfirmDialogWindow.AskEditOrRemoveAsync(
+                        this,
+                        "Edit Speed Changes?",
+                        "You already have speed changes on this video.\n\n" +
+                        "EDIT reopens the Speed Editor with every segment, freeze, zoom and cut still in place, so you can change them one at a time.\n" +
+                        "REMOVE deletes the speed segments and the freeze, putting the video back to a single speed. Any deleted parts stay deleted.\n" +
+                        "CANCEL changes nothing.");
+
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Cancelled) return;
+
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Remove)
+                    {
+                        _speedSegments.Clear();
+                        _freezeTimeMs = -1;
+                        // ⚠️ `_cuts` are deliberately NOT cleared here. Cuts are a separate feature
+                        // (DELETE PARTS) that happens to be edited in the same window, and this
+                        // button offers REMOVE. Deleting a user's cuts as a side effect of
+                        // clearing their speed segments is exactly the kind of unannounced loss the
+                        // prompt above exists to prevent — and the prompt does not mention cuts.
+                        SetGranularButtonActive(false);
+                        _lastAppliedSpeed = _baseSpeed;
+                        if (ActiveVideoHost?.IpcClient != null)
+                            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed",
+                                _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                        InvalidateVoiceOverRecordingForTimingChange();
+                        UpdateEstimatedQuality();
+                        ShowTacticalFeedback("Speed segments removed");
+                        UpdateTimelineMarkers();
+                        SaveRecoveryState();
+                        RuntimeLog.Info("UI", "User removed all granular speed segments via the EDIT/REMOVE prompt.");
+                        return;
+                    }
+
+                    RuntimeLog.Info("UI", "User chose EDIT on existing granular speed segments.");
+                    // EDIT falls through to the normal open below, which already seeds the editor
+                    // with the current segments, freeze, zoom source and cuts.
                 }
 
                 if (string.IsNullOrWhiteSpace(_loadedVideoPath))
@@ -664,6 +697,7 @@ private bool _exportedCleanSinceLastEdit;
                 string zoomSrcRes = (zoomIpc != null && zoomIpc.VideoWidth > 0 && zoomIpc.VideoHeight > 0)
                     ? $"{zoomIpc.VideoWidth}x{zoomIpc.VideoHeight}"
                     : "1920x1080";
+                bool cutsChangedByEditor = false;
                 var editor = new GranularSpeedEditorWindow(
                     _loadedVideoPath,
                     _trimStartMs,
@@ -694,6 +728,7 @@ private bool _exportedCleanSinceLastEdit;
                     // CUT_02 — cuts come home in absolute source ms, same as the segments above.
                     _cuts.Clear();
                     _cuts.AddRange(editor.ResultCuts);
+                    cutsChangedByEditor = true;
 
                     ClearLiveZoomCrop();
 
@@ -714,6 +749,19 @@ private bool _exportedCleanSinceLastEdit;
                     UpdateEstimatedQuality();
                     UpdateTimelineMarkers();
                     SaveRecoveryState();
+
+                    // ══════════════════════════════════════════════════════════════════════
+                    // CUTS_02 — A CUT MADE IN THE EDITOR IS A CHANGE TO THE WHOLE PROJECT.
+                    //
+                    // This block used to hand-roll a partial refresh — markers and a save — while
+                    // AfterCutsChangedAsync (the method that exists precisely so no caller can
+                    // forget a step) was never called on the one path that actually changes the cut
+                    // list. Three things were therefore skipped: the cuts were not re-normalised
+                    // with the same rules the export uses, the main preview was left parked inside
+                    // deleted footage if that is where the playhead happened to be, and the
+                    // "your video got shorter, re-run ADD MUSIC" notice never appeared.
+                    // ══════════════════════════════════════════════════════════════════════
+                    if (cutsChangedByEditor) await AfterCutsChangedAsync();
                 }
             };
         }
@@ -771,34 +819,49 @@ private bool _exportedCleanSinceLastEdit;
         var setThumbnailButton = this.FindControl<Button>("SetThumbnailButton");
         if (setThumbnailButton != null)
         {
+            // ══════════════════════════════════════════════════════════════════════════
+            // THUMB_01 — THREE OUTCOMES, NOT TWO.
+            //
+            // This was a plain toggle: once a thumbnail existed the button could ONLY remove it.
+            // So "click the timeline where I want it, then press SET THUMBNAIL" — the obvious way
+            // to change your mind — did nothing but delete the marker, and you had to press the
+            // button a second time to place a new one. Two presses and a destroyed marker to move
+            // a thing you could already see.
+            //
+            // Now the button does whatever its label says, and the label follows the playhead:
+            //   nothing set                     SET THUMBNAIL        place it here
+            //   set, playhead somewhere else    MOVE THUMBNAIL HERE  pick it up and put it here
+            //   set, playhead on the marker     REMOVE THUMBNAIL     you are asking to clear it
+            //
+            // The "playhead is on the marker" test is what makes remove reachable without a second
+            // control: park on your own thumbnail and the button offers to clear it. See
+            // UpdateThumbnailButtonState.
+            // ══════════════════════════════════════════════════════════════════════════
             setThumbnailButton.Click += (s, e) =>
             {
-                var txt = this.FindControl<TextBlock>("SetThumbnailText");
-                if (_thumbnailSet)
+                double time = GetCurrentMpvTime();
+
+                if (_thumbnailSet && IsPlayheadOnThumbnail())
                 {
                     _thumbnailSet = false;
                     _thumbnailPosMs = 0;
                     _isThumbnailMarkerSelected = false;
                     _isDraggingThumbnailMarker = false;
-                    setThumbnailButton.Classes.Remove("Danger");
-                    setThumbnailButton.Classes.Add("Primary");
-                    if (txt != null) txt.Text = "SET THUMBNAIL";
                     ShowTacticalFeedback("Thumbnail removed");
                 }
                 else
                 {
-                    double time = GetCurrentMpvTime();
+                    bool moved = _thumbnailSet;
                     _thumbnailPosMs = time * 1000;
                     _thumbnailSet = true;
-                    setThumbnailButton.Classes.Remove("Primary");
-                    setThumbnailButton.Classes.Add("Danger");
-                    if (txt != null) txt.Text = "REMOVE THUMBNAIL";
+                    _isThumbnailMarkerSelected = true;   // leave it armed for the arrow keys
 
                     PlayUiSound();
-                    ShowTacticalFeedback($"📸 {TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
+                    ShowTacticalFeedback($"📸 {(moved ? "Moved to " : "")}{TimeSpan.FromSeconds(time):mm\\:ss\\.ff}");
                     ShowTimelineGlow(_thumbnailPosMs, Avalonia.Media.Brushes.DeepSkyBlue);
                 }
 
+                UpdateThumbnailButtonState();
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
@@ -812,28 +875,27 @@ private bool _exportedCleanSinceLastEdit;
             {
                 if (string.IsNullOrEmpty(_loadedVideoPath)) return;
 
+                // EDIT3_01 — the shared three-way prompt. This screen invented it; the Granular
+                // Speed and Add Music buttons now use the SAME method rather than their own
+                // wording, colours and keyboard behaviour.
                 if (_voiceOverResult != null)
                 {
-                    var confirm = new ConfirmDialogWindow();
-                    confirm.SetTitle("Edit Voice Over?");
-                    confirm.SetMessage("Would you like to edit your existing voiceover sessions, or remove them entirely?");
-                    confirm.SetButtonText("EDIT", "CANCEL", "REMOVE");
-                    await confirm.ShowDialog(this);
-                    
-                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Cancelled || 
-                        confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.No)
-                    {
-                        return;
-                    }
+                    var choice = await ConfirmDialogWindow.AskEditOrRemoveAsync(
+                        this,
+                        "Edit Voice Over?",
+                        "You already have voice-over takes on this video.\n\n" +
+                        "EDIT reopens the studio with your takes still there, so you can add, trim, mute or delete individual takes.\n" +
+                        "REMOVE throws all of them away.\n" +
+                        "CANCEL changes nothing.");
 
-                    if (confirm.DialogResult == ConfirmDialogWindow.ConfirmDialogResult.Alt)
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Cancelled) return;
+
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Remove)
                     {
                         ApplyVoiceOverState(null);
                         ShowTacticalFeedback("Voice Over Removed");
                         return;
                     }
-
-
                 }
 
                 bool wasPlaying = ActiveVideoHost?.IpcClient?.IsPaused == false;
@@ -845,7 +907,8 @@ private bool _exportedCleanSinceLastEdit;
                     _trimStartMs,
                     _trimEndSet ? _trimEndMs : 0,
                     BuildExportSpeedSegments(),
-                    _baseSpeed)
+                    _baseSpeed,
+                    _cuts)          // CUTS_02 — deleted sections are shown, skipped and mapped
                 {
                     InitialState = _voiceOverResult
                 };
@@ -1086,15 +1149,37 @@ private bool _exportedCleanSinceLastEdit;
                 RuntimeLog.Info("UI", "User clicked ADD MUSIC button.");
                 RuntimeLog.Info("UI", "User clicked ADD MUSIC button (launching Wizard).");
 
+                // EDIT3_01 — was also a silent one-click wipe. The wizard now reopens on the
+                // existing placement at PHASE 3, which is the screen the placement actually lives
+                // on (song start, volumes, ducking, carving, looping). Phases 1 and 2 stay
+                // reachable with BACK, so swapping the song itself is still one click away.
+                bool resumeExistingMusic = false;
                 if (_isMusicActive)
                 {
-                    _musicWizardResult = null;
-                    SetMusicButtonActive(false);
-                    UpdateEstimatedQuality();
-                    ShowTacticalFeedback("Music removed");
-                    UpdateTimelineMarkers();
-                    RuntimeLog.Info("UI", "User removed background music via REMOVE MUSIC button.");
-                    return;
+                    var choice = await ConfirmDialogWindow.AskEditOrRemoveAsync(
+                        this,
+                        "Edit Background Music?",
+                        "This video already has background music.\n\n" +
+                        "EDIT reopens the wizard on the final step with your song, start point, volumes and settings still there.\n" +
+                        "REMOVE takes the music off the video.\n" +
+                        "CANCEL changes nothing.");
+
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Cancelled) return;
+
+                    if (choice == ConfirmDialogWindow.EditOrRemoveChoice.Remove)
+                    {
+                        _musicWizardResult = null;
+                        SetMusicButtonActive(false);
+                        UpdateEstimatedQuality();
+                        ShowTacticalFeedback("Music removed");
+                        UpdateTimelineMarkers();
+                        SaveRecoveryState();
+                        RuntimeLog.Info("UI", "User removed background music via the EDIT/REMOVE prompt.");
+                        return;
+                    }
+
+                    resumeExistingMusic = true;
+                    RuntimeLog.Info("UI", "User chose EDIT on the existing background music.");
                 }
 
                 EnsureTrimPointsSet();
@@ -1109,8 +1194,13 @@ private bool _exportedCleanSinceLastEdit;
                     _trimEndMs > 0 ? _trimEndMs : (ActiveVideoHost?.IpcClient?.Duration ?? 0) * 1000,
                     _baseSpeed,
                     BuildExportSpeedSegments(),
-                    _voiceOverResult);
+                    _voiceOverResult,
+                    _cuts);         // CUTS_02 — music is laid against the video's REAL length
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+
+                // EDIT3_01 — hand the existing placement over so the wizard opens on it. Must be
+                // set before ShowDialog: the wizard consumes it in its Loaded handler.
+                if (resumeExistingMusic) wizard.InitialState = _musicWizardResult;
 
                 // PREVIEW_04 — let the wizard preview the balance the EXPORT will produce, instead
                 // of two raw files at slider level. Without these the music previews 10-15 dB above
@@ -2110,6 +2200,7 @@ private bool _exportedCleanSinceLastEdit;
         _trimEndSet = false;
         _thumbnailSet = false;
         _thumbnailPosMs = 0;
+        UpdateThumbnailButtonState();   // THUMB_01
         _freezeTimeMs = -1;
         _freezeDurationS = 1.0;
         ApplyVoiceOverState(null, isRestore: true);
@@ -2117,10 +2208,10 @@ private bool _exportedCleanSinceLastEdit;
         var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
         if (addMemeCb != null) addMemeCb.IsChecked = false;
 
-        var thumbBtn = this.FindControl<Button>("SetThumbnailButton");
-        if (thumbBtn != null) { thumbBtn.Classes.Remove("Danger"); thumbBtn.Classes.Add("Primary"); }
-        var thumbTxt = this.FindControl<TextBlock>("SetThumbnailText");
-        if (thumbTxt != null) thumbTxt.Text = "SET THUMBNAIL";
+        // THUMB_01 — the reset three lines above already put this button back through its one
+        // owner; the hand-rolled duplicate that stood here is gone. Its label also lacked the
+        // surrounding spaces the real one uses, so a reset button sat a few pixels narrower than
+        // the same button in every other state.
         var markStartReset = this.FindControl<Button>("MarkStartButton");
         if (markStartReset != null) markStartReset.Content = "MARK START";
         var markEndReset = this.FindControl<Button>("MarkEndButton");
@@ -2613,7 +2704,16 @@ private bool _exportedCleanSinceLastEdit;
                 return;
             }
 
-            MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: false);
+            // THUMB_01 — WAS `seekPreview: false`, WHICH IS WHY DRAGGING SHOWED NOTHING.
+            // The marker slid along the timeline while the picture stayed frozen on whatever frame
+            // was up before the drag began, so you were choosing a cover image blind and only saw
+            // the result on release. Seeking on every move turns the drag into a scrub.
+            //
+            // Safe to fire on every pointer move: SeekInternal coalesces (a seek already in flight
+            // parks the newest target in `_nextSeekTarget` and runs it on completion), so a fast
+            // drag collapses into "seek to wherever the pointer ended up" instead of queueing one
+            // mpv command per pixel.
+            MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
             e.Handled = true;
         };
         marker.PointerReleased += (_, e) =>
@@ -2628,11 +2728,72 @@ private bool _exportedCleanSinceLastEdit;
             _isThumbnailMarkerSelected = true;
             e.Pointer.Capture(null);
             SetTimelineCameraHover(marker, false);
+            UpdateThumbnailButtonState();   // THUMB_01
             UpdateTimelineMarkers();
             UpdateEstimatedQuality();
             SaveRecoveryState();
             e.Handled = true;
         };
+    }
+
+    /// <summary>
+    /// THUMB_01 — is the preview parked on the thumbnail frame? Half a second of tolerance,
+    /// because a seek lands near a keyframe rather than exactly where it was asked, and demanding
+    /// an exact match would make REMOVE unreachable.
+    /// </summary>
+    private bool IsPlayheadOnThumbnail()
+    {
+        if (!_thumbnailSet) return false;
+        return Math.Abs(GetCurrentMpvTime() * 1000.0 - _thumbnailPosMs) <= 500.0;
+    }
+
+    /// <summary>
+    /// THUMB_01 — keeps the button's label, colour and tooltip describing what pressing it will
+    /// actually do right now. Called from the playback tick, so it must stay cheap: it writes
+    /// nothing unless the text has genuinely changed.
+    /// </summary>
+    private void UpdateThumbnailButtonState()
+    {
+        var btn = this.FindControl<Button>("SetThumbnailButton");
+        var txt = this.FindControl<TextBlock>("SetThumbnailText");
+        if (btn == null) return;
+
+        string label;
+        string tip;
+        bool destructive = false;
+
+        if (!_thumbnailSet)
+        {
+            label = " SET THUMBNAIL ";
+            tip = "Save the exact frame you are looking at right now as the cover image for your video.";
+        }
+        else if (IsPlayheadOnThumbnail())
+        {
+            label = " REMOVE THUMBNAIL ";
+            tip = "You are parked on your cover frame. Press to clear it and go back to the automatic choice.";
+            destructive = true;
+        }
+        else
+        {
+            label = " MOVE THUMBNAIL HERE ";
+            tip = "Move the cover image to the frame you are looking at now. Your old choice is replaced, not deleted twice.";
+        }
+
+        if (txt != null && txt.Text != label) txt.Text = label;
+
+        if (destructive)
+        {
+            btn.Classes.Remove("Primary");
+            btn.Classes.Remove("Secondary");
+            if (!btn.Classes.Contains("Danger")) btn.Classes.Add("Danger");
+        }
+        else
+        {
+            btn.Classes.Remove("Danger");
+            if (!btn.Classes.Contains("Primary") && !btn.Classes.Contains("Secondary")) btn.Classes.Add("Primary");
+        }
+
+        ToolTip.SetTip(btn, tip);
     }
 
     private void MoveThumbnailMarkerToCanvasX(double canvasX, Canvas timelineCanvas, double durationSeconds, Control marker, bool seekPreview)
@@ -2654,20 +2815,56 @@ private bool _exportedCleanSinceLastEdit;
         }
     }
 
+    /// <summary>
+    /// THUMB_01 — nudges the thumbnail marker and scrubs the preview to match.
+    ///
+    /// The frame rate now comes from the file (mpv's container-fps) instead of a hard-coded 60.
+    /// On 30 fps footage the old constant stepped a frame and a half, so a control advertised as
+    /// frame-accurate landed between frames on most real recordings; 60 remains the fallback for
+    /// the moment before mpv has reported anything.
+    /// </summary>
     private void MoveThumbnailMarkerByFrames(int frameDelta)
     {
-        double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0.0;
+        var ipc = ActiveVideoHost?.IpcClient;
+        double duration = ipc?.Duration ?? 0.0;
         if (!_thumbnailSet || duration <= 0)
         {
             return;
         }
 
-        double fps = 60.0;
+        double fps = ipc?.VideoFps ?? 0.0;
+        if (fps <= 1.0) fps = 60.0;
+
         double deltaMs = (1000.0 / fps) * frameDelta;
         _thumbnailPosMs = Math.Clamp(_thumbnailPosMs + deltaMs, 0, duration * 1000.0);
         SeekMainPreviewToMarkerMs(_thumbnailPosMs);
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
+        UpdateThumbnailButtonState();
+
+        // A held arrow key repeats at the OS key rate. Writing the whole recovery file on each
+        // repeat is pure waste, so the save is coalesced to once the key has settled.
+        QueueThumbnailRecoverySave();
+    }
+
+    /// <summary>THUMB_01 — coalesces recovery writes while the marker is being nudged.</summary>
+    private Avalonia.Threading.DispatcherTimer? _thumbnailSaveDebounce;
+
+    private void QueueThumbnailRecoverySave()
+    {
+        _thumbnailSaveDebounce ??= new Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(400)
+        };
+        _thumbnailSaveDebounce.Stop();
+        _thumbnailSaveDebounce.Tick -= ThumbnailSaveDebounce_Tick;
+        _thumbnailSaveDebounce.Tick += ThumbnailSaveDebounce_Tick;
+        _thumbnailSaveDebounce.Start();
+    }
+
+    private void ThumbnailSaveDebounce_Tick(object? sender, EventArgs e)
+    {
+        _thumbnailSaveDebounce?.Stop();
         SaveRecoveryState();
     }
 
@@ -2739,6 +2936,35 @@ private bool _exportedCleanSinceLastEdit;
             segments.Add(new SpeedSegment((int)_freezeTimeMs, (int)(_freezeTimeMs + _freezeDurationS * 1000.0), 0.0));
         }
         return segments;
+    }
+
+    /// <summary>
+    /// CUTS_02 — where a moment of source footage lands in the FINISHED video, in seconds from the
+    /// start of the export. Speed segments, freezes and deleted sections all included, because
+    /// OutputTimeline is the single source of truth for source-to-output time in this codebase.
+    /// </summary>
+    private double SourceMsToOutputSeconds(
+        double sourceMs,
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment> segments)
+    {
+        EnsureTrimPointsSet();
+        double spanMs = Math.Max(0, _trimEndMs - _trimStartMs);
+
+        var timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+            spanMs,
+            segments,
+            _baseSpeed,
+            _trimStartMs,
+            null,
+            FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartMs));
+
+        // ⚠️ SourceToOutput takes ABSOLUTE source seconds and subtracts the timeline origin
+        // itself (the `sourceCutStartMs` handed to Create above). Passing an already-relative
+        // value here would subtract the trim-in point twice — the same two-frames-of-reference
+        // trap the Core timeline's own comments warn about. Clamped to the trimmed span so a
+        // music marker dragged outside it cannot map past the end of the video.
+        double absSourceSec = Math.Clamp(sourceMs, _trimStartMs, _trimStartMs + spanMs) / 1000.0;
+        return Math.Max(0.0, timeline.SourceToOutput(absSourceSec));
     }
 
     private static double CalculateEffectiveDurationMs(
@@ -4179,6 +4405,10 @@ private bool _exportedCleanSinceLastEdit;
 
         if (ActiveVideoHost?.IpcClient == null) return;
 
+        // THUMB_01 — the button's label depends on where the playhead is, so it has to follow it.
+        // Cheap by construction: it only writes when the text actually changes.
+        UpdateThumbnailButtonState();
+
         UpdateLiveZoomCrop();
 
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
@@ -4566,9 +4796,16 @@ private bool _exportedCleanSinceLastEdit;
             }
         }
 
+        // THUMB_01 — THE TWO MODIFIERS WERE THE WRONG WAY ROUND.
+        //
+        // Plain arrow used to mean one frame and Shift/Ctrl meant ten, so the unmodified key — the
+        // one you press to hunt for a shot — crawled, and the modified one was the only way to
+        // cover ground. Reversed: a bare arrow glides, and SHIFT is the precision gear that steps
+        // exactly one frame. Ctrl is kept as a synonym for Shift for anyone with the old habit.
         if (_isThumbnailMarkerSelected && _thumbnailSet && e.Key is Key.Left or Key.Right)
         {
-            int frames = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 1;
+            bool precise = e.KeyModifiers.HasFlag(KeyModifiers.Shift) || e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            int frames = precise ? 1 : 10;
             MoveThumbnailMarkerByFrames(e.Key == Key.Left ? -frames : frames);
             e.Handled = true;
             return;
@@ -4774,8 +5011,21 @@ private bool _exportedCleanSinceLastEdit;
         {
             double musicStartMs = Math.Max(_trimStartMs, _musicWizardResult.TimelineStartSeconds * 1000.0);
             double musicEndMs = Math.Min(_trimEndMs > 0 ? _trimEndMs : _loadedVideoDurationMs, _musicWizardResult.TimelineEndSeconds * 1000.0);
-            double startDelay = CalculateEffectiveDurationMs(_trimStartMs, musicStartMs, _baseSpeed, allSegments) / 1000.0;
-            double outputEndSec = CalculateEffectiveDurationMs(_trimStartMs, musicEndMs, _baseSpeed, allSegments) / 1000.0;
+            // ══════════════════════════════════════════════════════════════════════════
+            // CUTS_02 — MUSIC IS PLACED IN OUTPUT TIME, AND OUTPUT TIME IS SHORTER AFTER A CUT.
+            //
+            // These two numbers are where in the finished video the music starts and stops.
+            // CalculateEffectiveDurationMs converts source ms to output ms through the speed
+            // segments — but it knew nothing about deleted sections, so every second removed
+            // before the music's start point was still counted as time the music had to wait
+            // through. A thirty-second cut near the top of a clip pushed the whole bed thirty
+            // seconds late, and stretched its length by the same amount over the end of the video.
+            //
+            // OutputTimeline is the one type that owns this conversion and it already handles
+            // cuts, so the mapping is delegated to it rather than adding a second implementation.
+            // ══════════════════════════════════════════════════════════════════════════
+            double startDelay = SourceMsToOutputSeconds(musicStartMs, allSegments);
+            double outputEndSec = SourceMsToOutputSeconds(musicEndMs, allSegments);
             double dur = outputEndSec - startDelay;
             if (dur <= 0) dur = 1.0;
             
@@ -4797,19 +5047,28 @@ private bool _exportedCleanSinceLastEdit;
                 musicPaths.Add(_musicWizardResult.MusicFilePath);
             }
 
+            // Probe once and keep the lengths: the loop pass below needs them again, and
+            // ProbeMusicDurationSecondsAsync spawns ffprobe.
+            var musicDurations = new System.Collections.Generic.List<double>(musicPaths.Count);
             for (int i = 0; i < musicPaths.Count; i++)
             {
-                double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
                 double knownDuration = 0;
                 if (_musicWizardResult.MusicDurationsSeconds != null && i < _musicWizardResult.MusicDurationsSeconds.Count)
                     knownDuration = _musicWizardResult.MusicDurationsSeconds[i];
                 else if (i == 0)
                     knownDuration = _musicWizardResult.MusicDurationSeconds;
-                
+
                 if (knownDuration <= 0)
                 {
                     knownDuration = await ProbeMusicDurationSecondsAsync(musicPaths[i]);
                 }
+                musicDurations.Add(knownDuration);
+            }
+
+            for (int i = 0; i < musicPaths.Count; i++)
+            {
+                double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
+                double knownDuration = musicDurations[i];
 
                 double availableDuration = knownDuration > 0 ? Math.Max(0.0, knownDuration - offset) : dur;
                 double takeDuration = Math.Min(dur, availableDuration);
@@ -4818,6 +5077,47 @@ private bool _exportedCleanSinceLastEdit;
                 musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(musicPaths[i], offset, takeDuration, startDelay, true));
                 dur -= takeDuration;
                 if (dur <= 0.01) break;
+            }
+
+            // ══════════════════════════════════════════════════════════════════════════════
+            // LOOP_01 — "LOOP MUSIC UNTIL VIDEO ENDS" NOW ACTUALLY DOES THAT HERE.
+            //
+            // The tick box has always existed in the Music Wizard, and `LoopMusic` has always been
+            // carried on the result and written into the recovery file. But ONLY MergerWorker ever
+            // read it (via `loop_music` in its own music config). On this path — a single video in
+            // the Main App — nothing consumed it, so the tick box was decorative: the music still
+            // stopped when the song ran out. That was survivable while the box was hidden outside
+            // the Video Merger; now that COVER_01 shows it to everyone, it has to be real.
+            //
+            // The repeat is expressed the same way the first pass is — more MusicTrack entries,
+            // each taking a slice of what is left — so the filter graph sees nothing new. Repeats
+            // start at 0.0 rather than the user's chosen song start: the start point was chosen as
+            // an ENTRANCE, and re-entering there each cycle would skip the same opening every time.
+            // The guard is a hard stop against a zero-length track spinning this forever.
+            // ══════════════════════════════════════════════════════════════════════════════
+            if (_musicWizardResult.LoopMusic && dur > 0.01 && musicPaths.Count > 0)
+            {
+                int loopGuard = 0;
+                while (dur > 0.01 && loopGuard++ < 500)
+                {
+                    bool addedAnything = false;
+                    for (int i = 0; i < musicPaths.Count && dur > 0.01; i++)
+                    {
+                        double full = musicDurations[i];
+                        if (full <= 0.01) continue;
+
+                        double takeDuration = Math.Min(dur, full);
+                        if (takeDuration <= 0.01) continue;
+
+                        musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(musicPaths[i], 0.0, takeDuration, startDelay, true));
+                        dur -= takeDuration;
+                        addedAnything = true;
+                    }
+                    if (!addedAnything) break;   // every track is unreadable or zero-length
+                }
+
+                RuntimeLog.Info("UI",
+                    $"Loop music: repeated the {musicPaths.Count} selected track(s) to {musicTracks.Count} segment(s) to cover the video.");
             }
 
             musicConfig = new System.Text.Json.Nodes.JsonObject
@@ -4881,7 +5181,8 @@ private bool _exportedCleanSinceLastEdit;
             VoiceOverWavPath = _voiceOverResult?.VoiceOverWavPath,
             VoiceOverStartSec = _voiceOverResult?.VoiceOverStartTimestampSec ?? 0.0,
             VoiceOverTakes = _voiceOverResult != null ? GetExistingVoiceOverTakes(_voiceOverResult) : null,
-            VoiceOverDuckAudio = _voiceOverResult?.DuckAudio ?? false
+            VoiceOverDuckAudio = _voiceOverResult?.DuckAudio ?? false,
+            VoiceOverProtectFromMusic = _voiceOverResult?.ProtectFromMusic ?? false
         };
 
         var controller = new FortniteVideoSoftware.App.Services.MainMediaController();
@@ -5304,8 +5605,20 @@ private bool _exportedCleanSinceLastEdit;
 
 
     /// <summary>
-    /// Toggles the GRANULAR SPEED button between its normal (blue "GRANULAR SPEED")
-    /// and active (red "REMOVE SPEEDS") states. Saves recovery state on change.
+    /// ══════════════════════════════════════════════════════════════════════════════
+    /// EDIT3_02 — "REMOVE SPEEDS" IS NOW "EDIT SPEEDS", AND IT IS NO LONGER RED.
+    ///
+    /// The red button was honest when the button really did wipe everything on one click. It stopped
+    /// being honest the moment EDIT3_01 put a chooser in front of it: the button's job is now
+    /// "open the thing you already made", and removing is one of three answers inside. A red button
+    /// that opens a dialog trains people to fear a control that is safe, and the suite reserves red
+    /// for actions that destroy data on the spot.
+    ///
+    /// GREEN, not blue, for the active state. Blue is the inactive state, so reusing it would make
+    /// "you have speed changes" and "you have none" look identical. Green reads as "this is done" —
+    /// the same thing the VOICE OVER button says by swapping its gradient for a flat fill and its
+    /// label for EDIT VOICE OVER. All three entry buttons now behave the same way.
+    /// ══════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private void SetGranularButtonActive(bool active)
     {
@@ -5315,14 +5628,17 @@ private bool _exportedCleanSinceLastEdit;
         if (active)
         {
             btn.Classes.Remove("Primary");
-            btn.Classes.Add("Danger");
-            btn.Content = "REMOVE SPEEDS";
-            ToolTip.SetTip(btn, "Click here to delete all the speed changes you made. This wipes out every speed segment in one go.");
+            btn.Classes.Remove("Secondary");
+            btn.Classes.Remove("Danger");
+            if (!btn.Classes.Contains("Success")) btn.Classes.Add("Success");
+            btn.Content = "EDIT SPEEDS";
+            ToolTip.SetTip(btn, "You have speed changes on this video. Click to reopen the Speed Editor and change them, or to remove them all.");
         }
         else
         {
             btn.Classes.Remove("Danger");
-            btn.Classes.Add("Primary");
+            btn.Classes.Remove("Success");
+            if (!btn.Classes.Contains("Primary")) btn.Classes.Add("Primary");
             btn.Content = "GRANULAR SPEED";
             ToolTip.SetTip(btn, "Adjust granular speed settings");
         }
@@ -5330,8 +5646,8 @@ private bool _exportedCleanSinceLastEdit;
     }
 
     /// <summary>
-    /// Toggles the ADD MUSIC button between its normal (blue "ADD MUSIC")
-    /// and active (red "REMOVE MUSIC") states. Saves recovery state on change.
+    /// EDIT3_02 — "REMOVE MUSIC" is now "EDIT MUSIC" in green. See SetGranularButtonActive above
+    /// for why the red went: the button opens a chooser now, it does not delete anything itself.
     /// </summary>
     private void SetMusicButtonActive(bool active)
     {
@@ -5343,14 +5659,17 @@ private bool _exportedCleanSinceLastEdit;
         if (active)
         {
             btn.Classes.Remove("Primary");
-            btn.Classes.Add("Danger");
-            if (txt != null) txt.Text = " REMOVE MUSIC ";
-            ToolTip.SetTip(btn, "Click here to remove the background music you added. This deletes the music track from your video.");
+            btn.Classes.Remove("Secondary");
+            btn.Classes.Remove("Danger");
+            if (!btn.Classes.Contains("Success")) btn.Classes.Add("Success");
+            if (txt != null) txt.Text = " EDIT MUSIC ";
+            ToolTip.SetTip(btn, "This video has background music. Click to reopen the wizard on your current setup and change it, or to take the music off.");
         }
         else
         {
             btn.Classes.Remove("Danger");
-            btn.Classes.Add("Primary");
+            btn.Classes.Remove("Success");
+            if (!btn.Classes.Contains("Primary")) btn.Classes.Add("Primary");
             if (txt != null) txt.Text = " ADD MUSIC ";
             ToolTip.SetTip(btn, "Add background music to the video");
         }
@@ -5848,6 +6167,7 @@ private bool _exportedCleanSinceLastEdit;
                 state["voiceOverWavPath"] = _voiceOverResult.VoiceOverWavPath;
                 state["voiceOverStartSec"] = _voiceOverResult.VoiceOverStartTimestampSec;
                 state["voiceOverDuckAudio"] = _voiceOverResult.DuckAudio;
+                state["voiceOverProtectFromMusic"] = _voiceOverResult.ProtectFromMusic;
 
                 var voiceTakeArray = new System.Text.Json.Nodes.JsonArray();
                 foreach (var take in GetExistingVoiceOverTakes(_voiceOverResult))
@@ -5979,14 +6299,12 @@ private bool _exportedCleanSinceLastEdit;
             _thumbnailPosMs = state["thumbnailPosMs"]?.GetValue<double>() ?? 0;
             _thumbnailSet = state["thumbnailSet"]?.GetValue<bool>() ?? _thumbnailPosMs > 0;
             
-            var thumbBtnRest = this.FindControl<Button>("SetThumbnailButton");
-            var thumbTxtRest = this.FindControl<TextBlock>("SetThumbnailText");
-            if (thumbBtnRest != null && _thumbnailSet)
-            {
-                thumbBtnRest.Classes.Remove("Primary");
-                thumbBtnRest.Classes.Add("Danger");
-                if (thumbTxtRest != null) thumbTxtRest.Text = "REMOVE THUMBNAIL";
-            }
+            // THUMB_01 — one owner for this button's appearance. The hand-rolled copy here always
+            // came back saying REMOVE THUMBNAIL, which after the change above is only true when the
+            // playhead happens to be sitting on the thumbnail — and on a fresh restore it is at the
+            // trim start, not on it. The recovered project would have offered to delete the cover
+            // frame it had just restored.
+            UpdateThumbnailButtonState();
 
             var markStartBtn = this.FindControl<Button>("MarkStartButton");
             if (markStartBtn != null && _trimStartSet)
@@ -6056,15 +6374,10 @@ private bool _exportedCleanSinceLastEdit;
                 }
             }
 
-            _isGranularSpeedActive = state["isGranularSpeedActive"]?.GetValue<bool>() ?? false;
-            var granularBtnRestore = this.FindControl<Button>("GranularButton");
-            if (granularBtnRestore != null && _isGranularSpeedActive)
-            {
-                granularBtnRestore.Classes.Remove("Primary");
-                granularBtnRestore.Classes.Add("Danger");
-                granularBtnRestore.Content = "REMOVE SPEEDS";
-                ToolTip.SetTip(granularBtnRestore, "Click here to delete all the speed changes you made. This wipes out every speed segment in one go.");
-            }
+            // EDIT3_02 — restore now goes through the SAME setter as every other path instead of
+            // hand-copying the styling. The copy had already drifted (it still said REMOVE SPEEDS),
+            // and it is safe to call here because SaveRecoveryState no-ops while `_isRestoring`.
+            SetGranularButtonActive(state["isGranularSpeedActive"]?.GetValue<bool>() ?? false);
 
             _musicWizardResult = null;
             if (state["musicResult"] is System.Text.Json.Nodes.JsonObject musicObj)
@@ -6101,15 +6414,11 @@ private bool _exportedCleanSinceLastEdit;
                 NormalizeMusicPlacement(_musicWizardResult);
             }
 
-            _isMusicActive = state["isMusicActive"]?.GetValue<bool>() ?? false;
-            var musicBtnRestore = this.FindControl<Button>("AddMusicButton");
-            if (musicBtnRestore != null && _isMusicActive)
-            {
-                musicBtnRestore.Classes.Remove("Primary");
-                musicBtnRestore.Classes.Add("Danger");
-                musicBtnRestore.Content = "REMOVE MUSIC";
-                ToolTip.SetTip(musicBtnRestore, "Click here to remove the background music you added. This deletes the music track from your video.");
-            }
+            // EDIT3_02 — as above, and this one was worse than drift: assigning a plain string to
+            // `Content` REPLACED the button's whole StackPanel, so a recovered project came back
+            // with the two music-note icons gone. Going through the setter keeps the icons and
+            // only swaps the label inside them.
+            SetMusicButtonActive(state["isMusicActive"]?.GetValue<bool>() ?? false);
 
             double vol = state["volume"]?.GetValue<double>() ?? 100;
             var volSliderRestore = this.FindControl<Slider>("VolumeSlider");
@@ -6208,6 +6517,9 @@ private bool _exportedCleanSinceLastEdit;
                 {
                     var wavPath = wavPathNode?.GetValue<string>();
                     bool duckAudio = state.TryGetPropertyValue("voiceOverDuckAudio", out var dNode) && dNode != null && dNode.GetValue<bool>();
+                    // Additive, absent-is-legal: a recovery file written before this flag existed
+                    // restores with music protection OFF, which is exactly how that project ran.
+                    bool protectFromMusic = state.TryGetPropertyValue("voiceOverProtectFromMusic", out var pmNode) && pmNode != null && pmNode.GetValue<bool>();
                     
                     var restoredTakes = new List<VoiceOverTake>();
                     if (state.TryGetPropertyValue("voiceOverTakes", out var takesNode) &&
@@ -6232,7 +6544,8 @@ private bool _exportedCleanSinceLastEdit;
                             VoiceOverWavPath = wavPath ?? "",
                             VoiceOverStartTimestampSec = state.TryGetPropertyValue("voiceOverStartSec", out var sNode) && sNode != null ? sNode.GetValue<double>() : 0,
                             VoiceOverTakes = restoredTakes,
-                            DuckAudio = duckAudio
+                            DuckAudio = duckAudio,
+                            ProtectFromMusic = protectFromMusic
                         };
                         ApplyVoiceOverState(resultObj, true);
                     }

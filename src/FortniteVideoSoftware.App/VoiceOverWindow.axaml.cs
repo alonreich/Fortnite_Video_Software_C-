@@ -50,9 +50,72 @@ public partial class VoiceOverWindow : Window
     private double? _nextSeekTarget = null;
     private DispatcherTimer _timer;
 
-    private List<float> _waveformSamples = new();
     private double _smoothedVolume = 0;
     private double _peakVolume = 0;
+
+    /// <summary>
+    /// VOMON_01 — idle input monitoring, so the meter and the READY lamp tell the truth BEFORE
+    /// the user commits to a take. Stopped whenever <see cref="VoiceRecorder"/> needs the device.
+    /// </summary>
+    private FortniteVideoSoftware.Core.Media.MicLevelMonitor? _micMonitor;
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // VOASYNC_02 — THE AUDIO DEVICE CHAIN.
+    //
+    // Four operations touch the capture device, and EVERY one of them blocks:
+    //   opening the recorder      waveInOpen + creating the WAV file
+    //   draining the recorder     waits on RecordingStopped, up to 2 s
+    //   stopping the monitor      waveInReset + waveInClose, joins the capture thread
+    //   starting the monitor      waveInOpen
+    // Run inline they froze the window on every press of record. Run on separate tasks they would
+    // race: the recorder could try to open the device before the monitor had let go of it, which
+    // on many drivers simply fails and loses the take.
+    //
+    // So they are queued onto ONE chain. Order is preserved exactly as the interface thread issued
+    // it, nothing runs on the interface thread, and the device is never held by two objects at
+    // once. The field is only ever read and written on the interface thread, so it needs no lock.
+    // ══════════════════════════════════════════════════════════════════════════════
+    private Task _audioDeviceChain = Task.CompletedTask;
+
+    /// <summary>VOASYNC_02 — queues blocking capture-device work, in order, off the interface thread.</summary>
+    private void QueueAudioDeviceWork(Action work)
+    {
+        _audioDeviceChain = _audioDeviceChain.ContinueWith(
+            _ =>
+            {
+                try { work(); }
+                catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            },
+            System.Threading.CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// VOASYNC_02 — takes whose drain is still in flight. Apply and the close prompt both have to
+    /// wait for these, otherwise a take the user just recorded would be invisible to them for the
+    /// ~100 ms the device takes to drain — and silently lost if they pressed Apply inside it.
+    /// Only touched on the interface thread.
+    /// </summary>
+    private readonly List<TaskCompletionSource> _pendingFinalizes = new();
+
+    private Task WhenTakesSettled()
+    {
+        if (_pendingFinalizes.Count == 0) return Task.CompletedTask;
+        var tasks = new List<Task>(_pendingFinalizes.Count);
+        foreach (var tcs in _pendingFinalizes) tasks.Add(tcs.Task);
+        return Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// VOTAKE_01 — decoded peak envelopes, one array per take WAV, keyed by path.
+    /// Populated by a THREAD-POOL worker (EnsureTakePeaksAsync) and read only on the UI thread.
+    /// A take with no entry yet simply draws as a flat red block until its worker lands, which is
+    /// what keeps recording from stuttering while a WAV is decoded.
+    /// </summary>
+    private readonly Dictionary<string, float[]> _takePeaks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _takePeakPending = new(StringComparer.OrdinalIgnoreCase);
+    private const int TakePeakBuckets = 900;
 
     private string? _tempThumbPath;
     private string? _tempWavePath;
@@ -62,6 +125,29 @@ public partial class VoiceOverWindow : Window
     private double _trimStartSec = 0;
     private double _trimEndSec = 0;
     private readonly List<SpeedSegment> _speedSegments = new();
+
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════
+    /// CUTS_02 — THE PARTS OF THE CLIP THAT NO LONGER EXIST.
+    ///
+    /// Deleted in the Speed Editor, in ABSOLUTE source milliseconds — the same frame of reference
+    /// this window's playhead, takes and trim points all use. Until now this window knew nothing
+    /// about them, which broke two things at once:
+    ///
+    ///   THE PICTURE. The film strip and the ruler covered the whole trimmed span, so the user was
+    ///   scrubbing over, and could record a take across, footage that will not be in the video.
+    ///
+    ///   THE MATHS. Voice-over takes are anchored in source time and mapped to output time by
+    ///   OutputTimeline. Built without the cuts, that map thinks every deleted second is still
+    ///   there, so every take after the first cut lands late in the finished video by the total
+    ///   length of everything removed before it.
+    ///
+    /// The timeline axis stays SOURCE time — it is a recording surface, and a take has to be
+    /// anchored to the frame it was spoken over. The cuts are drawn on it and the playhead refuses
+    /// to sit inside one, which is how the main screen already behaves.
+    /// ══════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
     private double _baseSpeed = 1.0;
     private double _lastAppliedSpeed = 1.0;
     private bool _isCurrentlyFrozen;
@@ -97,6 +183,8 @@ public partial class VoiceOverWindow : Window
     private int _renderedSessionCount = -1;
     private double _renderedRulerWidth = -1;
     private double _renderedRulerHeight = -1;
+    private double _renderedScaleWidth = -1;
+    private double _renderedScaleDuration = -1;
 
     private sealed class PreviewPlayer : IDisposable
     {
@@ -223,8 +311,13 @@ public partial class VoiceOverWindow : Window
 
     private Border? _eqMeterTrack;
     private Canvas? _timelineRulerCanvas;
-    private Canvas? _liveWaveformMonitor;
     private Canvas? _waveformCanvas;
+    private Canvas? _takeOverlayCanvas;
+    private Ellipse? _readyLamp;
+    private TextBlock? _voTimeElapsed;
+    private TextBlock? _voTimeTotal;
+    private TextBlock? _voTimeRemaining;
+    private CheckBox? _duckMusicCb;
     private Grid? _thumbnailLaneGrid;
     private Grid? _waveformLaneGrid;
     private Image? _thumbnailLaneImage;
@@ -246,7 +339,21 @@ public partial class VoiceOverWindow : Window
         public string? VoiceOverWavPath { get; set; }
         public double VoiceOverStartTimestampSec { get; set; }
         public List<VoiceOverTake> VoiceOverTakes { get; set; } = new();
+
+        /// <summary>
+        /// VOPROT_01 — "Protect VoiceOver Recording from Game-Play Sound".
+        /// Ducks AND EQ-carves the GAME bus across the takes. Named DuckAudio for compatibility
+        /// with the recovery file's existing `voiceOverDuckAudio` key.
+        /// </summary>
         public bool DuckAudio { get; set; }
+
+        /// <summary>
+        /// VOPROT_01 — "Protect VoiceOver Recording from Music".
+        /// The same treatment applied to the music bed added in the Add Music wizard. Independent
+        /// of that wizard's own ducking checkbox, which protects the GAME from the music, not the
+        /// voice from the music — a different job with a different trigger.
+        /// </summary>
+        public bool ProtectFromMusic { get; set; }
     }
 
     public VoiceOverWindow()
@@ -270,7 +377,7 @@ public partial class VoiceOverWindow : Window
     {
         if (_isSafeToClose) return;
 
-        if (_isRecording || HasSavedVoiceOverSession())
+        if (HasApplicableVoiceEffect())
         {
             e.Cancel = true;
             var dialog = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
@@ -300,7 +407,8 @@ public partial class VoiceOverWindow : Window
         double trimStartMs = 0,
         double trimEndMs = 0,
         IEnumerable<SpeedSegment>? speedSegments = null,
-        double baseSpeed = 1.0) : this()
+        double baseSpeed = 1.0,
+        IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? cuts = null) : this()
     {
         _videoPath = videoPath;
         _trimStartSec = trimStartMs / 1000.0;
@@ -314,6 +422,14 @@ public partial class VoiceOverWindow : Window
                 _speedSegments.Add(segment);
             }
             _speedSegments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+        }
+        if (cuts != null)
+        {
+            foreach (var cut in cuts)
+            {
+                if (cut.EndMs > cut.StartMs) _cuts.Add(cut);
+            }
+            _cuts.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
         }
         _paths.EnsureWritableDirectories();
         _outputWavPath = CreateTempVoiceOverPath();
@@ -363,7 +479,12 @@ public partial class VoiceOverWindow : Window
                         _videoHost.IpcClient.SeekCompleted -= OnSeekCompleted;
                         _videoHost.IpcClient.SeekCompleted += OnSeekCompleted;
                         
-                        double initialPos = NormalizePreviewPlaybackPosition(startPosSec);
+                        // VOSTART_01 — ALWAYS OPEN AT MARK START.
+                        // `startPosSec` is wherever the main screen's playhead happened to be
+                        // sitting, which is almost never the beginning of what the user trimmed.
+                        // Recording is anchored to the video clock, so opening mid-clip meant the
+                        // first take started mid-clip too. The trim start IS "the beginning" here.
+                        double initialPos = NormalizePreviewPlaybackPosition(_trimStartSec);
                         await _videoHost.IpcClient.LoadFileAsync(_videoPath, initialPos);
                         await _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
 
@@ -391,18 +512,23 @@ public partial class VoiceOverWindow : Window
                         double videoDuration = _videoHost.IpcClient.Duration;
                         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
                         if (effectiveDuration <= 0) effectiveDuration = videoDuration;
+                        // CUTS_02 — without this last argument every take recorded after a deleted
+                        // section is exported late by exactly the amount that was removed.
                         _timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
                             effectiveDuration * 1000.0,
                             _speedSegments,
                             _baseSpeed,
-                            _trimStartSec * 1000.0);
+                            _trimStartSec * 1000.0,
+                            null,
+                            FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartSec * 1000.0));
                         
                         previewReady = true;
                         
                         if (InitialState != null)
                         {
-                            var cb = this.FindControl<CheckBox>("DuckAudioCb");
-                            if (cb != null) cb.IsChecked = InitialState.DuckAudio;
+                            // VOPROT_02 — the project's own saved choice is only ONE of the three
+                            // possible sources; ApplyVoiceProtectionPolicy decides which wins.
+                            ApplyVoiceProtectionPolicy(InitialState.DuckAudio, InitialState.ProtectFromMusic);
                             if (InitialState.VoiceOverTakes != null)
                             {
                                 foreach (var t in InitialState.VoiceOverTakes)
@@ -413,6 +539,7 @@ public partial class VoiceOverWindow : Window
                                         try { using var af = new NAudio.Wave.AudioFileReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch {}
                                         _sessions.Add(new VoiceOverSession { WavPath = t.Path, StartSec = t.StartSec, EndSec = t.StartSec + dur });
                                         _renderedSessionCount = -1;
+                                        EnsureTakePeaksAsync(t.Path);   // VOTAKE_01
                                     }
                                 }
                             }
@@ -448,14 +575,41 @@ public partial class VoiceOverWindow : Window
     /// <summary>VOICE_02 — the take count the current player list was built for. -1 = invalid.</summary>
     private int _previewPlayersBuiltForCount = -1;
 
+    /// <summary>VOASYNC_01 — true while a background player rebuild is in flight.</summary>
+    private bool _previewRebuildInFlight;
+
+    /// <summary>
+    /// VOASYNC_02 — tears the preview players down OFF the interface thread.
+    ///
+    /// Each PreviewPlayer owns a WaveOutEvent, and disposing one performs Stop() followed by
+    /// waveOutClose — a render endpoint being handed back to Windows. This ran inline, and it ran
+    /// on exactly the frame a new take was mounted, so every recording paid for closing every
+    /// previous take's endpoint before the new list went up. Retiring them on a worker keeps the
+    /// interface free; the objects are already detached from `_previewPlayers` by then, so nothing
+    /// can reach them again.
+    /// </summary>
     private void StopPreviewPlayers()
     {
-        foreach (var player in _previewPlayers)
+        if (_previewPlayers.Count > 0)
         {
-            player.Dispose();
+            var retiring = new List<PreviewPlayer>(_previewPlayers);
+            _previewPlayers.Clear();
+            RetirePreviewPlayersAsync(retiring);
         }
-        _previewPlayers.Clear();
         _previewPlayersBuiltForCount = -1;
+    }
+
+    private static void RetirePreviewPlayersAsync(List<PreviewPlayer> players)
+    {
+        if (players.Count == 0) return;
+        _ = Task.Run(() =>
+        {
+            foreach (var player in players)
+            {
+                try { player.Dispose(); }
+                catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            }
+        });
     }
 
     private void UpdatePreviewPlayers()
@@ -472,22 +626,57 @@ public partial class VoiceOverWindow : Window
             elapsedFreezeSec = (DateTime.UtcNow - _freezeStartTime).TotalSeconds;
         }
 
-        if (_sessions.Count != _previewPlayersBuiltForCount)
+        // VOASYNC_01 — REBUILDING THE PREVIEW PLAYERS IS NOW A BACKGROUND JOB.
+        //
+        // This block ran on the interface thread inside a 50 ms timer tick, and for EVERY take it
+        // opened an AudioFileReader (decode + header parse) and initialised a WaveOutEvent (which
+        // opens a WASAPI render endpoint). With three takes that is three device opens in one
+        // tick — hundreds of milliseconds of frozen interface immediately after each recording,
+        // which is exactly the "stutter and it takes time till the recording appears" complaint.
+        // The construction now happens on the thread pool and the finished list is swapped in on
+        // the interface thread. `_previewPlayersBuiltForCount` is claimed BEFORE the work starts so
+        // subsequent ticks do not queue the same rebuild again.
+        if (_sessions.Count != _previewPlayersBuiltForCount && !_previewRebuildInFlight)
         {
-            StopPreviewPlayers();
+            _previewRebuildInFlight = true;
+            int builtForCount = _sessions.Count;
+            var snapshot = new List<(VoiceOverSession session, float gain)>();
             foreach (var session in _sessions)
             {
-                if (System.IO.File.Exists(session.WavPath))
+                snapshot.Add((session, GetTakePreviewGain(session)));
+            }
+
+            _ = Task.Run(() =>
+            {
+                var built = new List<PreviewPlayer>();
+                foreach (var (session, gain) in snapshot)
                 {
-                    try { _previewPlayers.Add(new PreviewPlayer(session, GetTakePreviewGain(session))); }
+                    if (!System.IO.File.Exists(session.WavPath)) continue;
+                    try { built.Add(new PreviewPlayer(session, gain)); }
                     catch (System.Exception __ex)
                     {
                         RuntimeLog.Fail("VoiceOver", $"A recorded take could not be opened for preview: {__ex.Message}");
-                        RuntimeLog.Swallowed(__ex);
                     }
                 }
-            }
-            _previewPlayersBuiltForCount = _sessions.Count;
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _previewRebuildInFlight = false;
+
+                    // The window may have closed, or the take list may have moved on, while the
+                    // players were being built. Either way these are orphans — dispose them rather
+                    // than mounting a stale set.
+                    if (_isClosing || _sessions.Count != builtForCount)
+                    {
+                        RetirePreviewPlayersAsync(built);
+                        return;
+                    }
+
+                    StopPreviewPlayers();
+                    _previewPlayers.AddRange(built);
+                    _previewPlayersBuiltForCount = builtForCount;
+                });
+            });
         }
 
         foreach (var player in _previewPlayers)
@@ -535,8 +724,8 @@ public partial class VoiceOverWindow : Window
     private void Timer_Tick(object? sender, EventArgs e)
     {
         EnforceTrimEndStop();   // VOFIX_01 — replaces the A-B repeat loop
+        EnforceCutSkip();       // CUTS_02 — never sit inside footage that was deleted
         PumpRecordArming();
-        UpdateWaveformUI();
         UpdatePlayPauseIconUI();
         UpdatePlayheadUI();
         UpdatePreviewPlayers();
@@ -622,8 +811,12 @@ public partial class VoiceOverWindow : Window
         _eqMeterCanvas = this.FindControl<Canvas>("EqMeterCanvas");
         _eqMeterTrack = this.FindControl<Border>("EqMeterTrack");
         _timelineRulerCanvas = this.FindControl<Canvas>("TimelineRulerCanvas");
-        _liveWaveformMonitor = this.FindControl<Canvas>("LiveWaveformMonitor");
         _waveformCanvas = this.FindControl<Canvas>("WaveformCanvas");
+        _takeOverlayCanvas = this.FindControl<Canvas>("TakeOverlayCanvas");
+        _readyLamp = this.FindControl<Ellipse>("ReadyLamp");
+        _voTimeElapsed = this.FindControl<TextBlock>("VoTimeElapsed");
+        _voTimeTotal = this.FindControl<TextBlock>("VoTimeTotal");
+        _voTimeRemaining = this.FindControl<TextBlock>("VoTimeRemaining");
         _thumbnailLaneGrid = this.FindControl<Grid>("ThumbnailLaneGrid");
         _waveformLaneGrid = this.FindControl<Grid>("WaveformLaneGrid");
         _thumbnailLaneImage = this.FindControl<Image>("ThumbnailLaneImage");
@@ -633,6 +826,7 @@ public partial class VoiceOverWindow : Window
         _playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
         _pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
         _duckAudioCb = this.FindControl<CheckBox>("DuckAudioCb");
+        _duckMusicCb = this.FindControl<CheckBox>("DuckMusicCb");
         _thumbPlayheadLine = this.FindControl<Border>("ThumbPlayheadLine");
         _wavePlayheadLine = this.FindControl<Border>("WavePlayheadLine");
         
@@ -677,6 +871,11 @@ public partial class VoiceOverWindow : Window
 
                     bool isInitial = InitialState?.VoiceOverTakes?.Any(t => string.Equals(t.Path, _selectedSession.WavPath, StringComparison.OrdinalIgnoreCase)) == true;
                     if (!isInitial) TryDeleteFile(_selectedSession.WavPath);
+                    // VOTAKE_01 — drop the decoded envelope with the take. Each one is
+                    // TakePeakBuckets floats; leaving them behind would grow the window's
+                    // footprint every time a take was recorded and thrown away.
+                    _takePeaks.Remove(_selectedSession.WavPath);
+                    _takePeakPending.Remove(_selectedSession.WavPath);
                     _sessions.Remove(_selectedSession);
                     _selectedSession = null;
                     if (selectedTakeToolbar != null) selectedTakeToolbar.IsVisible = false;
@@ -694,12 +893,94 @@ public partial class VoiceOverWindow : Window
         if (_micDeviceComboBox == null) return;
 
         var devices = VoiceRecorder.GetInputDeviceNames();
+        RuntimeLog.Info("VoiceOver",
+            devices.Count == 0
+                ? "Voice-over window opened. No microphone input devices were found."
+                : $"Voice-over window opened. {devices.Count} microphone input device(s): {string.Join(" | ", devices)}");
         _micDeviceComboBox.ItemsSource = devices;
         _micDeviceComboBox.IsEnabled = devices.Count > 0;
         _micDeviceComboBox.SelectedIndex = devices.Count > 0 ? 0 : -1;
         ToolTip.SetTip(_micDeviceComboBox, devices.Count > 0
             ? "Choose which microphone records the voiceover"
             : "No microphone input device detected");
+
+        // VOMON_01 — re-point the idle monitor whenever the user picks a different input, so the
+        // meter always reflects the device that would actually be recorded from.
+        _micDeviceComboBox.SelectionChanged += (_, _) => StartMicMonitor();
+        StartMicMonitor();
+    }
+
+    /// <summary>
+    /// VOMON_01 — opens idle monitoring on the selected device. No-ops while a take is running,
+    /// because the recorder owns the device then.
+    /// </summary>
+    private void StartMicMonitor()
+    {
+        if (_isRecording || _recordArming || _isClosing) return;
+        if (!FortniteVideoSoftware.Core.Media.VoiceRecorder.HasInputDevice)
+        {
+            UpdateReadyLamp();
+            return;
+        }
+
+        if (_micMonitor == null)
+        {
+            _micMonitor = new FortniteVideoSoftware.Core.Media.MicLevelMonitor();
+            _micMonitor.LevelChanged += OnMonitorLevel;
+        }
+
+        // VOASYNC_02 — waveInOpen blocks; it goes on the chain, after any pending drain.
+        var monitor = _micMonitor;
+        int deviceIndex = GetSelectedMicrophoneDeviceIndex();
+        QueueAudioDeviceWork(() => monitor.Start(deviceIndex));
+        UpdateReadyLamp();
+    }
+
+    /// <summary>VOMON_01 — releases the device so VoiceRecorder can claim it.</summary>
+    private void StopMicMonitor()
+    {
+        // VOASYNC_02 — waveInClose joins the capture thread, so this blocks too. Queued, which
+        // also guarantees the device is free before the recorder's open is reached on the chain.
+        var monitor = _micMonitor;
+        if (monitor != null) QueueAudioDeviceWork(monitor.Stop);
+        UpdateReadyLamp();
+    }
+
+    /// <summary>
+    /// VOMON_01 — the idle meter feed. Deliberately shares <see cref="_peakVolume"/> with the
+    /// recording feed: the meter's job is "what is the microphone hearing right now", and that is
+    /// the same question in both states, so there is one path and no way for them to disagree.
+    /// </summary>
+    private void OnMonitorLevel(object? sender, float level)
+    {
+        if (_isRecording) return;   // the recorder is driving the meter; don't double-feed it
+        _peakVolume = Math.Max(_peakVolume, level);
+    }
+
+    /// <summary>
+    /// VOROW_01 — the GREEN lamp right of Play/Pause. It answers one question only: is there a
+    /// microphone this studio can record from? It is NOT the recording light (that is the red REC
+    /// lamp left of the microphone button, driven by UpdateRecordingUi).
+    /// </summary>
+    private void UpdateReadyLamp()
+    {
+        if (_readyLamp == null) return;
+
+        bool hasDevice = FortniteVideoSoftware.Core.Media.VoiceRecorder.HasInputDevice;
+        bool ready = hasDevice && _isMpvReady;
+        _readyLamp.Opacity = ready ? 1.0 : 0.18;
+
+        // The tooltip separates "a device exists" from "we can actually open it". A device that
+        // enumerates but will not open — held by another app, or blocked by Windows microphone
+        // privacy — is the single most common cause of a silent take, and this is where that
+        // shows up BEFORE a take is lost to it.
+        string tip;
+        if (!hasDevice) tip = "No microphone input device detected";
+        else if (!_isMpvReady) tip = "Waiting for the video preview to start";
+        else if (_isRecording) tip = "Recording — the meter is being fed by the take in progress";
+        else if (_micMonitor?.IsRunning == true) tip = "A microphone is connected and listening. Speak and the meter should move.";
+        else tip = "A microphone is listed, but this app could not open it. Check that no other app is using it, and that microphone access is allowed in Windows privacy settings.";
+        ToolTip.SetTip(_readyLamp, tip);
     }
 
     private int GetSelectedMicrophoneDeviceIndex()
@@ -927,6 +1208,40 @@ public partial class VoiceOverWindow : Window
         catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
     }
 
+    /// <summary>
+    /// CUTS_02 — jumps the preview over a deleted section in ONE seek, exactly as the main screen
+    /// does. Scrubbing frame-by-frame through footage that is not in the video is both misleading
+    /// and, on the main screen, the texture-churn pattern that caused a render-thread hang.
+    /// </summary>
+    private void EnforceCutSkip()
+    {
+        try
+        {
+            if (_cuts.Count == 0) return;
+            var ipc = _videoHost?.IpcClient;
+            if (ipc == null || !_isMpvReady) return;
+
+            double nowMs = ipc.CurrentTime * 1000.0;
+            foreach (var cut in _cuts)
+            {
+                if (nowMs <= cut.StartMs + 1 || nowMs >= cut.EndMs - 1) continue;
+
+                double toSec = Math.Min(cut.EndMs / 1000.0, GetEffectiveTimelineEnd());
+                _ = ipc.SetPropertyAsync("time-pos",
+                    toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+
+                // A take being recorded across a cut would be anchored to frames that are not in
+                // the finished video, so say so rather than letting it silently mis-time.
+                if (_isRecording && !_recordPaused)
+                {
+                    Controls.FloatingNotice.Info(this, "Skipped a deleted section");
+                }
+                return;
+            }
+        }
+        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+    }
+
     private SpeedSegment? FindFreezeSegment(double positionMs)
     {
         foreach (var seg in _speedSegments)
@@ -1008,6 +1323,103 @@ public partial class VoiceOverWindow : Window
         {
             _duckAudioCb.IsCheckedChanged += (_, _) => UpdateApplyState();
         }
+        if (_duckMusicCb != null)
+        {
+            _duckMusicCb.IsCheckedChanged += (_, _) => UpdateApplyState();
+        }
+
+        // VOPROT_02 — a brand-new voice-over (no InitialState) still has to obey the policy.
+        // With an InitialState the Loaded handler calls this again with the project's own values.
+        ApplyVoiceProtectionPolicy(null, null);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // VOPROT_02 — WHERE THE TWO PROTECTION CHECKBOXES GET THEIR VALUE.
+    //
+    // Three sources, in strict order of authority:
+    //   1. Settings says Always On / Always Off  -> that value, and the box is DISABLED.
+    //   2. This project already had a voice-over -> the choice saved with that project.
+    //   3. Neither                               -> the choice the user applied last time.
+    //
+    // On an Always mode the box is still shown in the state that will actually be used, and its
+    // tooltip says where the decision was made. Hiding it, or leaving it ticked while the export
+    // ignored it, would both read as a bug — the user must be able to see the truth and find the
+    // switch that changed it.
+    // ══════════════════════════════════════════════════════════════════════════════
+    private void ApplyVoiceProtectionPolicy(bool? projectGame, bool? projectMusic)
+    {
+        var settings = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance;
+
+        Apply(_duckAudioCb, settings.VoiceProtectGameMode, projectGame, settings.VoiceProtectGameLast,
+            "Protect VoiceOver Recording from Game-Play Sound");
+        Apply(_duckMusicCb, settings.VoiceProtectMusicMode, projectMusic, settings.VoiceProtectMusicLast,
+            "Protect VoiceOver Recording from Music");
+
+        static void Apply(CheckBox? box, FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode mode,
+                          bool? projectChoice, bool rememberedChoice, string label)
+        {
+            if (box == null) return;
+
+            switch (mode)
+            {
+                case FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.AlwaysOn:
+                    box.IsChecked = true;
+                    box.IsEnabled = false;
+                    ToolTip.SetTip(box, $"Settings > Sound & Music is set to always protect your voice, so \"{label}\" is locked on. Change it there to unlock this.");
+                    break;
+
+                case FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.AlwaysOff:
+                    box.IsChecked = false;
+                    box.IsEnabled = false;
+                    ToolTip.SetTip(box, $"Settings > Sound & Music is set to never protect your voice, so \"{label}\" is locked off. Change it there to unlock this.");
+                    break;
+
+                default:
+                    box.IsChecked = projectChoice ?? rememberedChoice;
+                    box.IsEnabled = true;
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// VOPROT_02 — stores the applied choices as the "last time" values, but ONLY for a checkbox
+    /// the user was actually allowed to set. Writing back a locked box would let an Always mode
+    /// quietly overwrite the preference the user would return to if they switched back to
+    /// Remember — the setting would appear to change itself.
+    /// </summary>
+    private static void RememberVoiceProtectionChoices(bool duckGame, bool duckMusic)
+    {
+        var settings = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance;
+        bool dirty = false;
+
+        if (settings.VoiceProtectGameMode == FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.RememberLastChoice &&
+            settings.VoiceProtectGameLast != duckGame)
+        {
+            settings.VoiceProtectGameLast = duckGame;
+            dirty = true;
+        }
+
+        if (settings.VoiceProtectMusicMode == FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.RememberLastChoice &&
+            settings.VoiceProtectMusicLast != duckMusic)
+        {
+            settings.VoiceProtectMusicLast = duckMusic;
+            dirty = true;
+        }
+
+        if (!dirty) return;
+
+        try
+        {
+            FortniteVideoSoftware.App.Infrastructure.SettingsManager.Save();
+            RuntimeLog.Info("VoiceOver",
+                $"Voice-protection choices remembered: game={duckGame}, music={duckMusic}.");
+        }
+        catch (Exception ex)
+        {
+            // A preference that cannot be written is not worth failing an export over.
+            RuntimeLog.Fail("VoiceOver", $"Could not save the voice-protection choices: {ex.Message}");
+        }
     }
 
     private void UpdateTransportState()
@@ -1030,7 +1442,7 @@ public partial class VoiceOverWindow : Window
         if (_pauseResumeButton != null)
         {
             _pauseResumeButton.IsVisible = _isRecording;
-            _pauseResumeButton.IsEnabled = _isRecording && !_recordArming;
+            _pauseResumeButton.IsEnabled = _isRecording && !_recordArming && !_recordOpening;
             var rpi = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordPauseIcon");
             var rri = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordResumeIcon");
             if (rpi != null) rpi.IsVisible = !_recordPaused;
@@ -1042,6 +1454,8 @@ public partial class VoiceOverWindow : Window
             _recordingStatusText.Text = "NO MIC";
             _recordingStatusText.Foreground = GetAppBrush("AppWarningBrush", Brushes.Yellow);
         }
+
+        UpdateReadyLamp();
     }
 
     private bool HasSavedVoiceOverSession()
@@ -1061,7 +1475,9 @@ public partial class VoiceOverWindow : Window
 
     private bool HasApplicableVoiceEffect()
     {
-        return _isRecording || HasSavedVoiceOverSession();
+        // VOASYNC_02 — a take whose drain has not landed yet is still a take. Without this the
+        // Apply button and the discard prompt would both go blind for the ~100 ms after stop.
+        return _isRecording || _pendingFinalizes.Count > 0 || HasSavedVoiceOverSession();
     }
 
     private void UpdateApplyState(string? message = null)
@@ -1257,6 +1673,95 @@ public partial class VoiceOverWindow : Window
         if (_pauseIcon != null) _pauseIcon.IsVisible = !isPaused;
     }
 
+    /// <summary>
+    /// VOTL_01 — formats a clock the same way the main screen's timeline does, so the two windows
+    /// read as one product. Always hh:mm:ss; a leading sign is the caller's business.
+    /// </summary>
+    private static string FormatClock(double seconds)
+    {
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
+        var ts = TimeSpan.FromSeconds(seconds);
+        return $"{(int)ts.TotalHours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // VOTAKE_01 — THE VOICE ENVELOPE IS DECODED OFF THE INTERFACE THREAD.
+    //
+    // Drawing a take's waveform means reading the whole WAV and reducing it to one peak per
+    // horizontal pixel. On the interface thread that is a visible freeze the instant a take is
+    // saved — the exact stutter this screen was reported for. So: the red block is drawn the
+    // moment the take exists (instant feedback), a thread-pool worker decodes the envelope, and
+    // when it lands the block is redrawn with the shape inside it. Nothing ever waits.
+    //
+    // The dictionary is written ONLY on the interface thread (inside the Post below) and read only
+    // there, so it needs no lock. `_takePeakPending` stops a second worker being queued for a file
+    // whose first worker has not finished.
+    // ══════════════════════════════════════════════════════════════════════════════
+    private void EnsureTakePeaksAsync(string? wavPath)
+    {
+        if (string.IsNullOrWhiteSpace(wavPath)) return;
+        string path = wavPath!;
+        if (_takePeaks.ContainsKey(path)) return;
+        if (!_takePeakPending.Add(path)) return;
+
+        _ = Task.Run(() =>
+        {
+            float[]? peaks = null;
+            try
+            {
+                peaks = DecodePeaks(path, TakePeakBuckets);
+            }
+            catch (Exception ex)
+            {
+                CoreLogger.Debug("VoiceOver", $"Could not build the waveform for '{System.IO.Path.GetFileName(path)}': {ex.Message}");
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_isClosing) return;
+                _takePeakPending.Remove(path);
+                // An empty array is still a RESULT: it stops the file being decoded again on every
+                // redraw when the take is silent or unreadable.
+                _takePeaks[path] = peaks ?? Array.Empty<float>();
+                _renderedSessionCount = -1;   // force one redraw with the shape in place
+                UpdatePlayheadUI();
+            });
+        });
+    }
+
+    /// <summary>
+    /// VOTAKE_01 — reduces a WAV to <paramref name="buckets"/> absolute peaks (0..1).
+    /// Runs on a worker thread; touches no interface state.
+    /// </summary>
+    private static float[] DecodePeaks(string path, int buckets)
+    {
+        if (buckets < 1) buckets = 1;
+        using var reader = new NAudio.Wave.AudioFileReader(path);
+
+        long totalSamples = reader.Length / (reader.WaveFormat.BitsPerSample / 8);
+        if (totalSamples <= 0) return Array.Empty<float>();
+
+        var peaks = new float[buckets];
+        var buffer = new float[8192];
+        long samplesPerBucket = Math.Max(1, totalSamples / buckets);
+
+        long read = 0;
+        int n;
+        while ((n = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                int bucket = (int)Math.Min(buckets - 1, (read + i) / samplesPerBucket);
+                float v = buffer[i];
+                if (v < 0) v = -v;
+                if (v > peaks[bucket]) peaks[bucket] = v;
+            }
+            read += n;
+        }
+
+        return peaks;
+    }
+
     private void UpdatePlayheadUI()
     {
         if (_videoHost?.IpcClient == null) return;
@@ -1264,7 +1769,7 @@ public partial class VoiceOverWindow : Window
         double videoDuration = _videoHost.IpcClient.Duration;
         if (videoDuration <= 0) return;
         UpdatePreviewSpeedAndFreeze(currentTime);
-        
+
         double effectiveDuration = (_trimEndSec > 0 ? _trimEndSec : videoDuration) - _trimStartSec;
         if (effectiveDuration <= 0) effectiveDuration = videoDuration;
 
@@ -1272,26 +1777,33 @@ public partial class VoiceOverWindow : Window
         double relativeTime = visualTime - _trimStartSec;
         double fraction = Math.Clamp(relativeTime / effectiveDuration, 0, 1);
 
+        // VOTL_01 — the clock strip. Elapsed and remaining are measured inside the TRIMMED range,
+        // because that range is the whole world on this screen: 00:00:00 here is MARK START.
+        double elapsed = Math.Clamp(relativeTime, 0, effectiveDuration);
+        if (_voTimeElapsed != null) _voTimeElapsed.Text = FormatClock(elapsed);
+        if (_voTimeTotal != null) _voTimeTotal.Text = FormatClock(effectiveDuration);
+        if (_voTimeRemaining != null) _voTimeRemaining.Text = "-" + FormatClock(effectiveDuration - elapsed);
+
         if (_timelineRulerCanvas != null && _timelineRulerCanvas.Bounds.Width > 0)
         {
             double width = _timelineRulerCanvas.Bounds.Width;
             double height = Math.Max(1, _timelineRulerCanvas.Bounds.Height);
 
-            if (_renderedSessionCount != _sessions.Count ||
-                Math.Abs(_renderedRulerWidth - width) > 0.5 ||
-                Math.Abs(_renderedRulerHeight - height) > 0.5)
+            if (Math.Abs(_renderedScaleWidth - width) > 0.5 ||
+                Math.Abs(_renderedScaleDuration - effectiveDuration) > 0.01)
             {
-                RebuildRulerSessionRegions(_timelineRulerCanvas, effectiveDuration, width, height);
+                RebuildRulerScale(_timelineRulerCanvas, effectiveDuration, width, height);
             }
 
             EnsureRulerDynamicVisuals(_timelineRulerCanvas, height);
-            UpdateCurrentRecordingRegion(_timelineRulerCanvas, effectiveDuration, width, height, fraction);
 
             double caretX = Math.Clamp(fraction * width, 0, width);
             if (_playheadCaret != null)
             {
                 Canvas.SetLeft(_playheadCaret, caretX);
-                Canvas.SetTop(_playheadCaret, Math.Max(0, height - 10));
+                // Sits ON the boundary between the ruler and the film lane, pointing down at the
+                // frame it is parked on.
+                Canvas.SetTop(_playheadCaret, Math.Max(0, height - VoCaretHeight));
             }
             if (_rulerPlayheadLine != null)
             {
@@ -1299,6 +1811,23 @@ public partial class VoiceOverWindow : Window
                 _rulerPlayheadLine.EndPoint = new Avalonia.Point(0, height);
                 Canvas.SetLeft(_rulerPlayheadLine, caretX);
             }
+        }
+
+        // VOTAKE_01 — takes are drawn over the FILM LANE now, not on the ruler.
+        if (_takeOverlayCanvas != null && _takeOverlayCanvas.Bounds.Width > 0)
+        {
+            double laneWidth = _takeOverlayCanvas.Bounds.Width;
+            double laneHeight = Math.Max(1, _takeOverlayCanvas.Bounds.Height);
+
+            if (_renderedSessionCount != _sessions.Count ||
+                Math.Abs(_renderedRulerWidth - laneWidth) > 0.5 ||
+                Math.Abs(_renderedRulerHeight - laneHeight) > 0.5)
+            {
+                RebuildTakeRegions(_takeOverlayCanvas, effectiveDuration, laneWidth, laneHeight);
+            }
+
+            EnsureLiveRecordingRegion(_takeOverlayCanvas, laneHeight);
+            UpdateCurrentRecordingRegion(effectiveDuration, laneWidth, laneHeight, fraction);
         }
 
         var toolbar = this.FindControl<Border>("SelectedTakeToolbar");
@@ -1331,12 +1860,205 @@ public partial class VoiceOverWindow : Window
         }
     }
 
-    private void RebuildRulerSessionRegions(Canvas ruler, double effectiveDuration, double width, double height)
+    /// <summary>
+    /// CUTS_02 — paints the sections the Speed Editor removed, so this window stops pretending
+    /// they are still part of the video. Absolute source ms in, lane pixels out.
+    /// </summary>
+    private void DrawDeletedSections(Canvas lane, double effectiveDuration, double width, double height)
+    {
+        if (_cuts.Count == 0 || effectiveDuration <= 0 || width <= 0) return;
+
+        var fill = new SolidColorBrush(Color.FromArgb(215, 26, 26, 30));
+        var hatch = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255));
+
+        foreach (var cut in _cuts)
+        {
+            double x1 = Math.Clamp(((cut.StartMs / 1000.0) - _trimStartSec) / effectiveDuration * width, 0, width);
+            double x2 = Math.Clamp(((cut.EndMs / 1000.0) - _trimStartSec) / effectiveDuration * width, 0, width);
+            double bandWidth = x2 - x1;
+            if (bandWidth <= 0.5) continue;
+
+            var band = new Rectangle
+            {
+                Fill = fill,
+                Width = bandWidth,
+                Height = height,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(band, x1);
+            Canvas.SetTop(band, 0);
+            lane.Children.Add(band);
+
+            // Diagonal hatching, drawn as one geometry rather than N shapes so a long cut on a wide
+            // window does not add hundreds of controls to the visual tree on every redraw.
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                for (double x = -height; x < bandWidth; x += 7)
+                {
+                    double sx = Math.Max(0, x);
+                    double sy = x < 0 ? -x : 0;
+                    double ex = Math.Min(bandWidth, x + height);
+                    double ey = height - Math.Max(0, (x + height) - bandWidth);
+                    if (ex <= sx) continue;
+                    ctx.BeginFigure(new Avalonia.Point(sx, sy), false);
+                    ctx.LineTo(new Avalonia.Point(ex, ey));
+                    ctx.EndFigure(false);
+                }
+            }
+
+            var hatchPath = new Avalonia.Controls.Shapes.Path
+            {
+                Data = geometry,
+                Stroke = hatch,
+                StrokeThickness = 1,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(hatchPath, x1);
+            Canvas.SetTop(hatchPath, 0);
+            lane.Children.Add(hatchPath);
+
+            if (bandWidth >= 46)
+            {
+                var label = new TextBlock
+                {
+                    Text = "DELETED",
+                    FontSize = Infrastructure.ThemeManager.ScaledFontSize(9),
+                    FontWeight = FontWeight.Bold,
+                    Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
+                    IsHitTestVisible = false,
+                    Width = bandWidth,
+                    TextAlignment = TextAlignment.Center
+                };
+                Canvas.SetLeft(label, x1);
+                Canvas.SetTop(label, Math.Max(0, height / 2 - 7));
+                lane.Children.Add(label);
+            }
+        }
+    }
+
+    /// <summary>VOTL_01 — the caret is 18 wide and 14 tall (was 12 x 10) so it is grabbable and readable.</summary>
+    private const double VoCaretHeight = 14.0;
+    private const double VoCaretHalfWidth = 9.0;
+
+    /// <summary>
+    /// VOTL_01 — the time grid: minor ticks, labelled major ticks, and a baseline.
+    ///
+    /// Rebuilt only when the WIDTH or the CLIP LENGTH changes, never per frame — this canvas also
+    /// hosts the caret and the playhead line, which are kept as fields and repositioned instead of
+    /// being recreated. Tick spacing follows the same ladder as the main screen's timeline so the
+    /// two rulers agree about what "every 10 seconds" looks like.
+    /// </summary>
+    private void RebuildRulerScale(Canvas ruler, double effectiveDuration, double width, double height)
     {
         ruler.Children.Clear();
-        _currentSessionRegionRect = null;
         _playheadCaret = null;
         _rulerPlayheadLine = null;
+
+        _renderedScaleWidth = width;
+        _renderedScaleDuration = effectiveDuration;
+
+        if (effectiveDuration <= 0 || width <= 0) return;
+
+        var tickBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255));
+        var majorBrush = new SolidColorBrush(Color.FromArgb(140, 255, 255, 255));
+        var labelBrush = Infrastructure.ThemeResources.Brush(this, "AppTextMutedBrush", Brushes.Gainsboro);
+        double labelFont = Infrastructure.ThemeManager.ScaledFontSize(9);
+
+        double major = 5;
+        if (effectiveDuration > 3600) major = 300;
+        else if (effectiveDuration > 1800) major = 60;
+        else if (effectiveDuration > 300) major = 30;
+        else if (effectiveDuration > 60) major = 10;
+        double minor = major / 5.0;
+
+        for (double t = 0; t <= effectiveDuration + 1e-6; t += minor)
+        {
+            double tx = (t / effectiveDuration) * width;
+            bool isMajor = Math.Abs(t / major - Math.Round(t / major)) < 1e-6;
+
+            var tick = new Rectangle
+            {
+                Fill = isMajor ? majorBrush : tickBrush,
+                Width = 1,
+                Height = isMajor ? 10 : 5,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(tick, tx);
+            Canvas.SetTop(tick, Math.Max(0, height - (isMajor ? 10 : 5)));
+            ruler.Children.Add(tick);
+
+            if (!isMajor) continue;
+
+            var label = new TextBlock
+            {
+                Text = FormatClock(t),
+                Foreground = labelBrush,
+                FontSize = labelFont,
+                IsHitTestVisible = false
+            };
+            // Keep the first and last labels inside the canvas instead of half-off each edge.
+            double desired = tx + 3;
+            Canvas.SetLeft(label, Math.Max(0, Math.Min(Math.Max(0, width - 48), desired)));
+            Canvas.SetTop(label, 1);
+            ruler.Children.Add(label);
+        }
+
+        var baseline = new Rectangle
+        {
+            Fill = tickBrush,
+            Width = width,
+            Height = 1,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(baseline, 0);
+        Canvas.SetTop(baseline, Math.Max(0, height - 1));
+        ruler.Children.Add(baseline);
+
+        // CUTS_02 — a slim marker on the ruler too, so the deleted spans are visible even when the
+        // film strip has not finished generating.
+        foreach (var cut in _cuts)
+        {
+            double cx1 = Math.Clamp(((cut.StartMs / 1000.0) - _trimStartSec) / effectiveDuration * width, 0, width);
+            double cx2 = Math.Clamp(((cut.EndMs / 1000.0) - _trimStartSec) / effectiveDuration * width, 0, width);
+            if (cx2 - cx1 <= 0.5) continue;
+
+            var mark = new Rectangle
+            {
+                Fill = new SolidColorBrush(Color.FromArgb(150, 150, 150, 160)),
+                Width = cx2 - cx1,
+                Height = 4,
+                IsHitTestVisible = false
+            };
+            ToolTip.SetTip(mark, "This part was deleted in the Speed Editor and will not be in your video.");
+            Canvas.SetLeft(mark, cx1);
+            Canvas.SetTop(mark, Math.Max(0, height - 5));
+            ruler.Children.Add(mark);
+        }
+    }
+
+    /// <summary>
+    /// VOTAKE_01 — draws every saved take as a semi-transparent red block over the film strip,
+    /// with the recorded voice drawn INSIDE it once its envelope has been decoded.
+    ///
+    /// The block uses an ALPHA FILL rather than <c>Opacity</c>, because Opacity on the rectangle
+    /// would be inherited by nothing (it is a sibling of the waveform) — but Opacity on a shared
+    /// parent would also fade the waveform, which is the one thing that has to stay legible.
+    /// </summary>
+    private void RebuildTakeRegions(Canvas lane, double effectiveDuration, double width, double height)
+    {
+        lane.Children.Clear();
+        _currentSessionRegionRect = null;
+
+        // CUTS_02 — deleted footage is drawn FIRST so takes and the live recording block sit on
+        // top of it. Grey with diagonal hatching rather than a colour: it must not be mistaken for
+        // a take, and it must read as "there is nothing here" rather than "here is something red".
+        DrawDeletedSections(lane, effectiveDuration, width, height);
+
+        var dangerBase = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Color.FromRgb(168, 50, 50));
+        // No AppBorderColor token exists (the border is a brush-only token), and a muted take is
+        // deliberately drawn as neutral grey rather than a tinted red, so this is a literal.
+        var mutedBase = Color.FromRgb(110, 110, 110);
 
         foreach (var session in _sessions)
         {
@@ -1347,46 +2069,86 @@ public partial class VoiceOverWindow : Window
             if (x2 <= x1) continue;
 
             bool isSelected = session == _selectedSession;
+            double blockWidth = x2 - x1;
+
+            var baseColour = session.IsMuted ? mutedBase : dangerBase;
+            byte alpha = session.IsMuted ? (byte)70 : (isSelected ? (byte)190 : (byte)120);
 
             var region = new Rectangle
             {
-                Opacity = isSelected ? 0.8 : (session.IsMuted ? 0.2 : 0.4),
-                Width = x2 - x1,
+                Fill = new SolidColorBrush(Color.FromArgb(alpha, baseColour.R, baseColour.G, baseColour.B)),
+                Width = blockWidth,
                 Height = height,
                 IsHitTestVisible = true,
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
             };
-            region[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(session.IsMuted ? "AppBorderBrush" : "AppDangerBrush");
-            
+            ToolTip.SetTip(region, session.IsMuted
+                ? "Muted take — click to select it, then UNMUTE in the right-hand panel"
+                : $"Voice take, {session.RenderEndSec - session.RenderStartSec:0.0}s. Click to select it.");
+
             region.PointerPressed += (s, e) =>
             {
-                if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                if (e.GetCurrentPoint(lane).Properties.IsLeftButtonPressed)
                 {
-                    ruler.Focus();
+                    lane.Focus();
                     _selectedSession = session;
                     _renderedSessionCount = -1;
                     UpdatePlayheadUI();
                     e.Handled = true;
                 }
             };
-            
+
             Canvas.SetLeft(region, x1);
             Canvas.SetTop(region, 0);
-            ruler.Children.Add(region);
+            lane.Children.Add(region);
 
             if (isSelected)
             {
+                var outline = new Rectangle
+                {
+                    Stroke = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Brushes.LimeGreen),
+                    StrokeThickness = 2,
+                    Fill = Brushes.Transparent,
+                    Width = blockWidth,
+                    Height = height,
+                    IsHitTestVisible = false
+                };
+                Canvas.SetLeft(outline, x1);
+                Canvas.SetTop(outline, 0);
+                lane.Children.Add(outline);
+            }
+
+            // The voice itself. Absent on the first frame after a take is saved — the worker is
+            // still decoding — and it simply appears when ready. This is why recording no longer
+            // stalls: the block is never waiting on the shape.
+            var shape = BuildTakeWaveformPath(session, blockWidth, height);
+            if (shape != null)
+            {
+                Canvas.SetLeft(shape, x1);
+                Canvas.SetTop(shape, 0);
+                lane.Children.Add(shape);
+            }
+            else
+            {
+                EnsureTakePeaksAsync(session.WavPath);
+            }
+
+            if (isSelected)
+            {
+                var handleBrush = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Brushes.LimeGreen);
+
                 var leftHandle = new Rectangle
                 {
                     Width = 10,
                     Height = height,
-                    Fill = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen),   // TONE_01
+                    Fill = handleBrush,
                     IsHitTestVisible = true,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
                 };
+                ToolTip.SetTip(leftHandle, "Drag to trim the start of this take");
                 leftHandle.PointerPressed += (s, e) =>
                 {
-                    if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                    if (e.GetCurrentPoint(lane).Properties.IsLeftButtonPressed)
                     {
                         _draggingSession = session;
                         _isDraggingStartEdge = true;
@@ -1395,28 +2157,29 @@ public partial class VoiceOverWindow : Window
                 };
                 Canvas.SetLeft(leftHandle, Math.Max(0, x1 - 5));
                 Canvas.SetTop(leftHandle, 0);
-                ruler.Children.Add(leftHandle);
+                lane.Children.Add(leftHandle);
 
                 var rightHandle = new Rectangle
                 {
                     Width = 10,
                     Height = height,
-                    Fill = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brushes.LimeGreen),   // TONE_01
+                    Fill = handleBrush,
                     IsHitTestVisible = true,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
                 };
+                ToolTip.SetTip(rightHandle, "Drag to trim the end of this take");
                 rightHandle.PointerPressed += (s, e) =>
                 {
-                    if (e.GetCurrentPoint(ruler).Properties.IsLeftButtonPressed)
+                    if (e.GetCurrentPoint(lane).Properties.IsLeftButtonPressed)
                     {
                         _draggingSession = session;
                         _isDraggingEndEdge = true;
                         e.Handled = true;
                     }
                 };
-                Canvas.SetLeft(rightHandle, Math.Min(width - 10, x2 - 5));
+                Canvas.SetLeft(rightHandle, Math.Min(Math.Max(0, width - 10), x2 - 5));
                 Canvas.SetTop(rightHandle, 0);
-                ruler.Children.Add(rightHandle);
+                lane.Children.Add(rightHandle);
             }
         }
 
@@ -1425,26 +2188,69 @@ public partial class VoiceOverWindow : Window
         _renderedRulerHeight = height;
     }
 
-    private void EnsureRulerDynamicVisuals(Canvas ruler, double height)
+    /// <summary>
+    /// VOTAKE_01 — one vertical line per pixel column, mirrored around the lane's centre.
+    /// Returns null while the envelope is still being decoded, or when the take is silent.
+    ///
+    /// The take may have been TRIMMED by its edge handles, so the slice of the envelope drawn is
+    /// the slice that will actually be exported — otherwise the picture would keep showing audio
+    /// the user had already trimmed away.
+    /// </summary>
+    private Avalonia.Controls.Shapes.Path? BuildTakeWaveformPath(VoiceOverSession session, double blockWidth, double height)
     {
-        if (_currentSessionRegionRect == null)
+        if (blockWidth < 2 || height < 4) return null;
+        if (string.IsNullOrWhiteSpace(session.WavPath)) return null;
+        if (!_takePeaks.TryGetValue(session.WavPath, out var peaks) || peaks.Length == 0) return null;
+
+        double fullLength = Math.Max(0.001, session.EndSec - session.StartSec);
+        double fromFrac = Math.Clamp(session.TrimLeftSec / fullLength, 0, 1);
+        double toFrac = Math.Clamp(1.0 - (session.TrimRightSec / fullLength), 0, 1);
+        if (toFrac <= fromFrac) return null;
+
+        double centreY = height / 2.0;
+        double maxHalf = (height / 2.0) - 3.0;
+        if (maxHalf < 2) maxHalf = 2;
+
+        int columns = (int)Math.Max(1, Math.Floor(blockWidth));
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
         {
-            _currentSessionRegionRect = new Rectangle
+            for (int i = 0; i < columns; i++)
             {
-                Opacity = 0.4,
-                Height = height,
-                IsHitTestVisible = false,
-                IsVisible = false
-            };
-            _currentSessionRegionRect[!Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
-            ruler.Children.Add(_currentSessionRegionRect);
+                double frac = fromFrac + (toFrac - fromFrac) * (i / (double)columns);
+                int idx = Math.Clamp((int)(frac * peaks.Length), 0, peaks.Length - 1);
+                double half = Math.Max(1.0, peaks[idx] * maxHalf);
+                double x = i + 0.5;
+                ctx.BeginFigure(new Avalonia.Point(x, centreY - half), false);
+                ctx.LineTo(new Avalonia.Point(x, centreY + half));
+                ctx.EndFigure(false);
+            }
         }
 
+        return new Avalonia.Controls.Shapes.Path
+        {
+            Data = geometry,
+            Stroke = new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)),
+            StrokeThickness = 1,
+            IsHitTestVisible = false
+        };
+    }
+
+    /// <summary>VOTL_01 — creates the caret and playhead line once, on the ruler canvas.</summary>
+    private void EnsureRulerDynamicVisuals(Canvas ruler, double height)
+    {
         if (_playheadCaret == null)
         {
             _playheadCaret = new Polygon
             {
-                Points = new List<Avalonia.Point> { new(-6, 0), new(6, 0), new(0, 10) },
+                Points = new List<Avalonia.Point>
+                {
+                    new(-VoCaretHalfWidth, 0),
+                    new(VoCaretHalfWidth, 0),
+                    new(0, VoCaretHeight)
+                },
+                Stroke = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
+                StrokeThickness = 1,
                 IsHitTestVisible = false
             };
             _playheadCaret[!Polygon.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppDangerBrush");
@@ -1463,7 +2269,23 @@ public partial class VoiceOverWindow : Window
         }
     }
 
-    private void UpdateCurrentRecordingRegion(Canvas ruler, double effectiveDuration, double width, double height, double currentFraction)
+    /// <summary>VOTAKE_01 — the block that grows in real time while a take is being recorded.</summary>
+    private void EnsureLiveRecordingRegion(Canvas lane, double height)
+    {
+        if (_currentSessionRegionRect != null) return;
+
+        var dangerBase = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Color.FromRgb(168, 50, 50));
+        _currentSessionRegionRect = new Rectangle
+        {
+            Fill = new SolidColorBrush(Color.FromArgb(150, dangerBase.R, dangerBase.G, dangerBase.B)),
+            Height = height,
+            IsHitTestVisible = false,
+            IsVisible = false
+        };
+        lane.Children.Add(_currentSessionRegionRect);
+    }
+
+    private void UpdateCurrentRecordingRegion(double effectiveDuration, double width, double height, double currentFraction)
     {
         if (_currentSessionRegionRect == null) return;
 
@@ -1488,7 +2310,6 @@ public partial class VoiceOverWindow : Window
         Canvas.SetLeft(_currentSessionRegionRect, x1);
         Canvas.SetTop(_currentSessionRegionRect, 0);
     }
-
 
     private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Control timelineCanvas, bool force)
     {
@@ -1652,6 +2473,8 @@ public partial class VoiceOverWindow : Window
 
     private void ToggleRecord(object? sender, Avalonia.Interactivity.RoutedEventArgs? e)
     {
+        RuntimeLog.Info("VoiceOver",
+            $"Record button pressed. mpvReady={_isMpvReady}, recording={_isRecording}, arming={_recordArming}, paused={_recordPaused}.");
         if (!_isMpvReady) return;
 
         if (_isRecording)
@@ -1698,6 +2521,14 @@ public partial class VoiceOverWindow : Window
     /// <summary>True between "user pressed record" and "the video clock actually moved".</summary>
     private bool _recordArming;
 
+    /// <summary>
+    /// VOASYNC_02 — true between "the clock moved, open the device" and "capture is live".
+    /// Distinct from <see cref="_recordArming"/>: arming waits on the VIDEO, this waits on the
+    /// AUDIO DRIVER. The pause button stays disabled across it because there is nothing to pause
+    /// yet, and PumpRecordArming must not queue a second open while one is in flight.
+    /// </summary>
+    private bool _recordOpening;
+
     /// <summary>Video position observed on the previous arming tick, to detect real movement.</summary>
     private double _armPrevTime;
 
@@ -1719,6 +2550,8 @@ public partial class VoiceOverWindow : Window
 
         double currentPreviewTime = _videoHost?.IpcClient?.CurrentTime ?? _trimStartSec;
         double recordingStart = NormalizePreviewPlaybackPosition(currentPreviewTime);
+        RuntimeLog.Info("VoiceOver",
+            $"Starting recording. previewTime={currentPreviewTime:0.###}s, normalisedStart={recordingStart:0.###}s, trim={_trimStartSec:0.###}s..{_trimEndSec:0.###}s, mpvPaused={_videoHost?.IpcClient?.IsPaused}, micIndex={GetSelectedMicrophoneDeviceIndex()}.");
         if (Math.Abs(recordingStart - currentPreviewTime) > 0.01)
         {
             _ = _videoHost?.IpcClient?.SetPropertyAsync("time-pos", recordingStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1727,7 +2560,6 @@ public partial class VoiceOverWindow : Window
         _lastFreezeTriggerMs = -1;
         ApplyPreviewSpeedForPosition(recordingStart * 1000.0);
 
-        _waveformSamples.Clear();
         _recordPaused = false;
         _isRecording = true;
 
@@ -1745,6 +2577,10 @@ public partial class VoiceOverWindow : Window
     private bool ArmTakeSegment(double provisionalStartSec)
     {
         ReleaseRecorder();
+
+        // VOMON_01 — hand the device over. Some drivers refuse a second capture handle, so the
+        // idle monitor MUST be closed before VoiceRecorder opens the same input.
+        StopMicMonitor();
 
         _outputWavPath = CreateTempVoiceOverPath();
         _currentSession = new VoiceOverSession
@@ -1773,6 +2609,7 @@ public partial class VoiceOverWindow : Window
     /// </summary>
     private void PumpRecordArming()
     {
+        if (_recordOpening) return;   // VOASYNC_02 — a device open is already queued
         if (!_recordArming) return;
 
         var ipc = _videoHost?.IpcClient;
@@ -1822,31 +2659,82 @@ public partial class VoiceOverWindow : Window
             return;
         }
 
-        var recorder = new VoiceRecorder(_outputWavPath, GetSelectedMicrophoneDeviceIndex());
-        recorder.VolumeChanged += OnVolumeChanged;
-        try
-        {
-            recorder.StartRecording();
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {ex.Message}");
-            recorder.VolumeChanged -= OnVolumeChanged;
-            recorder.Dispose();
-            _recordArming = false;
-            AbortActiveTake();
-            ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
-            return;
-        }
-
-        _recorder = recorder;
+        // ══════════════════════════════════════════════════════════════════════════
+        // VOASYNC_02 — OPENING THE DEVICE IS QUEUED, NOT INLINE.
+        //
+        // `new VoiceRecorder(...).StartRecording()` performs waveInOpen and creates the WAV file.
+        // Done here it ran inside a 50 ms timer tick on the interface thread, so pressing record
+        // stuttered for as long as the driver took to hand over the endpoint.
+        //
+        // The ANCHOR is the subtle part. It used to be stamped from `now` — the clock reading that
+        // triggered the arm — which was already slightly stale by the time the device finished
+        // opening, so the voice sat a little early against the picture. It is now re-read at the
+        // instant capture actually goes live, which is strictly more accurate.
+        // ══════════════════════════════════════════════════════════════════════════
         _recordArming = false;
+        _recordOpening = true;
 
-        if (_currentSession != null) _currentSession.StartSec = now;
-        RuntimeLog.Info("VoiceOver", $"Take armed and anchored at {now:0.###}s (source time).");
+        string takePath = _outputWavPath;
+        int micIndex = GetSelectedMicrophoneDeviceIndex();
+        RuntimeLog.Info("VoiceOver", $"Opening microphone index {micIndex} (video clock at {now:0.###}s).");
 
-        UpdateRecordingUi("RECORDING", "AppDangerBrush");
-        UpdateApplyState("Recording in progress. Apply will save the current take and close.");
+        QueueAudioDeviceWork(() =>
+        {
+            var recorder = new VoiceRecorder(takePath, micIndex);
+            Exception? failure = null;
+            try { recorder.StartRecording(); }
+            catch (Exception ex)
+            {
+                failure = ex;
+                try { recorder.Dispose(); } catch (Exception dex) { RuntimeLog.Swallowed(dex); }
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                _recordOpening = false;
+
+                // The user may have pressed stop, or closed the window, while the driver was
+                // opening. The recorder is then an orphan and must not be mounted.
+                if (_isClosing || !_isRecording || _currentSession == null)
+                {
+                    if (failure == null)
+                    {
+                        // The stop arrived while the driver was still opening. Close the device
+                        // and delete the WAV it just created — the delete is queued BEHIND the
+                        // dispose on the same chain, because the file is still open until then.
+                        QueueAudioDeviceWork(() =>
+                        {
+                            try { recorder.StopRecording(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+                            try { recorder.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+                            TryDeleteFile(takePath);
+                        });
+                        RuntimeLog.Info("VoiceOver", "Recording was stopped while the microphone was still opening; the empty take was discarded.");
+                    }
+                    return;
+                }
+
+                if (failure != null)
+                {
+                    RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {failure.Message}");
+                    AbortActiveTake();
+                    ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
+                    return;
+                }
+
+                recorder.VolumeChanged += OnVolumeChanged;
+                _recorder = recorder;
+
+                double liveAt = _videoHost?.IpcClient?.CurrentTime ?? now;
+                _currentSession.StartSec = liveAt;
+
+                RuntimeLog.Info("VoiceOver",
+                    $"Microphone open on index {micIndex}; take anchored at {liveAt:0.###}s (source time).");
+
+                UpdateRecordingUi("RECORDING", "AppDangerBrush");
+                UpdateTransportState();
+                UpdateApplyState("Recording in progress. Apply will save the current take and close.");
+            });
+        });
     }
 
     /// <summary>Pause: close the current take cleanly and stop the video. Resume opens a new one.</summary>
@@ -1890,53 +2778,141 @@ public partial class VoiceOverWindow : Window
     }
 
     /// <summary>
-    /// Closes the open take and keeps it only if the microphone actually captured something.
-    /// A take that was still ARMING never opened the mic, so its empty WAV is discarded — that
-    /// is what stops a stray arm/abort cycle from injecting a zero-length take into the export.
+    /// VOASYNC_02 — CLOSES THE TAKE WITHOUT BLOCKING THE INTERFACE THREAD.
+    ///
+    /// ⚠️ THIS IS THE FREEZE. <see cref="VoiceRecorder.StopRecording"/> waits on
+    /// <c>RecordingStopped</c> for up to two seconds so the last captured buffers are written
+    /// before the WAV is closed. That wait is CORRECT — dropping it truncates the end of every
+    /// take — but it was being performed ON THE INTERFACE THREAD, inside the record button's own
+    /// click handler. A typical drain is one buffer period, so every press of stop froze the whole
+    /// window for roughly 50-150 ms, which is exactly the stutter that was reported.
+    ///
+    /// The drain now happens on the shared audio-device chain (see QueueAudioDeviceWork), which
+    /// also guarantees it finishes before the idle monitor reclaims the device. The interface
+    /// thread returns immediately; the take is added when the worker reports back. Because the
+    /// byte count is read AFTER the drain, the take's length is now MORE accurate than it was
+    /// when this ran inline, not less.
     /// </summary>
     private void FinalizeCurrentTake()
     {
-        bool captured = _recorder != null;
-        ReleaseRecorder();
+        // Ownership of both objects transfers out of the fields here, on the interface thread, so
+        // a second stop (or the window closing) cannot race the worker for the same recorder.
+        var recorder = _recorder;
+        var session = _currentSession;
+        _recorder = null;
+        _currentSession = null;
 
-        if (_currentSession == null) return;
-
-        double dur = 0;
-        try 
-        { 
-            if (System.IO.File.Exists(_currentSession.WavPath))
-            {
-                using var af = new NAudio.Wave.AudioFileReader(_currentSession.WavPath); 
-                dur = af.TotalTime.TotalSeconds; 
-            }
-        } 
-        catch {}
-        
-        _currentSession.EndSec = _currentSession.StartSec + dur;
-
-        if (captured &&
-            _currentSession.EndSec > _currentSession.StartSec + 0.05 &&
-            System.IO.File.Exists(_currentSession.WavPath))
+        if (session == null)
         {
-            _sessions.Add(_currentSession);
-            _renderedSessionCount = -1;
-            RuntimeLog.Info("VoiceOver",
-                $"Take saved: {_currentSession.StartSec:0.###}s -> {_currentSession.EndSec:0.###}s (source time).");
-            Controls.FloatingNotice.Success(this, $"Take saved — {_currentSession.EndSec - _currentSession.StartSec:0.0}s");
+            RuntimeLog.Info("VoiceOver", "Finalise was called with no open take — nothing to keep or discard.");
+            if (recorder != null) RetireRecorderAsync(recorder);
+            return;
+        }
+
+        if (recorder == null)
+        {
+            // The microphone never opened (the take was still arming), so there is nothing to
+            // drain and nothing was captured. Settle it inline — this path does no blocking work.
+            CompleteTake(session, micWasOpen: false, capturedBytes: -1, capturedBuffers: -1, capturedPeak: -1f);
+            return;
+        }
+
+        var settled = new TaskCompletionSource();
+        _pendingFinalizes.Add(settled);
+
+        recorder.VolumeChanged -= OnVolumeChanged;
+
+        QueueAudioDeviceWork(() =>
+        {
+            try { recorder.StopRecording(); }
+            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+
+            long bytes = recorder.BytesCaptured;
+            int buffers = recorder.BuffersSeen;
+            float peak = recorder.PeakSeen;
+
+            try { recorder.Dispose(); }
+            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                _pendingFinalizes.Remove(settled);
+                try { CompleteTake(session, true, bytes, buffers, peak); }
+                finally { settled.TrySetResult(); }
+            });
+        });
+    }
+
+    /// <summary>
+    /// VOASYNC_02 — the interface-thread half of finalising: decide whether the take is worth
+    /// keeping, and say so. Runs once per take, after the capture device has fully drained.
+    /// </summary>
+    private void CompleteTake(VoiceOverSession session, bool micWasOpen, long capturedBytes, int capturedBuffers, float capturedPeak)
+    {
+        if (_isClosing) return;
+
+        // VOASYNC_01 — LENGTH COMES FROM THE BYTE COUNT, NOT FROM RE-OPENING THE FILE.
+        // The recorder counted every byte it wrote at a known 44100 Hz / 16-bit / mono, so the
+        // length is arithmetic. The file is only consulted as a fallback for a take restored from
+        // disk, where no byte count exists.
+        double dur = 0;
+        if (capturedBytes > 0)
+        {
+            dur = capturedBytes / (44100.0 * 2.0);
         }
         else
         {
-            TryDeleteFile(_currentSession.WavPath);
+            try
+            {
+                if (System.IO.File.Exists(session.WavPath))
+                {
+                    using var af = new NAudio.Wave.AudioFileReader(session.WavPath);
+                    dur = af.TotalTime.TotalSeconds;
+                }
+            }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        }
+
+        session.EndSec = session.StartSec + dur;
+
+        if (micWasOpen &&
+            session.EndSec > session.StartSec + 0.05 &&
+            System.IO.File.Exists(session.WavPath))
+        {
+            _sessions.Add(session);
+            _renderedSessionCount = -1;
+            EnsureTakePeaksAsync(session.WavPath);   // VOTAKE_01 — off-thread envelope
+            RuntimeLog.Info("VoiceOver",
+                $"Take saved: {session.StartSec:0.###}s -> {session.EndSec:0.###}s (source time). buffers={capturedBuffers}, capturedBytes={capturedBytes}, peak={capturedPeak:0.####}.");
+            Controls.FloatingNotice.Success(this, $"Take saved — {session.EndSec - session.StartSec:0.0}s");
+            _lastTakeWasRejected = false;
+        }
+        else
+        {
+            long fileBytes = -1;
+            try { if (System.IO.File.Exists(session.WavPath)) fileBytes = new System.IO.FileInfo(session.WavPath).Length; }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+
+            RuntimeLog.Fail("VoiceOver",
+                $"Take DISCARDED. micWasOpen={micWasOpen}, buffers={capturedBuffers}, capturedBytes={capturedBytes}, peak={capturedPeak:0.####}, wavBytes={fileBytes}, wavSeconds={dur:0.###}, window={session.StartSec:0.###}s..{session.EndSec:0.###}s.");
+
+            TryDeleteFile(session.WavPath);
             _lastTakeWasRejected = true;
             Controls.FloatingNotice.Error(this, "That take was too short to keep");
         }
 
-        _currentSession = null;
+        UpdatePlayheadUI();
+        UpdateTransportState();
+        UpdateApplyState(_lastTakeWasRejected && !HasSavedVoiceOverSession()
+            ? "Recording was too short to apply. Record another take or choose a mute option."
+            : null);
     }
 
     /// <summary>Throws away the take being armed (never captured anything).</summary>
     private void AbortActiveTake()
     {
+        RuntimeLog.Fail("VoiceOver",
+            $"Take aborted before the microphone ever opened (arming failed). wav='{(_currentSession?.WavPath is string w ? System.IO.Path.GetFileName(w) : "none")}'.");
         ReleaseRecorder();
         if (_currentSession != null)
         {
@@ -1945,17 +2921,31 @@ public partial class VoiceOverWindow : Window
         }
         _isRecording = false;
         _recordPaused = false;
+        _recordOpening = false;
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;
     }
 
+    /// <summary>
+    /// VOASYNC_02 — detaches the recorder and retires it on the audio chain. Never blocks.
+    /// </summary>
     private void ReleaseRecorder()
     {
-        if (_recorder == null) return;
-        _recorder.VolumeChanged -= OnVolumeChanged;
-        try { _recorder.StopRecording(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        _recorder.Dispose();
+        var recorder = _recorder;
         _recorder = null;
+        if (recorder == null) return;
+        recorder.VolumeChanged -= OnVolumeChanged;
+        RetireRecorderAsync(recorder);
+    }
+
+    /// <summary>VOASYNC_02 — drains and disposes a recorder off the interface thread, in order.</summary>
+    private void RetireRecorderAsync(FortniteVideoSoftware.Core.Media.VoiceRecorder recorder)
+    {
+        QueueAudioDeviceWork(() =>
+        {
+            try { recorder.StopRecording(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            try { recorder.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+        });
     }
 
     /// <summary>Set by FinalizeCurrentTake when a take was discarded, so the UI can explain why.</summary>
@@ -1966,7 +2956,12 @@ public partial class VoiceOverWindow : Window
         bool live = status == "RECORDING";
         if (_recordingLight != null)
         {
-            _recordingLight.Opacity = live ? 1.0 : 0.6;
+            // VOROW_01 — this lamp is now labelled REC and means one thing only.
+            //   1.00  capture is live      0.60  armed, waiting for the video clock
+            //   0.18  idle (dark)
+            // It used to sit at 0.6 whenever it was not live, which read as "on" and made the
+            // studio look like it was recording when it was not.
+            _recordingLight.Opacity = live ? 1.0 : (_isRecording ? 0.6 : 0.18);
             _recordingLight.Classes.Remove("recording");
             if (live) _recordingLight.Classes.Add("recording");
         }
@@ -1999,7 +2994,7 @@ public partial class VoiceOverWindow : Window
         if (_recordingLight != null)
         {
             _recordingLight.Classes.Remove("recording");
-            _recordingLight.Opacity = 0.2;
+            _recordingLight.Opacity = 0.18;
         }
         if (_recordingStatusText != null)
         {
@@ -2008,6 +3003,7 @@ public partial class VoiceOverWindow : Window
         }
         if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
         UpdateTransportState();
+        StartMicMonitor();   // VOMON_01
         UpdateApplyState(message);
     }
 
@@ -2060,8 +3056,8 @@ public partial class VoiceOverWindow : Window
         _recordArming = false;
         _recordPaused = false;
         _isCurrentlyFrozen = false;
+        _recordOpening = false;
 
-        _lastTakeWasRejected = false;
         FinalizeCurrentTake();
 
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
@@ -2072,7 +3068,7 @@ public partial class VoiceOverWindow : Window
         if (_recordingLight != null)
         {
             _recordingLight.Classes.Remove("recording");
-            _recordingLight.Opacity = 0.2;
+            _recordingLight.Opacity = 0.18;
         }
         if (_recordingStatusText != null)
         {
@@ -2083,21 +3079,21 @@ public partial class VoiceOverWindow : Window
 
         if (_micRecordButton != null) _micRecordButton.Classes.Remove("recording");
         UpdateTransportState();
-        UpdateApplyState(_lastTakeWasRejected && !HasSavedVoiceOverSession()
-            ? "Recording was too short to apply. Record another take or choose a mute option."
-            : null);
+        StartMicMonitor();   // VOMON_01 — take the device back for the idle meter
+
+        // VOASYNC_02 — the verdict on this take is not known yet (the device is still draining on
+        // the chain). CompleteTake sets the hint when it lands; until then the interface simply
+        // says nothing has changed, rather than flashing a stale "too short" from a previous take.
+        UpdateApplyState();
     }
 
     private void OnVolumeChanged(object? sender, float volume)
     {
+        // Raised on NAudio's capture thread. A float write is atomic and the meter samples it on
+        // the next 50 ms tick, so this deliberately does NOT marshal to the interface thread —
+        // posting once per 50 ms audio buffer was queueing ~20 dispatcher items a second for a
+        // value that is overwritten before anyone looks at it.
         _peakVolume = Math.Max(_peakVolume, volume);
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_isRecording)
-            {
-                _waveformSamples.Add(volume);
-            }
-        });
     }
 
     private Canvas? _eqMeterCanvas;
@@ -2137,7 +3133,9 @@ public partial class VoiceOverWindow : Window
             _eqPath.Stroke = Avalonia.Application.Current?.FindResource("AppSuccessBrush") as Avalonia.Media.IBrush;
 
         double width = _eqMeterTrack != null && _eqMeterTrack.Bounds.Width > 0 ? _eqMeterTrack.Bounds.Width : 250;
-        double height = 30;
+        // VOROW_01 — was hard-coded to 30 while the track is now 34 and stretches with the window.
+        // Reading the real height keeps the bars centred instead of riding above centre.
+        double height = _eqMeterCanvas.Bounds.Height > 4 ? _eqMeterCanvas.Bounds.Height : 32;
         int numBars = (int)(width / 8);
         
         var geometry = new Avalonia.Media.StreamGeometry();
@@ -2160,49 +3158,17 @@ public partial class VoiceOverWindow : Window
         _eqPath.Data = geometry;
     }
 
-    private Avalonia.Controls.Shapes.Path? _waveformPath;
-    
-    private void UpdateWaveformUI()
-    {
-        if (_liveWaveformMonitor == null || !_isRecording)
-        {
-            if (_waveformPath != null) _waveformPath.IsVisible = false;
-            return;
-        }
-
-        if (_waveformPath == null)
-        {
-            _waveformPath = new Avalonia.Controls.Shapes.Path
-            {
-                Stroke = Avalonia.Application.Current?.FindResource("AppSuccessBrush") as Avalonia.Media.IBrush,
-                StrokeThickness = 1,
-                IsHitTestVisible = false
-            };
-            _liveWaveformMonitor.Children.Add(_waveformPath);
-        }
-
-        _waveformPath.IsVisible = true;
-
-        int maxLines = Math.Max(0, (int)(_liveWaveformMonitor.Bounds.Width / 2));
-        int visibleLines = Math.Min(maxLines, _waveformSamples.Count);
-        int startIdx = Math.Max(0, _waveformSamples.Count - visibleLines);
-        double x = 0;
-        double laneHeight = Math.Max(1, _liveWaveformMonitor.Bounds.Height);
-        double centerY = laneHeight / 2;
-
-        var geometry = new Avalonia.Media.StreamGeometry();
-        using (var context = geometry.Open())
-        {
-            for (int i = 0; i < visibleLines; i++)
-            {
-                double height = Math.Max(2, _waveformSamples[startIdx + i] * laneHeight);
-                context.BeginFigure(new Avalonia.Point(x, centerY - height / 2), false);
-                context.LineTo(new Avalonia.Point(x, centerY + height / 2));
-                x += 2;
-            }
-        }
-        _waveformPath.Data = geometry;
-    }
+    // ══════════════════════════════════════════════════════════════════════════════
+    // VOROW_01 — THE LIVE WAVEFORM MONITOR WAS REMOVED, NOT MOVED.
+    //
+    // It was a 60px scrolling scope under the EQ meter that drew the last N input peaks while a
+    // take ran. It cost more vertical space than the entire transport row and answered the same
+    // question the EQ meter already answers ("is the microphone hearing me"), one row above it.
+    // The information a scrolling scope uniquely carried — the SHAPE of what was said, over time —
+    // is now drawn where it actually belongs: inside the take's own red block on the film lane,
+    // where it lines up with the picture it was recorded against (see EnsureTakePeaksAsync).
+    // `_waveformSamples` went with it; nothing else read that list.
+    // ══════════════════════════════════════════════════════════════════════════════
 
     private async void ApplyAndClose()
     {
@@ -2210,9 +3176,22 @@ public partial class VoiceOverWindow : Window
         {
             StopRecordingAndPlayback();
         }
-        _recorder?.StopRecording();
+
+        // VOASYNC_02 — the last take may still be draining on the audio chain. Without this wait
+        // the take the user recorded a moment ago would not be in `_sessions` yet, and Apply would
+        // report "nothing to apply" and throw it away. This is the one place that genuinely has to
+        // wait — and it awaits, so the interface stays responsive while it does.
+        if (_pendingFinalizes.Count > 0)
+        {
+            if (_applyButton != null) { _applyButton.IsEnabled = false; _applyButton.Content = "SAVING..."; }
+            await WhenTakesSettled();
+            if (_applyButton != null) _applyButton.Content = "APPLY & CLOSE";
+            if (_isClosing) return;
+        }
 
         bool duckAudio = _duckAudioCb?.IsChecked == true;
+        bool protectFromMusic = _duckMusicCb?.IsChecked == true;
+        RememberVoiceProtectionChoices(duckAudio, protectFromMusic);
 
         if (!HasSavedVoiceOverSession())
         {
@@ -2309,7 +3288,8 @@ public partial class VoiceOverWindow : Window
             VoiceOverWavPath = finalWav,
             VoiceOverStartTimestampSec = finalStart,
             VoiceOverTakes = persistedTakes,
-            DuckAudio = duckAudio
+            DuckAudio = duckAudio,
+            ProtectFromMusic = protectFromMusic
         };
 
         _isSafeToClose = true;
@@ -2425,10 +3405,17 @@ public partial class VoiceOverWindow : Window
         _generationCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;
-        if (_recorder != null)
+        // VOASYNC_02 — closing the window must not block on the capture drain either. Both go on
+        // the chain, in order, and the chain outlives the window just long enough to finish.
+        ReleaseRecorder();
+
+        // VOMON_01 — the idle monitor holds a live capture handle; it must not outlive the window.
+        var monitorToRetire = _micMonitor;
+        _micMonitor = null;
+        if (monitorToRetire != null)
         {
-            _recorder.VolumeChanged -= OnVolumeChanged;
-            _recorder.Dispose();
+            monitorToRetire.LevelChanged -= OnMonitorLevel;
+            QueueAudioDeviceWork(monitorToRetire.Dispose);
         }
 
         _uiSoundMute?.Dispose();

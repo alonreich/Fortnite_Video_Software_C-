@@ -23,6 +23,22 @@ public class VoiceRecorder : IDisposable
     /// <summary>How long StopRecording waits for NAudio to hand over its final buffers.</summary>
     private const int StopDrainTimeoutMs = 2000;
 
+    // VODIAG_01 — capture accounting. Without these the only evidence a failed recording leaves
+    // behind is a WAV that may or may not exist, which cannot tell "the mic never opened" apart
+    // from "the mic opened and Windows fed it digital silence" (microphone privacy blocked).
+    private long _bytesCaptured;
+    private float _peakSeen;
+    private int _buffersSeen;
+
+    /// <summary>Total PCM bytes handed over by the capture device for this recording.</summary>
+    public long BytesCaptured => System.Threading.Interlocked.Read(ref _bytesCaptured);
+
+    /// <summary>Loudest absolute sample seen (0..1). Exactly 0 over a long take means silence.</summary>
+    public float PeakSeen => _peakSeen;
+
+    /// <summary>Number of DataAvailable callbacks received. Zero means the device never delivered.</summary>
+    public int BuffersSeen => _buffersSeen;
+
     public event EventHandler<float>? VolumeChanged;
 
     public VoiceRecorder(string outputPath, int deviceNumber = 0)
@@ -91,8 +107,18 @@ public class VoiceRecorder : IDisposable
 
             _waveIn.RecordingStopped += OnRecordingStopped;
 
+            _bytesCaptured = 0;
+            _peakSeen = 0;
+            _buffersSeen = 0;
+
             _waveIn.StartRecording();
             _isRecording = true;
+
+            string deviceLabel;
+            try { deviceLabel = WaveInEvent.GetCapabilities(_waveIn.DeviceNumber).ProductName; }
+            catch (System.Exception) { deviceLabel = "(name unavailable)"; }
+            CoreLogger.Info("VoiceRecorder",
+                $"Capture started on device {_waveIn.DeviceNumber} '{deviceLabel}' at {_waveIn.WaveFormat.SampleRate}Hz/{_waveIn.WaveFormat.Channels}ch -> '{Path.GetFileName(_outputPath)}'.");
         }
         catch
         {
@@ -114,6 +140,13 @@ public class VoiceRecorder : IDisposable
                 writer.Write(a.Buffer, 0, a.BytesRecorded);
             }
 
+            System.Threading.Interlocked.Add(ref _bytesCaptured, a.BytesRecorded);
+            int seen = System.Threading.Interlocked.Increment(ref _buffersSeen);
+            if (seen == 1)
+            {
+                CoreLogger.Info("VoiceRecorder", $"First audio buffer received ({a.BytesRecorded} bytes).");
+            }
+
             float max = 0;
             for (int i = 0; i + 1 < a.BytesRecorded; i += 2)
             {
@@ -122,6 +155,7 @@ public class VoiceRecorder : IDisposable
                 if (sample32 < 0) sample32 = -sample32;
                 if (sample32 > max) max = sample32;
             }
+            if (max > _peakSeen) _peakSeen = max;
             VolumeChanged?.Invoke(this, max);
         }
         catch (ObjectDisposedException)
@@ -182,6 +216,25 @@ public class VoiceRecorder : IDisposable
                 try { _writer.Dispose(); }
                 catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Closing the WAV writer threw: {ex.Message}"); }
                 _writer = null;
+            }
+        }
+
+        if (wasRecording)
+        {
+            long bytes = System.Threading.Interlocked.Read(ref _bytesCaptured);
+            double seconds = bytes / (44100.0 * 2.0);
+            CoreLogger.Info("VoiceRecorder",
+                $"Capture stopped: {_buffersSeen} buffers, {bytes} bytes (~{seconds:0.###}s), peak {_peakSeen:0.####}.");
+
+            if (bytes == 0)
+            {
+                CoreLogger.Fail("VoiceRecorder",
+                    "The microphone opened but delivered no audio at all. The device is present but not producing data.");
+            }
+            else if (_peakSeen <= 0.0001f)
+            {
+                CoreLogger.Fail("VoiceRecorder",
+                    "The microphone delivered pure digital silence. On Windows this is almost always microphone access being blocked in Settings > Privacy & security > Microphone (check both 'Microphone access' and 'Let desktop apps access your microphone'), or the wrong input device being selected.");
             }
         }
 

@@ -112,6 +112,7 @@ public class MainMediaController
             if (payload.VoiceOverTakes != null) worker.VoiceOverTakes = payload.VoiceOverTakes;
             
             worker.VoiceOverDuckAudio = payload.VoiceOverDuckAudio;
+            worker.VoiceOverProtectFromMusic = payload.VoiceOverProtectFromMusic;
             
             _ = worker.RunAsync(ct);
             return await tcs.Task;

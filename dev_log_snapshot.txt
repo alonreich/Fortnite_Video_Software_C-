@@ -1,0 +1,748 @@
+
+[MAIN APP] v1.0.0+4372d18335c7eef1362f2d6fd41319283ad3b15c 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Started (PID: 17524, Session: 988344be)
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] PROCESS START - pid=17524; exe=FortniteVideoSoftware.App.exe; args_count=1
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [DEBUG] PROCESS START - exe=C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\FortniteVideoSoftware.App.exe; args=run-ui
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] SingleInstance - This process owns the Main App instance.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] COMMAND START - run-ui
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] RUN UI - Running bootstrapper before UI.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Resolving application paths.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [SUCCESS] PATHS RESOLVED - ProgramData, temp, and log paths resolved.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [DEBUG] PATHS RESOLVED - programData=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data; tempLog=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\Fortnite_Video_Software_DEV.log
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Ensuring writable ProgramData directories.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [SUCCESS] PROGRAMDATA READY - Writable ProgramData directories are ready.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [DEBUG] PROGRAMDATA READY - logs=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\logs; temp=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Loading session_state.json through named mutex.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [SUCCESS] SESSION STATE READY - properties=13
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [DEBUG] SESSION STATE READY - path=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\session_state.json; properties=13
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Loading crops_coordinations.conf through named mutex.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [SUCCESS] CROP CONFIG READY - schema=4
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [DEBUG] CROP CONFIG READY - path=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\crops_coordinations.conf; schema=4
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BOOTSTRAP - Checking Phase 1 executable health.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [SUCCESS] BOOTSTRAP COMPLETE - Core IPC/config layer is available. Avalonia UI is ready.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] RUN UI - Starting Avalonia App.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] BUILDTAG - FVS-SWPREVIEW-BUILDCHECK-2026A :: CPU software-preview + frame-gate build ACTIVE
+[MAIN APP] [s:988344be] 2026-09-04 11:57:23 [INFO] RUN UI - Dev mode: Avalonia verbose logging enabled.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:24 [INFO] GPU - GPU probe skipped — reusing the suite-wide result: hardware (D3D11 Feature Level 0xB000).
+[MAIN APP] [s:988344be] 2026-09-04 11:57:24 [INFO] Settings - Settings loaded (schema v4).
+[MAIN APP] [s:988344be] 2026-09-04 11:57:24 [INFO] UI - Initializing MainWindow
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Settings - Settings loaded (schema v4).
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] UI - ApplyMaskProfileToOverlayUi: noMask=False.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=False
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] DND - WM_DROPFILES fallback attached to 'Fortnite Video Software'.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=False
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Starter - No starter 'mp3' folder shipped with this build — skipping.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Starter - No starter 'mp4' folder shipped with this build — skipping.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Starter - No starter 'jpeg' folder shipped with this build — skipping.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Recovery - Session lock acquired (PID 17524).
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Hardware - Hardware scan skipped — reusing the suite-wide result: NVIDIA.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=False
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] Hardware - Hardware scan completed: NVIDIA
+[MAIN APP] [s:988344be] 2026-09-04 11:57:25 [INFO] RECOVERY - Saving project state: trim[0-0ms set=False/False] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=0ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:26 [INFO] UI - User clicked Center Upload Video button
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] UI - User uploaded video: Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [DEBUG] UI - Full path: C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] RECOVERY - Saving project state: trim[0-0ms set=False/False] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=0ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] RECOVERY - Saving project state: trim[0-0ms set=False/False] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=0ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] MPV-Interop - Supported image handle types: D3D11TextureGlobalSharedHandle, D3D11TextureNtHandle
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] UI - ApplyMaskProfileToOverlayUi: noMask=False.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:28 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 11:57:30 [INFO] RECOVERY - Saving project state: trim[0-85024ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56677ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:30 [INFO] UI - User clicked MARK START at 00:00:00.00.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:30 [INFO] RECOVERY - Saving project state: trim[27933-85024ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56677ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:31 [INFO] UI - User clicked MARK END at 00:01:25.02.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:31 [INFO] RECOVERY - Saving project state: trim[27933-54433ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=65990ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:57:34 [INFO] Prewarm - Film lane pre-rendered for 15 frames over 26.5s.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] UI - User clicked GRANULAR SPEED button.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - Live zoom preview path: GPU (mpv video-crop simulation)
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - Initializing MPV video host for Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - Using MPV: mpv.exe
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [DEBUG] Granular - Using MPV path: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\frontend\mpv.exe
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - MPV IPC client connected. Attaching seek handler.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - Loaded preview video at 27.933s.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] Granular - Film lane served from the background prewarm.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:38 [INFO] MPV-Interop - Supported image handle types: D3D11TextureGlobalSharedHandle, D3D11TextureNtHandle
+[MAIN APP] [s:988344be] 2026-09-04 11:57:42 [INFO] CUT - User clicked DELETE PARTS in the Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:42 [INFO] CUT - DELETE PARTS requested: 00:00:08.218 -> 00:00:10.623 (2.40s). Clip is 26.50s, 24.09s would survive across 1 cut(s).
+[MAIN APP] [s:988344be] 2026-09-04 11:57:45 [INFO] CUT -   segment #1 [00:00:08.218-00:00:10.623] 1.10x was entirely inside the deleted scene — removed.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:45 [INFO] CUT - Segment reconciliation done: 1 removed, 0 trimmed, 0 remaining.
+[MAIN APP] [s:988344be] 2026-09-04 11:57:45 [SUCCESS] CUT - DELETE PARTS applied. 1 cut(s) now removing 2.40s total. 0 speed segment(s) survive, freeze=none. Finished video is about 24.09s. Timeline condensed and recalculated.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:04 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=4 redo=1.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:06 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=3 redo=2.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:08 [INFO] UNDO - UNDO 'add segment': segments 1 -> 0, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=2 redo=3.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:10 [INFO] UNDO - UNDO 'delete parts': segments 0 -> 1, cuts 1 -> 0, base 1.10x -> 1.10x. Depth now undo=1 redo=4.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:11 [INFO] UNDO - REDO 'delete parts': back to 0 segment(s), 1 cut(s). Depth now undo=2 redo=3.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:14 [INFO] UNDO - REDO 'add segment': back to 1 segment(s), 1 cut(s). Depth now undo=3 redo=2.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:19 [INFO] UNDO - New edit after undo — discarding 2 redo state(s).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:20 [INFO] Granular - Segment #1 settled: rel 00:00:12.501–00:00:15.380 @ 1.1x (abs 00:00:40.434–00:00:43.313).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:24 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=3 redo=1.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:25 [INFO] UNDO - New edit after undo — discarding 1 redo state(s).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:26 [INFO] Granular - Segment #1 settled: rel 00:00:12.590–00:00:15.469 @ 1.1x (abs 00:00:40.523–00:00:43.402).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:33 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=5 redo=1.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:34 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=4 redo=2.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:35 [INFO] UNDO - REDO 'change speed': back to 1 segment(s), 1 cut(s). Depth now undo=5 redo=1.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:36 [INFO] UNDO - UNDO 'change speed': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=4 redo=2.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:37 [INFO] UNDO - UNDO 'resize segment': segments 1 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=3 redo=3.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:42 [INFO] UI - User cleared ALL 1 speed segment(s) in the Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:42 [INFO] UNDO - New edit after undo — discarding 3 redo state(s).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:46 [INFO] UNDO - UNDO 'clear all': segments 0 -> 1, cuts 1 -> 1, base 1.10x -> 1.10x. Depth now undo=3 redo=1.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:47 [INFO] UI - User deleted a speed segment in the Granular Speed Editor (00:00:04.533 to 00:00:07.412).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:47 [INFO] UNDO - New edit after undo — discarding 1 redo state(s).
+[MAIN APP] [s:988344be] 2026-09-04 11:58:49 [INFO] UI - Cancel in Granular Speed Editor with no changes — closing without prompting.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:49 [INFO] Granular - Granular Speed Editor closing. Stopping timers and saving bounds.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:49 [INFO] UNDO - Clearing history (editor closed): 4 undo, 0 redo.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:49 [INFO] Granular - Granular Speed Editor closed. Disposing resources.
+[MAIN APP] [s:988344be] 2026-09-04 11:58:59 [INFO] UI - User clicked Upload Video button
+[MAIN APP] [s:988344be] 2026-09-04 11:59:00 [INFO] UI - User uploaded video: Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 11:59:00 [DEBUG] UI - Full path: C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 11:59:00 [INFO] RECOVERY - Saving project state: trim[27933-54433ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=45598ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:59:00 [INFO] UI - ApplyMaskProfileToOverlayUi: noMask=False.
+[MAIN APP] [s:988344be] 2026-09-04 11:59:00 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 11:59:22 [INFO] RECOVERY - Saving project state: trim[0-85083ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56717ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:59:22 [INFO] UI - User clicked MARK START at 00:00:00.00.
+[MAIN APP] [s:988344be] 2026-09-04 11:59:22 [INFO] RECOVERY - Saving project state: trim[34357-85083ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56717ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 11:59:23 [INFO] UI - User clicked MARK START at 00:00:34.35.
+[MAIN APP] [s:988344be] 2026-09-04 11:59:23 [INFO] RECOVERY - Saving project state: trim[36241-85083ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=68171ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:00:04 [INFO] UI - User clicked MARK END at 00:01:25.08.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:04 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=68799ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:00:08 [INFO] Prewarm - Film lane pre-rendered for 15 frames over 40.4s.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:08 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=52757ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:00:09 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=46680ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:00:12 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=42154ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:00:13 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:17 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:18 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:18 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:20 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:21 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:23 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:24 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:25 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:26 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:27 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:35 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:36 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:36 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:37 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:37 [INFO] UI - User toggled Play/Pause state.
+[MAIN APP] [s:988344be] 2026-09-04 12:00:42 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=0ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:11 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=66916ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:12 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=68338ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:12 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=68920ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:13 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:17 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:18 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:18 [INFO] UI - Quality slider final resting value: 30MB
+[MAIN APP] [s:988344be] 2026-09-04 12:02:18 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:19 [INFO] UI - Quality slider final resting value: 25MB
+[MAIN APP] [s:988344be] 2026-09-04 12:02:19 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] UI - Quality slider final resting value: 30MB
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] UI - User clicked PROCESS button.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Output - Main using the system Downloads folder.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] EasterEgg - Fight sequence: Entrance
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Starting video processing pipeline via MainMediaController.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] GPU DETECT - Found Hardware Encoders: h264_amf, h264_nvenc, h264_qsv
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Input Video: Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Input Path: C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Start Time: 36241.03333333333 ms, End Time: 76615.8 ms
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Base Speed Factor: 1.1
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Is Mobile Format: True, Portrait Text: 
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Target Quality: 5, MB Override: 30
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [INFO] Process - Thumbnail Pos: 69114.17144545763 ms
+[MAIN APP] [s:988344be] 2026-09-04 12:02:20 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4"
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] DiskSpace - Free-space check passed for staging and output volume: 513800 MB available, 316 MB required.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Loudnorm - Executing pass 1 (measurement).
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [DEBUG] Loudnorm - Executing pass 1: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -ss 35.141 -t 42.575 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4" -af loudnorm=I=-14.0:TP=-1.5:LRA=11:print_format=json -vn -sn -dn -f null -
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Loudnorm - Pass 1 complete. I=-17.35 LUFS, TP=-0.18 dBTP, LRA=9.40 LU, thresh=-27.85, offset=1.69. Second pass will run in linear mode.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Loudnorm - NORMALISATION PLAN: measured -17.35 LUFS -> target -14.0 LUFS = +3.35 dB, true-peak ceiling -1.5 dBTP. Applied to the game bus via linear loudnorm; the SAME +3.35 dB is applied to music, voice-over and meme so every element keeps its relative balance.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Audio - Game bus normalised to -14.0 LUFS (no voice-over on this export).
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Audio - QUIET-BOOST TRIM: source measured -17.35 LUFS and asked for +3.35 dB to reach -14.0 LUFS. -2.35 dB given back on the finished mix (30% of the lift kept), landing near -16.34 LUFS. Mix balance unchanged — music, voice-over and memes move with it.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] Audio - PEAK LIMITER ON: loudnorm + alimiter ceiling -1.0 dB. The summed mix is dynamically normalized before final limiting to prevent the combined bus from exceeding the target loudness.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] FFmpeg - Filter Script Content:
+[0:v]setpts='PTS/1.1000',fps=60:start_time=0:round=near[v_stabilized];[0:a]aresample=48000:async=1,asetpts=PTS,atempo=1.1000[a_prepared_base];[a_prepared_base]loudnorm=I=-14.0:TP=-1.5:LRA=11:linear=true:measured_I=-17.35:measured_TP=-0.18:measured_LRA=9.40:measured_thresh=-27.85:offset=1.69,aresample=48000[a_master_leveled];[a_master_leveled]anull[a_main_raw];[a_main_raw]volume=1.0000,aresample=48000:async=1[game_leveled_base];[game_leveled_base]anull[a_main_prepared];[v_stabilized]fade=t=in:st=0:d=1.000,fade=t=out:st=37.704:d=1.000[v_faded];[a_main_prepared]afade=t=in:st=0:d=1.000,afade=t=out:st=37.704:d=1.000[a_faded];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_same_frame];[v_faded]setsar=1[v_main_after_intro];[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro];anullsrc=r=48000:cl=stereo,atrim=duration=0.1000,asetpts=PTS-STARTPTS[a_intro_silence];[a_intro_silence][a_faded]concat=n=2:v=0:a=1[a_with_intro];[v_with_intro]split=2[v_mob_main][v_mob_hud];[v_mob_hud]split=3[v_layer_in_0][v_layer_in_1][v_layer_in_2];[v_mob_main]scale=3414:1920:flags=lanczos,crop=1280:1920:1066:0[main_base];[v_layer_in_0]crop=w=342:h=70:x=1546:y=974,scale=w=608:h=128:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_0];[main_base][v_layer_out_0]overlay=x=638:y=1502:eof_action=pass[v_comp_0];[v_layer_in_1]crop=w=314:h=48:x=38:y=980,scale=w=608:h=96:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_1];[v_comp_0][v_layer_out_1]overlay=x=-2:y=1502:eof_action=pass[v_comp_1];[v_layer_in_2]crop=w=220:h=156:x=1678:y=20,scale=w=480:h=352:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_2];[v_comp_1][v_layer_out_2]overlay=x=798:y=-2:eof_action=pass[v_comp_2];[v_comp_2]scale=1080:1620:flags=lanczos,pad=1080:1920:0:150:black,setsar=1[v_padded];[v_padded]format=yuv420p[v_final];[v_final]fps=60:start_time=0:round=near,setpts=N/(60)/TB,format=yuv420p[v_render_out];[a_with_intro]volume=-2.35dB[a_quiet_boost_trimmed];[a_quiet_boost_trimmed]loudnorm=I=-14.0:TP=-1.0:LRA=11,aresample=48000[a_dyn_master];[a_dyn_master]alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] DiskSpace - Two-pass scratch master fits: 513799 MB free, 404 MB needed.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] GPU STRATEGY - Primary encoder selected: h264_nvenc
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] FFmpeg - Starting encode: decode=GPU (NVDEC/cuda), encode=GPU (NVENC), mode=NVENC p7/fullres (CBR), route=single-pass, attempt=1.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] FFmpeg - Executing Final Pipeline Command:
+C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -progress pipe:1 -hwaccel cuda -ss 35.141 -t 42.575 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4" -hwaccel cuda -ss 69.114 -t 0.200 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4" -filter_complex_script C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\filter_complex.txt -map [v_render_out] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc cbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 6293k -maxrate 6293k -bufsize 12586k -c:a aac -b:a 192k -t 38.804 -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\core.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:21 [INFO] FFmpeg - FINAL COMMAND (filter graph inlined — copy/paste runnable, this is exactly what happened):
+"C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe" -y -hide_banner -progress pipe:1 -hwaccel cuda -ss 35.141 -t 42.575 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4" -hwaccel cuda -ss 69.114 -t 0.200 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4" -filter_complex "[0:v]setpts='PTS/1.1000',fps=60:start_time=0:round=near[v_stabilized];[0:a]aresample=48000:async=1,asetpts=PTS,atempo=1.1000[a_prepared_base];[a_prepared_base]loudnorm=I=-14.0:TP=-1.5:LRA=11:linear=true:measured_I=-17.35:measured_TP=-0.18:measured_LRA=9.40:measured_thresh=-27.85:offset=1.69,aresample=48000[a_master_leveled];[a_master_leveled]anull[a_main_raw];[a_main_raw]volume=1.0000,aresample=48000:async=1[game_leveled_base];[game_leveled_base]anull[a_main_prepared];[v_stabilized]fade=t=in:st=0:d=1.000,fade=t=out:st=37.704:d=1.000[v_faded];[a_main_prepared]afade=t=in:st=0:d=1.000,afade=t=out:st=37.704:d=1.000[a_faded];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_same_frame];[v_faded]setsar=1[v_main_after_intro];[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro];anullsrc=r=48000:cl=stereo,atrim=duration=0.1000,asetpts=PTS-STARTPTS[a_intro_silence];[a_intro_silence][a_faded]concat=n=2:v=0:a=1[a_with_intro];[v_with_intro]split=2[v_mob_main][v_mob_hud];[v_mob_hud]split=3[v_layer_in_0][v_layer_in_1][v_layer_in_2];[v_mob_main]scale=3414:1920:flags=lanczos,crop=1280:1920:1066:0[main_base];[v_layer_in_0]crop=w=342:h=70:x=1546:y=974,scale=w=608:h=128:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_0];[main_base][v_layer_out_0]overlay=x=638:y=1502:eof_action=pass[v_comp_0];[v_layer_in_1]crop=w=314:h=48:x=38:y=980,scale=w=608:h=96:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_1];[v_comp_0][v_layer_out_1]overlay=x=-2:y=1502:eof_action=pass[v_comp_1];[v_layer_in_2]crop=w=220:h=156:x=1678:y=20,scale=w=480:h=352:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_2];[v_comp_1][v_layer_out_2]overlay=x=798:y=-2:eof_action=pass[v_comp_2];[v_comp_2]scale=1080:1620:flags=lanczos,pad=1080:1920:0:150:black,setsar=1[v_padded];[v_padded]format=yuv420p[v_final];[v_final]fps=60:start_time=0:round=near,setpts=N/(60)/TB,format=yuv420p[v_render_out];[a_with_intro]volume=-2.35dB[a_quiet_boost_trimmed];[a_quiet_boost_trimmed]loudnorm=I=-14.0:TP=-1.0:LRA=11,aresample=48000[a_dyn_master];[a_dyn_master]alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]" -map [v_render_out] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc cbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 6293k -maxrate 6293k -bufsize 12586k -c:a aac -b:a 192k -t 38.804 -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\core.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:30 [INFO] EasterEgg - Skit: logtangle
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [INFO] FFmpeg - PIPELINE RESULT: decode=GPU (NVDEC/cuda) encode=GPU (NVENC) speed=1.89x
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [DEBUG] FFmpeg - FFmpeg stderr (last 71 lines):
+-filter_complex_script is deprecated, use -/filter_complex C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\filter_complex.txt instead
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    creation_time   : 2026-09-04T05:58:36.000000Z
+    date            : 2026
+  Duration: 00:01:25.08, start: 0.000000, bitrate: 220643 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 220436 kb/s, 120 fps, 120 tbr, 90k tbn (default)
+    Metadata:
+      creation_time   : 2026-09-04T05:58:36.000000Z
+      handler_name    : VideoHandle
+      vendor_id       : [0][0][0][0]
+  Stream #0:1[0x2](und): Audio: aac (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+    Metadata:
+      creation_time   : 2026-09-04T05:58:36.000000Z
+      handler_name    : SoundHandle
+      vendor_id       : [0][0][0][0]
+Input #1, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 08.58.35.38.DVR.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    creation_time   : 2026-09-04T05:58:36.000000Z
+    date            : 2026
+  Duration: 00:01:25.08, start: 0.000000, bitrate: 220643 kb/s
+  Stream #1:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 220436 kb/s, 120 fps, 120 tbr, 90k tbn (default)
+    Metadata:
+      creation_time   : 2026-09-04T05:58:36.000000Z
+      handler_name    : VideoHandle
+      vendor_id       : [0][0][0][0]
+  Stream #1:1[0x2](und): Audio: aac (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+    Metadata:
+      creation_time   : 2026-09-04T05:58:36.000000Z
+      handler_name    : SoundHandle
+      vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 (h264) -> setpts:default
+  Stream #0:1 (aac) -> aresample:default
+  Stream #1:0 (h264) -> trim:default
+  format:default -> Stream #0:0 (h264_nvenc)
+  alimiter:default -> Stream #0:1 (aac)
+Press [q] to stop, [?] for help
+[h264 @ 000002ad24c31940] decoder->cvdl->cuvidCreateDecoder(&decoder->decoder, params) failed -> CUDA_ERROR_INVALID_VALUE: invalid argument
+[h264 @ 000002ad24c31940] Using more than 32 (39) decode surfaces might cause nvdec to fail.
+[h264 @ 000002ad24c31940] Try lowering the amount of threads. Using 16 right now.
+[h264 @ 000002ad24c31940] Failed setup for format cuda: hwaccel initialisation returned error.
+[h264 @ 000002ad24268540] decoder->cvdl->cuvidCreateDecoder(&decoder->decoder, params) failed -> CUDA_ERROR_INVALID_VALUE: invalid argument
+[h264 @ 000002ad24268540] Using more than 32 (39) decode surfaces might cause nvdec to fail.
+[h264 @ 000002ad24268540] Try lowering the amount of threads. Using 16 right now.
+[h264 @ 000002ad24268540] Failed setup for format cuda: hwaccel initialisation returned error.
+Output #0, mp4, to 'C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\core.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    date            : 2026
+    encoder         : Lavf62.0.100
+  Stream #0:0: Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 6293 kb/s, 60 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.0.101 h264_nvenc
+    Side data:
+      cpb: bitrate max/min/avg: 6293000/0/6293000 buffer size: 12586000 vbv_delay: N/A
+  Stream #0:1: Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s
+    Metadata:
+      encoder         : Lavc62.0.101 aac
+[out_#0:0 @ 000002ad42784a00] 100 buffers queued in out_#0:0, something may be wrong.
+[mp4 @ 000002ad21d00d00] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 000002ad21c86740] video:29750KiB audio:920KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.200523%
+[aac @ 000002ad23bd5c00] Qavg: 921.082
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [DEBUG] Thumbnail - Executing: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -ss 30.985 -i C:\Users\alon\Downloads\Fortnite-Video-1.mp4 -vframes 1 -q:v 2 C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_d26cc28c\Fortnite-Video-1_thumbnail.jpg
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [INFO] Thumbnail - Thumbnail written: Fortnite-Video-1_thumbnail.jpg
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [INFO] Process - Pipeline completed in 22.1s. Output: C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [SUCCESS] Process - Video processing completed successfully. Saved to: C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [INFO] RECOVERY - Export completed successfully - recovery state cleared; no crash prompt is due for this session.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:42 [INFO] EasterEgg - Fight sequence: End
+[MAIN APP] [s:988344be] 2026-09-04 12:02:47 [INFO] RECOVERY - Edit made after a successful export - project is dirty again, recovery re-armed.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:47 [INFO] RECOVERY - Saving project state: trim[36241-76616ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=True at=69114ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:49 [INFO] UI - User uploaded video: Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:49 [DEBUG] UI - Full path: C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:02:49 [INFO] UI - ApplyMaskProfileToOverlayUi: noMask=False.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:02:55 [INFO] RECOVERY - Saving project state: trim[0-85024ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56677ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:55 [INFO] UI - User clicked MARK START at 00:00:00.00.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:55 [INFO] RECOVERY - Saving project state: trim[4283-85024ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=56677ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:02:57 [INFO] UI - Trim START marker dragged to 00:00:03.42.
+[MAIN APP] [s:988344be] 2026-09-04 12:02:57 [INFO] RECOVERY - Saving project state: trim[3424-85024ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=57819ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:08 [INFO] UI - User clicked MARK END at 00:01:25.02.
+[MAIN APP] [s:988344be] 2026-09-04 12:04:08 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=57819ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:14 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:14 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:15 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:15 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:15 [INFO] UI - Quality slider final resting value: 50MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:15 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:16 [INFO] Prewarm - Film lane pre-rendered for 15 frames over 78.4s.
+[MAIN APP] [s:988344be] 2026-09-04 12:04:16 [INFO] UI - Quality slider final resting value: 55MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:16 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:16 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:17 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:17 [INFO] UI - Quality slider final resting value: 70MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:19 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:20 [INFO] UI - Quality slider final resting value: 65MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:20 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:21 [INFO] UI - Quality slider final resting value: 60MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:21 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:22 [INFO] UI - Quality slider final resting value: 55MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:22 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:22 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:23 [INFO] UI - Quality slider final resting value: 65MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:23 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:24 [INFO] UI - Quality slider final resting value: 70MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:25 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:25 [INFO] UI - Quality slider final resting value: 75MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:26 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:27 [INFO] UI - Quality slider final resting value: 70MB
+[MAIN APP] [s:988344be] 2026-09-04 12:04:41 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:41 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:41 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:42 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:42 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:42 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:44 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:45 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:45 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:45 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:45 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:46 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:47 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:48 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:49 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:50 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:50 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:54 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:55 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:04:55 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:55 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:55 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:55 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:04:56 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:05:25 [INFO] UI - ApplyPortraitModeToActiveHost: evaluated isPortrait=True, isVideoLoaded=True
+[MAIN APP] [s:988344be] 2026-09-04 12:05:26 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=0] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] UI - User clicked GRANULAR SPEED button.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - Live zoom preview path: GPU (mpv video-crop simulation)
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - Initializing MPV video host for Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - Using MPV: mpv.exe
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [DEBUG] Granular - Using MPV path: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\frontend\mpv.exe
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - MPV IPC client connected. Attaching seek handler.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - Loaded preview video at 3.424s.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] Granular - Film lane served from the background prewarm.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:29 [INFO] MPV-Interop - Supported image handle types: D3D11TextureGlobalSharedHandle, D3D11TextureNtHandle
+[MAIN APP] [s:988344be] 2026-09-04 12:05:32 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:33 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:37 [INFO] UI - User clicked Mark Start in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:38 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:45 [INFO] UI - User clicked Mark End in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:47 [INFO] Granular - Zoom Placed on segment #1 (start 00:00:01.192): X=780 Y=270 W=360 H=540 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:49 [INFO] Granular - Zoom Moved on segment #1 (start 00:00:01.192): X=710 Y=174 W=360 H=540 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:51 [INFO] Granular - Zoom Resized on segment #1 (start 00:00:01.192): X=710 Y=174 W=418 H=626 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:55 [INFO] Granular - Zoom Moved on segment #1 (start 00:00:01.192): X=696 Y=152 W=418 H=626 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:56 [INFO] Granular - Zoom Confirmed on segment #1 (start 00:00:01.192): X=696 Y=152 W=418 H=626 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:05:56 [INFO] Granular - APPLY ZOOM-IN: GPU live zoom preview primed.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:00 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:03 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:08 [INFO] UI - User clicked Mark Start in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:09 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:11 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:18 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:22 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:23 [INFO] UI - User clicked Mark Start in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:24 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:31 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:33 [INFO] UI - User clicked Mark End in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:35 [INFO] Granular - Zoom Placed on segment #2 (start 00:00:15.701): X=780 Y=270 W=360 H=540 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:38 [INFO] Granular - Zoom Moved on segment #2 (start 00:00:15.701): X=710 Y=170 W=360 H=540 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:39 [INFO] Granular - Zoom Resized on segment #2 (start 00:00:15.701): X=710 Y=170 W=476 H=714 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:41 [INFO] Granular - Zoom Moved on segment #2 (start 00:00:15.701): X=732 Y=142 W=476 H=714 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:45 [INFO] Granular - Zoom Confirmed on segment #2 (start 00:00:15.701): X=732 Y=142 W=476 H=714 src=1920x1080 mobile=True ramp=INSTANT.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:45 [INFO] Granular - APPLY ZOOM-IN: GPU live zoom preview primed.
+[MAIN APP] [s:988344be] 2026-09-04 12:06:51 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:03 [INFO] UI - User clicked Mark Start in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:11 [INFO] UI - User clicked Mark End in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:16 [INFO] UI - User toggled Play/Pause in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] UI - User clicked Accept in Granular Speed Editor.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] UNDO - Clearing history (changes applied): 13 undo, 0 redo.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] Granular - Granular Speed Editor closing. Stopping timers and saving bounds.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] Granular - Granular Speed Editor closed. Disposing resources.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] UI - Granular editor closed. 3 segment(s) saved. Base speed=1.10x. FreezeTimeMs=-1. 0 cut(s) removing 0.00s.
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=3] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:07:57 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=3] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:08:00 [INFO] RECOVERY - Saving project state: trim[3424-81807ms set=True/True] speed[base=1.10x segs=3] freeze[at=-1ms for=1.00s] cuts[0 removing 0.00s] thumb[set=False at=55674ms] voiceOver[no] music[no].
+[MAIN APP] [s:988344be] 2026-09-04 12:08:00 [INFO] UI - Quality slider final resting value: 65MB
+[MAIN APP] [s:988344be] 2026-09-04 12:08:01 [INFO] UI - User clicked PROCESS button.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:01 [INFO] Output - Main using the system Downloads folder.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] EasterEgg - Fight sequence: Entrance
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Starting video processing pipeline via MainMediaController.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] GPU DETECT - Found Hardware Encoders: h264_amf, h264_nvenc, h264_qsv
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Input Video: Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Input Path: C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Start Time: 3424.2192924687606 ms, End Time: 81807.12222222223 ms
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Base Speed Factor: 1.1
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Is Mobile Format: True, Portrait Text: Close Call:
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Target Quality: 12, MB Override: 65
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Thumbnail Pos: 0 ms
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Granular Speed Segment: 1.1x from 4616ms to 11008ms
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Granular Speed Segment: 1.1x from 19125ms to 25400ms
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Process - Granular Speed Segment: 3x from 32949ms to 41082ms
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4"
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] GranularSpeed - Building graph with 7 chunk(s) -> 14 video branch(es) (HUD branch ENABLED).
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] DiskSpace - Free-space check passed for staging and output volume: 511204 MB available, 386 MB required.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [INFO] Loudnorm - Executing pass 1 (measurement).
+[MAIN APP] [s:988344be] 2026-09-04 12:08:02 [DEBUG] Loudnorm - Executing pass 1: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -ss 2.324 -t 80.583 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4" -af loudnorm=I=-14.0:TP=-1.5:LRA=11:print_format=json -vn -sn -dn -f null -
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] Loudnorm - Pass 1 complete. I=-17.15 LUFS, TP=0.06 dBTP, LRA=11.70 LU, thresh=-27.81, offset=1.42. Second pass will run in linear mode.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] Loudnorm - NORMALISATION PLAN: measured -17.15 LUFS -> target -14.0 LUFS = +3.15 dB, true-peak ceiling -1.5 dBTP. Applied to the game bus via linear loudnorm; the SAME +3.15 dB is applied to music, voice-over and meme so every element keeps its relative balance.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] Audio - Game bus normalised to -14.0 LUFS (no voice-over on this export).
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] Audio - QUIET-BOOST TRIM: source measured -17.15 LUFS and asked for +3.15 dB to reach -14.0 LUFS. -2.20 dB given back on the finished mix (30% of the lift kept), landing near -16.20 LUFS. Mix balance unchanged — music, voice-over and memes move with it.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] Audio - PEAK LIMITER ON: loudnorm + alimiter ceiling -1.0 dB. The summed mix is dynamically normalized before final limiting to prevent the combined bus from exceeding the target loudness.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] FFmpeg - Filter Script Content:
+[0:v]split=14[v_split_main_0][v_split_main_1][v_split_main_2][v_split_main_3][v_split_main_4][v_split_main_5][v_split_main_6][v_split_hud_0][v_split_hud_1][v_split_hud_2][v_split_hud_3][v_split_hud_4][v_split_hud_5][v_split_hud_6];[0:a]asplit=7[a_split_0][a_split_1][a_split_2][a_split_3][a_split_4][a_split_5][a_split_6];[v_split_main_0]trim=start=0.0000:end=2.2918,setpts='PTS-(0.0000/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_0];[v_split_hud_0]trim=start=0.0000:end=2.2918,setpts='PTS-(0.0000/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_0];[a_split_0]atrim=start=0.0000:end=2.2918,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(0.0000/TB)',atempo=1.1000,apad,atrim=duration=2.08333,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=2.0753:d=0.0080[a_chunk_0];[v_split_main_1]trim=start=2.2918:end=8.6838,setpts='PTS-(2.2918/TB)',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,pad=3036:1708:558:314:color=black,crop=w='1114':h='626':x='906':y='466',cas=0.5,scale=1920:1080,setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_1];[v_split_hud_1]trim=start=2.2918:end=8.6838,setpts='PTS-(2.2918/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_1];[a_split_1]atrim=start=2.2918:end=8.6838,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(2.2918/TB)',atempo=1.1000,apad,atrim=duration=5.81667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=5.8087:d=0.0080[a_chunk_1];[v_split_main_2]trim=start=8.6838:end=16.8008,setpts='PTS-(8.6838/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_2];[v_split_hud_2]trim=start=8.6838:end=16.8008,setpts='PTS-(8.6838/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_2];[a_split_2]atrim=start=8.6838:end=16.8008,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(8.6838/TB)',atempo=1.1000,apad,atrim=duration=7.38333,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=7.3753:d=0.0080[a_chunk_2];[v_split_main_3]trim=start=16.8008:end=23.0758,setpts='PTS-(16.8008/TB)',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,pad=3192:1796:636:358:color=black,crop=w='1268':h='714':x='972':y='500',cas=0.5,scale=1920:1080,setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_3];[v_split_hud_3]trim=start=16.8008:end=23.0758,setpts='PTS-(16.8008/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_3];[a_split_3]atrim=start=16.8008:end=23.0758,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(16.8008/TB)',atempo=1.1000,apad,atrim=duration=5.70000,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=5.6920:d=0.0080[a_chunk_3];[v_split_main_4]trim=start=23.0758:end=30.6248,setpts='PTS-(23.0758/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_4];[v_split_hud_4]trim=start=23.0758:end=30.6248,setpts='PTS-(23.0758/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_4];[a_split_4]atrim=start=23.0758:end=30.6248,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(23.0758/TB)',atempo=1.1000,apad,atrim=duration=6.86667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=6.8587:d=0.0080[a_chunk_4];[v_split_main_5]trim=start=30.6248:end=38.7578,setpts='PTS-(30.6248/TB)',setpts='PTS/3.0000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_5];[v_split_hud_5]trim=start=30.6248:end=38.7578,setpts='PTS-(30.6248/TB)',setpts='PTS/3.0000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_5];[a_split_5]atrim=start=30.6248:end=38.7578,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(30.6248/TB)',atempo=2.0,atempo=1.5000,apad,atrim=duration=2.71667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=2.7087:d=0.0080[a_chunk_5];[v_split_main_6]trim=start=38.7578:end=80.5829,setpts='PTS-(38.7578/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_6];[v_split_hud_6]trim=start=38.7578:end=80.5829,setpts='PTS-(38.7578/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_6];[a_split_6]atrim=start=38.7578:end=80.5829,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(38.7578/TB)',atempo=1.1000,apad,atrim=duration=38.01667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=38.0087:d=0.0080[a_chunk_6];[v_chunk_main_0][v_chunk_main_1][v_chunk_main_2][v_chunk_main_3][v_chunk_main_4][v_chunk_main_5][v_chunk_main_6]concat=n=7:v=1:a=0[v_speed_concat];[v_chunk_hud_0][v_chunk_hud_1][v_chunk_hud_2][v_chunk_hud_3][v_chunk_hud_4][v_chunk_hud_5][v_chunk_hud_6]concat=n=7:v=1:a=0[v_hud_concat];[a_chunk_0][a_chunk_1][a_chunk_2][a_chunk_3][a_chunk_4][a_chunk_5][a_chunk_6]concat=n=7:v=0:a=1[a_speed_concat];[v_speed_concat]setpts=PTS-STARTPTS[v_speed_out];[v_hud_concat]setpts=PTS-STARTPTS[v_hud_out];[a_speed_concat]aresample=48000:async=1:min_comp=0.01,asetpts=PTS-STARTPTS[a_speed_out];[a_speed_out]loudnorm=I=-14.0:TP=-1.5:LRA=11:linear=true:measured_I=-17.15:measured_TP=0.06:measured_LRA=11.70:measured_thresh=-27.81:offset=1.42,aresample=48000[a_master_leveled];[a_master_leveled]anull[a_main_raw];[a_main_raw]volume=1.0000,aresample=48000:async=1[game_leveled_base];[game_leveled_base]anull[a_main_prepared];[v_speed_out]fade=t=in:st=0:d=1.000,fade=t=out:st=67.583:d=1.000[v_faded];[v_hud_out]fade=t=in:st=0:d=1.000,fade=t=out:st=67.583:d=1.000[gVHud_faded];[a_main_prepared]afade=t=in:st=0:d=1.000,afade=t=out:st=67.583:d=1.000[a_faded];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_same_frame];[v_faded]setsar=1[v_main_after_intro];[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_hud_same_frame];[gVHud_faded]setsar=1[gVHud_after_intro];[v_intro_hud_same_frame][gVHud_after_intro]concat=n=2:v=1:a=0[gVHud_with_intro];anullsrc=r=48000:cl=stereo,atrim=duration=0.1000,asetpts=PTS-STARTPTS[a_intro_silence];[a_intro_silence][a_faded]concat=n=2:v=0:a=1[a_with_intro];[gVHud_with_intro]split=3[v_layer_in_0][v_layer_in_1][v_layer_in_2];[v_with_intro]scale=3414:1920:flags=lanczos,crop=1280:1920:1066:0[main_base];[v_layer_in_0]crop=w=342:h=70:x=1546:y=974,scale=w=608:h=128:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_0];[main_base][v_layer_out_0]overlay=x=638:y=1502:eof_action=pass[v_comp_0];[v_layer_in_1]crop=w=314:h=48:x=38:y=980,scale=w=608:h=96:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_1];[v_comp_0][v_layer_out_1]overlay=x=-2:y=1502:eof_action=pass[v_comp_1];[v_layer_in_2]crop=w=220:h=156:x=1678:y=20,scale=w=480:h=352:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_2];[v_comp_1][v_layer_out_2]overlay=x=798:y=-2:eof_action=pass[v_comp_2];[v_comp_2]scale=1080:1620:flags=lanczos,pad=1080:1920:0:150:black,setsar=1[v_padded];[v_padded][2:v]overlay=x=0:y='if(lt(t,0.11),180,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw];[v_final_raw]format=yuv420p[v_final];[v_final]fps=60:start_time=0:round=near,setpts=N/(60)/TB,format=yuv420p[v_render_out];[a_with_intro]volume=-2.20dB[a_quiet_boost_trimmed];[a_quiet_boost_trimmed]loudnorm=I=-14.0:TP=-1.0:LRA=11,aresample=48000[a_dyn_master];[a_dyn_master]alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] DiskSpace - Two-pass scratch master fits: 511202 MB free, 519 MB needed.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] GPU STRATEGY - Primary encoder selected: h264_nvenc
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] FFmpeg - Starting encode: decode=GPU (NVDEC/cuda), encode=GPU (NVENC), mode=NVENC p7/fullres (CBR), route=single-pass, attempt=1.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] FFmpeg - Executing Final Pipeline Command:
+C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -progress pipe:1 -hwaccel cuda -ss 2.324 -t 80.583 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4" -hwaccel cuda -ss 55.674 -t 0.200 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4" -loop 1 -i C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\portrait_text.png -filter_complex_script C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\filter_complex.txt -map [v_render_out] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc cbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 7747k -maxrate 7747k -bufsize 15494k -c:a aac -b:a 191k -t 68.683 -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\core.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:03 [INFO] FFmpeg - FINAL COMMAND (filter graph inlined — copy/paste runnable, this is exactly what happened):
+"C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe" -y -hide_banner -progress pipe:1 -hwaccel cuda -ss 2.324 -t 80.583 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4" -hwaccel cuda -ss 55.674 -t 0.200 -i "C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4" -loop 1 -i C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\portrait_text.png -filter_complex "[0:v]split=14[v_split_main_0][v_split_main_1][v_split_main_2][v_split_main_3][v_split_main_4][v_split_main_5][v_split_main_6][v_split_hud_0][v_split_hud_1][v_split_hud_2][v_split_hud_3][v_split_hud_4][v_split_hud_5][v_split_hud_6];[0:a]asplit=7[a_split_0][a_split_1][a_split_2][a_split_3][a_split_4][a_split_5][a_split_6];[v_split_main_0]trim=start=0.0000:end=2.2918,setpts='PTS-(0.0000/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_0];[v_split_hud_0]trim=start=0.0000:end=2.2918,setpts='PTS-(0.0000/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_0];[a_split_0]atrim=start=0.0000:end=2.2918,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(0.0000/TB)',atempo=1.1000,apad,atrim=duration=2.08333,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=2.0753:d=0.0080[a_chunk_0];[v_split_main_1]trim=start=2.2918:end=8.6838,setpts='PTS-(2.2918/TB)',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,pad=3036:1708:558:314:color=black,crop=w='1114':h='626':x='906':y='466',cas=0.5,scale=1920:1080,setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_1];[v_split_hud_1]trim=start=2.2918:end=8.6838,setpts='PTS-(2.2918/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_1];[a_split_1]atrim=start=2.2918:end=8.6838,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(2.2918/TB)',atempo=1.1000,apad,atrim=duration=5.81667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=5.8087:d=0.0080[a_chunk_1];[v_split_main_2]trim=start=8.6838:end=16.8008,setpts='PTS-(8.6838/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_2];[v_split_hud_2]trim=start=8.6838:end=16.8008,setpts='PTS-(8.6838/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_2];[a_split_2]atrim=start=8.6838:end=16.8008,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(8.6838/TB)',atempo=1.1000,apad,atrim=duration=7.38333,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=7.3753:d=0.0080[a_chunk_2];[v_split_main_3]trim=start=16.8008:end=23.0758,setpts='PTS-(16.8008/TB)',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,pad=3192:1796:636:358:color=black,crop=w='1268':h='714':x='972':y='500',cas=0.5,scale=1920:1080,setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_3];[v_split_hud_3]trim=start=16.8008:end=23.0758,setpts='PTS-(16.8008/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_3];[a_split_3]atrim=start=16.8008:end=23.0758,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(16.8008/TB)',atempo=1.1000,apad,atrim=duration=5.70000,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=5.6920:d=0.0080[a_chunk_3];[v_split_main_4]trim=start=23.0758:end=30.6248,setpts='PTS-(23.0758/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_4];[v_split_hud_4]trim=start=23.0758:end=30.6248,setpts='PTS-(23.0758/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_4];[a_split_4]atrim=start=23.0758:end=30.6248,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(23.0758/TB)',atempo=1.1000,apad,atrim=duration=6.86667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=6.8587:d=0.0080[a_chunk_4];[v_split_main_5]trim=start=30.6248:end=38.7578,setpts='PTS-(30.6248/TB)',setpts='PTS/3.0000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_5];[v_split_hud_5]trim=start=30.6248:end=38.7578,setpts='PTS-(30.6248/TB)',setpts='PTS/3.0000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_5];[a_split_5]atrim=start=30.6248:end=38.7578,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(30.6248/TB)',atempo=2.0,atempo=1.5000,apad,atrim=duration=2.71667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=2.7087:d=0.0080[a_chunk_5];[v_split_main_6]trim=start=38.7578:end=80.5829,setpts='PTS-(38.7578/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_main_6];[v_split_hud_6]trim=start=38.7578:end=80.5829,setpts='PTS-(38.7578/TB)',setpts='PTS/1.1000',fps=60:start_time=0:round=near,format=yuv420p,setsar=1[v_chunk_hud_6];[a_split_6]atrim=start=38.7578:end=80.5829,aresample=48000:async=1:min_comp=0.001,asetpts='PTS-(38.7578/TB)',atempo=1.1000,apad,atrim=duration=38.01667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0080,afade=t=out:st=38.0087:d=0.0080[a_chunk_6];[v_chunk_main_0][v_chunk_main_1][v_chunk_main_2][v_chunk_main_3][v_chunk_main_4][v_chunk_main_5][v_chunk_main_6]concat=n=7:v=1:a=0[v_speed_concat];[v_chunk_hud_0][v_chunk_hud_1][v_chunk_hud_2][v_chunk_hud_3][v_chunk_hud_4][v_chunk_hud_5][v_chunk_hud_6]concat=n=7:v=1:a=0[v_hud_concat];[a_chunk_0][a_chunk_1][a_chunk_2][a_chunk_3][a_chunk_4][a_chunk_5][a_chunk_6]concat=n=7:v=0:a=1[a_speed_concat];[v_speed_concat]setpts=PTS-STARTPTS[v_speed_out];[v_hud_concat]setpts=PTS-STARTPTS[v_hud_out];[a_speed_concat]aresample=48000:async=1:min_comp=0.01,asetpts=PTS-STARTPTS[a_speed_out];[a_speed_out]loudnorm=I=-14.0:TP=-1.5:LRA=11:linear=true:measured_I=-17.15:measured_TP=0.06:measured_LRA=11.70:measured_thresh=-27.81:offset=1.42,aresample=48000[a_master_leveled];[a_master_leveled]anull[a_main_raw];[a_main_raw]volume=1.0000,aresample=48000:async=1[game_leveled_base];[game_leveled_base]anull[a_main_prepared];[v_speed_out]fade=t=in:st=0:d=1.000,fade=t=out:st=67.583:d=1.000[v_faded];[v_hud_out]fade=t=in:st=0:d=1.000,fade=t=out:st=67.583:d=1.000[gVHud_faded];[a_main_prepared]afade=t=in:st=0:d=1.000,afade=t=out:st=67.583:d=1.000[a_faded];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_same_frame];[v_faded]setsar=1[v_main_after_intro];[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro];[1:v]trim=duration=0.2000,setpts=PTS-STARTPTS,select='eq(n\,0)',setsar=1,loop=loop=5:size=1:start=0,fps=60:round=near,trim=duration=0.1000,setpts=PTS-STARTPTS[v_intro_hud_same_frame];[gVHud_faded]setsar=1[gVHud_after_intro];[v_intro_hud_same_frame][gVHud_after_intro]concat=n=2:v=1:a=0[gVHud_with_intro];anullsrc=r=48000:cl=stereo,atrim=duration=0.1000,asetpts=PTS-STARTPTS[a_intro_silence];[a_intro_silence][a_faded]concat=n=2:v=0:a=1[a_with_intro];[gVHud_with_intro]split=3[v_layer_in_0][v_layer_in_1][v_layer_in_2];[v_with_intro]scale=3414:1920:flags=lanczos,crop=1280:1920:1066:0[main_base];[v_layer_in_0]crop=w=342:h=70:x=1546:y=974,scale=w=608:h=128:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_0];[main_base][v_layer_out_0]overlay=x=638:y=1502:eof_action=pass[v_comp_0];[v_layer_in_1]crop=w=314:h=48:x=38:y=980,scale=w=608:h=96:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_1];[v_comp_0][v_layer_out_1]overlay=x=-2:y=1502:eof_action=pass[v_comp_1];[v_layer_in_2]crop=w=220:h=156:x=1678:y=20,scale=w=480:h=352:flags=lanczos,format=yuva420p,pad=w=iw+4:h=ih+4:x=2:y=2:color=black@0[v_layer_out_2];[v_comp_1][v_layer_out_2]overlay=x=798:y=-2:eof_action=pass[v_comp_2];[v_comp_2]scale=1080:1620:flags=lanczos,pad=1080:1920:0:150:black,setsar=1[v_padded];[v_padded][2:v]overlay=x=0:y='if(lt(t,0.11),180,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw];[v_final_raw]format=yuv420p[v_final];[v_final]fps=60:start_time=0:round=near,setpts=N/(60)/TB,format=yuv420p[v_render_out];[a_with_intro]volume=-2.20dB[a_quiet_boost_trimmed];[a_quiet_boost_trimmed]loudnorm=I=-14.0:TP=-1.0:LRA=11,aresample=48000[a_dyn_master];[a_dyn_master]alimiter=limit=-1.0dB:level_in=1:level_out=1[a_flattened]" -map [v_render_out] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc cbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 7747k -maxrate 7747k -bufsize 15494k -c:a aac -b:a 191k -t 68.683 -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\core.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:10 [INFO] EasterEgg - Skit: snooze
+[MAIN APP] [s:988344be] 2026-09-04 12:08:28 [INFO] EasterEgg - Skit: buzzer
+[MAIN APP] [s:988344be] 2026-09-04 12:08:43 [INFO] EasterEgg - Skit: buzzer
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [INFO] FFmpeg - PIPELINE RESULT: decode=GPU (NVDEC/cuda) encode=GPU (NVENC) speed=1.62x
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [DEBUG] FFmpeg - FFmpeg stderr (last 75 lines):
+-filter_complex_script is deprecated, use -/filter_complex C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\filter_complex.txt instead
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    creation_time   : 2026-09-04T06:02:42.000000Z
+    date            : 2026
+  Duration: 00:01:25.02, start: 0.000000, bitrate: 216052 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 215847 kb/s, 120 fps, 120 tbr, 90k tbn (default)
+    Metadata:
+      creation_time   : 2026-09-04T06:02:42.000000Z
+      handler_name    : VideoHandle
+      vendor_id       : [0][0][0][0]
+  Stream #0:1[0x2](und): Audio: aac (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 191 kb/s (default)
+    Metadata:
+      creation_time   : 2026-09-04T06:02:42.000000Z
+      handler_name    : SoundHandle
+      vendor_id       : [0][0][0][0]
+Input #1, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Videos\Fortnite\Fortnite 2026.09.04 - 09.02.41.41.DVR.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    creation_time   : 2026-09-04T06:02:42.000000Z
+    date            : 2026
+  Duration: 00:01:25.02, start: 0.000000, bitrate: 216052 kb/s
+  Stream #1:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 215847 kb/s, 120 fps, 120 tbr, 90k tbn (default)
+    Metadata:
+      creation_time   : 2026-09-04T06:02:42.000000Z
+      handler_name    : VideoHandle
+      vendor_id       : [0][0][0][0]
+  Stream #1:1[0x2](und): Audio: aac (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 191 kb/s (default)
+    Metadata:
+      creation_time   : 2026-09-04T06:02:42.000000Z
+      handler_name    : SoundHandle
+      vendor_id       : [0][0][0][0]
+Input #2, png_pipe, from 'C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\portrait_text.png':
+  Duration: N/A, bitrate: N/A
+  Stream #2:0: Video: png, rgba(pc, gbr/unknown/unknown), 1080x150, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (h264) -> split:default
+  Stream #0:1 (aac) -> asplit:default
+  Stream #1:0 (h264) -> trim:default
+  Stream #1:0 (h264) -> trim:default
+  Stream #2:0 (png) -> overlay
+  format:default -> Stream #0:0 (h264_nvenc)
+  alimiter:default -> Stream #0:1 (aac)
+Press [q] to stop, [?] for help
+[h264 @ 000001d924891600] decoder->cvdl->cuvidCreateDecoder(&decoder->decoder, params) failed -> CUDA_ERROR_INVALID_VALUE: invalid argument
+[h264 @ 000001d924891600] Using more than 32 (39) decode surfaces might cause nvdec to fail.
+[h264 @ 000001d924891600] Try lowering the amount of threads. Using 16 right now.
+[h264 @ 000001d924891600] Failed setup for format cuda: hwaccel initialisation returned error.
+[h264 @ 000001d926b84540] decoder->cvdl->cuvidCreateDecoder(&decoder->decoder, params) failed -> CUDA_ERROR_INVALID_VALUE: invalid argument
+[h264 @ 000001d926b84540] Using more than 32 (39) decode surfaces might cause nvdec to fail.
+[h264 @ 000001d926b84540] Try lowering the amount of threads. Using 16 right now.
+[h264 @ 000001d926b84540] Failed setup for format cuda: hwaccel initialisation returned error.
+Output #0, mp4, to 'C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_job_abadebec\core.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 0
+    compatible_brands: isommp42
+    date            : 2026
+    encoder         : Lavf62.0.100
+  Stream #0:0: Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 7747 kb/s, 60 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.0.101 h264_nvenc
+    Side data:
+      cpb: bitrate max/min/avg: 7747000/0/7747000 buffer size: 15494000 vbv_delay: N/A
+  Stream #0:1: Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 191 kb/s
+    Metadata:
+      encoder         : Lavc62.0.101 aac
+[mp4 @ 000001d924665500] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 000001d9224115c0] video:64862KiB audio:1623KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.162649%
+[aac @ 000001d92450fb80] Qavg: 691.151
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [INFO] Process - Pipeline completed in 44.4s. Output: C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [SUCCESS] Process - Video processing completed successfully. Saved to: C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [INFO] RECOVERY - Export completed successfully - recovery state cleared; no crash prompt is due for this session.
+[MAIN APP] [s:988344be] 2026-09-04 12:08:46 [INFO] EasterEgg - Fight sequence: End
+[MAIN APP] [s:988344be] 2026-09-04 12:09:30 [INFO] UI - Opening Video Merger and closing Main app.
+[MAIN APP] [s:988344be] 2026-09-04 12:09:30 [INFO] Recovery - Session lock released for process handoff (recovery state preserved).
+
+[VIDEO MERGER] v1.0.0+4372d18335c7eef1362f2d6fd41319283ad3b15c 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Started (PID: 34604, Session: 7e62367f)
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] PROCESS START - pid=34604; exe=FortniteVideoSoftware.App.exe; args_count=1
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [DEBUG] PROCESS START - exe=C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\FortniteVideoSoftware.App.exe; args=--merger
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] COMMAND START - --merger
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] RUN UI - Running bootstrapper before UI.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Resolving application paths.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [SUCCESS] PATHS RESOLVED - ProgramData, temp, and log paths resolved.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [DEBUG] PATHS RESOLVED - programData=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data; tempLog=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\Fortnite_Video_Software_DEV.log
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Ensuring writable ProgramData directories.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [SUCCESS] PROGRAMDATA READY - Writable ProgramData directories are ready.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [DEBUG] PROGRAMDATA READY - logs=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\logs; temp=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Loading session_state.json through named mutex.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [SUCCESS] SESSION STATE READY - properties=13
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [DEBUG] SESSION STATE READY - path=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\session_state.json; properties=13
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Loading crops_coordinations.conf through named mutex.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [SUCCESS] CROP CONFIG READY - schema=4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [DEBUG] CROP CONFIG READY - path=C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\.dev_data\crops_coordinations.conf; schema=4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BOOTSTRAP - Checking Phase 1 executable health.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [SUCCESS] BOOTSTRAP COMPLETE - Core IPC/config layer is available. Avalonia UI is ready.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] RUN UI - Starting Avalonia App.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] BUILDTAG - FVS-SWPREVIEW-BUILDCHECK-2026A :: CPU software-preview + frame-gate build ACTIVE
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:30 [INFO] RUN UI - Dev mode: Avalonia verbose logging enabled.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:31 [INFO] GPU - GPU probe skipped — reusing the suite-wide result: hardware (D3D11 Feature Level 0xB000).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:31 [INFO] Settings - Settings loaded (schema v4).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:31 [INFO] Recovery - Session lock acquired (PID 34604).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:31 [INFO] DND - WM_DROPFILES fallback attached to 'Fortnite Video Software - Merger'.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:31 [INFO] COACH - Walkthrough started for 'merger' (automatic), 6 step(s).
+[MAIN APP] 2026-09-04 12:09:32 [INFO] SHUTDOWN - Process exiting (PID: 17524, Session: 988344be).
+
+---------------------------------------------------------------------------------------------------------------------------
+
+---------------------------------------------------------------------------------------------------------------------------
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:37 [INFO] UI - Added 2 external video file(s) via drag & drop.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:37 [INFO] MPV-Interop - Supported image handle types: D3D11TextureGlobalSharedHandle, D3D11TextureNtHandle
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:37 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:37 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [INFO] UI - User clicked Add Music in Video Merger.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Bonnie Tyler - Holding Out For A Hero.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\C&C - Mechanical Man.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Cool Dance Background Music (No CopyRights).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Dexter.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Dueling Banjos.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Eye Of The Tiger (CopyRights).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Family Guy Peter Picks His Noes.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Foo Fighters - Everlong Extended.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Foo Fighters - My Hero.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Gorillaz vs. The Killers- Somebody Told Me to Feel Good.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Go Go Power Rangers.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Horror Panic Music.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\I will find you and I will kill you (Sound Only).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\It Ain't Me - CCR.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Kanye West - Runaway (TikTok).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Kpop - We're going up up up.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Limp Bizkit - Mission Impossible.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Lynyrd Skynyrd - Free Bird.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\M83 'Midnight City' Official video.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Meet the Frownies X Lovely Bastards (TIKTOK).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Monster Mash.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Naughty Boy - La la la.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Pacific Rim Acoustic Guitar Duo Cover.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Red Alert Hell March.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Sacred Spirit - Yeha Noha.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Star Wars - The Impirial March.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Stranger Things.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Surprise Surprise - Cilla Black.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Terminator.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\The Chemical Brothers - Go (Apex Netflix).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\TikTok Sad Song.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Transformers - You're a Soldier Now.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:09:52 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Vicetone - Nevada feat. Cozi Zuehlsdorff (TikTok).mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:44 [INFO] UI - User clicked Next in Music Wizard.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:44 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:44 [DEBUG] WaveformGenerator - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -loglevel error -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -frames:v 1 -filter_complex aformat=channel_layouts=mono,volume=1.5,showwavespic=s=4000x400:colors=0x7DD3FC:draw=full C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_wave_a103d986d224425ca7fac3cdb1eb3587.png
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [INFO] UI - User clicked Next in Music Wizard.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [INFO] MUSIC_WIZARD - Phase 3 MPV preview video loaded.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [INFO] MPV-Interop - Supported image handle types: D3D11TextureGlobalSharedHandle, D3D11TextureNtHandle
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:58 [DEBUG] WaveformGenerator - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -loglevel error -ss 132.2031374860884 -t 107.48700000000001 -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -frames:v 1 -filter_complex aformat=channel_layouts=mono,volume=1.5,showwavespic=s=1200x60:colors=0x7DD3FC:draw=full C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_wave_3ee7f5aecaf84b5880c2fc47e1279c20.png
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:59 [DEBUG] LoudnessProbe - Measuring: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -nostdin -ss 132.203 -t 107.487 -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -af loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json -vn -sn -dn -f null -
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:10:59 [DEBUG] LoudnessProbe - Measuring: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -nostdin -ss 132.203 -t 107.487 -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -af loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json -vn -sn -dn -f null -
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:01 [INFO] LoudnessProbe - 'Interstellar (Hans Zimmer) - No Time For Caution.mp3': I=-14.47 LUFS, TP=0.38 dBTP, LRA=9.80 LU (WithinStandard, peak 14.9 LU above average).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:01 [INFO] MUSIC_WIZARD - PREVIEW LEVEL MATCH: 'Interstellar (Hans Zimmer) - No Time For Caution.mp3' segment 132.2s +107.5s measured -14.47 LUFS. Music 0.00 dB / video -0.00 dB applied to the preview only.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:01 [INFO] LoudnessProbe - 'Interstellar (Hans Zimmer) - No Time For Caution.mp3': I=-14.47 LUFS, TP=0.38 dBTP, LRA=9.80 LU (WithinStandard, peak 14.9 LU above average).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:01 [INFO] MUSIC_WIZARD - PREVIEW LEVEL MATCH: 'Interstellar (Hans Zimmer) - No Time For Caution.mp3' segment 132.2s +107.5s measured -14.47 LUFS. Music 0.00 dB / video -0.00 dB applied to the preview only.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:09 [INFO] UI - User clicked Next in Music Wizard.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:09 [SUCCESS] MUSIC_WIZARD - Wizard completed. Track: Interstellar (Hans Zimmer) - No Time For Caution.mp3, SongStart: 132.20s, Timeline: 0.00-107.49s, Ducking: True, Carving: True, VideoVol: 1, MusicVol: 1
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:09 [DEBUG] MUSIC_WIZARD - Wizard completed track path: C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Output - Merger using the system Downloads folder.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Hardware - Using the suite-wide encoder result published by the Main App: NVIDIA (no re-scan needed).
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] EasterEgg - Fight sequence: Entrance
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger - Merging 2 file(s):
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger -   [1] Fortnite-Video-1.mp4 — 38.80s, audio=True
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger -   [1] full path: C:\Users\alon\Downloads\Fortnite-Video-1.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger -   [2] Fortnite-Video-2.mp4 — 68.68s, audio=True
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger -   [2] full path: C:\Users\alon\Downloads\Fortnite-Video-2.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger - Total combined duration: 107.49s, peak src video bitrate: 7738 kbps, avg: 7212 kbps
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] DiskSpace - Free-space check passed for staging and output volume: 514410 MB available, 459 MB required.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFprobe - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffprobe.exe -v quiet -print_format json -show_format -show_streams "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3"
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] FFmpeg MERGE - Filter Script Content:
+[0:v]setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1,setpts=PTS/1.0000,fps=60:start_time=0:round=near[v0];[0:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,atempo=1.0000[a0];[1:v]setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1,setpts=PTS/1.0000,fps=60:start_time=0:round=near[v1];[1:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,atempo=1.0000[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v_concat][a_concat];[a_concat]aresample=48000:async=1:min_comp=0.01:first_pts=0[a_concat_sync];[a_concat_sync]anull[a_main_raw];[2:a]atrim=start=132.203:duration=107.487,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=1.500,afade=t=out:st=105.987:d=1.500,volume=1.0000[a_mus_0_pre];[a_mus_0_pre]anull[a_mus_0];[a_mus_0]equalizer=f=2000:width_type=h:width=1800:g=-4[a_bg_music];[a_main_raw]volume=1.0000,aresample=48000:async=1[game_leveled_base];[game_leveled_base]anull[game_leveled];[game_leveled]asplit=2[game_out_pre_raw][game_trig];[game_out_pre_raw]anull[game_out_pre];[game_trig]highpass=f=200,lowpass=f=3500,agate=threshold=0.05:attack=5:release=100[trig_final];[a_bg_music]acrossover=split=250[mus_low][mus_high];[mus_high][trig_final]sidechaincompress=threshold=0.15:ratio=1.13:attack=1:release=800:detection=peak[mus_high_ducked];[mus_low][mus_high_ducked]amix=inputs=2:weights='1 1':normalize=0[a_music_reconstructed];[game_out_pre][a_music_reconstructed]amix=inputs=2:duration=first:dropout_transition=3:weights='1 1':normalize=0,aresample=48000:async=1[a_music_prepared];[a_music_prepared]alimiter=limit=-1.5dB:level_in=1:level_out=1[a_flattened]
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] GPU DETECT - Found Hardware Encoders: h264_amf, h264_nvenc, h264_qsv
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] GPU STRATEGY - Primary encoder selected: h264_nvenc
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] Merger - Lossless target bitrate 7212 kbps (avg), maxrate 7738 kbps (peak) — output size will track the combined source size.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] DiskSpace - Two-pass scratch master fits: 514410 MB free, 668 MB needed.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] FFmpeg - Executing merge: decode=GPU (NVDEC/cuda), encode=GPU (NVENC), mode=NVENC p7/fullres (VBR), route=single-pass.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [DEBUG] FFmpeg - Command: C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -progress pipe:1 -hwaccel cuda -i C:\Users\alon\Downloads\Fortnite-Video-1.mp4 -hwaccel cuda -i C:\Users\alon\Downloads\Fortnite-Video-2.mp4 -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -filter_complex_script C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\filter_complex.txt -map [v_concat] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc vbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 7212k -maxrate 7738k -bufsize 15476k -c:a aac -b:a 192k -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\merged_output.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:11 [INFO] FFmpeg MERGE - Executing Final Pipeline Command:
+C:\Fortnite_Video_Software - C#\src\FortniteVideoSoftware.App\bin\Debug\net9.0-windows\win-x64\backend\ffmpeg.exe -y -hide_banner -progress pipe:1 -hwaccel cuda -i C:\Users\alon\Downloads\Fortnite-Video-1.mp4 -hwaccel cuda -i C:\Users\alon\Downloads\Fortnite-Video-2.mp4 -i "C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3" -filter_complex_script C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\filter_complex.txt -map [v_concat] -map [a_flattened] -c:v h264_nvenc -g 120 -keyint_min 60 -pix_fmt yuv420p -preset p7 -tune hq -rc vbr -multipass fullres -spatial-aq 1 -temporal-aq 1 -aq-strength 10 -bf 2 -b_ref_mode middle -weighted_pred 0 -nonref_p 0 -strict_gop 1 -forced-idr 1 -rc-lookahead 32 -profile:v high -level:v 5.1 -b:v 7212k -maxrate 7738k -bufsize 15476k -c:a aac -b:a 192k -movflags +faststart C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\merged_output.mp4
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:19 [INFO] EasterEgg - Skit: banana
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:37 [INFO] EasterEgg - Skit: door
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:51 [INFO] EasterEgg - Skit: tug
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:54 [INFO] FFmpeg MERGE - Process exited with code 0.
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:54 [DEBUG] FFmpeg MERGE - FFmpeg stderr (last 113 lines):
+-filter_complex_script is deprecated, use -/filter_complex C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\filter_complex.txt instead
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Downloads\Fortnite-Video-1.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    date            : 2026
+    encoder         : Lavf62.0.100
+  Duration: 00:00:38.80, start: 0.000000, bitrate: 6487 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], 6281 kb/s, 60 fps, 60 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.0.101 h264_nvenc
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 194 kb/s (default)
+    Metadata:
+      handler_name    : SoundHandler
+      vendor_id       : [0][0][0][0]
+Input #1, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\alon\Downloads\Fortnite-Video-2.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    date            : 2026
+    encoder         : Lavf62.0.100
+  Duration: 00:01:08.68, start: 0.000000, bitrate: 7942 kb/s
+  Stream #1:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], 7738 kb/s, 60 fps, 60 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.0.101 h264_nvenc
+  Stream #1:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 193 kb/s (default)
+    Metadata:
+      handler_name    : SoundHandler
+      vendor_id       : [0][0][0][0]
+Input #2, mp3, from 'C:\Fortnite_Video_Software - C#\mp3\Interstellar (Hans Zimmer) - No Time For Caution.mp3':
+  Metadata:
+    genre           : Music
+    title           : Hans Zimmer - No Time For Caution (Interstellar Soundtrack)(Docking)(Interstellar OST)
+    date            : 20141122
+    description     : Interstellar Docking Scene Music - No Time For Caution - Hans Zimmer
+                    : 
+                    : Interstellar is a 2014 science fiction film directed by Christopher Nolan. Starring Matthew McConaughey, Anne Hathaway, Jessica Chastain, and Michael Caine, the film features a team of space travelers who travel through a wormhole in search of a new habit
+                    : 
+                    : Warner Bros., who produced and distributed some of Nolan's previous films, negotiated with Paramount, traditionally a rival studio, to have a financial stake in Interstellar. Legendary Pictures, which formerly partnered with Warner Bros., also sought a st
+                    : 
+                    : Interstellar premiered on October 26, 2014 in Los Angeles, California. Commercially, it is scheduled for a limited release in North America (United States and Canada) on November 5, 2014 and a wide release on November 7, 2014. It will also be released in 
+                    : 
+                    : Interstellar OST - No Time For Caution - Hans Zimmer (Original Motion Picture Soundtrack)
+                    : 
+                    : 
+                    : Interstellar Docking Soundtrack
+                    : 
+                    : 
+                    : 
+                    : 
+                    : Interstellar OST,Interstellar Soundtrack,Interstellar Docking,Interstellar No Time For Caution,Interstellar
+                    : 
+                    : ì¸í„°ìŠ¤í…”ë¼,ì¸í„°ìŠ¤í…”ë¼ ìŒì•…,ì¸í„°ìŠ¤í…”ë¼ ë„í‚¹,ì¸í„°ìŠ¤í…”ë¼ ëª…ìž¥ë©´,ì¸í„°ìŠ¤í…”ë¼ íŠ¸ë ˆì¼ëŸ¬,ì¸í„°ìŠ¤í…”ë¼ OST
+    synopsis        : Interstellar Docking Scene Music - No Time For Caution - Hans Zimmer
+                    : 
+                    : Interstellar is a 2014 science fiction film directed by Christopher Nolan. Starring Matthew McConaughey, Anne Hathaway, Jessica Chastain, and Michael Caine, the film features a team of space travelers who travel through a wormhole in search of a new habit
+                    : 
+                    : Warner Bros., who produced and distributed some of Nolan's previous films, negotiated with Paramount, traditionally a rival studio, to have a financial stake in Interstellar. Legendary Pictures, which formerly partnered with Warner Bros., also sought a st
+                    : 
+                    : Interstellar premiered on October 26, 2014 in Los Angeles, California. Commercially, it is scheduled for a limited release in North America (United States and Canada) on November 5, 2014 and a wide release on November 7, 2014. It will also be released in 
+                    : 
+                    : Interstellar OST - No Time For Caution - Hans Zimmer (Original Motion Picture Soundtrack)
+                    : 
+                    : 
+                    : Interstellar Docking Soundtrack
+                    : 
+                    : 
+                    : 
+                    : 
+                    : Interstellar OST,Interstellar Soundtrack,Interstellar Docking,Interstellar No Time For Caution,Interstellar
+                    : 
+                    : ì¸í„°ìŠ¤í…”ë¼,ì¸í„°ìŠ¤í…”ë¼ ìŒì•…,ì¸í„°ìŠ¤í…”ë¼ ë„í‚¹,ì¸í„°ìŠ¤í…”ë¼ ëª…ìž¥ë©´,ì¸í„°ìŠ¤í…”ë¼ íŠ¸ë ˆì¼ëŸ¬,ì¸í„°ìŠ¤í…”ë¼ OST
+    purl            : https://www.youtube.com/watch?v=m3zvVGJrTP8
+    comment         : https://www.youtube.com/watch?v=m3zvVGJrTP8
+    artist          : 711TAC
+    encoder         : Lavf62.19.101
+  Duration: 00:04:00.05, start: 0.023021, bitrate: 320 kb/s
+  Stream #2:0: Audio: mp3 (mp3float), 48000 Hz, stereo, fltp, 320 kb/s
+    Metadata:
+      encoder         : Lavc62.36
+Stream mapping:
+  Stream #0:0 (h264) -> setpts:default
+  Stream #0:1 (aac) -> asetpts:default
+  Stream #1:0 (h264) -> setpts:default
+  Stream #1:1 (aac) -> asetpts:default
+  Stream #2:0 (mp3float) -> atrim:default
+  concat -> Stream #0:0 (h264_nvenc)
+  alimiter:default -> Stream #0:1 (aac)
+Press [q] to stop, [?] for help
+Output #0, mp4, to 'C:\Users\alon\AppData\Local\Temp\Fortnite_Video_Software_DEV\fvs_merger_e0fab2d3\merged_output.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    date            : 2026
+    encoder         : Lavf62.0.100
+  Stream #0:0: Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 7212 kb/s, 60 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.0.101 h264_nvenc
+    Side data:
+      cpb: bitrate max/min/avg: 7738000/0/7212000 buffer size: 15476000 vbv_delay: N/A
+  Stream #0:1: Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s
+    Metadata:
+      encoder         : Lavc62.0.101 aac
+[mp4 @ 000002057701bd80] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0000020574fc1ec0] video:94390KiB audio:2549KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.173718%
+[aac @ 0000020577380a80] Qavg: 522.822
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:54 [INFO] FFmpeg - PIPELINE RESULT: decode=GPU (NVDEC/cuda) encode=GPU (NVENC) speed=2.51x
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:54 [INFO] EasterEgg - Fight sequence: End
+[VIDEO MERGER] [s:7e62367f] 2026-09-04 12:11:57 [INFO] PROCESS EXIT - exitCode=0
+[VIDEO MERGER] 2026-09-04 12:11:57 [INFO] SHUTDOWN - Process exiting (PID: 34604, Session: 7e62367f).
+
+---------------------------------------------------------------------------------------------------------------------------
+
+---------------------------------------------------------------------------------------------------------------------------

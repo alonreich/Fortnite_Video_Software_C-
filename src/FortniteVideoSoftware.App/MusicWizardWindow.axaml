@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -51,7 +51,7 @@
                         <Panel>
 
                             <!-- STEP 1: Track Selection -->
-                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,Auto,*">
+                            <Grid Name="Step1Panel" IsVisible="True" RowDefinitions="Auto,Auto,Auto,*">
                                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,10">
                                     <TextBlock Grid.Column="0" Text="SELECT BACKGROUND MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center"/>
                                     <!-- ISSUE_10: the shared song library (the repo's mp3 folder) is distributed exactly
@@ -71,23 +71,89 @@
                                     </ComboBox>
                                     <TextBlock Grid.Column="3" Name="MusicResultCountText" Text="0 songs" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </Grid>
-                                <Grid Grid.Row="2" Grid.Column="0">
+                                <!-- ══════════════════════════════════════════════════════════════
+                                     LIST_03 — COLUMN HEADINGS.
+
+                                     The list has had two columns since LIST_01 and neither said what
+                                     it was, so "3:41" on the right was a number the user had to infer
+                                     the meaning of. This strip sits OUTSIDE the ListBox, so it stays
+                                     put while the songs scroll under it.
+
+                                     ⚠️ Its four columns must stay identical to the row template's
+                                     (Auto,Auto,Auto,Auto with the same two bound widths). Both the
+                                     header and every row take their name width from
+                                     TrackNameColumnWidth and their pin width from
+                                     TrackPinColumnWidth, so there is exactly one number behind each
+                                     edge and the heading cannot drift away from the column it names.
+                                     The 2px left margin matches the ListBox's own Padding="2".
+                                     ══════════════════════════════════════════════════════════════ -->
+                                <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,Auto" HorizontalAlignment="Left" Margin="7,0,0,4">
+                                    <TextBlock Grid.Column="0" Text="" Width="{Binding $parent[local:MusicWizardWindow].TrackPinColumnWidth}"/>
+                                    <TextBlock Grid.Column="1" Text="Song Name" Width="{Binding $parent[local:MusicWizardWindow].TrackNameColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <Border Grid.Column="2" Width="1" Background="Transparent" Margin="10,0,10,0"/>
+                                    <TextBlock Grid.Column="3" Text="Length" Width="{Binding $parent[local:MusicWizardWindow].TrackLengthColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" TextAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Grid Grid.Row="3" Grid.Column="0">
                                     <ListBox Name="MusicListBox" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
                                         <ListBox.Styles>
                                             <Style Selector="ListBoxItem">
                                                 <Setter Property="Padding" Value="0"/>
                                                 <Setter Property="MinHeight" Value="24"/>
-                                                <Setter Property="Margin" Value="0,0,0,1"/>
+                                                <Setter Property="Margin" Value="0"/>
                                             </Style>
                                         </ListBox.Styles>
+                                        <!-- ══════════════════════════════════════════════════════════════
+                                             LIST_01 — READING A LENGTH OFF THE RIGHT-HAND EDGE.
+
+                                             This row used to be [PIN][name .......][12.4 MB][3:41], with the
+                                             two numbers pushed to the far right by a "*" name column. On a
+                                             wide window that leaves a hand-span of blank space between a song
+                                             and its own length, and the eye slides onto the wrong row on the
+                                             way across. Two changes:
+
+                                               1. THE FILE SIZE IS GONE. Nobody picks a backing track by how
+                                                  many megabytes it is, and it was the column doing most of
+                                                  the separating.
+                                               2. HAIRLINE RULES. A 1px bottom border per row and a 1px rule
+                                                  down the left of the length column give the eye a track to
+                                                  follow. Deliberately drawn at ~10% alpha: enough to guide,
+                                                  not enough to read as a table.
+
+                                             The length column is a fixed 64px so every length starts at the
+                                             same x — a ragged right edge is what makes a list feel unaligned
+                                             even when every row is technically right-aligned.
+                                             ══════════════════════════════════════════════════════════════ -->
                                         <ListBox.ItemTemplate>
                                             <DataTemplate x:DataType="local:MusicTrackItem">
-                                                <Border Padding="5,2" CornerRadius="4" Cursor="Hand" ToolTip.Tip="Click to select this track">
-                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding PinText}" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Grid.Column="2" Text="{CompiledBinding SizeText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                                                        <TextBlock Grid.Column="3" Text="{CompiledBinding DurationText}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,20,0"/>
+                                                <!-- LIST_04: HorizontalAlignment="Left" is what stops the table
+                                                     running off to the right. This Border carries the hairline
+                                                     rule under each row, and while it stretched the rule ran the
+                                                     whole width of the list — a table edge hundreds of pixels
+                                                     past the last thing in it. Left-aligned, the rule ends just
+                                                     after the length. Selection and hover still cover the full
+                                                     row: those come from the ListBoxItem behind this Border, not
+                                                     from the Border itself. -->
+                                                <Border Padding="5,3" CornerRadius="4" Cursor="Hand" HorizontalAlignment="Left"
+                                                        ToolTip.Tip="Click to select this track — it starts playing straight away"
+                                                        BorderThickness="0,0,0,1" BorderBrush="#1AFFFFFF">
+                                                    <!-- LIST_02: every column is Auto and the NAME cell carries an explicit
+                                                         width, so the row packs to the left instead of stretching the name
+                                                         across the whole list and flinging the length at the far edge. The
+                                                         width is measured at runtime from the longest song title in the
+                                                         folder plus a 50px gap (TrackNameColumnWidth) — see
+                                                         RecalculateTrackNameColumnWidth. 72px for the length, up from 64:
+                                                         the old cell plus its right margin could not hold "1:04:07" at the
+                                                         larger font scales and clipped the last character. -->
+                                                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto">
+                                                        <!-- LIST_03: a FIXED (measured) width, not Auto. On Auto this cell was
+                                                             0px wide on ordinary rows and ~40px on RECENT ones, so the name
+                                                             column started at a different x on every row — the list only
+                                                             LOOKED aligned because most rows happened to be empty here. -->
+                                                        <TextBlock Grid.Column="0" Text="{CompiledBinding PinText}" Width="{Binding $parent[local:MusicWizardWindow].TrackPinColumnWidth}" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Width="{Binding $parent[local:MusicWizardWindow].TrackNameColumnWidth}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                        <Border Grid.Column="2" Width="1" Background="#14FFFFFF" VerticalAlignment="Stretch" Margin="10,1,10,1"/>
+                                                        <TextBlock Grid.Column="3" Text="{CompiledBinding DurationText}" Width="{Binding $parent[local:MusicWizardWindow].TrackLengthColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center"/>
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -129,15 +195,27 @@
                                             <Canvas Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Grid.Row="0" Grid.RowSpan="3" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ZIndex="10003" Cursor="Hand" Focusable="True" AutomationProperties.Name="Song start timeline seek area" ToolTip.Tip="Click the point in the song where the video should begin" KeyboardNavigation.IsTabStop="True" />
                                         </Grid>
                                         <TextBlock Name="OffsetLabel" Text="Song begins at 0.0s" Foreground="{DynamicResource AppInfoBrush}" FontWeight="Bold" HorizontalAlignment="Center" FontSize="{DynamicResource AppFontSize11}" Margin="0,5,0,5" IsVisible="True"/>
-                                        <Grid Margin="0,6,0,0" ColumnDefinitions="Auto,Auto,*">
-                                            <Button Grid.Column="0" Name="BeatSnapBtn" Content="Snap To Beat" Classes="Secondary" MinWidth="110" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" ToolTip.Tip="Move the song start to the nearest strong beat."/>
-                                            <Button Grid.Column="1" Name="SmartFitBtn" Content="Smart Fit" Classes="Primary" MinWidth="100" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="8,0,0,0" ToolTip.Tip="Pick a strong song section that fits the video length."/>
-                                            <TextBlock Grid.Column="2" Name="SmartFitStatusText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="10,0,0,0"/>
+                                        <Grid Margin="0,6,0,0" ColumnDefinitions="Auto,Auto,Auto,*">
+                                            <!-- FITEND_01: works backwards from the song's real ending instead of
+                                                 forwards from a start point, so the last frame of the video lands on
+                                                 the last musical moment of the song. See FindFitByEndStart. -->
+                                            <Button Grid.Column="0" Name="FitByEndBtn" Content="Fit By End Of Video" Classes="Secondary" MinWidth="140" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center"
+                                                    ToolTip.Tip="Line the END of the song up with the END of your video.&#x0a;&#x0a;It finds where the song really finishes — the last moment there is still something to hear, not the silence after it — and works backwards from there by the length of your video.&#x0a;&#x0a;Your video then finishes on the song's last note instead of cutting off mid-verse."/>
+                                            <Button Grid.Column="1" Name="BeatSnapBtn" Content="Snap To Beat" Classes="Secondary" MinWidth="110" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="8,0,0,0" ToolTip.Tip="Move the song start to the nearest strong beat."/>
+                                            <Button Grid.Column="2" Name="SmartFitBtn" Content="Smart Fit" Classes="Primary" MinWidth="100" FontSize="{DynamicResource AppFontSize10}" HorizontalContentAlignment="Center" Margin="8,0,0,0" ToolTip.Tip="Pick a strong song section that fits the video length."/>
+                                            <TextBlock Grid.Column="3" Name="SmartFitStatusText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="10,0,0,0"/>
                                         </Grid>
 
                                         <StackPanel Spacing="10" Margin="0,10,0,0">
-                                            <CheckBox Name="DuckingCheckBox" Content="Auto-lower music during loud game sounds" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Makes the music quieter when the game audio is loud, so you can hear both clearly."/>
-                                            <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Adjusts frequencies so the music and game audio don't clash."/>
+                                            <!-- DUCKNAME_01: both of these change the FINISHED video, not this preview
+                                                 (the smooth blend is previewed; the volume drop is not). The old wording
+                                                 described the machinery — "auto-lower music during loud game sounds" —
+                                                 instead of the thing the user wants, which is to still hear their game.
+                                                 Tooltips now say plainly what happens and when. -->
+                                            <CheckBox Name="DuckingCheckBox" Content="Protect the main video sound from music" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                      ToolTip.Tip="Leave this ON.&#x0a;&#x0a;Whenever something loud happens in your gameplay — a gunshot, a shout, an explosion — the music steps back for a moment so you can still hear it. Then it comes back up.&#x0a;&#x0a;Turn it OFF and the music stays at the same level the whole way through, on top of everything.&#x0a;&#x0a;This is applied when your video is saved. You will not hear it change in this preview."/>
+                                            <CheckBox Name="CarvingCheckBox" Content="Smooth blend between music and game audio" MinHeight="44" IsChecked="True" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                      ToolTip.Tip="Leave this ON.&#x0a;&#x0a;Music and game sound often fight over the same pitches, which makes both sound muddy. This scoops a little out of the music exactly where voices and game sounds live, so the two sit together instead of clashing.&#x0a;&#x0a;You can hear this one change as you tick and untick it."/>
                                         </StackPanel>
 
                                         <!-- MULTI SONG HELPER (Video Merger Mode) -->

@@ -144,6 +144,14 @@ public class ProcessWorker : IDisposable
     public bool VoiceOverDuckAudio { get; set; }
 
     /// <summary>
+    /// VOPROT_01 — "Protect VoiceOver Recording from Music". Ducks and EQ-carves the MUSIC bed
+    /// across the voice-over takes. Independent of the Add Music wizard's own ducking, which
+    /// protects the GAME from the music and is triggered by the game, not by the voice.
+    /// No music on this export means this flag has nothing to act on and is silently inert.
+    /// </summary>
+    public bool VoiceOverProtectFromMusic { get; set; }
+
+    /// <summary>
     /// ISSUE_04 — destination folder for the finished file, resolved by the UI layer
     /// (OutputFolderResolver) BEFORE the render starts. Null keeps the legacy behaviour of
     /// resolving Downloads here, but the UI always sets it so a missing Downloads folder is
@@ -759,37 +767,61 @@ public class ProcessWorker : IDisposable
 
                 bool hasSecondPass = false;
                 var effectiveTakes = GetEffectiveVoiceOverTakes();
+
+                // ══════════════════════════════════════════════════════════════════════════
+                // VOPROT_01 — ONE PULSE ENVELOPE, TWO CONSUMERS.
+                //
+                // 1.0 across every take (with a 0.3s ramp either side), 0 everywhere else. It used
+                // to be built INSIDE the game-ducking branch, so the music bed had no way to see
+                // it — which is why the old "Auto-Duck Game Audio" could leave the voice buried
+                // under music it never touched. Declared here so both protections can read it, and
+                // left null when neither is on so the graph is byte-for-byte unchanged.
+                // ══════════════════════════════════════════════════════════════════════════
+                string? voicePulseExpr = null;
+
                 if (effectiveTakes.Count > 0)
                 {
-                    if (sourceHasAudio && VoiceOverDuckAudio)
+                    if (VoiceOverDuckAudio || VoiceOverProtectFromMusic)
                     {
                         var conditions = new List<string>();
                         foreach (var take in effectiveTakes)
                         {
                             var p = new MediaProber(_ffprobePath, take.Path);
                             double dur = await p.GetDurationAsync();
-                            
+
                             double voStartOutSec = granularTimeMapper != null
                                 ? granularTimeMapper(take.StartSec)
                                 : (take.StartSec - actualExtractStartMs / 1000.0) / SpeedFactor;
-                            
+
                             double relStart = voStartOutSec;
                             double relEnd = relStart + dur;
-                            
+
                             string sStr = relStart.ToString(System.Globalization.CultureInfo.InvariantCulture);
                             string eStr = relEnd.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                            
+
                             string sRamp = $"(t-({sStr}-0.3))/0.3";
                             string eRamp = $"(({eStr}+0.3)-t)/0.3";
-                            string pulse = $"clip({sRamp},0,1)*clip({eRamp},0,1)";
-                            conditions.Add(pulse);
+                            conditions.Add($"clip({sRamp},0,1)*clip({eRamp},0,1)");
                         }
+
                         if (conditions.Count > 0)
                         {
-                            string combinedPulses = string.Join("+", conditions);
-                            coreFilters.Add($"{aPreparedPad}volume='1.0-0.85*clip({combinedPulses},0,1)':eval=frame[a_ducked]");
-                            aPreparedPad = "[a_ducked]";
+                            voicePulseExpr = $"clip({string.Join("+", conditions)},0,1)";
                         }
+                    }
+
+                    if (sourceHasAudio && VoiceOverDuckAudio && voicePulseExpr != null)
+                    {
+                        // DUCK **AND** CARVE. Dropping the game 85% still leaves it competing in
+                        // the 1-4 kHz band that carries speech intelligibility, so the level dip is
+                        // paired with a scoop centred on 2.5 kHz. `equalizer` has no time-varying
+                        // gain, but the scoop is small and only audible where the game is loud,
+                        // which is precisely where the dip has already pulled it out of the way.
+                        coreFilters.Add($"{aPreparedPad}volume='1.0-0.85*{voicePulseExpr}':eval=frame," +
+                                        $"equalizer=f=2500:width_type=h:width=2200:g=-3[a_ducked]");
+                        aPreparedPad = "[a_ducked]";
+                        CoreLogger.Info("Audio",
+                            $"Voice protection: game bus ducked 85% and carved at 2.5 kHz across {effectiveTakes.Count} take(s).");
                     }
 
                     int voBaseIndex = 1 + musicTracks.Count + (introDurationSec > 0.001 ? 1 : 0) + (textPngPath != null ? 1 : 0) + memes.Count;
@@ -895,7 +927,8 @@ public class ProcessWorker : IDisposable
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
                         voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
-                        musicBedGainDb: musicBedGains);
+                        musicBedGainDb: musicBedGains,
+                        voiceProtectMusicPulse: VoiceOverProtectFromMusic ? voicePulseExpr : null);
 
                     foreach (var part in built.chains)
                     {
@@ -1176,7 +1209,8 @@ public class ProcessWorker : IDisposable
                         musicLeadFadeIn: MusicLeadFadeIn,
                         musicTailFadeOut: MusicTailFadeOut,
                         voiceOverLabel: effectiveTakes.Count > 0 ? (effectiveTakes.Count > 1 ? "[vo_mixed_all]" : "[vo_delayed_0]") : null,
-                        musicBedGainDb: musicBedGains);
+                        musicBedGainDb: musicBedGains,
+                        voiceProtectMusicPulse: VoiceOverProtectFromMusic ? voicePulseExpr : null);
 
                     foreach (var part in built.chains)
                     {

@@ -36,6 +36,7 @@ public class MpvIpcClient : IDisposable
     private ulong _pauseObsId;
     private ulong _durationObsId;
     private ulong _eofObsId;
+    private ulong _fpsObsId;
 
 
     public static int GlobalMasterVolume { get; private set; } = 100;
@@ -54,6 +55,16 @@ public class MpvIpcClient : IDisposable
     public bool IsEof { get => _isEof; private set => _isEof = value; }
     public int VideoWidth { get; private set; }
     public int VideoHeight { get; private set; }
+
+    /// <summary>
+    /// THUMB_01 — the loaded file's frame rate, or 0 until mpv reports it.
+    ///
+    /// Added so "move one frame" can mean ONE FRAME. The thumbnail marker's keyboard nudge used a
+    /// hard-coded 60, which is a frame and a half on 30 fps footage and two thirds of one at 120 —
+    /// so a step that claims to be frame-accurate silently was not on most real recordings.
+    /// Callers must still handle 0 (nothing loaded yet) and fall back themselves.
+    /// </summary>
+    public double VideoFps { get; private set; }
 
     /// <summary>
     /// Fires on the event-loop thread whenever <c>time-pos</c> changes.
@@ -149,6 +160,9 @@ public class MpvIpcClient : IDisposable
         _pauseObsId   = MpvWrapper.ObserveProperty(_mpvHandle, "pause",     MpvWrapper.MpvFormat.Double);
         _durationObsId = MpvWrapper.ObserveProperty(_mpvHandle, "duration",  MpvWrapper.MpvFormat.Double);
         _eofObsId     = MpvWrapper.ObserveProperty(_mpvHandle, "eof-reached", MpvWrapper.MpvFormat.Double);
+        // THUMB_01 — container-fps is the file's declared rate and is stable for the whole clip,
+        // unlike estimated-vf-fps which drifts with decode load and would make a frame step jitter.
+        _fpsObsId     = MpvWrapper.ObserveProperty(_mpvHandle, "container-fps", MpvWrapper.MpvFormat.Double);
 
 
         _eventLoopThread = new Thread(EventLoopWorker)
@@ -244,6 +258,12 @@ public class MpvIpcClient : IDisposable
 
             case "eof-reached":
                 IsEof = value > 0.5;
+                break;
+
+            case "container-fps":
+                // THUMB_01 — mpv reports 0 (and briefly nonsense) between files; only accept a
+                // plausible rate so a bad reading cannot poison a frame step.
+                if (value > 1.0 && value < 1000.0) VideoFps = value;
                 break;
         }
     }
@@ -488,6 +508,7 @@ public class MpvIpcClient : IDisposable
             MpvWrapper.UnobserveProperty(_mpvHandle, _pauseObsId);
             MpvWrapper.UnobserveProperty(_mpvHandle, _durationObsId);
             MpvWrapper.UnobserveProperty(_mpvHandle, _eofObsId);
+            MpvWrapper.UnobserveProperty(_mpvHandle, _fpsObsId);
         }
 
         if (_ownsHandle && _mpvHandle != nint.Zero)

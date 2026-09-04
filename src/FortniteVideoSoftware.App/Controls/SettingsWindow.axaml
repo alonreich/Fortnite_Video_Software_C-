@@ -87,6 +87,24 @@
                                          preview does not simulate ducking). Default ON; OFF removes ALL protection. -->
                                     <CheckBox Name="AudioProtectionCheckbox" Content="Protect game sounds from the music (ducking + smooth blend)" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="ON: the music automatically steps back whenever gunshots or game sounds get loud, and its frequencies are shaped so the two do not clash. OFF: the music plays at a fixed level over everything and your game sounds get no protection at all." IsChecked="{Binding AudioProtection, Mode=TwoWay}" />
 
+                                    <!-- VOPROT_02: the two Voice Over Studio protection checkboxes start ON and are
+                                         remembered between projects. These two lists decide WHO owns that decision:
+                                         the studio (remember what I picked), or this screen (always / never). On an
+                                         Always choice the studio still SHOWS the box in the matching state, disabled,
+                                         with a tooltip pointing back here — a silently overridden checkbox reads as
+                                         a bug. Combo index maps 1:1 onto VoiceProtectionMode. -->
+                                    <TextBlock Text="Keeping your voice on top" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,14,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="While one of your recorded takes is playing, the Voice Over Studio can push the gameplay sound and the background music out of the way so what you said stays clear. Here you decide whether those two switches follow what you picked last time, or are simply always on or always off."/>
+
+                                    <TextBlock Text="Protect my voice from the gameplay sound" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <ComboBox Name="VoiceProtectGameComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Controls the 'Protect VoiceOver Recording from Game-Play Sound' checkbox in the Voice Over Studio."/>
+
+                                    <TextBlock Text="Protect my voice from the background music" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <ComboBox Name="VoiceProtectMusicComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Controls the 'Protect VoiceOver Recording from Music' checkbox in the Voice Over Studio. Has no effect on videos with no music."/>
+
                                     <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
 
                                     <!-- ===== 3. Background music ===== -->

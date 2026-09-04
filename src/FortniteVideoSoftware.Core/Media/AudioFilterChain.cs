@@ -67,6 +67,19 @@ public class AudioFilterChain
     /// MARK END. The music is asking to outlast the video, so there is nothing left to fade
     /// over: it is cut dead at MARK END. True gives the normal <see cref="EdgeFadeSec"/> tail.
     /// </param>
+    /// <param name="voiceProtectMusicPulse">
+    /// VOPROT_01 — "Protect VoiceOver Recording from Music". An ffmpeg expression that evaluates to
+    /// 1.0 wherever a voice-over take is playing and 0 elsewhere, built by ProcessWorker from the
+    /// take times. Non-null means the MUSIC bed is ducked and carved across those windows.
+    ///
+    /// This is NOT the wizard's own ducking. That one is triggered by the GAME and protects the
+    /// game from the music. This one is triggered by the VOICE and protects the voice from the
+    /// music, so the two are orthogonal and can be on or off in any combination.
+    ///
+    /// It is applied to the music bed BEFORE the wizard's crossover/sidechain apparatus, so the
+    /// music that reaches the sidechain is already out of the voice's way and the two stages do
+    /// not fight over the same band.
+    /// </param>
     public static (List<string> chains, string finalLabel) Build(
         JsonObject? musicConfig,
         double videoStartTime,
@@ -86,7 +99,8 @@ public class AudioFilterChain
         bool musicLeadFadeIn = true,
         bool musicTailFadeOut = true,
         string? voiceOverLabel = null,
-        IReadOnlyDictionary<string, double>? musicBedGainDb = null)
+        IReadOnlyDictionary<string, double>? musicBedGainDb = null,
+        string? voiceProtectMusicPulse = null)
     {
         var chain = new List<string>();
 
@@ -310,6 +324,18 @@ public class AudioFilterChain
         {
             chain.Add($"{bgMusicLabel}equalizer=f=2000:width_type=h:width=1800:g=-4[a_bg_music]");
             bgMusicLabel = "[a_bg_music]";
+        }
+
+        // VOPROT_01 — protect the voice from the music. Duck 85% across the takes and carve the
+        // speech band underneath them, using the same pulse envelope the game bus was given.
+        // Applied here, before the crossover/sidechain apparatus below, so the music arriving at
+        // the sidechain is already clear of the voice and the two stages cannot fight.
+        if (!string.IsNullOrEmpty(voiceProtectMusicPulse))
+        {
+            chain.Add($"{bgMusicLabel}volume='1.0-0.85*{voiceProtectMusicPulse}':eval=frame," +
+                      $"equalizer=f=2500:width_type=h:width=2200:g=-3[a_bg_voice_protected]");
+            bgMusicLabel = "[a_bg_voice_protected]";
+            CoreLogger.Info("Audio", "Voice protection: music bed ducked 85% and carved at 2.5 kHz across the voice-over takes.");
         }
 
         double vVolGame = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));

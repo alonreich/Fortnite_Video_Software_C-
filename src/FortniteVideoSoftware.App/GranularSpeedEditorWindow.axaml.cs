@@ -4424,6 +4424,59 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     /// <summary>§5 Live playhead sync: show the yellow box only while the caret is inside a zoomed segment.</summary>
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // CUTS_03 — THE EDITOR THAT MAKES THE CUTS NOW HONOURS THEM.
+    //
+    // DELETE PARTS removed the footage from the export and from the timeline drawing, but this
+    // window's own mpv preview knew nothing about it and played straight through the deleted
+    // section — so the one screen where a user checks their cut was the one screen that showed
+    // them the thing they had just cut out.
+    //
+    // Unlike the Music Wizard's phase-3 preview, this player is NOT driven from an output clock:
+    // mpv runs forward through the source at its own pace and this tick only intervenes for
+    // freezes. There is therefore nothing to make it step over a cut on its own, and it needs the
+    // same explicit watchdog the Main App uses.
+    //
+    // ⚠️ `_cuts` are TRIM-RELATIVE ms in this window (see the field's comment) while mpv reports
+    // ABSOLUTE source seconds, so `_trimStartMs` has to be added back before comparing. Getting
+    // that wrong would make the skip fire in the wrong place, or never.
+    //
+    // Fire-and-forget on the seek, and TRUE returned so the caller abandons the rest of the tick:
+    // this must never block the interface thread waiting on mpv (ZOOMHANG_01).
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    private bool SkipPreviewOutOfCut()
+    {
+        try
+        {
+            if (_cuts.Count == 0) return false;
+            var ipc = _videoHost?.IpcClient;
+            if (ipc == null) return false;
+
+            // A freeze is deliberately parked on one frame; a scrub is the user's own hand on the
+            // playhead. Neither is playback wandering into a cut, and yanking the position out
+            // from under either would fight the user.
+            if (_isCurrentlyFrozen || _isCanvasScrubbing) return false;
+
+            double nowMs = ipc.CurrentTime * 1000.0;
+            foreach (var cut in _cuts)
+            {
+                double absStartMs = cut.StartMs + _trimStartMs;
+                double absEndMs = cut.EndMs + _trimStartMs;
+                if (nowMs <= absStartMs + 1 || nowMs >= absEndMs - 1) continue;
+
+                double trimEndMs = _trimEndMs > 0 ? _trimEndMs : absEndMs;
+                double toSec = Math.Min(absEndMs, trimEndMs) / 1000.0;
+
+                _ = ipc.SetPropertyAsync("time-pos",
+                    toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                return true;
+            }
+        }
+        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+
+        return false;
+    }
+
     private void UpdateZoomPlayheadOverlay()
     {
         if (_zoomModeActive) return;
@@ -4460,6 +4513,11 @@ public partial class GranularSpeedEditorWindow : Window
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
+
+        // CUTS_03 — before anything else this tick does. If playback has wandered into footage the
+        // user deleted, nothing else on this tick is meaningful: the caret, the zoom overlay and
+        // the freeze arming would all be reasoning about a frame that is not in the video.
+        if (SkipPreviewOutOfCut()) return;
 
         if (_videoHost.IpcClient.VideoWidth > 0 && _videoHost.IpcClient.VideoHeight > 0)
         {

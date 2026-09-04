@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace FortniteVideoSoftware.App.Controls;
 
@@ -222,12 +222,12 @@ public static class CoachTours
 
         new CoachStep(
             "See where your voice sits",
-            "Your recording shows up as a shape on the ruler. Click a shape to select it and show edit controls.",
-            "TimelineRulerCanvas", CoachGesture.DragHorizontal),
+            "Your take appears as a red block on the film strip, with your voice drawn inside it. Click a block to select it and show edit controls.",
+            "ThumbnailLaneGrid", CoachGesture.DragHorizontal),
 
         new CoachStep(
-            "Keep the game audible",
-            "Leave this on and the game sound drops strongly during your recorded takes, so your voice stays clear.",
+            "Keep your voice on top",
+            "Leave these on and the gameplay sound and any background music both drop away during your takes, so what you said stays clear.",
             "DuckAudioCb", CoachGesture.Click),
 
         new CoachStep(

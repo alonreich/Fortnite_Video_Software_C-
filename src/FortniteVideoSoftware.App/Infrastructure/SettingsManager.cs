@@ -175,6 +175,56 @@ public class AppSettings
     /// engine had no attenuation at all and played every clip at full scale.
     /// </summary>
     public int UiSoundVolume { get; set; } = 70;
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // VOPROT_02 — WHO DECIDES THE TWO VOICE-PROTECTION CHECKBOXES.
+    //
+    // The checkboxes in the Voice Over Studio start ON and are remembered between projects, which
+    // is the right default. But "remembered" is only one of three wishes a user can have, and the
+    // other two are not reachable from a checkbox: "always on, stop asking me" and "never do this
+    // to my audio". A studio that always protects and a studio that never touches the mix are both
+    // legitimate ways to work, and a remembered checkbox forces the second kind of user to notice
+    // and clear it on every single project.
+    //
+    // So the MODE lives here and the checkbox is its instrument. On Always* the box is set and
+    // disabled with a tooltip that says where the decision was made — never silently overridden,
+    // which would look like a bug.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>VOPROT_02 — who decides "Protect VoiceOver Recording from Game-Play Sound".</summary>
+    public VoiceProtectionMode VoiceProtectGameMode { get; set; } = VoiceProtectionMode.RememberLastChoice;
+
+    /// <summary>VOPROT_02 — who decides "Protect VoiceOver Recording from Music".</summary>
+    public VoiceProtectionMode VoiceProtectMusicMode { get; set; } = VoiceProtectionMode.RememberLastChoice;
+
+    /// <summary>
+    /// VOPROT_02 — the last game-protection choice the user applied, used only under
+    /// <see cref="VoiceProtectionMode.RememberLastChoice"/>. Defaults true, which is what makes
+    /// the checkbox arrive already ticked on a brand-new install.
+    /// </summary>
+    public bool VoiceProtectGameLast { get; set; } = true;
+
+    /// <summary>VOPROT_02 — the last music-protection choice the user applied. See above.</summary>
+    public bool VoiceProtectMusicLast { get; set; } = true;
+}
+
+/// <summary>
+/// VOPROT_02 — how one of the Voice Over Studio's protection checkboxes is decided.
+///
+/// Three states, not a bool, for the same reason as <see cref="AudioFixPrompt"/>: "do not keep
+/// asking me" is two different wishes, and collapsing them makes one group of users fight the
+/// setting on every project.
+///
+/// ⚠️ The order here IS the Settings combo-box index. Keep the two in step.
+/// </summary>
+public enum VoiceProtectionMode
+{
+    /// <summary>Start from whatever the user chose last time. Default.</summary>
+    RememberLastChoice,
+    /// <summary>Always on, and the checkbox is shown ticked and disabled.</summary>
+    AlwaysOn,
+    /// <summary>Always off, and the checkbox is shown clear and disabled.</summary>
+    AlwaysOff
 }
 
 /// <summary>
@@ -326,6 +376,7 @@ public class DefaultValues
 [JsonSerializable(typeof(CheckboxDefaultBehavior))]
 [JsonSerializable(typeof(ValueDefaultBehavior))]
 [JsonSerializable(typeof(AudioFixPrompt))]
+[JsonSerializable(typeof(VoiceProtectionMode))]
 [JsonSerializable(typeof(ThemeMode))]
 [JsonSerializable(typeof(FontScale))]
 public partial class SettingsJsonContext : JsonSerializerContext { }
@@ -339,10 +390,12 @@ public static class SettingsManager
     ///   2 = added MainOutputDirectory / MergerOutputDirectory (ISSUE_04).
     ///   3 = added LoudnessNormalizationPrompt / PeakFlatteningPrompt (audio warning dialogs).
     ///   4 = added VideoEncoderOverride (G03 — user-forced encoder).
+    ///   5 = added VoiceProtectGameMode / VoiceProtectMusicMode and their remembered
+    ///       last-choice flags (VOPROT_02 — voice-protection policy).
     /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
     /// case to <see cref="Migrate"/>. NEVER reuse a number.
     /// </summary>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
@@ -437,6 +490,14 @@ public static class SettingsManager
         {
             if (string.IsNullOrWhiteSpace(loaded.VideoEncoderOverride)) loaded.VideoEncoderOverride = "Auto";
             from = 4;
+        }
+
+        if (from < 5)
+        {
+            // VOPROT_02 — purely additive. A v4 file has no policy recorded, and the C# property
+            // defaults (RememberLastChoice, both last-choices true) reproduce EXACTLY the
+            // behaviour that build had, so there is nothing to convert.
+            from = 5;
         }
 
         loaded.SchemaVersion = from;
