@@ -181,8 +181,27 @@ AI NOTE: Do not convert Merger or Crop Tools to modal dialogs. They intentionall
         |                                   (TIME_01). Owns the chunk model: normal, freeze,
         |                                   insertion (meme) and — since CUT_01 — CUT chunks.
         |                                   Full spec in Section 5E.
+        |-- Media/MemePlacement.cs        : ONE meme, placed somewhere in the video (MEME_03).
+        |                                   ⚠️ `AtSourceSecRelative` is CLIP-RELATIVE SOURCE
+        |                                   seconds — from the trim-in point, NOT a position in
+        |                                   the finished video. `Id` becomes an FFmpeg filter
+        |                                   label, so it is GENERATED (`NewId(index)`), never
+        |                                   derived from the user-supplied file name.
+        |-- Media/MicLevelMonitor.cs      : idle microphone metering for the Voice Over studio
+        |                                   (44.1kHz mono, 50ms buffer). ⚠️ MUST be stopped
+        |                                   before `VoiceRecorder` opens the same device — two
+        |                                   owners of one capture endpoint is a device-open
+        |                                   failure, not a mix.
         |-- Ipc/                          : Atomic state transfer between the isolated processes.
         |   (App layer) Controls/VoiceOverPreviewPlayer.cs : Reusable NAudio encapsulation for VoiceOver live playback in any preview surface.
+        |   (App layer) Infrastructure/MemePreviewDirector.cs : THE ONE meme-cutaway engine
+        |      (MEME_07), shared by all four preview surfaces. Swaps the meme file into the SINGLE
+        |      mpv host and back. ⚠️ WHILE IT IS ACTIVE, `CurrentTime`/`Duration`/`IsEof` DESCRIBE
+        |      THE MEME, NOT THE GAMEPLAY — every host tick must early-return on `IsActive` before
+        |      anything else it does. Read the class header before touching any of the four ticks.
+        |   (App layer) Infrastructure/MemePlacementStore.cs : persistence for meme placements.
+        |   (App layer) Controls/MemePickerWindow.axaml/.cs : the themed "which meme goes here"
+        |      list opened by ADD MEME. Deliberately a PLAIN list of file names — no per-row icon.
         |   (App layer) ThumbnailStripGenerator.cs : the ONE film-strip renderer, shared by Music
         |      Wizard phase 3 and the Granular editor's frame lane. Caller owns/deletes the temp PNG.
         |   (App layer) Infrastructure/ThemeResources.cs : THE ONLY safe way to read a brush or a
@@ -1010,6 +1029,43 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   converted through the same `OutputTimeline`, so removing footage slides them automatically.
   COST: 1 speed segment = 2 export chunks, 1 cut = 1 chunk, a cut touching the clip start or end =
   0. `ConfirmHighSegmentCountAsync` prices cuts in against `HighChunkCountWarnThreshold` (24).
+- MEMES ANYWHERE IN THE VIDEO (MEME_06): `ADD MEME` / `REMOVE MEME` in the Granular Speed Editor
+  place a meme at the caret, several per video. A meme is the MIRROR OF A CUT and the near-twin of
+  a FREEZE: it consumes ZERO source seconds and occupies its whole length in OUTPUT seconds. THAT
+  ASYMMETRY DECIDES WHERE EACH FEATURE IS EDITED — a cut has a shape on the SOURCE ruler, so it is
+  marked on the Main App timeline; a meme has a shape only on the OUTPUT ruler, so it is placed in
+  the Speed Editor, the one screen whose ruler is finished-video time. The block draws a clown
+  popsicle at each end (freeze/zoom style, hairline to the ruler) but NEITHER HEAD IS DRAGGABLE —
+  only the whole block moves, because a meme's length is the meme file's own length. The Main App
+  draws ONE display-only clown, since on a source ruler both ends fall on the same pixel.
+  ⚠️⚠️ THE DOUBLE-COUNTING TRAP — READ BEFORE "FIXING" AN OMISSION. An insertion chunk is
+  `HoldsSource`, so `SourceToOutput` ALREADY adds the meme's full duration at or past the anchor.
+  `MainWindow.SourceMsToOutputSeconds` and the Voice Over studio's timeline DELIBERATELY do not
+  receive memes — both carry an offset the export applies separately (`MemeTimeInsertedBefore`, or
+  the body clock), so feeding memes in pushes everything TWICE. The voice-over case is the
+  dangerous one: a take's trim is the DIFFERENCE of two `SourceToOutput` calls, so double-counting
+  makes FFmpeg trim seconds of real speech off the take. Both sites carry an explicit
+  "⚠️ DELIBERATELY OMITTED — DO NOT FIX THIS" comment. Leave them alone.
+  `SnapInsertionPoint` pushes a placement forward off any cut/freeze/segment and SAYS SO;
+  `HasInsertionAtSource` forbids two memes at one point; `DropMemesInsideCuts` deletes a meme whose
+  moment was cut away rather than sliding it somewhere the user never put it.
+- THE MEME CUTAWAY IN THE PREVIEW (MEME_07 / MEME_08, `Infrastructure/MemePreviewDirector.cs`):
+  all four previews now PLAY each meme in place. Inside a block every output->source mapping
+  correctly returns the ANCHOR frame, so the preview used to hold one still while the export played
+  a whole meme. The director re-points the ONE mpv host: park on the anchor, `loadfile` the meme,
+  play it for the placement's own `DurationSec`, `loadfile` the gameplay back at the same frame.
+  ⚠️ THE RULE EVERY HOST TICK FOLLOWS: while a cutaway is up, `CurrentTime`/`Duration`/`IsEof`
+  describe the MEME. `MainWindow.PlaybackTimerTickCore`, `VoiceOverWindow.Timer_Tick`,
+  `MusicWizardWindow.PlayheadTimer_Tick` and `GranularSpeedEditorWindow.PlaybackTimer_Tick` each
+  begin with `_memePreview.Tick(); if (IsActive) { hold caret; return; }` — BEFORE even the cut
+  skip. Four GLOBAL mpv properties are saved and restored around the swap: `speed` (survives
+  `loadfile`; a meme inside a 2x block would play at 2x in preview and 1x in export), `video-crop`
+  and `vf` (the zoom crop belongs to the gameplay), and `image-display-duration` (a still meme
+  would otherwise flash past in mpv's default 1s). Only forward PLAYBACK crossing an anchor fires a
+  cutaway — anything paused, backwards, or a one-tick jump over 1.5s is a seek — which is what
+  keeps the timeline scrubbable. NOT a second `MpvVideoView` (that doubles the D3D11/WGL/16-texture
+  interop stack in four windows) and NOT an mpv EDL stream (that invalidates every existing
+  time-pos-is-source-time mapping in all four).
 - Undo / Redo in the Granular Speed Editor (UNDO_01): Ctrl+Z / Ctrl+Y, plus a button pair at the
   bottom of the segment pane and a live hint strip under them naming the exact action the shortcut
   would take back (UNDOHINT_01). Covers add/delete segment, clear all, set freeze and delete parts.
@@ -1039,6 +1095,17 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   (3) the cut-aware loudnorm pass produces the same perceived level as an uncut export; (4) music
   and voice-over stay aligned across a cut; (5) 20+ small cuts trip the chunk warning and still
   export.
+- ⚠️ NEITHER HAS THE MID-VIDEO MEME (MEME_06/07/08). The timeline mathematics IS verified — the
+  chunk model was ported to Python and cross-checked (a 5s meme at 20s on a 60s clip gives 65s
+  finished; source 30 -> output 35; output 22 holds the anchor; with a 2x block before it the block
+  lands at 25-29s not 30s; two memes push cumulatively; memes and cuts net out correctly) — but no
+  rendered file has been inspected. Owed: (1) the meme lands at the exact output second the editor
+  drew it at; (2) audio does not drift at either splice; (3) a meme plus a cut plus a slow-mo block
+  in one export; (4) "keep the music playing" across a video meme; (5) a still-image meme holds its
+  full 4s. ALSO UNVERIFIED ON HARDWARE: the MEME_07 preview cutaway itself. Its two `loadfile`
+  round-trips, the four saved/restored global properties and the two stall overlays are statically
+  correct but have not been watched on a real machine. The one to watch for is `speed` and
+  `video-crop` restoring cleanly after a cutaway that fired inside a zoomed slow-mo block.
 - ⚠️ A CUT CAN NOW LAND INSIDE AN EXISTING SLOW-MO + ZOOM BLOCK. Cuts were originally planned for
   the Main Screen precisely to avoid this (see Cut_Feature_Design_v2.txt); the owner moved them
   into the Granular editor, which makes that path reachable. The subdivision handles it — cut edges
@@ -1128,6 +1195,147 @@ When the app is freshly installed and no config exists, the default upload video
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- MEME_07 / MEME_08 / DRAG_FIX — THE MEME NOW PLAYS IN THE PREVIEW, AND THE BLOCK DRAGS CLEANLY
+  (`Infrastructure/MemePreviewDirector.cs` NEW, all four preview windows, `MemePickerWindow.axaml`).
+  REPORTED as three things: the picker did not need a clown icon on every row; a created meme "does
+  not render/play as a reliable preview representing the final export"; and the block was "very
+  stuttery and unstable to move drag". THE PREVIEW: inside a meme block every output->source mapping
+  correctly returns the ANCHOR frame, because a meme consumes no source time — mathematically right
+  and visually useless, since the preview held one still while the export played a whole meme. Fixed
+  by RE-POINTING THE ONE mpv HOST (option B of three, chosen with the owner): park on the anchor,
+  `loadfile` the meme, play it for the placement's own `DurationSec`, `loadfile` the gameplay back at
+  the same frame, restore the pause state. Rejected: a second `MpvVideoView` (doubles the libmpv
+  render context, D3D11 device, WGL/DXGI interop and 16-texture swap chain in FOUR windows, and adds
+  a disposal-ordering hazard to each) and an mpv EDL stream (perfectly representative, and it
+  invalidates every mapping in all four windows, all of which assume `time-pos` IS gameplay source
+  time). ⚠️ THE RULE THIS CREATES: while a cutaway is up, `CurrentTime`/`Duration`/`IsEof` describe
+  the MEME, so all four ticks now early-return on `IsActive` BEFORE even the cut skip — otherwise the
+  cut skip seeks at random, the trim-end stop fires at the meme's end, the freeze arms off the wrong
+  instant, music and voice takes resync to a meaningless offset, and the eof handler pauses the video
+  for good. FOUR GLOBAL mpv PROPERTIES are saved and restored around the swap; `speed` is the one
+  that matters most, because it survives a `loadfile`, so a meme firing inside a 2x block would have
+  played at 2x in the preview and 1x in the export — the preview lying about the one thing it exists
+  to show. Both black moments are ANNOUNCED (`MemeSwapOverlay`), and every placement change raises a
+  window-blocking `MemeRebuildOverlay` ("PLEASE WAIT / Rebuilding your timeline around the meme...")
+  that cannot be clicked through, because a half-rebuilt timeline that still accepts clicks is how a
+  user drags a marker onto a position that no longer exists. MEME_08: the drag now scrubs the picture
+  to the exact frame the meme will interrupt while parking the caret on the block's START in output
+  seconds — the same instant, two different positions on the ruler. DRAG_FIX, the two real defects
+  behind "stuttery and unstable": (a) the block's start is the PIVOT the pointer maths corrects
+  around and it was cached at press, so the instant the meme moved the pivot was stale and every
+  position between old and new start was mis-classified — the band jumped a full meme-length off the
+  cursor on a direction reversal, then snapped back; it is now derived live from the drag ruler,
+  which costs no extra timeline build because the live ruler IS the drag ruler with the block spliced
+  in; (b) `InvalidateMemeTimelines` was clearing `_baseTimeline`, which is built with NO insertions
+  and whose signature cannot contain a meme — and the snap calls `BaseTimeline()` on every pointer
+  move, so every move forced a full `OutputTimeline.Create` that was thrown away immediately.
+- MEME_06 — MEMES ANYWHERE IN THE VIDEO, NOT JUST THE TWO ENDS (`MemePlacement.cs` NEW,
+  `OutputTimeline.cs`, `GranularSpeedEditorWindow`, `MainWindow`, `MemePickerWindow` NEW,
+  `ProcessWorker`). A meme is the MIRROR OF A CUT and the near-twin of a FREEZE — zero SOURCE
+  seconds, its whole length in OUTPUT seconds — so the existing chunk model absorbed it as the
+  INSERTION kind with no new time mathematics. THE ASYMMETRY IS THE WHOLE DESIGN: a cut has a shape
+  on the SOURCE ruler so it is marked on the Main App timeline; a meme has a shape only on the OUTPUT
+  ruler so it is placed in the Speed Editor, the one screen whose ruler is finished-video time. UI:
+  `ADD MEME` places at the caret through `SnapInsertionPoint` and opens a plain list of the meme
+  folder; the block draws a clown popsicle at each end in the freeze/zoom style, and NEITHER HEAD IS
+  DRAGGABLE — only the whole block moves, because a meme's length is the meme file's own length and a
+  resize grip would advertise a control that cannot do anything. The Main App draws ONE display-only
+  clown (on a source ruler both ends land on the same pixel, so there is no band to grab).
+  ⚠️⚠️ THE DOUBLE-COUNTING TRAP, CAUGHT BY SIMULATION BEFORE IT SHIPPED: an insertion is
+  `HoldsSource`, so `SourceToOutput` already adds the meme's full duration at or past the anchor. I
+  had added insertions to `MainWindow.SourceMsToOutputSeconds` and to the Voice Over studio's
+  timeline; both would have pushed everything TWICE, since the export applies that offset separately
+  (`MemeTimeInsertedBefore`, or the body clock). The voice-over one was the dangerous half — a take's
+  trim is the DIFFERENCE of two `SourceToOutput` calls, so it would have made FFmpeg trim seconds of
+  real speech off the take. Both reverted with explicit "⚠️ DELIBERATELY OMITTED — DO NOT FIX THIS"
+  comments. Also caught: `ExportPayload.MemePlacements` was never assigned by `MainWindow` — the
+  whole feature was building a placement list the exporter never saw. Guards: `HasInsertionAtSource`
+  (no two memes at one point), `DropMemesInsideCuts` (a meme whose moment was cut away is DELETED,
+  not slid — sliding keeps the work but moves it somewhere the user never put it, discovered only at
+  export), and `NewId(index)` is generated rather than derived from the file name, because ids become
+  FFmpeg filter labels and meme files routinely contain spaces, quotes and brackets. Fade rule
+  confirmed in `ProcessWorker`: `fadeThisMeme = memeTrails || memeLeads`, so a MIDDLE meme is never
+  faded — fading it would read as the video ending twice. VERIFIED by porting the chunk model to
+  Python: 5s meme at 20s on a 60s clip -> 65s finished, source 30 -> output 35, output 22 holds the
+  anchor, a 2x block before it puts the block at 25-29s not 30s, two memes push cumulatively.
+- LAYOUT_03 / SCISSORS_01 — GRANULAR VERTICAL SPACE AND AN ICON THAT VANISHED INTO ITS OWN BUTTON
+  (`GranularSpeedEditorWindow.axaml`, `AvaloniaApp.axaml`). REPORTED as "the vertical real estate is
+  too expensive... some areas are a pure waste". `ZOOM-IN` did not sit on the same row as `FREEZE
+  IMAGE` and `MARK END`, which forced an empty band between the 60px film lane and the buttons. The
+  transport row's right flank now holds ZOOM-IN AND NOTHING ELSE so that alignment holds, and the
+  SPEED wheel row became a three-column grid: ADD MEME / REMOVE MEME bottom-left under the FREEZE
+  IMAGE column, the wheel and presets centred, DELETE PARTS bottom-right under ZOOM-IN. Height goes
+  back to the picture, which is the one thing in this window that needs it. ⚠️ DO NOT REINTRODUCE A
+  DEDICATED TOOLBAR ROW — LAYOUT_01 already removed one that held two controls. SCISSORS_01: the
+  DELETE PARTS scissors were drawn with RING handles, so on the button's red fill the handles
+  disappeared completely and the icon read as two disconnected blades. Solid discs now. Do not
+  "restore" the holes.
+- CUTS_02 / CUTS_03 — A CUT IS A CHANGE TO THE WHOLE PROJECT, INCLUDING THE EDITOR THAT MADE IT
+  (`MainWindow`, `VoiceOverWindow`, `MusicWizardWindow`, `GranularSpeedEditorWindow`). REPORTED as
+  "it does not cut them out from the main app opening screen timeline... also from voiceover or add
+  music", then "it does not cut out the part and skip it in the front end video rendering preview".
+  Deleted stretches are now drawn AND skipped in one seek on all four preview surfaces, and mapped
+  through the same `OutputTimeline` everywhere. CUTS_03 is the embarrassing half: the Granular editor
+  — the window that owns the DELETE PARTS button — was still playing straight through its own holes.
+  Each skip runs BEFORE anything else on its tick, because a tick that has wandered into deleted
+  footage is reasoning about a frame that is not in the video: its caret, its zoom overlay and its
+  freeze arming would all be wrong together. A take recorded across a skip raises "Skipped a deleted
+  section" rather than silently anchoring speech to frames the finished video does not contain.
+- EDIT3_01 / EDIT3_02 — PRESSING AN ACTIVE FEATURE BUTTON NO LONGER DESTROYS THE WORK
+  (`Controls/ConfirmDialogWindow.cs`, `MainWindow`). The Granular Speed and Add Music buttons DELETED
+  everything on the spot with no prompt at all, so changing one thing about a music placement, or one
+  segment out of twelve, meant destroying the lot and rebuilding it. The Voice Over button already
+  had a third option; `AskEditOrRemoveAsync` lifts it out so all three share ONE implementation and
+  cannot drift in wording, colour or keyboard behaviour. EDIT reopens the editor on the existing work
+  (Add Music returns to phase 3 with its placement intact; the Speed Editor reopens with every
+  segment, freeze, cut and meme). REMOVE is the only red action. ⚠️ ANYTHING ELSE — close, Escape, or
+  a failure to show the dialog at all — returns `Cancelled` and KEEPS the work: a prompt that cannot
+  be shown must never be read as consent to delete. EDIT3_02 relabelled the buttons to match
+  (`REMOVE MUSIC` -> `EDIT MUSIC`, `REMOVE SPEEDS` -> `EDIT SPEEDS`, both in the Voice Over button's
+  green style), because a red REMOVE label on a button that now offers three choices told the user
+  the wrong thing before they pressed it.
+- THUMB_01 — PICKING A THUMBNAIL BY HAND (`MainWindow`, `MpvIpcClient`). The SET THUMBNAIL button was
+  a plain toggle: once a thumbnail existed it could ONLY remove it, so "click the timeline where I
+  want it, then press SET THUMBNAIL" deleted the marker and needed a second press to place a new one
+  — two presses and a destroyed marker to move a thing already on screen. THREE OUTCOMES NOW, and the
+  label follows the playhead: `SET THUMBNAIL` / `MOVE THUMBNAIL HERE` / `REMOVE THUMBNAIL` (the last
+  when the playhead is parked on the marker, which is what makes remove reachable without a second
+  control). The marker also drag-scrubs the preview frame by frame, and once marching-ants selected,
+  arrow keys nudge it and Shift+arrows step ONE FRAME. `MpvIpcClient` gained an observed
+  `container-fps` (`VideoFps`) for that: a step computed from an assumed 30 or 60 lands on a
+  different frame than the one the user is looking at, which defeats the point of frame stepping.
+- VOPROT_01 / VOPROT_02 / VOASYNC_02 / VOSTART_01 — THE VOICE OVER STUDIO OVERHAUL
+  (`VoiceOverWindow`, `MicLevelMonitor.cs` NEW, `SettingsManager`, `SettingsWindow`). VOSTART_01: the
+  studio opened wherever the main screen's playhead happened to be, which is almost never the start
+  of the trim, so the first take began mid-clip; it now opens on MARK START. `MicLevelMonitor` lights
+  the status lamp as soon as a device is detected and drives the EQ meter while IDLE, so a muted or
+  mis-selected microphone is visible BEFORE a take rather than after recording silence — ⚠️ it must
+  be STOPPED before `VoiceRecorder` opens the same device; two owners of one capture endpoint is a
+  device-open failure, not a mix. One transport row (REC lamp left of the mic button, EQ meter
+  centre, READY lamp right of play/pause) so the control and its confirmation are read together, and
+  the 60px film lane now draws each take's WAVEFORM inside its red overlay, built by a background
+  worker — a take is identified by where the speech actually is, not by a featureless box.
+  VOPROT_01: `Auto-Duck Game Audio` renamed to `Protect VoiceOver Recording from Game-Play Sound`
+  (the old name described the mechanism, not the goal) and joined by `Protect VoiceOver Recording
+  from Music` — the old single box only ever covered the GAME bus, leaving wizard music to fight the
+  voice at full level. Each ducks AND EQ-carves one bus by 85% at 2kHz, only across the takes.
+  VOPROT_02 adds a Settings policy per box: permanently on, permanently off, or remember last choice
+  (the default). VOASYNC_02: opening and closing a WASAPI endpoint is a blocking call of tens to
+  hundreds of ms and it was on the interface thread, so stopping a take and starting another froze
+  the window — REPORTED as "the app freezes for a brief moment". All capture-device work is now
+  queued onto ONE SERIALISED worker off the interface thread; it must stay serialised rather than
+  merely asynchronous, because two overlapping open/close pairs on one endpoint is the exact race.
+- FITEND_01 + ADD MUSIC WIZARD REFINEMENTS (`MusicWizardWindow`). Phase 1 had no `Song Name` or
+  `Length` column titles at all, and the length column stretched to the right edge, stranding the
+  duration across the panel from its song; both fixed, with the length column measured to the width
+  of the word "Length" plus 20px and the name gap measured rather than left to a star column. Song
+  preview made far snappier when switching tracks. The coverage block is now HIDDEN ENTIRELY when the
+  chosen song is already longer than the video — there is no coverage problem, so the UI that solves
+  one is not shown — and when it does appear it is protected by a minimum 875px height (measured at
+  1920x1080, DPI-scaled for 4K/8K). FITEND_01 adds `Fit By End Of Video`: the song start that makes
+  the VIDEO finish on the song's last musical moment, the counterpart to fitting the beat drop at the
+  front. Phase 3's timeline is fed both the cut list and the meme placements, so the A/B screen — the
+  one whose entire job is judging the finished result — is not the one preview that lies about length.
 - CUT_01/CUT_02/CUT_03 — DELETE PARTS: REMOVING FOOTAGE FROM THE MIDDLE OF THE CLIP
   (`OutputTimeline.cs`, `GranularSpeedBuilder.cs`, `ProcessWorker.cs`, `ExportPayload.cs`,
   `MainMediaController.cs`, `MainWindow`, `GranularSpeedEditorWindow`, `Phase4Gate.cs`).
@@ -2273,5 +2481,13 @@ When the app is freshly installed and no config exists, the default upload video
 10. ENHANCED MEME SYSTEM & HARDWARE GUARDRAILS
 ------------------------------------------------------------------------------
 For all information regarding the Enhanced Meme System and Hardware Guardrails, please refer to the main specification document: `Product_Features_Specifications.txt` §43.
+
+⚠️ SUPERSEDED IN PART BY MEME_06 — §43's meme LIBRARY, probe, cloud sync, image handling and FFmpeg
+layout rules are all still accurate. What is no longer true is the COUNT and the POSITION: the app
+is not limited to one meme pinned to an end of the video. Memes are placed at chosen moments from
+the Granular Speed Editor's ADD MEME button, several per video, and `ExportPayload.MemePlacements`
+is the real carrier. The main screen's `MemeComboBox` is retained deliberately as a QUICK SHORTCUT
+for the common one-meme case, not as the only route. Full spec: `Product_Features_Specifications.txt`
+§57 (placement) and §58 (the cutaway in the preview).
 
 - THUMBNAIL_02 - AUTO THUMBNAIL FALLBACK MOVED TO 66% AND MADE VISIBLE (`MainWindow.axaml.cs`, `MainMediaController.cs`): The fallback for an unset thumbnail previously used `TrimStartMs`, placing a frozen copy of the very first frame of the trimmed selection at the front of the video (which was often pitch black or fading in). FIX: The fallback now mathematically targets exactly 66% into the trimmed selection. This is no longer hidden in the backend; `MainWindow.axaml.cs` has a new `UpdateAutoThumbnailMarker()` helper fired continuously by the trim markers' `PointerMoved` events. The Thumbnail Camera Icon now smoothly glides across the timeline as trim bounds are dragged, so the user sees EXACTLY which frame is chosen. If `_thumbnailSet == true` (human override), the auto-calculation disables itself to protect the custom pick.

@@ -37,6 +37,18 @@
         <Color x:Key="AppZoomColor">#2251c1</Color>
         <SolidColorBrush x:Key="AppZoomBrush" Color="{StaticResource AppZoomColor}" />
         <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#1c449c" />
+
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             MEME_06 — THE MEME COLOUR, and it follows AppZoomColor's rule exactly.
+             Memes get their own token for the same reason zoom did: their timeline markers sit on
+             the SAME ruler as the freeze camera (danger red) and the zoom magnifier (AppZoomColor),
+             and three features sharing two colours is how a user ends up dragging the wrong thing.
+             Purple is chosen because it collides with nothing already on that ruler — not the red
+             freeze/cut markers, not the zoom blue, not the green take handles.
+             ⚠️ DO NOT reuse this for anything that is not a meme, and do not give memes a second
+             colour "for the end marker" — both ends are one object, which is the whole point. -->
+        <Color x:Key="AppMemeColor">#7c3aed</Color>
+        <SolidColorBrush x:Key="AppMemeBrush" Color="{StaticResource AppMemeColor}" />
         <SolidColorBrush x:Key="AppZoomDeepBorderBrush" Color="#15306b" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />
@@ -53,7 +65,16 @@
         <StreamGeometry x:Key="AppSpeakerIconGeometry">M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14</StreamGeometry>
         <!-- CUT_02 — scissors, on a 24x24 grid to match AppVoiceOverIconGeometry / AppMusicNote.
              Two finger rings, two blades crossing just above centre, and the pivot. -->
-        <StreamGeometry x:Key="AppScissorsIconGeometry">M9.6,9.1 L19,19.5 L20.6,17.9 L11.9,7.5 Z M14.4,9.1 L5,19.5 L3.4,17.9 L12.1,7.5 Z M6,2 A3,3 0 1,0 6,8 A3,3 0 1,0 6,2 M6,3.6 A1.4,1.4 0 1,1 6,6.4 A1.4,1.4 0 1,1 6,3.6 M18,2 A3,3 0 1,0 18,8 A3,3 0 1,0 18,2 M18,3.6 A1.4,1.4 0 1,1 18,6.4 A1.4,1.4 0 1,1 18,3.6 M12,10.8 A1.1,1.1 0 1,0 12,13 A1.1,1.1 0 1,0 12,10.8</StreamGeometry>
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             SCISSORS_01 — THE HANDLES ARE SOLID DISCS, NOT RINGS. DO NOT "RESTORE" THE HOLES.
+             They used to be annuli: a 3.0 outer circle with a 1.4 inner circle punched out, i.e. a
+             1.6-unit wall on a 24-unit canvas. This icon renders at AppFontSize14, so that wall
+             came out under one physical pixel and the two handles simply vanished against the red
+             Danger fill — the blades read fine and the icon looked like a broken X.
+             Solid discs survive any size and any background. The blades are also thickened from
+             1.6 to 2.2 units for the same reason.
+             ══════════════════════════════════════════════════════════════════════════════════ -->
+        <StreamGeometry x:Key="AppScissorsIconGeometry">M9.3,9.0 L19.2,19.9 L21.1,18.2 L11.9,7.2 Z M14.7,9.0 L4.8,19.9 L2.9,18.2 L12.1,7.2 Z M6,2 A3.2,3.2 0 1,0 6,8.4 A3.2,3.2 0 1,0 6,2 Z M18,2 A3.2,3.2 0 1,0 18,8.4 A3.2,3.2 0 1,0 18,2 Z M12,10.6 A1.3,1.3 0 1,0 12,13.2 A1.3,1.3 0 1,0 12,10.6 Z</StreamGeometry>
         <StreamGeometry x:Key="AppVoiceOverIconGeometry">M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z</StreamGeometry>
 
         <!-- Global font-size tokens (base defaults; scaled at runtime by ThemeManager.ApplyFontScale) -->

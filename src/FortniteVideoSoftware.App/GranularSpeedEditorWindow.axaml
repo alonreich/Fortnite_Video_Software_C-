@@ -166,6 +166,19 @@
                                 <TextBlock Text="Applying changes..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" HorizontalAlignment="Center"/>
                             </StackPanel>
                         </Border>
+
+                        <!-- MEME_07: the meme cutaway swaps the file in the ONE mpv host, so the
+                             picture goes black for a few hundred milliseconds at each end of the
+                             meme. Unannounced that reads as a stutter or a crash, so it is said out
+                             loud. ZIndex 72 sits above the zoom busy overlay (70). -->
+                        <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="72" Background="#E6000000" CornerRadius="6">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                                <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                                <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                <TextBlock Name="MemeSwapOverlayText" Text="Loading the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Please wait a moment." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Border>
 
@@ -248,23 +261,23 @@
                          Main Screen because this editor already owns MARK START / MARK END and the
                          timeline that has to condense when footage is removed — the selection
                          gesture and the thing it acts on are now in the same place. -->
-                    <StackPanel Grid.Column="2" Orientation="Vertical" Spacing="6"
+                    <!-- LAYOUT_03: this flank holds ZOOM-IN AND NOTHING ELSE, and that is the
+                         point. It used to be a vertical stack of four buttons, which made row 2
+                         four buttons tall while the left flank needed only two and the centre only
+                         one — so the row's height was set by the tallest column and every other
+                         column paid for it in blank space above the timeline. Vertical space is the
+                         scarce axis in this editor.
+                         With one button per flank, row 2 is ONE LINE: FREEZE IMAGE, MARK START /
+                         PLAY / MARK END and ZOOM-IN all sit on the same baseline, and the gap
+                         between the 60px thumbnail lane and the controls collapses.
+                         DELETE PARTS and ADD MEME moved to row 3, where they flank the SPEED wheel
+                         in the same two columns — DELETE PARTS stays under ZOOM-IN, ADD MEME sits
+                         under FREEZE IMAGE. ⚠️ Do not add a second button back into this stack. -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
                                 HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Name="ZoomSegmentBtn" Classes="ZoomAction" Content="🔍 ZOOM-IN" MinWidth="140"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                HorizontalContentAlignment="Center"
                                 ToolTip.Tip="Draw a zoom (punch-in) box. If no speed block is selected, one is created for you at normal speed."/>
-                        <Button Name="DeletePartsBtn" Classes="Danger" MinWidth="140"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                ToolTip.Tip="DELETE ENTIRE SCENE FROM THE VIDEO">
-                            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <Path Data="{DynamicResource AppScissorsIconGeometry}"
-                                      Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"
-                                      Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}"
-                                      VerticalAlignment="Center"/>
-                                <TextBlock Text="DELETE PARTS" FontWeight="Bold"
-                                           FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
                     </StackPanel>
                 </Grid>
 
@@ -274,10 +287,37 @@
                      video preview above — the only element that actually benefits from more
                      height. Do not restore generous margins "for breathing room"; the breathing
                      room comes from the preview being bigger. -->
-                <Grid Grid.Row="3" Margin="0,2,0,0">
+                <Grid Grid.Row="3" Margin="10,2,10,0" ColumnDefinitions="*, Auto, *">
+
+                    <!-- LAYOUT_03 / LEFT: ADD MEME, directly under the FREEZE IMAGE column and on
+                         the SPEED wheel's line. REMOVE MEME sits beside it and only appears while a
+                         meme is selected, so it costs no height when it is not needed. -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <!-- MEME_06: same gesture as ZOOM-IN and FREEZE IMAGE — park the playhead,
+                             press the button, it lands exactly there. -->
+                        <Button Name="AddMemeBtn" Classes="Secondary" MinWidth="140"
+                                HorizontalContentAlignment="Center"
+                                ToolTip.Tip="Drop a meme at the playhead. The gameplay pauses, the meme plays in full, then the gameplay carries on from the exact frame it stopped on — so your video gets longer by the meme's length.">
+                            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="🤡" FontSize="{DynamicResource AppFontSize14}" VerticalAlignment="Center"/>
+                                <TextBlock Text="ADD MEME" FontWeight="Bold"
+                                           FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Name="RemoveMemeBtn" Classes="Danger" MinWidth="150" IsVisible="False"
+                                HorizontalContentAlignment="Center"
+                                ToolTip.Tip="Take this meme out of the video. Ctrl+Z brings it back.">
+                            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="🤡" FontSize="{DynamicResource AppFontSize14}" VerticalAlignment="Center"/>
+                                <TextBlock Text="REMOVE MEME" FontWeight="Bold"
+                                           FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Center: Speed presets + slider -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
                             <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="40" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
@@ -298,6 +338,28 @@
                                 <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x" ToolTip.Tip="Set speed to 4.0x"/>
                             </StackPanel>
                         </StackPanel>
+                    </StackPanel>
+
+                    <!-- LAYOUT_03 / RIGHT: DELETE PARTS, directly under ZOOM-IN and on the SPEED
+                         wheel's line. CUT_02's reason for it living in this editor is unchanged —
+                         this screen owns MARK START / MARK END and the timeline that condenses when
+                         footage is removed; only its position moved. -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Name="DeletePartsBtn" Classes="Danger" MinWidth="140"
+                                HorizontalContentAlignment="Center"
+                                ToolTip.Tip="DELETE ENTIRE SCENE FROM THE VIDEO">
+                            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <!-- SCISSORS_01: solid-handled scissors. The old outline version
+                                     lost both handles to sub-pixel walls on this red fill. -->
+                                <Path Data="{DynamicResource AppScissorsIconGeometry}"
+                                      Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"
+                                      Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}"
+                                      VerticalAlignment="Center"/>
+                                <TextBlock Text="DELETE PARTS" FontWeight="Bold"
+                                           FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Grid>
@@ -544,6 +606,23 @@
                 </StackPanel>
             </Border>
         </Grid>
+
+        <!-- MEME_07: THE REBUILD STALL. Adding, moving or removing a meme changes the finished
+             video's length and every frame position after the meme, so the output ruler, the film
+             strip and the preview all have to be rebuilt before the timeline can be scrubbed
+             truthfully. That takes a moment. This blocks the WHOLE window while it happens, on
+             purpose: a half-rebuilt timeline that still accepts clicks is how a user ends up
+             dragging a marker onto a position that no longer exists. It cannot be missed and it
+             cannot be clicked through. -->
+        <Border Name="MemeRebuildOverlay" IsVisible="False" ZIndex="9998" Background="#F0000000">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="520">
+                <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                <TextBlock Text="PLEASE WAIT" Foreground="{DynamicResource AppMemeBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                <ProgressBar IsIndeterminate="True" MinWidth="260" MinHeight="8" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                <TextBlock Name="MemeRebuildOverlayText" Text="Rebuilding your timeline around the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
+                <TextBlock Text="Your video is being re-timed so the preview matches the finished file exactly. This only takes a moment - the timeline will be ready to scrub as soon as it disappears." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
+            </StackPanel>
+        </Border>
     </Grid>
 
 </Window>

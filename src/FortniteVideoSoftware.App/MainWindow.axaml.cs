@@ -709,7 +709,13 @@ private bool _exportedCleanSinceLastEdit;
                     isMobileForZoom,
                     zoomSrcRes,
                     _voiceOverResult,
-                    _cuts);          // CUT_02 — cuts are edited in the Granular editor now
+                    _cuts,           // CUT_02 — cuts are edited in the Granular editor now
+                    _memePlacements) // MEME_06 — and so are memes
+                {
+                    // MEME_06 — handed over rather than re-scanned: this window already scanned the
+                    // meme folder and probed every file's dimensions on startup.
+                    AvailableMemes = _memeItems
+                };
 
                 await editor.ShowDialog(this);
                 ReturnToTrimStartPaused();
@@ -729,6 +735,13 @@ private bool _exportedCleanSinceLastEdit;
                     _cuts.Clear();
                     _cuts.AddRange(editor.ResultCuts);
                     cutsChangedByEditor = true;
+
+                    // MEME_06 — memes come home in CLIP-RELATIVE SOURCE seconds and stay that way.
+                    // Unlike the cuts above there is no trim offset to re-apply; MemePlacement is
+                    // defined in clip-relative time end to end, from this list through
+                    // ExportPayload to the FFmpeg graph.
+                    _memePlacements.Clear();
+                    _memePlacements.AddRange(editor.ResultMemes);
 
                     ClearLiveZoomCrop();
 
@@ -908,7 +921,8 @@ private bool _exportedCleanSinceLastEdit;
                     _trimEndSet ? _trimEndMs : 0,
                     BuildExportSpeedSegments(),
                     _baseSpeed,
-                    _cuts)          // CUTS_02 — deleted sections are shown, skipped and mapped
+                    _cuts,          // CUTS_02 — deleted sections are shown, skipped and mapped
+                    _memePlacements) // MEME_06 — so a take after a meme maps to the right instant
                 {
                     InitialState = _voiceOverResult
                 };
@@ -1195,7 +1209,8 @@ private bool _exportedCleanSinceLastEdit;
                     _baseSpeed,
                     BuildExportSpeedSegments(),
                     _voiceOverResult,
-                    _cuts);         // CUTS_02 — music is laid against the video's REAL length
+                    _cuts,          // CUTS_02 — music is laid against the video's REAL length
+                    _memePlacements); // MEME_06 — which memes make LONGER, not shorter
                 wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
 
                 // EDIT3_01 — hand the existing placement over so the wizard opens on it. Must be
@@ -2950,6 +2965,24 @@ private bool _exportedCleanSinceLastEdit;
         EnsureTrimPointsSet();
         double spanMs = Math.Max(0, _trimEndMs - _trimStartMs);
 
+        // ══════════════════════════════════════════════════════════════════════════════
+        // MEME_06 — ⚠️ INSERTIONS ARE DELIBERATELY OMITTED HERE. DO NOT "FIX" THIS.
+        //
+        // Cuts belong (they shorten the video and this mapping must see that). Memes do NOT, even
+        // though they lengthen it, because THE EXPORT ALREADY ADDS THEM ITSELF and adding them
+        // here would push the music twice:
+        //
+        //   ordinary path        music and voice are mixed into the body audio BEFORE the meme
+        //                        concat, so the atrim at each seam carries them along. The delay
+        //                        this method feeds must therefore be in the BODY clock — no memes.
+        //   KeepMusicDuringMeme  music is mixed AFTER the concat, and ProcessWorker adds
+        //                        `introDurationSec + MemeTimeInsertedBefore(...)` to the delay
+        //                        itself. Counting memes here as well would double it.
+        //
+        // MEME_05 records the same rule for the export's own cut-time mapper: it is built WITHOUT
+        // insertions, because feeding it a timeline that already knows the memes makes every meme
+        // after the first drift later by the sum of the ones before it. Same trap, same answer.
+        // ══════════════════════════════════════════════════════════════════════════════
         var timeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
             spanMs,
             segments,
@@ -3298,6 +3331,35 @@ private bool _exportedCleanSinceLastEdit;
                     Avalonia.Controls.Canvas.SetLeft(segRect, segStartX);
                     Avalonia.Controls.Canvas.SetTop(segRect, trimMarkerTop);
                     canvas.Children.Add(segRect);
+                }
+            }
+
+            // ══════════════════════════════════════════════════════════════════════════
+            // MEME_06 — ONE CLOWN, AND IT IS DISPLAY ONLY.
+            //
+            // This canvas is a SOURCE-time ruler. A meme occupies zero source seconds, so its start
+            // and its end are the same instant here and two heads would land on the same pixel —
+            // there is no band to grab and nothing to drag along. One head, at the moment of
+            // gameplay it interrupts, so you can see at a glance that the video has memes in it and
+            // where; the block with its two ends lives in the Speed Editor, where output time gives
+            // it a real width.
+            // ══════════════════════════════════════════════════════════════════════════
+            if (_memePlacements.Count > 0)
+            {
+                foreach (var meme in _memePlacements)
+                {
+                    double memeAbsSec = (_trimStartMs / 1000.0) + meme.AtSourceSecRelative;
+                    double memeX = (memeAbsSec / duration) * canvasWidth;
+
+                    var memeMarker = CreateMemeTimelineCameraIcon();
+                    memeMarker.IsHitTestVisible = false;
+                    Avalonia.Controls.ToolTip.SetTip(memeMarker,
+                        $"Meme: {System.IO.Path.GetFileName(meme.FilePath)} ({meme.DurationSec:0.0}s)\n" +
+                        "Your gameplay pauses here and the meme plays, then carries on from this exact frame.\n" +
+                        "Open GRANULAR SPEED to move or remove it.");
+                    Avalonia.Controls.Canvas.SetTop(memeMarker, -79);
+                    Avalonia.Controls.Canvas.SetLeft(memeMarker, ClampTimelineCameraLeft(memeX, canvasWidth));
+                    canvas.Children.Add(memeMarker);
                 }
             }
 
@@ -4193,6 +4255,162 @@ private bool _exportedCleanSinceLastEdit;
         return outerCanvas;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_06 — THE CLOWN MARKER.
+    //
+    // Deliberately the SAME lollipop as the freeze camera and the zoom magnifier: a head, a stem,
+    // and a hairline that runs all the way down to cross the ruler at the exact instant. A user who
+    // has learned one of these markers has learned all three, and the crossing line is what makes
+    // the position readable to the pixel rather than approximately.
+    //
+    // It differs from the other two in ONE way, and that difference is the feature: a freeze and a
+    // zoom each expose two independently draggable ends, because their two ends are two separate
+    // decisions. A meme's length is the meme file's own length — it is not a decision at all — so
+    // its two markers are two views of ONE object. The Speed Editor therefore attaches drag to the
+    // BAND BETWEEN them and to neither head. See AttachMemeBandInteractions.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    public static Control CreateMemeTimelineCameraIcon()
+    {
+        return CreateMemeTimelineCameraIcon(false, 0, out _, out _);
+    }
+
+    public static Control CreateMemeTimelineCameraIcon(
+        bool isSelected,
+        double marchingAntsOffset,
+        out Avalonia.Controls.Shapes.Rectangle iconAnts,
+        out Avalonia.Controls.Shapes.Rectangle lineAnts)
+    {
+        var icon = new Border
+        {
+            Width = 42,
+            Height = 34,
+            Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(220, 15, 23, 42)),
+            BorderThickness = new Avalonia.Thickness(2),
+            CornerRadius = new Avalonia.CornerRadius(4),
+            IsHitTestVisible = false
+        };
+        icon[!Border.BorderBrushProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppMemeBrush");
+
+        var hoverIconGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconGlow",
+            Width = 50,
+            Height = 42,
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        hoverIconGlow[!Avalonia.Controls.Shapes.Rectangle.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppMemeBrush");
+        Avalonia.Controls.Canvas.SetLeft(hoverIconGlow, 1);
+        Avalonia.Controls.Canvas.SetTop(hoverIconGlow, 21);
+
+        var hoverLineGlow = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineGlow",
+            Width = 8,
+            Height = 53,
+            StrokeThickness = 2,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        hoverLineGlow[!Avalonia.Controls.Shapes.Rectangle.StrokeProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppMemeBrush");
+        Avalonia.Controls.Canvas.SetLeft(hoverLineGlow, 22);
+        Avalonia.Controls.Canvas.SetTop(hoverLineGlow, 59);
+
+        var txt = new Avalonia.Controls.TextBlock
+        {
+            Text = "🤡",
+            FontSize = 17,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        txt[!Avalonia.Controls.TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppMemeBrush");
+        icon.Child = txt;
+
+        var outerCanvas = new Canvas
+        {
+            Width = 52,
+            Height = 106,
+            ClipToBounds = false,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Focusable = true
+        };
+
+        var headHit = new Border
+        {
+            Width = 52,
+            Height = 42,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(headHit, 0);
+        Avalonia.Controls.Canvas.SetTop(headHit, 21);
+        outerCanvas.Children.Add(headHit);
+
+        var stemHit = new Border
+        {
+            Width = 16,
+            Height = 47,
+            Background = Avalonia.Media.Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        Avalonia.Controls.Canvas.SetLeft(stemHit, 18);
+        Avalonia.Controls.Canvas.SetTop(stemHit, 59);
+        outerCanvas.Children.Add(stemHit);
+        outerCanvas.Children.Add(hoverIconGlow);
+        outerCanvas.Children.Add(hoverLineGlow);
+        Avalonia.Controls.Canvas.SetTop(icon, 25);
+        Avalonia.Controls.Canvas.SetLeft(icon, 5);
+        outerCanvas.Children.Add(icon);
+
+        var line = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = TimelineCameraStickName,
+            Width = 2,
+            Height = TimelineCameraDefaultStickPx,
+            IsHitTestVisible = false
+        };
+        line[!Avalonia.Controls.Shapes.Rectangle.FillProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AppMemeBrush");
+        Avalonia.Controls.Canvas.SetTop(line, 59);
+        Avalonia.Controls.Canvas.SetLeft(line, 25);
+        outerCanvas.Children.Add(line);
+
+        iconAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraIconAnts",
+            Width = 42,
+            Height = 34,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(iconAnts, 5);
+        Avalonia.Controls.Canvas.SetTop(iconAnts, 25);
+        outerCanvas.Children.Add(iconAnts);
+
+        lineAnts = new Avalonia.Controls.Shapes.Rectangle
+        {
+            Name = "TimelineCameraLineAnts",
+            Width = 6,
+            Height = 49,
+            Stroke = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#334155")),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(3, 2),
+            StrokeDashOffset = marchingAntsOffset,
+            IsVisible = isSelected,
+            IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(lineAnts, 23);
+        Avalonia.Controls.Canvas.SetTop(lineAnts, 58);
+        outerCanvas.Children.Add(lineAnts);
+
+        return outerCanvas;
+    }
+
     public static double ClampTimelineCameraLeft(double markerCenterX, double canvasWidth)
     {
         const double markerWidth = 52.0;
@@ -4396,6 +4614,25 @@ private bool _exportedCleanSinceLastEdit;
 
     private void PlaybackTimerTickCore()
     {
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING ELSE ON THIS TICK, INCLUDING THE CUT SKIP.
+        //
+        // While a meme cutaway is on screen the ONE mpv host is showing the MEME, so CurrentTime,
+        // Duration and IsEof all describe that file. Every line below this point would then be
+        // reasoning about the wrong clock: the cut skip would seek somewhere arbitrary, the music
+        // would resync to a meaningless position, the timeline slider would fly to the wrong
+        // place, and the eof handler would pause the video for good at the end of the meme.
+        // Returning early is what keeps all of that correct, and it is why the director owns the
+        // whole cutaway rather than each of these features knowing about memes separately.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        if (_memePlacements.Count > 0) EnsureMemePreviewDirector();
+        if (_memePreview != null)
+        {
+            _memePreview.SetMemes(_memePlacements);
+            _memePreview.Tick();
+            if (_memePreview.IsActive) return;
+        }
+
         // CUT_01 — SKIP, DO NOT PLAY THROUGH. When playback wanders into deleted footage the
         // player is seeked past it in ONE jump, so the user never watches frames that are not in
         // their video. Fire-and-forget on purpose: the seek is asynchronous and this tick must
@@ -5171,6 +5408,19 @@ private bool _exportedCleanSinceLastEdit;
             SpeedSegments = allSegments,
             // CUT_01 — absolute source ms, converted to clip-relative inside ProcessWorker.
             Cuts = new List<FortniteVideoSoftware.Core.Media.CutRange>(_cuts),
+
+            // ══════════════════════════════════════════════════════════════════════════
+            // MEME_06 — THE LINE THAT MAKES MID-VIDEO MEMES REAL.
+            //
+            // MEME_05 built the entire N-meme export graph and shipped it, and then nothing on any
+            // screen ever assigned this property — so every export in the product fell through to
+            // ProcessWorker's legacy "one meme, start or end" branch and the whole engine sat
+            // unreachable. Non-empty here makes it authoritative; empty keeps the legacy pair,
+            // which is exactly how the main screen's Start/End dropdown still works.
+            // ══════════════════════════════════════════════════════════════════════════
+            MemePlacements = _memePlacements.Count > 0
+                ? new List<FortniteVideoSoftware.Core.Media.MemePlacement>(_memePlacements)
+                : null,
             QualityLevel = resolvedQuality,
             TargetMbOverride = resolvedTargetMb,
             MusicLeadFadeIn = musicLeadIn,
@@ -6086,6 +6336,11 @@ private bool _exportedCleanSinceLastEdit;
                // state file, and a crash or power loss would lose the cuts silently — the exact
                // failure this whole method exists to prevent.
                _cuts.Count > 0 ||
+               // MEME_06 — memes ARE work, for exactly the reason cuts are. This was already
+               // recorded as an open defect: a session whose only edit was N meme placements
+               // evaluated `hasWork == false`, so SaveRecoveryState DELETED the state file and a
+               // crash lost every placement silently.
+               _memePlacements.Count > 0 ||
                _speedSegments.Count > 0 || _freezeTimeMs >= 0 ||
                Math.Abs(_baseSpeed - SpeedPresetButtons.NativeDefaultSpeed) > 0.01 ||
                memeSelected || hudToggled || exportTogglesChanged ||
@@ -6220,6 +6475,23 @@ private bool _exportedCleanSinceLastEdit;
             }
             state["cuts"] = cutArray;
 
+            // MEME_06 — placements persist in CLIP-RELATIVE SOURCE seconds, the same units they
+            // live in everywhere else, so a restore needs no conversion. The Id is stored too: it
+            // becomes an FFmpeg filter label, and regenerating ids on restore would be harmless
+            // today but would silently break any future feature that refers to a meme by id.
+            var memeArray = new System.Text.Json.Nodes.JsonArray();
+            foreach (var m in _memePlacements)
+            {
+                memeArray.Add(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["path"] = m.FilePath,
+                    ["atSourceSec"] = m.AtSourceSecRelative,
+                    ["durationSec"] = m.DurationSec,
+                    ["id"] = m.Id
+                });
+            }
+            state["memePlacements"] = memeArray;
+
             if (_musicWizardResult != null)
             {
                 var pathsArray = new System.Text.Json.Nodes.JsonArray();
@@ -6348,6 +6620,44 @@ private bool _exportedCleanSinceLastEdit;
                 }
                 if (_cuts.Count > 0)
                     RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: {_cuts.Count} deleted section(s) reinstated.");
+            }
+
+            // MEME_06 — additive and absent-is-legal: a recovery file written before memes existed
+            // simply has no "memePlacements" key and restores with none, which is exactly the
+            // project that build produced.
+            _memePlacements.Clear();
+            if (state.TryGetPropertyValue("memePlacements", out var memesNode) && memesNode is System.Text.Json.Nodes.JsonArray memesArray)
+            {
+                int skipped = 0;
+                foreach (var memeNode in memesArray)
+                {
+                    var memeObj = memeNode?.AsObject();
+                    if (memeObj == null) continue;
+
+                    string path = memeObj["path"]?.ToString() ?? "";
+                    double at = memeObj["atSourceSec"]?.GetValue<double>() ?? -1;
+                    double dur = memeObj["durationSec"]?.GetValue<double>() ?? 0;
+                    string id = memeObj["id"]?.ToString() ?? "";
+
+                    // A meme whose file has been deleted or moved since the crash cannot be
+                    // restored — the export would skip it later anyway, and a placement pointing at
+                    // nothing would occupy time on the ruler that the finished video never has.
+                    if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path) || at < 0 || dur <= 0.01)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(id))
+                        id = FortniteVideoSoftware.Core.Media.MemePlacement.NewId(_memePlacements.Count);
+
+                    _memePlacements.Add(new FortniteVideoSoftware.Core.Media.MemePlacement(path, at, dur, id));
+                }
+
+                if (_memePlacements.Count > 0 || skipped > 0)
+                    RuntimeLog.Info("RECOVERY",
+                        $"Crash Recovery Restore: {_memePlacements.Count} meme placement(s) reinstated" +
+                        (skipped > 0 ? $", {skipped} skipped because their file is gone." : "."));
             }
 
             _speedSegments.Clear();
@@ -6760,6 +7070,52 @@ private bool _exportedCleanSinceLastEdit;
     private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
 
     /// <summary>
+    /// MEME_06 — memes spliced into the middle of the video, in CLIP-RELATIVE SOURCE seconds.
+    ///
+    /// Placed in the Speed Editor (see the note on its own `_memes` field for why there and not
+    /// here) and held on this window because this is what owns the export payload and the recovery
+    /// file. When this list is non-empty it is AUTHORITATIVE: ProcessWorker ignores the legacy
+    /// MemeFile + MemeAtStart pair entirely. When it is empty the legacy pair still drives a single
+    /// start-or-end meme, which is what keeps the main screen's dropdown working unchanged.
+    /// </summary>
+    private readonly List<FortniteVideoSoftware.Core.Media.MemePlacement> _memePlacements = new();
+
+    /// <summary>
+    /// MEME_07 — plays each meme in this screen's preview at the exact moment it interrupts the
+    /// gameplay, instead of the preview running straight past a cutaway that the export will make.
+    /// See <see cref="Infrastructure.MemePreviewDirector"/> for the file-swap approach and, more
+    /// importantly, for the rule the playback tick below has to follow.
+    /// </summary>
+    private Infrastructure.MemePreviewDirector? _memePreview;
+
+    /// <summary>MEME_07 — built lazily, because the video host does not exist until a file loads.</summary>
+    private void EnsureMemePreviewDirector()
+    {
+        if (_memePreview != null) return;
+
+        _memePreview = new Infrastructure.MemePreviewDirector(
+            () => ActiveVideoHost?.IpcClient,
+            () => _loadedVideoPath,
+            () => _trimStartMs / 1000.0,
+            SetMemeSwapOverlay,
+            "MEME");
+
+        // The agreed behaviour: the meme's own sound plays, and the background music pauses with
+        // the gameplay and carries on afterwards. The tick restarts the music on its own once the
+        // gameplay is back, so only the stop side needs saying here.
+        _memePreview.MemeStarted += StopMusicPreview;
+    }
+
+    /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    private void SetMemeSwapOverlay(bool visible, string message)
+    {
+        var overlay = this.FindControl<Border>("MemeSwapOverlay");
+        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
+        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
+        if (overlay != null) overlay.IsVisible = visible;
+    }
+
+    /// <summary>
     /// CUT_01 — at least this much footage must survive, in ms. A clip cut down to nothing has no
     /// frames to encode and would fall through GranularSpeedBuilder's "no chunks" path, which
     /// exports the WHOLE clip with the cuts ignored — a silent, total failure. Refusing the last
@@ -6776,6 +7132,7 @@ private bool _exportedCleanSinceLastEdit;
     private async Task AfterCutsChangedAsync()
     {
         NormalizeCutsInPlace();
+        DropMemesInsideCuts();   // MEME_06
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
         SaveRecoveryState();
@@ -6786,6 +7143,52 @@ private bool _exportedCleanSinceLastEdit;
         }
 
         await SkipPlayheadOutOfCutAsync();
+    }
+
+    /// <summary>
+    /// MEME_06 — a meme anchored to a moment that has just been deleted goes with it.
+    ///
+    /// The alternative — sliding it to the edge of the hole — keeps the user's work but moves their
+    /// meme somewhere they did not put it, and they would only find out at export. Deleting it is
+    /// the honest reading of "I deleted that scene", and it is announced rather than silent.
+    /// </summary>
+    private void DropMemesInsideCuts()
+    {
+        if (_memePlacements.Count == 0 || _cuts.Count == 0) return;
+
+        EnsureTrimPointsSet();
+        var relative = FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartMs);
+
+        var survivors = new List<FortniteVideoSoftware.Core.Media.MemePlacement>();
+        var dropped = new List<string>();
+
+        foreach (var m in _memePlacements)
+        {
+            bool inHole = false;
+            foreach (var c in relative)
+            {
+                // Strictly inside: a meme sitting exactly ON a cut edge still has surviving
+                // footage to interrupt, so it is kept and SnapInsertionPoint will settle it.
+                if (m.AtSourceSecRelative > c.StartSec + 0.0005 && m.AtSourceSecRelative < c.EndSec - 0.0005)
+                {
+                    inHole = true;
+                    break;
+                }
+            }
+
+            if (inHole) dropped.Add(System.IO.Path.GetFileName(m.FilePath));
+            else survivors.Add(m);
+        }
+
+        if (dropped.Count == 0) return;
+
+        _memePlacements.Clear();
+        _memePlacements.AddRange(survivors);
+
+        RuntimeLog.Info("MEME", $"{dropped.Count} meme(s) removed with the deleted footage: {string.Join(", ", dropped)}.");
+        ShowTacticalFeedback(dropped.Count == 1
+            ? $"🤡 {dropped[0]} was removed — the part it sat on is gone"
+            : $"🤡 {dropped.Count} memes were removed — the parts they sat on are gone");
     }
 
     /// <summary>Runs the SAME normalisation the export will run, so the UI can never show a cut list the export would not honour.</summary>
@@ -6854,6 +7257,7 @@ private bool _exportedCleanSinceLastEdit;
                     RuntimeLog.Info("CUT", $"Playhead was inside a deleted section; skipping to {toSec:F2}s.");
                     await client.SendCommandAsync("seek",
                         toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "absolute");
+                    _memePreview?.NotifySeek();   // MEME_07 — a jump, not playback
                     return;
                 }
             }

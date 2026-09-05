@@ -148,6 +148,68 @@ public partial class VoiceOverWindow : Window
     /// ══════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
+
+    /// <summary>
+    /// MEME_06 — memes spliced into the video, clip-relative source seconds.
+    ///
+    /// The mirror of the cut list above. A cut removes output time and makes every later take map
+    /// EARLY without it; a meme adds output time and makes every later take map LATE. Both are the
+    /// same defect and both are fixed by handing the real edit list to OutputTimeline rather than
+    /// letting this window assume the video is one uninterrupted run of gameplay.
+    ///
+    /// Nothing is drawn for them on this window's lanes: its axis is SOURCE time, where a meme
+    /// occupies no width at all.
+    /// </summary>
+    private readonly List<FortniteVideoSoftware.Core.Media.MemePlacement> _memes = new();
+
+    /// <summary>
+    /// MEME_07 — plays each meme in this window's preview at the moment it interrupts the gameplay.
+    /// See <see cref="Infrastructure.MemePreviewDirector"/>; the rule its host tick must follow is
+    /// documented there and obeyed at the top of <see cref="Timer_Tick"/>.
+    /// </summary>
+    private Infrastructure.MemePreviewDirector? _memePreview;
+
+    /// <summary>MEME_07 — built lazily, once mpv is up and a file is loaded.</summary>
+    private void EnsureMemePreviewDirector()
+    {
+        if (_memePreview != null) return;
+
+        _memePreview = new Infrastructure.MemePreviewDirector(
+            () => _videoHost?.IpcClient,
+            () => _videoPath,
+            () => _trimStartSec,
+            SetMemeSwapOverlay,
+            "VOICEOVER");
+
+        // The agreed behaviour: the meme's own sound plays; every take pauses with the gameplay
+        // and carries on afterwards. The tick's early return stops UpdatePreviewPlayers from
+        // running during the cutaway, so the takes are silenced explicitly here rather than left
+        // playing over the meme.
+        _memePreview.MemeStarted += PauseTakePlaybackForMeme;
+    }
+
+    /// <summary>MEME_07 — silences every take the instant a cutaway begins.</summary>
+    private void PauseTakePlaybackForMeme()
+    {
+        try
+        {
+            foreach (var p in _previewPlayers)
+            {
+                if (p.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                    p.Player.Pause();
+            }
+        }
+        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+    }
+
+    /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    private void SetMemeSwapOverlay(bool visible, string message)
+    {
+        var overlay = this.FindControl<Border>("MemeSwapOverlay");
+        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
+        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
+        if (overlay != null) overlay.IsVisible = visible;
+    }
     private double _baseSpeed = 1.0;
     private double _lastAppliedSpeed = 1.0;
     private bool _isCurrentlyFrozen;
@@ -408,8 +470,10 @@ public partial class VoiceOverWindow : Window
         double trimEndMs = 0,
         IEnumerable<SpeedSegment>? speedSegments = null,
         double baseSpeed = 1.0,
-        IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? cuts = null) : this()
+        IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? cuts = null,
+        IEnumerable<FortniteVideoSoftware.Core.Media.MemePlacement>? memes = null) : this()
     {
+        if (memes != null) _memes.AddRange(memes);
         _videoPath = videoPath;
         _trimStartSec = trimStartMs / 1000.0;
         _trimEndSec = trimEndMs / 1000.0;
@@ -519,6 +583,15 @@ public partial class VoiceOverWindow : Window
                             _speedSegments,
                             _baseSpeed,
                             _trimStartSec * 1000.0,
+                            // ⚠️ MEME_06 — MEMES ARE DELIBERATELY OMITTED. DO NOT ADD THEM.
+                            // This timeline is used by ApplyAndClose to work out how much of a
+                            // take's WAV to trim off each end, as the DIFFERENCE between two
+                            // SourceToOutput calls. A meme sitting between those two instants
+                            // would add its whole length to that difference and ffmpeg would cut
+                            // seconds of real speech off the take. The export positions takes
+                            // around memes itself (ProcessWorker's MemeTimeInsertedBefore), so this
+                            // window stays meme-blind and self-consistent: its preview does not
+                            // play memes either.
                             null,
                             FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_cuts, _trimStartSec * 1000.0));
                         
@@ -723,6 +796,27 @@ public partial class VoiceOverWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING ELSE ON THIS TICK.
+        //
+        // A cutaway swaps the meme file into this same mpv host, so CurrentTime, Duration and
+        // IsEof stop describing the gameplay. Every line below would then act on the wrong clock:
+        // the trim-end stop would fire at the meme's end, the cut skip would seek at random, the
+        // playhead would jump, the takes would resync to a meaningless offset and — worst — the
+        // record arming watches the video clock move forward, so it would arm off the meme.
+        //
+        // ⚠️ RECORDING SUSPENDS CUTAWAYS ENTIRELY. A take is anchored to the video clock; letting
+        // the picture cut away mid-take would anchor speech to frames the take never heard.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        if (_memes.Count > 0 && _isMpvReady) EnsureMemePreviewDirector();
+        if (_memePreview != null)
+        {
+            _memePreview.Suspended = _isRecording || _recordArming;
+            _memePreview.SetMemes(_memes);
+            _memePreview.Tick();
+            if (_memePreview.IsActive) { UpdatePlayPauseIconUI(); return; }
+        }
+
         EnforceTrimEndStop();   // VOFIX_01 — replaces the A-B repeat loop
         EnforceCutSkip();       // CUTS_02 — never sit inside footage that was deleted
         PumpRecordArming();
@@ -1229,6 +1323,7 @@ public partial class VoiceOverWindow : Window
                 double toSec = Math.Min(cut.EndMs / 1000.0, GetEffectiveTimelineEnd());
                 _ = ipc.SetPropertyAsync("time-pos",
                     toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                _memePreview?.NotifySeek();   // MEME_07 — a jump, not playback
 
                 // A take being recorded across a cut would be anchored to frames that are not in
                 // the finished video, so say so rather than letting it silently mis-time.

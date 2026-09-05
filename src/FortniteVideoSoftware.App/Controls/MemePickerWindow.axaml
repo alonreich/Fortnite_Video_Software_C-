@@ -1,0 +1,54 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FortniteVideoSoftware.App"
+        x:Class="FortniteVideoSoftware.App.Controls.MemePickerWindow"
+        Title="Choose a meme"
+        MinWidth="520" MinHeight="460"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, Auto, *, Auto">
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Text="Choose a meme" Classes="WindowTitleText" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <StackPanel Grid.Row="1" Margin="15,12,15,8" Spacing="6">
+                    <TextBlock Text="Which meme should play here?" FontWeight="Bold"
+                               FontSize="{DynamicResource AppFontSize14}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                    <TextBlock Name="ExplainText" TextWrapping="Wrap"
+                               FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"
+                               Text="Your gameplay pauses at this point, the meme plays all the way through, then the gameplay carries on from the exact frame it stopped on."/>
+                    <TextBlock Name="EmptyText" IsVisible="False" TextWrapping="Wrap"
+                               FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppWarningBrush}"
+                               Text="There are no memes in your meme folder yet. Close this, and use 'Download more meme videos' in the meme list on the main screen."/>
+                </StackPanel>
+
+                <ListBox Grid.Row="2" Name="MemeList" Margin="15,0,15,0"
+                         Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="local:MemeItem">
+                            <Border Padding="6,4" CornerRadius="4" Cursor="Hand">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{CompiledBinding FileName}" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                               FontSize="{DynamicResource AppFontSize11}" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,15,0,20">
+                    <Button Name="CancelBtn" Classes="Secondary" Content="CANCEL" MinWidth="130" Cursor="Hand" IsCancel="True"/>
+                    <Button Name="UseBtn" Classes="Success" Content="USE THIS MEME" MinWidth="170" Cursor="Hand" IsDefault="True" IsEnabled="False"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

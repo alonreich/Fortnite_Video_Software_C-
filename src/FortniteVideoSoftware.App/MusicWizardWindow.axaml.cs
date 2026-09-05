@@ -412,6 +412,24 @@ public partial class MusicWizardWindow : Window
 
     private void PlayheadTimer_Tick(object? sender, EventArgs e)
     {
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING ELSE ON THIS TICK.
+        //
+        // A cutaway swaps the meme file into phase 3's mpv host, so CurrentTime and Duration stop
+        // describing the gameplay. SyncPhase3VideoPreviewClock would then drive the video clock
+        // from a position on the wrong file, the music would resync to it, and the playhead would
+        // jump. Returning early is what keeps the A/B screen honest.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        if (_currentStep == 3 && _phase3Memes.Count > 0 && WizardVideoHost?.IpcClient != null)
+            EnsureMemePreviewDirector();
+        if (_memePreview != null)
+        {
+            _memePreview.Suspended = _currentStep != 3;
+            _memePreview.SetMemes(_phase3Memes);
+            _memePreview.Tick();
+            if (_memePreview.IsActive) return;
+        }
+
         // PREVIEW1_01 — drive the 1-second ease-in. Costs one property write per 33 ms tick, and
         // only while a fade is actually running.
         if (_previewFadeStartUtc.HasValue) ApplyPreviewMusicVolume();
@@ -513,13 +531,15 @@ public partial class MusicWizardWindow : Window
         double baseSpeed = 1.0,
         System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.SpeedSegment>? speedSegments = null,
         VoiceOverWindow.VoiceOverResult? voiceOverResult = null,
-        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange>? cuts = null) : this()
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange>? cuts = null,
+        System.Collections.Generic.IReadOnlyList<FortniteVideoSoftware.Core.Media.MemePlacement>? memes = null) : this()
     {
         _voiceOverPlayer.Result = voiceOverResult;
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
         if (cuts != null) _phase3Cuts.AddRange(cuts);
+        if (memes != null) _phase3Memes.AddRange(memes);
         ConfigurePhase3Timeline(baseSpeed, speedSegments);
         _playheadTimer?.Start();
         SharedInit();
@@ -668,6 +688,63 @@ public partial class MusicWizardWindow : Window
     /// ══════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private readonly System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.CutRange> _phase3Cuts = new();
+
+    /// <summary>
+    /// MEME_06 — memes spliced into the video, in clip-relative source seconds.
+    ///
+    /// Same class of bug as CUTS_03 and TIME_01, from the opposite direction: a cut makes the
+    /// finished video SHORTER than this wizard believed, a meme makes it LONGER. Without these the
+    /// coverage check, Smart Fit, Fit By End Of Video and the phase-3 preview would all lay music
+    /// against a video shorter than the one that gets exported, so the music would stop early by
+    /// the total length of every meme.
+    ///
+    /// Nothing is drawn for them here: phase 3's ruler is output time, where a meme is a stretch of
+    /// foreign footage the music simply plays over (or not — see KeepMusicDuringMeme).
+    /// </summary>
+    private readonly System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.MemePlacement> _phase3Memes = new();
+
+    /// <summary>
+    /// MEME_07 — plays each meme in the phase-3 A/B preview at the moment it interrupts the
+    /// gameplay. This screen's whole job is judging the finished result, so it is the one preview
+    /// that must not quietly skip a cutaway the export will make. See
+    /// <see cref="Infrastructure.MemePreviewDirector"/> for the approach and the host-tick rule.
+    /// </summary>
+    private Infrastructure.MemePreviewDirector? _memePreview;
+
+    /// <summary>MEME_07 — built lazily, because phase 3's video host is created on demand.</summary>
+    private void EnsureMemePreviewDirector()
+    {
+        if (_memePreview != null) return;
+
+        _memePreview = new Infrastructure.MemePreviewDirector(
+            () => WizardVideoHost?.IpcClient,
+            () => _videoPath,
+            () => _trimStartMs / 1000.0,
+            SetMemeSwapOverlay,
+            "MUSIC_WIZARD");
+
+        // The agreed behaviour: the meme's own sound plays, and the music pauses with the gameplay
+        // and carries on afterwards. The music runs in its own audio-only mpv client, which the
+        // tick's early return would otherwise leave playing straight over the meme.
+        _memePreview.MemeStarted += () =>
+        {
+            if (_audioIpcClient != null) _ = _audioIpcClient.SetPropertyAsync("pause", "yes");
+        };
+        _memePreview.MemeEnded += () =>
+        {
+            if (_audioIpcClient != null && _isPreviewPlaying)
+                _ = _audioIpcClient.SetPropertyAsync("pause", "no");
+        };
+    }
+
+    /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    private void SetMemeSwapOverlay(bool visible, string message)
+    {
+        var overlay = this.FindControl<Avalonia.Controls.Border>("MemeSwapOverlay");
+        var text = this.FindControl<Avalonia.Controls.TextBlock>("MemeSwapOverlayText");
+        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
+        if (overlay != null) overlay.IsVisible = visible;
+    }
 
     private void ConfigurePhase3Timeline(
         double baseSpeed,
@@ -3400,7 +3477,7 @@ public partial class MusicWizardWindow : Window
             _phase3SpeedSegments,
             _phase3BaseSpeed,
             _trimStartMs,
-            null,
+            FortniteVideoSoftware.Core.Media.MemePlacement.ToInsertions(_phase3Memes),   // MEME_06
             FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_phase3Cuts, _trimStartMs));
         return Math.Max(0.001, timeline.TotalOutputSeconds);
     }
@@ -3441,7 +3518,7 @@ public partial class MusicWizardWindow : Window
             _phase3SpeedSegments,
             _phase3BaseSpeed,
             _trimStartMs,
-            null,
+            FortniteVideoSoftware.Core.Media.MemePlacement.ToInsertions(_phase3Memes),   // MEME_06
             FortniteVideoSoftware.Core.Media.CutRange.ToClipRelative(_phase3Cuts, _trimStartMs));
         double clamped = Math.Clamp(outputRelativeSec, 0, GetPhase3VideoDurationSeconds());
         return timeline.OutputToSourceRelative(clamped);

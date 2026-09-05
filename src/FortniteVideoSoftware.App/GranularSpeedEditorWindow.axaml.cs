@@ -69,6 +69,81 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private readonly List<FortniteVideoSoftware.Core.Media.CutRange> _cuts = new();
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_06 — MEMES SPLICED INTO THE MIDDLE OF THE VIDEO.
+    //
+    // The engine has been able to do this since MEME_05 and nothing could reach it: no screen
+    // populated ExportPayload.MemePlacements, so every export fell through to the legacy
+    // "one meme, start or end" branch. This editor is where it becomes reachable.
+    //
+    // WHY HERE AND NOT THE MAIN SCREEN — the exact mirror of the argument for cuts, and worth
+    // stating because it is the reason the two features live on opposite screens:
+    //
+    //   A CUT occupies zero OUTPUT time. On this editor's ruler (output time) it is zero pixels
+    //   wide, so it is marked on the Main App's SOURCE ruler where it has width.
+    //
+    //   A MEME occupies zero SOURCE time. On the Main App's ruler it is zero pixels wide — both
+    //   clown heads would land on the same pixel — so it is placed HERE, on the output ruler,
+    //   where it is a real block with a left edge, a right edge and a middle to grab.
+    //
+    // Each feature is edited where it actually has a shape. The Main App shows a single clown for
+    // awareness only; it cannot be dragged there because there is nothing to drag along.
+    //
+    // ⚠️ AtSourceSecRelative is CLIP-RELATIVE SOURCE seconds and must already be snapped through
+    // OutputTimeline.SnapInsertionPoint. Storing a raw click drops the meme somewhere the user
+    // never saw. Every write to this list goes through PlaceMeme or MoveMemeTo, never directly.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    private readonly List<FortniteVideoSoftware.Core.Media.MemePlacement> _memes = new();
+
+    /// <summary>MEME_06 — the meme currently selected (marching ants), by Id. Null = none.</summary>
+    private string? _selectedMemeId;
+
+    /// <summary>MEME_06 — monotonic id counter. Never reset, never derived from _memes.Count.</summary>
+    private int _nextMemeIdIndex;
+
+    /// <summary>MEME_06 — the meme being dragged by its band, by Id. Null = not dragging.</summary>
+    private string? _draggingMemeId;
+
+    /// <summary>MEME_06 — where in the band the grab started, so the block does not jump under the pointer.</summary>
+    private double _memeDragGrabOffsetOutSec;
+
+    /// <summary>MEME_06 (DRAG_FIX) — last canvas X consumed by a meme drag; -1 when none is running.</summary>
+    private double _memeDragLastX = -1;
+
+    /// <summary>
+    /// MEME_07 — plays the meme in the preview instead of holding the anchor frame. See
+    /// <see cref="Infrastructure.MemePreviewDirector"/> for why it swaps the file in the one host
+    /// rather than layering a second one, and for the rule its host tick has to follow.
+    /// </summary>
+    private Infrastructure.MemePreviewDirector? _memePreview;
+
+    /// <summary>MEME_07 — true while the blocking rebuild stall is up; the timeline is frozen.</summary>
+    private bool _memeRebuildStallActive;
+
+    /// <summary>
+    /// MEME_08 — while set AND the player is paused, the playback tick must not overwrite the
+    /// caret. This is what lets a meme drag park the caret on the block's START while mpv sits on
+    /// the anchor FRAME: the two are the same instant but different positions on the ruler, and
+    /// without this the next tick would snap the caret to the block's far end. Any scrub, and any
+    /// resumption of playback, releases it.
+    /// </summary>
+    private bool _memeCaretSticky;
+
+    /// <summary>MEME_08 — was the preview playing when this meme drag began? Restored on release.</summary>
+    private bool _memeDragWasPlaying;
+
+    /// <summary>
+    /// MEME_06 — two memes closer together than this (in OUTPUT seconds) would be merged onto one
+    /// seam by ProcessWorker, because a zero-length piece between them makes the filter graph fail
+    /// to configure. The editor blocks the placement instead, so the merge can never happen
+    /// silently behind the user's back.
+    /// </summary>
+    private const double MemeMinSeparationOutSec = 0.05;
+
+    /// <summary>MEME_06 — the placements the Main App reads back, in clip-relative source seconds.</summary>
+    public IReadOnlyList<FortniteVideoSoftware.Core.Media.MemePlacement> ResultMemes =>
+        _memes.OrderBy(m => m.AtSourceSecRelative).ToList().AsReadOnly();
+
     /// <summary>CUT_02 — the cut list in ABSOLUTE source ms, for the Main App.</summary>
     public IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange> ResultCuts => _cuts
         .Select(c => new FortniteVideoSoftware.Core.Media.CutRange(c.StartMs + _trimStartMs, c.EndMs + _trimStartMs))
@@ -494,9 +569,15 @@ public partial class GranularSpeedEditorWindow : Window
     /// The editor will only show/seek between trimStartMs and trimEndMs.
     /// Segments are stored in absolute video timestamps.
     /// </summary>
-    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null, IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null)
+    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null, IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null,
+        IEnumerable<FortniteVideoSoftware.Core.Media.MemePlacement>? existingMemes = null)
     {
         _voiceOverPlayer.Result = voiceOverResult;
+
+        // MEME_06 — memes arrive and leave in CLIP-RELATIVE SOURCE seconds, which is already this
+        // window's own frame of reference for insertions, so unlike cuts there is no trim offset to
+        // add or subtract. Do not "make it consistent" with the cut handling below by shifting these.
+        if (existingMemes != null) _memes.AddRange(existingMemes);
 
         // CUT_02 — cuts arrive in ABSOLUTE source ms and are held TRIM-RELATIVE inside this window,
         // exactly like _segments. ResultCuts adds _trimStartMs back on the way out.
@@ -539,6 +620,11 @@ public partial class GranularSpeedEditorWindow : Window
                 _isCanvasScrubbing = false;
                 e.Pointer.Capture(null);
             }
+
+            // MEME_06 — checked before the zoom and freeze branches. A meme drag captures the
+            // canvas, so nothing else can be in flight at the same time, and returning here keeps
+            // the two gestures from ever interleaving.
+            if (EndMemeDrag(e)) return;
 
             if (_zoomDragSegment >= 0)
             {
@@ -753,6 +839,7 @@ public partial class GranularSpeedEditorWindow : Window
                 };
 
                 await LoadVideoAsync();
+                BuildMemePreviewDirector();   // MEME_07
             }
             else
             {
@@ -1061,6 +1148,10 @@ public partial class GranularSpeedEditorWindow : Window
                 double msPerPx = totalMs / w;
                 double pointerMs = Math.Clamp(XToSrcMs(e.GetPosition(canvas).X, w), 0, totalMs);
 
+                // MEME_06 — before scrubbing and before every other drag mode: a meme drag owns the
+                // pointer for its whole gesture.
+                if (PumpMemeDrag(e, canvas)) return;
+
                 if (_isCanvasScrubbing)
                 {
                     SetPlayheadFromScrub(pointerMs);
@@ -1298,7 +1389,8 @@ public partial class GranularSpeedEditorWindow : Window
         });
 
 
-        WireDeletePartsButton();   // CUT_02
+        WireDeletePartsButton();
+        WireMemeButtons();          // MEME_06
         WireUndoRedo();            // UNDO_01
 
         var markStart = this.FindControl<Button>("MarkStartBtn");
@@ -2603,7 +2695,499 @@ public partial class GranularSpeedEditorWindow : Window
                     }
                 }
             }
+
+            // MEME_06 — drawn LAST so the bands and their clown heads sit above the speed blocks
+            // and the freeze band. A meme is the only thing on this ruler that is foreign footage
+            // rather than a treatment of the gameplay, so it reads correctly on top.
+            DrawMemeBands(canvas, markerOverlay, w, h, MarkerStickHeight);
         });
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_06 — DRAGGING A MEME, AND WHY IT USES ITS OWN RULER.
+    //
+    // This is the same trap FREEZE_DRAG documents, and it bites harder here. Ask "which gameplay
+    // moment is under this pixel" of a ruler that CONTAINS the meme, and every pixel inside the
+    // meme block answers with the SAME instant — the anchor — so the block pins itself and will not
+    // move. Worse, the block's own length shifts everything after it, so the pointer and the block
+    // chase each other.
+    //
+    // The fix is a ruler that holds everything EXCEPT the meme being dragged: the speed segments,
+    // the freeze, the cuts and every OTHER meme. That ruler is fixed for the whole gesture — the
+    // only thing changing is the excluded meme's anchor — so "where did the user point" has a
+    // stable answer from press to release.
+    //
+    // ⚠️ NOT BaseTimeline(). That one also drops the freeze, which is right for dragging the freeze
+    // and wrong here: a meme must still be positioned relative to a freeze that exists.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>MEME_06 — the ruler used for the whole of one meme drag. Built at press, dropped at release.</summary>
+    private FortniteVideoSoftware.Core.Media.OutputTimeline? _memeDragTimeline;
+
+    /// <summary>MEME_06 — the dragged meme's block on the LIVE ruler, seeded at press for the pointer maths.</summary>
+    private double _memeDragBlockStartOutSec;
+    private double _memeDragBlockLenOutSec;
+
+    /// <summary>
+    /// MEME_06 (DRAG_FIX) — where the dragged block STARTS on the live ruler, RIGHT NOW.
+    ///
+    /// <para>
+    /// This used to be read from the value cached at press. That is wrong the instant the meme
+    /// moves: the block start is the pivot <see cref="OutXToMemeDragSec"/> compensates around, so a
+    /// stale pivot mis-classifies every pointer position between the old start and the new one. The
+    /// visible symptom is the band jumping a full meme-length away from the cursor when the drag
+    /// reverses direction, then snapping back — the "unstable" behaviour.
+    /// </para>
+    /// <para>
+    /// The drag ruler holds everything except this meme, so the block's start on the LIVE ruler is
+    /// exactly where its anchor lands on the drag ruler: the live ruler IS the drag ruler with a
+    /// block of this length spliced in at that point. No extra timeline build is needed.
+    /// </para>
+    /// </summary>
+    private double MemeDragBlockStartOutSec()
+    {
+        if (_draggingMemeId == null || _memeDragTimeline == null) return _memeDragBlockStartOutSec;
+        int idx = _memes.FindIndex(m => m.Id == _draggingMemeId);
+        if (idx < 0) return _memeDragBlockStartOutSec;
+        return _memeDragTimeline.SourceToOutput(_memes[idx].AtSourceSecRelative);
+    }
+
+    private FortniteVideoSoftware.Core.Media.OutputTimeline BuildMemeDragTimeline(string excludeId)
+    {
+        double durSec = Math.Max(0.001, GetDuration());
+        var segs = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_segments);
+        if (_freezeTimeMs >= 0 && _freezeDurationS > 0)
+        {
+            double relStart = _freezeTimeMs - _trimStartMs;
+            segs.Add(new FortniteVideoSoftware.Core.Media.SpeedSegment(
+                relStart, relStart + _freezeDurationS * 1000.0, 0.0));
+        }
+
+        var others = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.MemePlacement>();
+        foreach (var m in _memes) if (m.Id != excludeId) others.Add(m);
+
+        return FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
+            durSec * 1000.0, segs, 1.0, 0,
+            FortniteVideoSoftware.Core.Media.MemePlacement.ToInsertions(others),
+            CutsForTimeline());
+    }
+
+    /// <summary>
+    /// MEME_06 — a canvas X, expressed in seconds on the DRAG ruler (the one without this meme).
+    ///
+    /// Directly modelled on <see cref="OutXToBaseOutSec"/>: the canvas is drawn against the LIVE
+    /// ruler, so a pointer past the block's start carries the block's length in it and that length
+    /// has to come back out before the value means anything on the drag ruler.
+    /// </summary>
+    private double OutXToMemeDragSec(double x, double w)
+    {
+        if (w <= 0) return 0;
+        double outSec = Math.Clamp((x / w) * OutDurationSec(), 0, OutDurationSec());
+
+        double blockStart = MemeDragBlockStartOutSec();
+        if (_memeDragBlockLenOutSec <= 0 || outSec <= blockStart) return outSec;
+        return Math.Max(blockStart,
+                        outSec - Math.Min(_memeDragBlockLenOutSec, outSec - blockStart));
+    }
+
+    /// <summary>
+    /// MEME_06 — pointer wiring for the meme BAND. The two clown heads get no drag handlers at all,
+    /// which is the deliberate difference from the freeze and zoom popsicles: a freeze and a zoom
+    /// each have two independent decisions to make, whereas a meme's length is the meme file's own
+    /// length. Offering a resize grip would advertise a control that cannot do anything.
+    ///
+    /// Capture goes to the CANVAS, never to the band: every drag step calls RedrawTimeline, which
+    /// tears the band out of the visual tree and builds a replacement, and a pointer captured to a
+    /// control that gets unparented loses capture mid-gesture (the lesson recorded on
+    /// AttachZoomMarkerInteractions).
+    /// </summary>
+    private void AttachMemeBandInteractions(Control band, string memeId, Avalonia.Controls.Canvas timelineCanvas)
+    {
+        band.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(band).Properties.IsLeftButtonPressed) return;
+
+            int idx = _memes.FindIndex(m => m.Id == memeId);
+            if (idx < 0) return;
+
+            double w = Math.Max(1, timelineCanvas.Bounds.Width);
+
+            // Cache the block's live position BEFORE anything moves — OutXToMemeDragSec needs it.
+            _memeDragBlockStartOutSec = 0;
+            _memeDragBlockLenOutSec = 0;
+            foreach (var r in OutTimeline().InsertionOutputRanges())
+            {
+                if (r.Id != memeId) continue;
+                _memeDragBlockStartOutSec = r.StartOutputSec;
+                _memeDragBlockLenOutSec = Math.Max(0, r.EndOutputSec - r.StartOutputSec);
+                break;
+            }
+
+            _memeDragTimeline = BuildMemeDragTimeline(memeId);
+            _memeDragLastX = -1;                       // (DRAG_FIX)
+            _draggingMemeId = memeId;
+
+            // MEME_07 — a cutaway must not fire while the user is holding the block. The director
+            // already refuses to fire on a seek, and the drag seeks constantly, but saying so
+            // explicitly is cheaper than relying on that.
+            if (_memePreview != null) _memePreview.Suspended = true;
+
+            // MEME_08 — the drag scrubs the picture to the frame the meme will land on, and a
+            // still frame cannot be read off a moving picture. Paused for the gesture, restored
+            // on release exactly as it was found.
+            _memeDragWasPlaying = _videoHost?.IpcClient != null && !_videoHost.IpcClient.IsPaused;
+            if (_memeDragWasPlaying) _ = _videoHost!.IpcClient!.SetPropertyAsync("pause", "yes");
+            _selectedMemeId = memeId;
+
+            // Exactly one object on this timeline is ever selected.
+            _selectedSegmentIndex = -1;
+            _isFreezeCameraSelected = false;
+            UpdateDeleteButtonVisibility();
+            UpdateMemeButtonsState();
+
+            double anchorOnDragRuler = _memeDragTimeline.SourceToOutput(_memes[idx].AtSourceSecRelative);
+            _memeDragGrabOffsetOutSec = OutXToMemeDragSec(e.GetPosition(timelineCanvas).X, w) - anchorOnDragRuler;
+
+            e.Pointer.Capture(timelineCanvas);
+            SetStatus("Moving the meme — release to set. Its length cannot change; it is the meme's own length.");
+            RedrawTimeline();
+            e.Handled = true;
+        };
+    }
+
+    /// <summary>
+    /// MEME_06 — one step of a meme drag, called from the canvas pointer-moved handler.
+    /// Returns true when it consumed the event.
+    /// </summary>
+    private bool PumpMemeDrag(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Canvas canvas)
+    {
+        if (_draggingMemeId == null || _memeDragTimeline == null) return false;
+
+        double w = Math.Max(1, canvas.Bounds.Width);
+
+        // (DRAG_FIX) Sub-pixel pointer noise cannot move a meme, but it can still cost a timeline
+        // rebuild and a full canvas teardown. Swallow it before any of that runs.
+        double px = e.GetPosition(canvas).X;
+        if (_memeDragLastX >= 0 && Math.Abs(px - _memeDragLastX) < 0.5)
+        {
+            e.Handled = true;
+            return true;
+        }
+        _memeDragLastX = px;
+
+        // UNDO_02 — one snapshot per gesture, coalesced on the key so a drag is a single undo step.
+        PushUndo("move meme", "meme-drag");
+
+        double targetOnDragRuler = Math.Max(0, OutXToMemeDragSec(e.GetPosition(canvas).X, w) - _memeDragGrabOffsetOutSec);
+        double newSourceSec = _memeDragTimeline.OutputToSourceRelative(targetOnDragRuler);
+
+        if (MoveMemeTo(_draggingMemeId, newSourceSec))
+        {
+            InvalidateMemeTimelines();
+            RedrawTimeline();
+            ShowMemeLandingFrame(_draggingMemeId);   // MEME_08
+        }
+
+        e.Handled = true;
+        return true;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_07 — THE PREVIEW ACTUALLY PLAYS THE MEME.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    private void BuildMemePreviewDirector()
+    {
+        if (_memePreview != null) return;
+
+        _memePreview = new Infrastructure.MemePreviewDirector(
+            () => _videoHost?.IpcClient,
+            () => _videoPath,
+            () => _trimStartMs / 1000.0,
+            SetMemeSwapOverlay,
+            "Granular");
+
+        // The gameplay's own soundtrack is not the meme's. Nothing else plays audio in this
+        // window, so there is nothing to pause here — the hooks exist so the three windows that
+        // DO have companion audio all wire the same two events.
+        _memePreview.MemeEnded += () => { _holdCaretOutSec = null; UpdateCaret(); };
+
+        _memePreview.SetMemes(_memes);
+    }
+
+    /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    private void SetMemeSwapOverlay(bool visible, string message)
+    {
+        var overlay = this.FindControl<Border>("MemeSwapOverlay");
+        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
+        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
+        if (overlay != null) overlay.IsVisible = visible;
+    }
+
+    /// <summary>
+    /// MEME_07 — where the caret sits while a meme is on screen.
+    ///
+    /// <para>
+    /// This window's ruler is OUTPUT time, and a meme is the one thing on it that has a real width
+    /// there, so the caret can do the honest thing and travel across the block as the meme plays.
+    /// <c>SourceToOutput</c> of the anchor returns the moment the block ENDS (the documented
+    /// boundary behaviour that <see cref="FreezeHoldStartOutSec"/> corrects for in the same way),
+    /// so the block's start is that value minus the meme's length.
+    /// </para>
+    /// </summary>
+    private void HoldCaretDuringMeme()
+    {
+        var d = _memePreview;
+        if (d == null) return;
+
+        try
+        {
+            double anchorRelSec = Math.Max(0, d.AnchorAbsSourceSec - (_trimStartMs / 1000.0));
+            double blockEndOut = OutTimeline().SourceToOutput(anchorRelSec);
+            double blockStartOut = Math.Max(0, blockEndOut - d.MemeDurationSec);
+
+            _holdCaretOutSec = blockStartOut + Math.Clamp(d.MemeElapsedSec, 0, d.MemeDurationSec);
+            UpdateCaret();
+        }
+        catch (Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+    }
+
+    /// <summary>
+    /// MEME_07 — hands the current placements to the director and, when they actually changed,
+    /// stalls the window behind the blocking notice while everything downstream is rebuilt.
+    ///
+    /// <para>
+    /// Called from ADD MEME, REMOVE MEME and the end of a drag. NOT from the middle of a drag: the
+    /// timeline is rebuilt on every pointer move there already, and a blocking overlay that
+    /// appeared mid-gesture would swallow the pointer and strand the drag.
+    /// </para>
+    /// </summary>
+    private async System.Threading.Tasks.Task RefreshMemePreviewAsync(string what)
+    {
+        var d = _memePreview;
+        if (d == null) return;
+
+        bool changed = d.SetMemes(_memes);
+        if (!changed) return;
+
+        var overlay = this.FindControl<Border>("MemeRebuildOverlay");
+        var text = this.FindControl<TextBlock>("MemeRebuildOverlayText");
+        if (text != null) text.Text = what;
+
+        _memeRebuildStallActive = true;
+        if (overlay != null) overlay.IsVisible = true;
+        try
+        {
+            // A cutaway running while the user edits the placements is reasoning about a list that
+            // no longer exists. Put the gameplay back first, then rebuild.
+            await d.AbortAsync();
+
+            InvalidateMemeTimelines();
+            RedrawTimeline();
+            await BuildFrameLaneAsync();
+
+            // Land the preview on a frame that certainly still exists after the re-time, so the
+            // first scrub after the stall starts from a truthful position.
+            var ipc = _videoHost?.IpcClient;
+            if (ipc != null)
+            {
+                await SeekInternal(_playheadMs / 1000.0);
+                d.NotifySeek();
+            }
+
+            // Let the render thread actually put a frame up before the curtain lifts, otherwise
+            // the overlay clears onto the black it was hiding.
+            await System.Threading.Tasks.Task.Delay(220);
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Granular", $"Meme preview rebuild failed: {ex.Message}");
+        }
+        finally
+        {
+            if (overlay != null) overlay.IsVisible = false;
+            _memeRebuildStallActive = false;
+            UpdateCaret();
+        }
+    }
+
+    /// <summary>
+    /// MEME_08 — PUT THE PICTURE ON THE FRAME THE MEME WILL INTERRUPT.
+    ///
+    /// <para>
+    /// Called on every step of a meme drag and once more on release. Two different positions are
+    /// being set here and they are easy to confuse:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>the CARET goes to the block's START in OUTPUT seconds — the instant in the finished
+    ///         video at which the meme begins. <c>SourceToOutput</c> of the anchor returns the
+    ///         moment the block ENDS (the documented boundary behaviour), so its length comes
+    ///         back off, exactly as <see cref="FreezeHoldStartOutSec"/> does for a freeze;</item>
+    ///   <item>the PICTURE goes to the anchor in CLIP-RELATIVE SOURCE seconds — the gameplay frame
+    ///         the meme cuts away from.</item>
+    /// </list>
+    /// <para>
+    /// Seeks are coalesced by <see cref="SeekInternal"/> (it keeps only the newest target while one
+    /// is in flight), so this is safe to call at pointer-move rate.
+    /// </para>
+    /// </summary>
+    private void ShowMemeLandingFrame(string memeId)
+    {
+        int idx = _memes.FindIndex(m => m.Id == memeId);
+        if (idx < 0) return;
+        var meme = _memes[idx];
+
+        try
+        {
+            double blockEndOut = OutTimeline().SourceToOutput(meme.AtSourceSecRelative);
+            _holdCaretOutSec = Math.Max(0, blockEndOut - meme.DurationSec);
+            _memeCaretSticky = true;
+            _playheadMs = Math.Max(0, meme.AtSourceSecRelative * 1000.0);
+            UpdateCaret();
+
+            if (_videoHost?.IpcClient != null) _ = SeekInternal(meme.AtSourceSecRelative);
+            _memePreview?.NotifySeek();
+        }
+        catch (Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+    }
+
+    /// <summary>MEME_06 — ends a meme drag. Safe to call when none is running.</summary>
+    private bool EndMemeDrag(Avalonia.Input.PointerEventArgs e)
+    {
+        if (_draggingMemeId == null) return false;
+
+        string? movedId = _draggingMemeId;
+        int idx = _memes.FindIndex(m => m.Id == _draggingMemeId);
+        if (idx >= 0)
+        {
+            RuntimeLog.Info("MEME",
+                $"Moved '{System.IO.Path.GetFileName(_memes[idx].FilePath)}' to {_memes[idx].AtSourceSecRelative:0.###}s source-relative.");
+        }
+
+        _draggingMemeId = null;
+        _memeDragTimeline = null;
+        _memeDragBlockStartOutSec = 0;
+        _memeDragBlockLenOutSec = 0;
+        _memeDragLastX = -1;                           // (DRAG_FIX)
+
+        e.Pointer.Capture(null);
+        EndUndoGesture();   // UNDO_02
+        InvalidateMemeTimelines();
+        RedrawTimeline();
+
+        // MEME_08 — settle on the exact landing frame one last time, so the frame on screen at
+        // release is the frame the meme will interrupt, not whichever one the last throttled seek
+        // happened to reach.
+        if (movedId != null) ShowMemeLandingFrame(movedId);
+
+        if (_memePreview != null) _memePreview.Suspended = false;
+
+        // MEME_08 — hand playback back exactly as it was found. The caret stays parked on the
+        // landing frame only while paused, so resuming releases it on its own.
+        if (_memeDragWasPlaying && _videoHost?.IpcClient != null)
+        {
+            _memeCaretSticky = false;
+            _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
+        }
+        _memeDragWasPlaying = false;
+
+        _ = RefreshMemePreviewAsync("Re-timing your video around the moved meme...");   // MEME_07
+
+        e.Handled = true;
+        return true;
+    }
+
+    /// <summary>
+    /// MEME_06 — draws every meme: a purple band across the output span it occupies, and a clown
+    /// popsicle at each end whose hairline crosses the ruler at the exact instant.
+    ///
+    /// The band is what carries the drag. The heads are decoration and hit-test transparent, so a
+    /// press anywhere on the block — including on a head — lands on the band and moves the whole
+    /// thing, which is the only gesture a meme has.
+    /// </summary>
+    private void DrawMemeBands(
+        Avalonia.Controls.Canvas canvas,
+        Avalonia.Controls.Panel? markerOverlay,
+        double w,
+        double h,
+        System.Func<double, double> markerStickHeight)
+    {
+        if (_memes.Count == 0 || w <= 0) return;
+
+        double outDur = OutDurationSec();
+        if (outDur <= 0.0001) return;
+
+        var memeColour = Infrastructure.ThemeResources.Colour(this, "AppMemeColor", Avalonia.Media.Color.FromRgb(124, 58, 237));
+        var bandFill = new Avalonia.Media.SolidColorBrush(
+            Avalonia.Media.Color.FromArgb(120, memeColour.R, memeColour.G, memeColour.B));
+        var bandFillSelected = new Avalonia.Media.SolidColorBrush(
+            Avalonia.Media.Color.FromArgb(185, memeColour.R, memeColour.G, memeColour.B));
+
+        foreach (var range in OutTimeline().InsertionOutputRanges())
+        {
+            var placement = _memes.FirstOrDefault(m => m.Id == range.Id);
+            if (placement == null) continue;
+
+            double x1 = Math.Clamp((range.StartOutputSec / outDur) * w, 0, w);
+            double x2 = Math.Clamp((range.EndOutputSec / outDur) * w, 0, w);
+            double bandW = Math.Max(2, x2 - x1);
+            bool isSelected = _selectedMemeId == range.Id;
+
+            var band = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Fill = isSelected ? bandFillSelected : bandFill,
+                Width = bandW,
+                Height = h,
+                IsHitTestVisible = true,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
+            };
+            string memeName = System.IO.Path.GetFileName(placement.FilePath);
+            ToolTip.SetTip(band,
+                $"Meme: {memeName} ({placement.DurationSec:0.0}s)\n" +
+                "Drag this band to move the whole meme. Its start and end cannot be dragged apart — " +
+                "the length is the meme's own.");
+            Avalonia.Controls.Canvas.SetLeft(band, x1);
+            Avalonia.Controls.Canvas.SetTop(band, 0);
+            AttachMemeBandInteractions(band, range.Id, canvas);
+            canvas.Children.Add(band);
+
+            var markerParent = markerOverlay ?? canvas;
+            double startLeft = MainWindow.ClampTimelineCameraLeft(x1 + LaneBorderInsetPx, w);
+            double endLeft = MainWindow.ClampTimelineCameraLeft(x2 + LaneBorderInsetPx, w);
+            double stagger = Math.Abs(endLeft - startLeft) >= FreezeMarkerHeadWidthPx ? 0.0 : FreezeMarkerEndStaggerPx;
+
+            Control BuildMemeHead(double leftPx, double topPx, string tip)
+            {
+                var head = MainWindow.CreateMemeTimelineCameraIcon(
+                    isSelected, _marchingAntsOffset, out var iconAnts, out var lineAnts);
+                _freezeMarkerAnts.Add(iconAnts);
+                _freezeMarkerAnts.Add(lineAnts);
+                ToolTip.SetTip(head, tip);
+                // Decoration only — the band underneath owns the gesture.
+                head.IsHitTestVisible = false;
+                Avalonia.Controls.Canvas.SetTop(head, topPx);
+                Avalonia.Controls.Canvas.SetLeft(head, leftPx);
+                MainWindow.StretchTimelineCameraStick(head, markerStickHeight(topPx));
+                return head;
+            }
+
+            var startHead = BuildMemeHead(startLeft, FreezeMarkerOverlayTop,
+                $"{memeName} starts here.\nDrag the purple band to move the whole meme.");
+            var endHead = BuildMemeHead(endLeft, FreezeMarkerOverlayTop + stagger,
+                $"{memeName} ends here, and the gameplay carries on.\nThis end cannot be dragged on its own.");
+
+            if (stagger > 0)
+            {
+                markerParent.Children.Add(startHead);
+                markerParent.Children.Add(endHead);
+            }
+            else
+            {
+                markerParent.Children.Add(endHead);
+                markerParent.Children.Add(startHead);
+            }
+        }
     }
 
     private bool _isDraggingZoomMarker;
@@ -4469,6 +5053,7 @@ public partial class GranularSpeedEditorWindow : Window
 
                 _ = ipc.SetPropertyAsync("time-pos",
                     toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                _memePreview?.NotifySeek();   // MEME_07 — a jump, not playback
                 return true;
             }
         }
@@ -4513,6 +5098,22 @@ public partial class GranularSpeedEditorWindow : Window
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
+
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING, INCLUDING THE CUT SKIP.
+        //
+        // The director may have swapped the meme file into this very host, in which case
+        // CurrentTime, Duration and IsEof all describe the MEME and not the gameplay. Running
+        // the rest of this tick against them would seek the cut-skip somewhere random, trip the
+        // trim-end stop, arm the freeze at the wrong instant and re-crop the picture. Holding
+        // the caret is the ONLY thing allowed to happen while a meme is on screen.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        _memePreview?.Tick();
+        if (_memePreview != null && _memePreview.IsActive)
+        {
+            HoldCaretDuringMeme();
+            return;
+        }
 
         // CUTS_03 — before anything else this tick does. If playback has wandered into footage the
         // user deleted, nothing else on this tick is meaningful: the caret, the zoom overlay and
@@ -4569,6 +5170,7 @@ public partial class GranularSpeedEditorWindow : Window
                 _freezeStartTime = DateTime.UtcNow;
                 _ = _videoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 _ = _videoHost.IpcClient.SetPropertyAsync("time-pos", (_freezeTimeMs / 1000.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                _memePreview?.NotifySeek();   // MEME_07 — the freeze parked it; not playback
                 return;
             }
         }
@@ -4616,9 +5218,19 @@ public partial class GranularSpeedEditorWindow : Window
 
         if (trimDurSec > 0 && !_isCanvasScrubbing)
         {
-            _holdCaretOutSec = null;
-            _playheadMs = relTime * 1000.0;
-            UpdateCaret();
+            // MEME_08 — a meme drag parked the caret deliberately and the player is paused, so
+            // there is no playback position to sync to. The moment it plays again, normal service.
+            if (_memeCaretSticky && _videoHost.IpcClient.IsPaused)
+            {
+                // deliberately left where the drag put it
+            }
+            else
+            {
+                _memeCaretSticky = false;
+                _holdCaretOutSec = null;
+                _playheadMs = relTime * 1000.0;
+                UpdateCaret();
+            }
         }
 
         var timeMapper = FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.CreateTimeMapper(_trimEndMs - _trimStartMs, _segments, _baseSpeed, _trimStartMs);
@@ -4641,11 +5253,13 @@ public partial class GranularSpeedEditorWindow : Window
         double dur = GetDuration();
         if (dur <= 0) return;
 
+        _memeCaretSticky = false;   // MEME_08 — the user took the playhead back
         _holdCaretOutSec = null;
         _playheadMs = Math.Clamp(msFromTrimStart, 0, dur * 1000.0);
         UpdateCaret();
 
         if (_videoHost?.IpcClient != null) _ = SeekInternal(_playheadMs / 1000.0);
+        _memePreview?.NotifySeek();
     }
 
 
@@ -4924,6 +5538,219 @@ public partial class GranularSpeedEditorWindow : Window
     private FortniteVideoSoftware.Core.Media.OutputTimeline? _outTimeline;
     private string _outTimelineSig = "";
 
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_06 — PLACING, MOVING AND REMOVING A MEME.
+    //
+    // THE FRAME-OF-REFERENCE RULE, because everything here turns on it:
+    //   the ruler you see            OUTPUT seconds (the finished video's length)
+    //   what a MemePlacement stores  CLIP-RELATIVE SOURCE seconds (a moment of gameplay)
+    // A meme occupies ZERO source seconds and its full DurationSec of output seconds. So a meme is
+    // a POINT in the stored model and a BLOCK on screen, and every conversion between the two goes
+    // through OutputTimeline. There is no linear shortcut: inside a 2x segment one output second is
+    // two source seconds, so anything computed as "pixels times a constant" is wrong the moment a
+    // speed segment sits between the clip start and the meme.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// MEME_06 — the memes the Main App scanned, handed over so this editor does not re-scan the
+    /// folder or re-probe every file. Set before ShowDialog; empty is legal and the picker says so.
+    /// </summary>
+    public IReadOnlyList<MemeItem> AvailableMemes { get; set; } = System.Array.Empty<MemeItem>();
+
+    private async void OnAddMemeClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_videoPath)) return;
+
+        var picked = await Controls.MemePickerWindow.PickAsync(this, AvailableMemes);
+        if (picked == null) return;
+
+        if (!System.IO.File.Exists(picked.FullPath))
+        {
+            NotifyError("That meme file is no longer on disk.");
+            return;
+        }
+
+        // Where the playhead is, in SOURCE seconds relative to the trim-in point. _playheadMs is
+        // already trim-relative, so this is a division and nothing more.
+        double rawSourceRelSec = Math.Max(0, _playheadMs / 1000.0);
+
+        var tl = OutTimeline();
+
+        // D8 — a meme may not interrupt a freeze or a speed segment, and may not sit in deleted
+        // footage. SnapInsertionPoint moves it FORWARD to the first legal instant. The marker is
+        // then drawn at the snapped value, never at the raw playhead, or the meme lands somewhere
+        // the user never saw.
+        double snapped = tl.SnapInsertionPoint(rawSourceRelSec);
+
+        // D7 — two memes may not share a point. Checked against the snapped value, because that is
+        // where this one would actually go.
+        if (tl.HasInsertionAtSource(snapped))
+        {
+            NotifyError("A meme already sits at that exact point. Move the playhead a little.");
+            return;
+        }
+
+        if (!MemeSeparationIsSafe(snapped, null, out string? clash))
+        {
+            NotifyError(clash!);
+            return;
+        }
+
+        double duration = await ResolveMemeDurationAsync(picked);
+        if (duration <= 0.01)
+        {
+            NotifyError("That meme's length could not be read, so it was not added.");
+            return;
+        }
+
+        PushUndo("add meme");   // UNDO_02
+
+        // ⚠️ NewId takes an INDEX and must be unique for the life of this editor, not merely
+        // unique in the current list: adding two memes, removing the first, then adding another
+        // would hand the new one the id the survivor already holds — and ids become FFmpeg filter
+        // labels, so a collision corrupts the export graph rather than merely confusing the UI.
+        string id = FortniteVideoSoftware.Core.Media.MemePlacement.NewId(_nextMemeIdIndex++);
+        while (_memes.Any(m => m.Id == id))
+            id = FortniteVideoSoftware.Core.Media.MemePlacement.NewId(_nextMemeIdIndex++);
+        _memes.Add(new FortniteVideoSoftware.Core.Media.MemePlacement(
+            picked.FullPath, snapped, duration, id));
+        _selectedMemeId = id;
+
+        bool moved = Math.Abs(snapped - rawSourceRelSec) > 0.01;
+        RuntimeLog.Info("MEME",
+            $"Added '{System.IO.Path.GetFileName(picked.FullPath)}' at {snapped:0.###}s source-relative " +
+            $"({duration:0.###}s long){(moved ? $"; slid {snapped - rawSourceRelSec:0.###}s forward off a speed block or deleted part" : "")}.");
+
+        InvalidateMemeTimelines();
+        RedrawTimeline();
+        UpdateMemeButtonsState();
+        ShowMemeLandingFrame(id);                                                    // MEME_08
+        await RefreshMemePreviewAsync("Fitting the meme into your video...");        // MEME_07
+
+        Notify(moved
+            ? $"Meme added — it slid {snapped - rawSourceRelSec:0.0}s along, off a block it cannot interrupt."
+            : "Meme added");
+    }
+
+    private void OnRemoveMemeClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => RemoveSelectedMeme();
+
+    private void RemoveSelectedMeme()
+    {
+        if (_selectedMemeId == null) return;
+        int idx = _memes.FindIndex(m => m.Id == _selectedMemeId);
+        if (idx < 0) { _selectedMemeId = null; UpdateMemeButtonsState(); return; }
+
+        PushUndo("remove meme");   // UNDO_02
+
+        string name = System.IO.Path.GetFileName(_memes[idx].FilePath);
+        _memes.RemoveAt(idx);
+        _selectedMemeId = null;
+
+        RuntimeLog.Info("MEME", $"Removed '{name}'.");
+        _memeCaretSticky = false;
+        InvalidateMemeTimelines();
+        RedrawTimeline();
+        UpdateMemeButtonsState();
+        _ = RefreshMemePreviewAsync("Re-timing your video without that meme...");   // MEME_07
+        Notify("Meme removed");
+    }
+
+    /// <summary>
+    /// MEME_06 — how long this meme runs. A still image has no intrinsic length and is given
+    /// <see cref="FortniteVideoSoftware.Core.Media.MemePlacement.StillImageDurationSec"/>; a video is
+    /// probed. The timeline cannot be laid out without this number, because every position after
+    /// the meme depends on it — which is why it is resolved here and not at export time.
+    /// </summary>
+    private async Task<double> ResolveMemeDurationAsync(MemeItem item)
+    {
+        if (item.IsImage) return FortniteVideoSoftware.Core.Media.MemePlacement.StillImageDurationSec;
+
+        try
+        {
+            string ffprobe = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve(
+                "ffprobe.exe", "backend", "binaries");
+            var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobe, item.FullPath);
+            double probed = await prober.GetDurationAsync();
+            return probed > 0.01 ? probed : 0.0;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MEME", $"Could not read the length of '{System.IO.Path.GetFileName(item.FullPath)}': {ex.Message}");
+            return 0.0;
+        }
+    }
+
+    /// <summary>
+    /// MEME_06 — refuses a placement that would land within <see cref="MemeMinSeparationOutSec"/>
+    /// of another meme.
+    ///
+    /// ⚠️ THIS IS NOT COSMETIC. ProcessWorker merges cuts closer than 0.05s onto the earlier one,
+    /// because an empty trim piece makes the whole filter graph fail to configure. Left to itself
+    /// that merge is silent: the user places two memes a few frames apart and the export quietly
+    /// plays them back to back at one seam. Blocking it here keeps the model honest and the
+    /// explanation in front of the person who can act on it.
+    /// </summary>
+    private bool MemeSeparationIsSafe(double snappedSourceRelSec, string? ignoreId, out string? reason)
+    {
+        foreach (var m in _memes)
+        {
+            if (ignoreId != null && m.Id == ignoreId) continue;
+            if (Math.Abs(m.AtSourceSecRelative - snappedSourceRelSec) < MemeMinSeparationOutSec)
+            {
+                reason = $"That is too close to '{System.IO.Path.GetFileName(m.FilePath)}'. Leave at least a moment between two memes.";
+                return false;
+            }
+        }
+        reason = null;
+        return true;
+    }
+
+    /// <summary>
+    /// MEME_06 — moves an existing meme to a new SOURCE point, snapping and validating exactly as
+    /// placement does. Returns true when the model actually changed.
+    /// </summary>
+    private bool MoveMemeTo(string id, double rawSourceRelSec)
+    {
+        int idx = _memes.FindIndex(m => m.Id == id);
+        if (idx < 0) return false;
+
+        // Snapped against the timeline WITHOUT this meme in it — see BaseTimeline's note. Using
+        // OutTimeline here would ask a ruler that contains the block where the block should go.
+        double snapped = BaseTimeline().SnapInsertionPoint(Math.Max(0, rawSourceRelSec));
+
+        if (Math.Abs(snapped - _memes[idx].AtSourceSecRelative) < 0.0005) return false;
+        if (!MemeSeparationIsSafe(snapped, id, out _)) return false;
+
+        _memes[idx] = _memes[idx] with { AtSourceSecRelative = snapped };
+        return true;
+    }
+
+    /// <summary>
+    /// MEME_06 — drops the LIVE timeline cache. Adding, moving or removing a meme changes where the
+    /// block sits on the finished ruler, and that cache is keyed on a signature that includes the
+    /// memes, so clearing it is what makes the ruler redraw correctly.
+    ///
+    /// <para>
+    /// (DRAG_FIX) It deliberately does NOT touch <c>_baseTimeline</c>. BaseTimeline is built with
+    /// <c>insertions: null</c> and its signature covers only duration, segments and cuts — a meme
+    /// can never invalidate it. Clearing it anyway forced a full <c>OutputTimeline.Create</c> on
+    /// every single pointer move of a drag (MoveMemeTo calls BaseTimeline for the snap), which is
+    /// where the drag stutter came from.
+    /// </para>
+    /// </summary>
+    private void InvalidateMemeTimelines()
+    {
+        _outTimeline = null; _outTimelineSig = "";
+    }
+
+    /// <summary>MEME_06 — REMOVE MEME appears only while a meme is selected, mirroring REMOVE ZOOM.</summary>
+    private void UpdateMemeButtonsState()
+    {
+        var removeBtn = this.FindControl<Button>("RemoveMemeBtn");
+        if (removeBtn != null) removeBtn.IsVisible = _selectedMemeId != null;
+    }
+
     private FortniteVideoSoftware.Core.Media.OutputTimeline OutTimeline()
     {
         double durSec = Math.Max(0.001, GetDuration());
@@ -4943,16 +5770,34 @@ public partial class GranularSpeedEditorWindow : Window
         // serving the pre-cut timeline until some unrelated edit changed the signature, and the
         // video would silently be shorter than the timeline claimed.
         foreach (var c in _cuts) sb.Append('X').Append(c.StartMs).Append(',').Append(c.EndMs).Append(';');
+        // MEME_06 — memes belong in the signature for exactly the reason CUT_02 gives above: without
+        // them the ruler would keep serving the pre-meme timeline until some unrelated edit changed
+        // the signature, and the finished video would be LONGER than the timeline claimed.
+        foreach (var m in _memes) sb.Append('M').Append(m.Id).Append(',')
+            .Append(m.AtSourceSecRelative.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+            .Append(m.DurationSec.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
         string sig = sb.ToString();
 
         if (_outTimeline == null || sig != _outTimelineSig)
         {
             _outTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
-                durSec * 1000.0, segs, 1.0, 0, null, CutsForTimeline());
+                durSec * 1000.0, segs, 1.0, 0, InsertionsForTimeline(), CutsForTimeline());
             _outTimelineSig = sig;
         }
         return _outTimeline;
     }
+
+    /// <summary>
+    /// MEME_06 — the meme list in the shape OutputTimeline wants.
+    ///
+    /// ⚠️ BaseTimeline() deliberately does NOT call this. Dragging a meme inside a timeline that
+    /// contains that meme is the same trap FREEZE_DRAG documents: inside the block every output
+    /// pixel answers "which gameplay moment is here" with the SAME instant, so the block pins
+    /// itself and will not move. The drag arithmetic runs against BaseTimeline, where memes have
+    /// zero width and the answer is stable for the whole gesture.
+    /// </summary>
+    private System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.OutputTimeline.Insertion> InsertionsForTimeline()
+        => FortniteVideoSoftware.Core.Media.MemePlacement.ToInsertions(_memes);
 
     /// <summary>Length of the FINISHED video in seconds - what the ruler is drawn against.</summary>
     private double OutDurationSec() => Math.Max(0.001, OutTimeline().TotalOutputSeconds);
@@ -5202,6 +6047,18 @@ public partial class GranularSpeedEditorWindow : Window
         delay.Start();
 
         return true;
+    }
+
+    /// <summary>MEME_06 — ADD MEME / REMOVE MEME, wired alongside DELETE PARTS.</summary>
+    private void WireMemeButtons()
+    {
+        var addBtn = this.FindControl<Button>("AddMemeBtn");
+        if (addBtn != null) addBtn.Click += OnAddMemeClicked;
+
+        var removeBtn = this.FindControl<Button>("RemoveMemeBtn");
+        if (removeBtn != null) removeBtn.Click += OnRemoveMemeClicked;
+
+        UpdateMemeButtonsState();
     }
 
     private void WireDeletePartsButton()
@@ -5455,6 +6312,7 @@ public partial class GranularSpeedEditorWindow : Window
     private readonly record struct EditorSnapshot(
         ImmutableArray<SpeedSegment> Segments,
         ImmutableArray<FortniteVideoSoftware.Core.Media.CutRange> Cuts,
+        ImmutableArray<FortniteVideoSoftware.Core.Media.MemePlacement> Memes,
         double BaseSpeed,
         double FreezeTimeMs,
         double FreezeDurationS,
@@ -5469,10 +6327,15 @@ public partial class GranularSpeedEditorWindow : Window
             if (Math.Abs(FreezeDurationS - other.FreezeDurationS) > 0.0001) return false;
             if (Segments.Length != other.Segments.Length) return false;
             if (Cuts.Length != other.Cuts.Length) return false;
+            if (Memes.Length != other.Memes.Length) return false;   // MEME_06
             for (int i = 0; i < Segments.Length; i++)
                 if (!Segments[i].Equals(other.Segments[i])) return false;
             for (int i = 0; i < Cuts.Length; i++)
                 if (!Cuts[i].Equals(other.Cuts[i])) return false;
+            // MemePlacement is a record, so this compares path, anchor, duration AND id — which is
+            // what makes a drag of half a pixel count as "no change" and not stack an undo step.
+            for (int i = 0; i < Memes.Length; i++)
+                if (!Memes[i].Equals(other.Memes[i])) return false;
             return true;
         }
     }
@@ -5510,6 +6373,7 @@ public partial class GranularSpeedEditorWindow : Window
     private EditorSnapshot CaptureSnapshot(string label) => new(
         ImmutableArray.CreateRange(_segments),
         ImmutableArray.CreateRange(_cuts),
+        ImmutableArray.CreateRange(_memes),   // MEME_06
         _baseSpeed, _freezeTimeMs, _freezeDurationS, label, _selectedSegmentIndex);
 
     /// <summary>
@@ -5681,6 +6545,20 @@ public partial class GranularSpeedEditorWindow : Window
 
             _cuts.Clear();
             _cuts.AddRange(snap.Cuts);
+
+            // MEME_06 — restore the memes, and drop a selection pointing at one that no longer
+            // exists. Leaving a stale id selected would leave REMOVE MEME on screen with nothing
+            // behind it.
+            _memes.Clear();
+            _memes.AddRange(snap.Memes);
+            if (_selectedMemeId != null && !_memes.Any(m => m.Id == _selectedMemeId))
+                _selectedMemeId = null;
+            InvalidateMemeTimelines();
+
+            // MEME_07 — an undo that moves, adds or removes a meme changes the preview just as
+            // much as making the edit did, so it goes through the same rebuild stall.
+            _memeCaretSticky = false;
+            _ = RefreshMemePreviewAsync("Re-timing your video after the undo...");
 
             _baseSpeed = snap.BaseSpeed;
             _freezeTimeMs = snap.FreezeTimeMs;
@@ -5942,6 +6820,9 @@ public partial class GranularSpeedEditorWindow : Window
         _marchingAntsTimer?.Stop();
         _freezePulseTimer?.Stop();
         _zoomTutorialTimer?.Stop();
+        // MEME_07 — the director only touches mpv through the host, which is disposed two lines
+        // below; dropping the reference first is what guarantees no swap is in flight when it goes.
+        _memePreview = null;
         _voiceOverPlayer.Dispose();
         _videoHost?.Dispose();
         _videoHost = null;

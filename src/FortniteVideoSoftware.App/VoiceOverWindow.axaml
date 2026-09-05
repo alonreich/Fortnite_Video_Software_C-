@@ -42,6 +42,18 @@
                                             FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
                                             Background="{DynamicResource AppOverlayBrush}" ZIndex="9999"
                                             ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
+
+                                    <!-- MEME_07: the preview plays each meme where it will actually
+                                         appear by swapping the file in the one mpv host. That costs
+                                         a black moment at each end, so it is announced. -->
+                                    <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="900" Background="#E6000000" CornerRadius="6">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                                            <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                                            <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <TextBlock Name="MemeSwapOverlayText" Text="Loading the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="Please wait a moment." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
                             </Border>
 

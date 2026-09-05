@@ -104,6 +104,18 @@
                         <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
 
+                    <!-- MEME_07: the preview plays each meme where it will actually appear by
+                         swapping the file in the one mpv host. That costs a black moment at each
+                         end of the meme, so it is announced instead of looking like a stutter. -->
+                    <Border Name="MemeSwapOverlay" IsVisible="False" Grid.RowSpan="2" ZIndex="900" Background="#E6000000">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                            <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                            <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                            <TextBlock Name="MemeSwapOverlayText" Text="Loading the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Please wait a moment." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- IDEA_01: single consolidated hero empty-state (BlankStateOverlay merged in).
                          IDEA_04: Opacity transition lets the card fade while the drag-over dropzone speaks.
                          IDEA_05: supported-formats hint. IDEA_07: unified "UPLOAD VIDEO" verb. -->

@@ -629,6 +629,42 @@ public sealed class OutputTimeline
     }
 
     /// <summary>
+    /// MEME_05 — where each meme sits on the FINISHED-VIDEO ruler: its id, and the output second it
+    /// starts and ends on.
+    ///
+    /// THE EXACT MIRROR OF <see cref="CutMarkerOutputPositions"/>, and worth stating why. A cut is
+    /// zero output seconds wide, so it can only ever be a fixed-width glyph. An insertion is the
+    /// opposite: it occupies zero SOURCE seconds but real OUTPUT seconds, so on this ruler — and
+    /// only on this ruler — it is a genuine block with a left edge, a right edge and a middle you
+    /// can grab. That asymmetry is the whole reason memes are placed in the Speed Editor (output
+    /// time) while cuts are marked on the Main App (source time): each feature is drawn where it
+    /// actually has a shape.
+    ///
+    /// ⚠️ Do NOT compute these edges as "anchor, anchor + DurationSec" in output time by hand.
+    /// The accumulation below walks every preceding chunk at its own speed, which is the only
+    /// thing that stays correct when a 2x segment sits between the clip start and the meme.
+    /// </summary>
+    public List<(string Id, double StartOutputSec, double EndOutputSec)> InsertionOutputRanges()
+    {
+        var ranges = new List<(string, double, double)>();
+        double acc = 0;
+
+        foreach (var ch in _chunks)
+        {
+            if (ch.IsCut) continue;   // zero output length; contributes nothing to the accumulator
+
+            double outLen = ch.OutputLengthSec;
+            if (ch.IsInsertion && ch.InsertionId != null)
+            {
+                ranges.Add((ch.InsertionId, acc, acc + outLen));
+            }
+            acc += outLen;
+        }
+
+        return ranges;
+    }
+
+    /// <summary>
     /// CUT_01 — how many extra export chunks these cuts cost, for the pre-export RAM warning.
     /// A cut lands inside a stretch of footage and splits it in two, so it adds ONE branch — half
     /// what a speed segment costs (which adds itself plus the gap after it). A cut touching the
