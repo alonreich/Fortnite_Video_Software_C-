@@ -140,6 +140,14 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private const double MemeMinSeparationOutSec = 0.05;
 
+    /// <summary>
+    /// MEME_09 — the smallest the meme's INVISIBLE grab area may be, in pixels. The coloured band
+    /// is still painted at its true width; this only governs what the pointer can catch. Matches
+    /// the freeze/zoom marker hitboxes, which solved the same problem for the same reason
+    /// (HITBOX_01 / HITBOX_02).
+    /// </summary>
+    private const double MemeGrabMinWidthPx = 18;
+
     /// <summary>MEME_06 — the placements the Main App reads back, in clip-relative source seconds.</summary>
     public IReadOnlyList<FortniteVideoSoftware.Core.Media.MemePlacement> ResultMemes =>
         _memes.OrderBy(m => m.AtSourceSecRelative).ToList().AsReadOnly();
@@ -692,6 +700,7 @@ public partial class GranularSpeedEditorWindow : Window
                 int finishedIdx = _draggingSegmentIndex;
                 if (_segDragMode != SegDragMode.None && _draggingSegmentIndex < _segments.Count)
                 {
+                    ClampZoomInsideItsBlock(_draggingSegmentIndex);   // ZOOMLIVE_05
                     var seg = _segments[_draggingSegmentIndex];
                     RuntimeLog.Info("Granular", $"Segment #{_draggingSegmentIndex + 1} settled: rel {FormatMs(seg.StartMs)}–{FormatMs(seg.EndMs)} @ {seg.Speed:0.0}x (abs {FormatMs(seg.StartMs + _trimStartMs)}–{FormatMs(seg.EndMs + _trimStartMs)}).");
                     SetStatus($"Segment #{_draggingSegmentIndex + 1} set to {FormatMs(seg.StartMs)}–{FormatMs(seg.EndMs)} @ {seg.Speed:0.0}x.");
@@ -888,9 +897,14 @@ public partial class GranularSpeedEditorWindow : Window
 
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
 
+        // ZOOMLIVE_01 — ESCAPE NO LONGER DESTROYS THE ZOOM.
+        // It used to mean "cancel this transaction", stripping the zoom off the block. There is no
+        // transaction now: the box is written to the segment as it is dragged, so Escape can only
+        // sensibly mean "put the box away". An untouched auto-created block is still cleaned up by
+        // ExitZoomMode. To actually delete a zoom, use REMOVE ZOOM (or Ctrl+Z).
         if (e.Key == Avalonia.Input.Key.Escape && _zoomModeActive)
         {
-            CancelZoomMode();
+            ExitZoomMode();
             e.Handled = true;
             return;
         }
@@ -1076,28 +1090,14 @@ public partial class GranularSpeedEditorWindow : Window
 
                 if (hitIdx >= 0 && mode != SegDragMode.None)
                 {
-                    _isFreezeCameraSelected = false;
-                    _freezeFocus = FreezeMarkerEnd.None;
-
-                    _selectedSegmentIndex = hitIdx;
+                    // ZOOMLIVE_02 — one selection path for the whole window: this also parks the
+                    // playhead on the block's first frame and re-opens its zoom box if it has one.
+                    SelectSegment(hitIdx, jumpPlayhead: true);
                     var seg = _segments[hitIdx];
-                    _pendingSpeed = seg.Speed;
-
-                    var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
-                    var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                    if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
-                    if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
-                    UpdateDeleteButtonVisibility();
 
                     if (e.GetCurrentPoint(canvas).Properties.IsRightButtonPressed)
                     {
-                        var menu = new Avalonia.Controls.ContextMenu();
-                        var item = new Avalonia.Controls.MenuItem { Header = "Delete Segment", Icon = new TextBlock { Text = "🗑️", Margin = new Avalonia.Thickness(0,0,5,0) } };
-                        item.Click += (_, _) => {
-                            if (_selectedSegmentIndex >= 0) ExecuteDeleteSelectedSegment();
-                        };
-                        menu.ItemsSource = new[] { item };
-                        menu.Open(canvas);
+                        ShowSegmentContextMenu(canvas, hitIdx);
                         e.Handled = true;
                         return;
                     }
@@ -2062,20 +2062,13 @@ public partial class GranularSpeedEditorWindow : Window
                 RequestDeleteSegment(idx);
             };
 
+            // ZOOMLIVE_02 — the right-hand pane is now EXACTLY the timeline. It used to run its
+            // own copy of the selection logic that never moved the playhead and never synced the
+            // zoom ramp radios, so clicking a row and clicking a block did different things.
             void SelectThisSegment()
             {
-                _selectedSegmentIndex = idx;
-                _pendingSpeed = seg.Speed;
-
-                var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
-                var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-                if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
-                if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
-
-                RefreshSegmentList();
-                UpdateDeleteButtonVisibility();
-                RedrawTimeline();
-                SetStatus($"Selected segment #{idx + 1}. Change speed or press DELETE to remove.");
+                SelectSegment(idx, jumpPlayhead: true);
+                SetStatus($"Selected segment #{idx + 1}. Change speed, press DELETE to remove, or drag its zoom box to re-aim it.");
             }
 
             border.PointerEntered += (_, _) =>
@@ -2235,14 +2228,61 @@ public partial class GranularSpeedEditorWindow : Window
     /// existed, but nothing had told the slider, the delete button or the marching ants about it.
     /// </para>
     /// </summary>
-    private void SelectSegment(int index)
+    private void SelectSegment(int index) => SelectSegment(index, jumpPlayhead: true);
+
+    /// <summary>
+    /// ZOOMLIVE_02 — THE ONE WAY A SEGMENT BECOMES SELECTED. Everything funnels here.
+    ///
+    /// <para>
+    /// There used to be FOUR selection paths — this method, <c>SelectSegmentAt</c>, the timeline's
+    /// own pointer handler and the right-hand list row's click — and they did different things.
+    /// Clicking a row did not move the playhead; clicking the timeline did not sync the Slow/Instant
+    /// radios; only one of them closed zoom mode. So "select a segment" meant four different things
+    /// depending on where you clicked, which is exactly the complaint this change answers.
+    /// </para>
+    /// <para>
+    /// THREE THINGS ALWAYS HAPPEN NOW: the block is selected, the playhead jumps to its first frame
+    /// and PAUSES there (you cannot aim a zoom box at a moving picture), and if the block carries a
+    /// zoom its editing box re-opens exactly as it was registered — position, size and ramp mode.
+    /// A block with no zoom just gets selected; the box does not appear uninvited.
+    /// </para>
+    /// <para>
+    /// <paramref name="jumpPlayhead"/> is false only for callers that are ALREADY driving the
+    /// playhead themselves — a drag in progress, or an undo restore — where seeking would fight
+    /// them.
+    /// </para>
+    /// </summary>
+    private void SelectSegment(int index, bool jumpPlayhead)
     {
         if (index < 0 || index >= _segments.Count) return;
+
+        bool changed = index != _selectedSegmentIndex;
+
+        // ZOOMLIVE_07 — CLOSE THE OLD BOX WHILE THE OLD INDEX IS STILL CURRENT.
+        // ExitZoomMode may delete an abandoned auto-created block, and that decision has to be made
+        // about the block being LEFT, not the one being selected. Doing it after re-pointing the
+        // selection is how you delete the wrong segment.
+        if (changed && _zoomModeActive)
+        {
+            int countBefore = _segments.Count;
+            int orphanWas = _zoomCreatedSegmentIndex;
+
+            ExitZoomMode();
+
+            // ⚠️ If the cleanup removed a block that sat BEFORE the one being selected, every index
+            // after it shifted down by one — including the caller's. Selecting `index` unadjusted
+            // would land on the block AFTER the one that was clicked.
+            if (_segments.Count < countBefore && orphanWas >= 0 && orphanWas < index) index--;
+
+            if (index >= _segments.Count) index = _segments.Count - 1;
+            if (index < 0) return;
+        }
 
         _isFreezeCameraSelected = false;
         _freezeFocus = FreezeMarkerEnd.None;
         _zoomFocus = null;
         _selectedSegmentIndex = index;
+        _selectedMemeId = null;              // exactly one object on this timeline is ever selected
 
         var seg = _segments[index];
         _pendingSpeed = seg.Speed;
@@ -2253,9 +2293,44 @@ public partial class GranularSpeedEditorWindow : Window
         if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
 
         UpdateDeleteButtonVisibility();
+        UpdateMemeButtonsState();
         SyncZoomModeChecksFromSegment();
+
+        if (jumpPlayhead) JumpPlayheadToSegmentEdge(index, toStart: true);
+
+        // ZOOMLIVE_02 — a zoomed block re-opens its box. Any box belonging to a DIFFERENT block was
+        // already closed above, while its own index was still current.
+        if (seg.ZoomW.HasValue && !_zoomModeActive) EnterZoomMode();
+
         RefreshSegmentList();
         RedrawTimeline();
+    }
+
+    /// <summary>
+    /// ZOOMLIVE_02 — parks the playhead on the first (or last) frame of a block and STOPS there.
+    ///
+    /// <para>
+    /// Pausing is not incidental. The whole reason to jump is so the user can see the frame they
+    /// are aiming a zoom box at; a picture that keeps moving under the box makes the aim guesswork.
+    /// </para>
+    /// <para>
+    /// ⚠️ The caret is set through the same sticky-hold path the meme drag uses, so the playback
+    /// tick cannot immediately drag it back to wherever mpv happens to be mid-seek.
+    /// </para>
+    /// </summary>
+    private void JumpPlayheadToSegmentEdge(int index, bool toStart)
+    {
+        if (index < 0 || index >= _segments.Count) return;
+        try
+        {
+            var ipc = _videoHost?.IpcClient;
+            if (ipc != null && !ipc.IsPaused) _ = ipc.SetPropertyAsync("pause", "yes");
+
+            var seg = _segments[index];
+            double relMs = Math.Max(0, (toStart ? seg.StartMs : seg.EndMs));
+            SetPlayheadFromScrub(relMs);
+        }
+        catch (Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
     }
 
     /// <summary>
@@ -2889,6 +2964,21 @@ public partial class GranularSpeedEditorWindow : Window
             ShowMemeLandingFrame(_draggingMemeId);   // MEME_08
         }
 
+        // MEME_09 — SAY WHY IT STOPPED. A meme cannot interrupt a speed block, so dragging one
+        // across a long slow-mo stretch legitimately pins it at the edge. Silence there is
+        // indistinguishable from the app having frozen, which is exactly how it was reported.
+        var blocker = _memeDragBlockedBy;
+        if (blocker != null)
+        {
+            SetStatus($"A meme cannot interrupt a {blocker.Speed:0.0}x block " +
+                      $"({FormatMs(blocker.StartMs)}–{FormatMs(blocker.EndMs)}) — " +
+                      "it is resting against its edge. Drag past the block to carry on.");
+        }
+        else
+        {
+            SetStatus("Moving the meme — release to set. Its length cannot change; it is the meme's own length.");
+        }
+
         e.Handled = true;
         return true;
     }
@@ -2963,13 +3053,31 @@ public partial class GranularSpeedEditorWindow : Window
     /// appeared mid-gesture would swallow the pointer and strand the drag.
     /// </para>
     /// </summary>
-    private async System.Threading.Tasks.Task RefreshMemePreviewAsync(string what)
+    private async System.Threading.Tasks.Task RefreshMemePreviewAsync(string what, bool stall = true)
     {
         var d = _memePreview;
         if (d == null) return;
 
         bool changed = d.SetMemes(_memes);
         if (!changed) return;
+
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_09 — A MOVE IS NOT A REBUILD, AND MUST NOT BE DRESSED AS ONE.
+        //
+        // Adding or removing a meme changes the FINISHED LENGTH, so the ruler, the film strip and
+        // every position after it genuinely have to be rebuilt — that earns the blocking notice.
+        // MOVING one changes nothing about the length; only where the block sits. Raising a
+        // full-window PLEASE WAIT curtain plus a 220ms settle every time the user nudged the band
+        // by a few pixels is what made a simple drag feel like the app had seized up. Silent
+        // refresh for a move.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        if (!stall)
+        {
+            await d.AbortAsync();
+            InvalidateMemeTimelines();
+            RedrawTimeline();
+            return;
+        }
 
         var overlay = this.FindControl<Border>("MemeRebuildOverlay");
         var text = this.FindControl<TextBlock>("MemeRebuildOverlayText");
@@ -3070,6 +3178,7 @@ public partial class GranularSpeedEditorWindow : Window
         _memeDragBlockStartOutSec = 0;
         _memeDragBlockLenOutSec = 0;
         _memeDragLastX = -1;                           // (DRAG_FIX)
+        _memeDragBlockedBy = null;                     // MEME_09
 
         e.Pointer.Capture(null);
         EndUndoGesture();   // UNDO_02
@@ -3092,7 +3201,9 @@ public partial class GranularSpeedEditorWindow : Window
         }
         _memeDragWasPlaying = false;
 
-        _ = RefreshMemePreviewAsync("Re-timing your video around the moved meme...");   // MEME_07
+        // MEME_09 — stall:false. A move does not change the finished length, so there is nothing
+        // to wait for and no reason to blank the window.
+        _ = RefreshMemePreviewAsync("", stall: false);
 
         e.Handled = true;
         return true;
@@ -3134,23 +3245,50 @@ public partial class GranularSpeedEditorWindow : Window
             double bandW = Math.Max(2, x2 - x1);
             bool isSelected = _selectedMemeId == range.Id;
 
+            // The VISUAL band is drawn at its true width — it must not lie about how much of the
+            // finished video the meme occupies.
             var band = new Avalonia.Controls.Shapes.Rectangle
             {
                 Fill = isSelected ? bandFillSelected : bandFill,
                 Width = bandW,
                 Height = h,
+                IsHitTestVisible = false,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
+            };
+            Avalonia.Controls.Canvas.SetLeft(band, x1);
+            Avalonia.Controls.Canvas.SetTop(band, 0);
+            canvas.Children.Add(band);
+
+            // ══════════════════════════════════════════════════════════════════════════════
+            // MEME_09 — THE GRAB AREA IS SEPARATE FROM THE PAINT, AND HAS A FLOOR.
+            //
+            // A meme occupies its own length in OUTPUT seconds, so on a long clip it is a sliver:
+            // a 5-second meme in a 10-minute video is 0.8% of the ruler — about 8px on a 1000px
+            // timeline, and the user has to hit it while it is the only draggable thing in that
+            // 8px. That is the "hard to hit" half of the complaint. The invisible hit rectangle is
+            // held to MemeGrabMinWidthPx and centred on the band, so a short meme is as easy to
+            // grab as a long one while the coloured band still shows the truth.
+            // ══════════════════════════════════════════════════════════════════════════════
+            double grabW = Math.Max(bandW, MemeGrabMinWidthPx);
+            double grabX = Math.Clamp(x1 + (bandW - grabW) / 2.0, 0, Math.Max(0, w - grabW));
+
+            var grab = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Fill = Avalonia.Media.Brushes.Transparent,
+                Width = grabW,
+                Height = h,
                 IsHitTestVisible = true,
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast)
             };
             string memeName = System.IO.Path.GetFileName(placement.FilePath);
-            ToolTip.SetTip(band,
+            ToolTip.SetTip(grab,
                 $"Meme: {memeName} ({placement.DurationSec:0.0}s)\n" +
                 "Drag this band to move the whole meme. Its start and end cannot be dragged apart — " +
                 "the length is the meme's own.");
-            Avalonia.Controls.Canvas.SetLeft(band, x1);
-            Avalonia.Controls.Canvas.SetTop(band, 0);
-            AttachMemeBandInteractions(band, range.Id, canvas);
-            canvas.Children.Add(band);
+            Avalonia.Controls.Canvas.SetLeft(grab, grabX);
+            Avalonia.Controls.Canvas.SetTop(grab, 0);
+            AttachMemeBandInteractions(grab, range.Id, canvas);
+            canvas.Children.Add(grab);
 
             var markerParent = markerOverlay ?? canvas;
             double startLeft = MainWindow.ClampTimelineCameraLeft(x1 + LaneBorderInsetPx, w);
@@ -3239,12 +3377,150 @@ public partial class GranularSpeedEditorWindow : Window
             marker.Focus();
             MainWindow.SetTimelineCameraHover(marker, true);
             e.Pointer.Capture(timelineCanvas);
+
+            // ZOOMLIVE_03 — the picture jumps to the END YOU GRABBED, not to the block's start.
+            // Grabbing the END marker to fine-tune where the zoom stops, and being shown the frame
+            // where it STARTS, is the wrong frame for the decision being made.
+            JumpPlayheadToZoomEdge(segIndex, isStart);
+
             SetStatus(isStart
-                ? "Dragging the zoom START — release to set."
-                : "Dragging the zoom END — release to set.");
+                ? "Dragging the zoom START — the picture follows it. Release to set."
+                : "Dragging the zoom END — the picture follows it. Release to set.");
             RedrawTimeline();
             e.Handled = true;
         };
+    }
+
+    /// <summary>
+    /// ZOOMLIVE_05 — KEEP A ZOOM INSIDE THE BLOCK THAT OWNS IT.
+    ///
+    /// <para>
+    /// <c>ZoomStartMs</c> / <c>ZoomEndMs</c> are deliberately independent of the block's own edges —
+    /// that is what the two magnifiers exist to control. The consequence nobody asks for: shrink or
+    /// move the block afterwards and the zoom span can end up partly or wholly OUTSIDE it. The
+    /// exporter would then be handed a zoom phase covering source time this block never renders,
+    /// and the preview and the export would disagree about when the zoom happens.
+    /// </para>
+    /// <para>
+    /// Called on every block move/resize release. It only ever narrows, never widens, so a user who
+    /// deliberately zoomed a sub-range keeps their sub-range unless the block shrank past it.
+    /// </para>
+    /// </summary>
+    private void ClampZoomInsideItsBlock(int index)
+    {
+        if (index < 0 || index >= _segments.Count) return;
+        var seg = _segments[index];
+        if (!seg.ZoomW.HasValue) return;
+        if (!seg.ZoomStartMs.HasValue && !seg.ZoomEndMs.HasValue) return;
+
+        double zs = Math.Clamp(seg.ZoomStartMs ?? seg.StartMs, seg.StartMs, seg.EndMs);
+        double ze = Math.Clamp(seg.ZoomEndMs   ?? seg.EndMs,   seg.StartMs, seg.EndMs);
+        // An inverted span collapses onto its start — the block shrank past the whole zoom range.
+        // (Was written as a tuple swap that self-assigned `zs`, which is what CS1717 caught.)
+        if (ze < zs) ze = zs;
+
+        if (Math.Abs(zs - (seg.ZoomStartMs ?? seg.StartMs)) < 0.5
+            && Math.Abs(ze - (seg.ZoomEndMs ?? seg.EndMs)) < 0.5) return;
+
+        _segments[index] = seg with { ZoomStartMs = zs, ZoomEndMs = ze };
+        RuntimeLog.Info("Granular",
+            $"Zoom span on segment #{index + 1} pulled back inside its block: " +
+            $"{FormatMs(zs)}–{FormatMs(ze)} (block {FormatMs(seg.StartMs)}–{FormatMs(seg.EndMs)}).");
+    }
+
+    /// <summary>
+    /// ZOOMLIVE_04 — the right-click menu on a coloured timeline block.
+    ///
+    /// <para>
+    /// It used to hold a single "Delete Segment" entry. The two zoom actions are the ones a user
+    /// reaches for most and had no home: EDIT ZOOM opens the box on this block, REMOVE ZOOM strips
+    /// the zoom and KEEPS the speed change. Both are hidden on a block that has no zoom rather than
+    /// shown greyed out — a menu of things you cannot do is noise.
+    /// </para>
+    /// <para>
+    /// ⚠️ DELETE BLOCK REMOVES THE WHOLE THING, speed and zoom together. That is deliberate and it
+    /// is why REMOVE ZOOM sits directly above it: a zoomed slow-motion block is one object, and
+    /// "delete" on one object means the object.
+    /// </para>
+    /// </summary>
+    private void ShowSegmentContextMenu(Avalonia.Controls.Canvas canvas, int segIndex)
+    {
+        if (segIndex < 0 || segIndex >= _segments.Count) return;
+
+        SelectSegment(segIndex, jumpPlayhead: true);
+
+        // Control, not MenuItem: a real Separator goes in this list, and Avalonia does not
+        // reinterpret a MenuItem whose header is "-" the way WPF does.
+        var items = new System.Collections.Generic.List<Avalonia.Controls.Control>();
+        bool hasZoom = _segments[segIndex].ZoomW.HasValue;
+
+        if (hasZoom)
+        {
+            var edit = new Avalonia.Controls.MenuItem
+            {
+                Header = "Edit Zoom",
+                Icon = new TextBlock { Text = "\U0001F50D", Margin = new Avalonia.Thickness(0) }
+            };
+            edit.Click += (_, _) =>
+            {
+                if (_selectedSegmentIndex < 0) return;
+                if (!_zoomModeActive) EnterZoomMode();
+                Notify("Drag the box to re-aim it. Every change is saved as you go.");
+            };
+            items.Add(edit);
+
+            var removeZoom = new Avalonia.Controls.MenuItem
+            {
+                Header = "Remove Zoom (keep the speed)",
+                Icon = new TextBlock { Text = "\U0001F6AB", Margin = new Avalonia.Thickness(0) }
+            };
+            removeZoom.Click += (_, _) =>
+            {
+                if (_zoomModeActive) ExitZoomMode();
+                RemoveZoomFromSelectedSegment();
+            };
+            items.Add(removeZoom);
+
+            items.Add(new Avalonia.Controls.Separator());
+        }
+
+        var del = new Avalonia.Controls.MenuItem
+        {
+            Header = hasZoom ? "Delete Block (speed AND zoom)" : "Delete Segment",
+            Icon = new TextBlock { Text = "\U0001F5D1", Margin = new Avalonia.Thickness(0) }
+        };
+        del.Click += (_, _) => { if (_selectedSegmentIndex >= 0) ExecuteDeleteSelectedSegment(); };
+        items.Add(del);
+
+        var menu = new Avalonia.Controls.ContextMenu { ItemsSource = items };
+        menu.Open(canvas);
+    }
+
+    /// <summary>
+    /// ZOOMLIVE_03 — parks the picture on the first or last frame of a segment's ZOOM span.
+    ///
+    /// <para>
+    /// The zoom's own start/end are <see cref="SpeedSegment.ZoomStartMs"/> / <c>ZoomEndMs</c>, which
+    /// are independent of the block's edges — that is the entire point of the two magnifiers. When
+    /// they are unset the zoom covers the whole block, so the block's edges ARE the zoom's edges.
+    /// </para>
+    /// </summary>
+    private void JumpPlayheadToZoomEdge(int segIndex, bool toStart)
+    {
+        if (segIndex < 0 || segIndex >= _segments.Count) return;
+        try
+        {
+            var seg = _segments[segIndex];
+            double ms = toStart
+                ? (seg.ZoomStartMs ?? seg.StartMs)
+                : (seg.ZoomEndMs ?? seg.EndMs);
+
+            var ipc = _videoHost?.IpcClient;
+            if (ipc != null && !ipc.IsPaused) _ = ipc.SetPropertyAsync("pause", "yes");
+
+            SetPlayheadFromScrub(Math.Max(0, ms));
+        }
+        catch (Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
     }
 
     /// <summary>
@@ -3254,7 +3530,10 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void FocusZoomMarker(int segIndex, bool isStart)
     {
-        if (_selectedSegmentIndex != segIndex) SelectSegment(segIndex);
+        // ZOOMLIVE_03 — jumpPlayhead:false is load-bearing. The magnifier press seeks to the ZOOM
+        // edge a moment later; letting the selection seek to the BLOCK start first would show the
+        // wrong frame and fire a second seek for nothing.
+        if (_selectedSegmentIndex != segIndex) SelectSegment(segIndex, jumpPlayhead: false);
         _isFreezeCameraSelected = false;
         _freezeFocus = FreezeMarkerEnd.None;
         _zoomFocus = (segIndex, isStart);
@@ -3350,6 +3629,24 @@ public partial class GranularSpeedEditorWindow : Window
         {
             if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) return;
             if (segIndex < 0 || segIndex >= _segments.Count) return;
+
+            // ══════════════════════════════════════════════════════════════════════════
+            // ZOOMLIVE_03 — MARKER PRECEDENCE. ONE MODE AT A TIME.
+            //
+            // A selected zoomed block puts FOUR grabbable things within a few pixels of each other:
+            // this block's own START/END edges, and the zoom's two magnifiers. Where they overlap,
+            // "whichever is nearer" is a coin toss precisely in the common case, so the mode
+            // decides instead: while the zoom box is open the magnifiers own the clicks, and the
+            // block's own edges stand down. Close the box (ZOOM-IN again, or Escape) and the edges
+            // come straight back.
+            // ══════════════════════════════════════════════════════════════════════════
+            if (_zoomModeActive && segIndex == _selectedSegmentIndex)
+            {
+                SetStatus("The zoom box is open, so the magnifiers own this edge. Press ZOOM-IN or Escape to resize the block itself.");
+                e.Handled = true;
+                return;
+            }
+
             var seg = _segments[segIndex];
 
             _selectedSegmentIndex = segIndex;
@@ -3450,6 +3747,40 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         return clamped;
+    }
+
+    /// <summary>
+    /// ZOOMLIVE_05 — is there room for THIS zoom to become a gliding one?
+    ///
+    /// Mirrors <see cref="ClampZoomEdgeAgainstSlowNeighbours"/> exactly, but asks the yes/no
+    /// question instead of moving an edge. Both must agree; if the gap constant changes, it changes
+    /// for both because they read the same one.
+    /// </summary>
+    private bool SlowZoomHasRoom(int segIndex, out double requiredGapSec)
+    {
+        requiredGapSec = FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.ZoomRampRequiredGapBetweenSlowZooms;
+        if (segIndex < 0 || segIndex >= _segments.Count) return true;
+
+        var self = _segments[segIndex];
+        if (!self.ZoomW.HasValue) return true;
+
+        double gapMs = requiredGapSec * 1000.0;
+        double selfStart = self.ZoomStartMs ?? self.StartMs;
+        double selfEnd   = self.ZoomEndMs   ?? self.EndMs;
+
+        for (int i = 0; i < _segments.Count; i++)
+        {
+            if (i == segIndex) continue;
+            var other = _segments[i];
+            if (!other.ZoomW.HasValue || !other.ZoomH.HasValue || !other.ZoomSlow) continue;
+
+            double otherStart = other.ZoomStartMs ?? other.StartMs;
+            double otherEnd   = other.ZoomEndMs   ?? other.EndMs;
+
+            // Overlapping, or separated by less than one ramp's worth of air, in either direction.
+            if (selfStart - otherEnd < gapMs && otherStart - selfEnd < gapMs) return false;
+        }
+        return true;
     }
 
     private double ZoomAspect => _isMobileFormat ? (2.0 / 3.0) : (16.0 / 9.0);
@@ -3758,6 +4089,32 @@ public partial class GranularSpeedEditorWindow : Window
             var seg = _segments[_selectedSegmentIndex];
             if (seg.ZoomW.HasValue && seg.ZoomSlow != slow)
             {
+                // ═════════════════════════════════════════════════════════════════════
+                // ZOOMLIVE_05 — INSTANT -> SLOW IS NOT ALWAYS LEGAL, AND IT NEVER WAS.
+                //
+                // A gliding zoom needs clear air around it: two slow zooms closer together than
+                // ZoomRampRequiredGapBetweenSlowZooms cannot both complete their ramps, so the
+                // magnifier drag has always been clamped against neighbouring SLOW zooms. Flipping
+                // the radio was exempt from that check only because the mode could not be changed
+                // after the ✅ — now that it can, the same rule has to apply here or the user can
+                // reach an arrangement the drag would have refused to create.
+                //
+                // It REFUSES rather than silently sliding the block: the user asked for a ramp
+                // mode, not for their zoom to move somewhere else.
+                // ═════════════════════════════════════════════════════════════════════
+                if (slow && !SlowZoomHasRoom(_selectedSegmentIndex, out double needSec))
+                {
+                    _syncingZoomChecks = true;
+                    slowCb.IsChecked = false;
+                    instCb.IsChecked = true;
+                    _syncingZoomChecks = false;
+                    NotifyError($"This zoom is too close to another gliding zoom — they need {needSec:0.0}s between them, " +
+                                "or neither can glide. Move one of them apart first, or leave this one instant.");
+                    RuntimeLog.Info("Granular",
+                        $"Refused INSTANT→SLOW on segment #{_selectedSegmentIndex + 1}: less than {needSec:0.###}s clear of another slow zoom.");
+                    return;
+                }
+
                 PushUndo("change zoom style");   // UNDO_02
                 _segments[_selectedSegmentIndex] = seg with { ZoomSlow = slow };
                 RuntimeLog.Info("Granular", $"Zoom ramp mode → {(slow ? "SLOW" : "INSTANT")} on segment #{_selectedSegmentIndex + 1}.");
@@ -3821,13 +4178,16 @@ public partial class GranularSpeedEditorWindow : Window
         return new Avalonia.Rect((cw - vidW) / 2.0, (ch - vidH) / 2.0, vidW, vidH);
     }
 
+    /// <summary>
+    /// ZOOMLIVE_01 — ZOOM-IN is now a TOGGLE, not a one-way door.
+    ///
+    /// It used to refuse and scold ("press the ✅…") because a zoom session was a transaction that
+    /// had to be closed. There is no transaction any more: the box writes itself to the segment as
+    /// it is dragged, so pressing the button again simply puts the box away, with the work kept.
+    /// </summary>
     private void ToggleZoomMode()
     {
-        if (_zoomModeActive)
-        {
-            NotifyError("Press the ✅ on the box to lock this zoom in, or Escape to cancel it.");
-            return;
-        }
+        if (_zoomModeActive) { ExitZoomMode(); return; }
 
         if (!EnsureZoomTargetSegment()) return;
 
@@ -3836,23 +4196,17 @@ public partial class GranularSpeedEditorWindow : Window
 
     private bool _zoomSessionCreatedSegment;
 
-    private void ConfirmZoomFromCheckmark()
-    {
-        if (!_zoomModeActive) return;
+    /// <summary>
+    /// ZOOMLIVE_07 — WHICH block ZOOM-IN auto-created, by index.
+    ///
+    /// ⚠️ ExitZoomMode must NOT read `_selectedSegmentIndex` to find it. Selecting a different
+    /// block calls ExitZoomMode as part of switching, and by then `_selectedSegmentIndex` is
+    /// already the NEW block — so cleaning up "the selected one" would delete the block the user
+    /// just clicked on instead of the empty one they abandoned.
+    /// </summary>
+    private int _zoomCreatedSegmentIndex = -1;
 
-        CommitZoomToSegment("Confirmed");
-        _zoomSessionCreatedSegment = false;
-        StopZoomConfirmBlink();
-
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
-        double factor = canvas != null ? ZoomFactorOf(_zoomUiRect, ZoomBoundsUi(canvas)) : 0;
-
-        Notify($"Zoom locked in at {factor:0.0}x.");
-        PulseZoomConfirmFeedback();
-        _ = CommitZoomAndPrimePreviewAsync();
-    }
-
-    /// <summary>ZOOM_03 — the tactile half of pressing ✅: a sound plus a burst on the box.</summary>
+    /// <summary>ZOOMLIVE_01 — the tactile half of a committed box: a sound.</summary>
     private void PulseZoomConfirmFeedback()
     {
         try
@@ -3862,42 +4216,16 @@ public partial class GranularSpeedEditorWindow : Window
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
-    private void CancelZoomMode()
-    {
-        if (!_zoomModeActive) return;
-
-        int idx = _selectedSegmentIndex;
-        bool removedBlock = false;
-
-        if (idx >= 0 && idx < _segments.Count)
-        {
-            if (_zoomSessionCreatedSegment)
-            {
-                PushUndo("remove zoom");   // UNDO_02
-                _segments.RemoveAt(idx);
-                _selectedSegmentIndex = -1;
-                removedBlock = true;
-            }
-            else
-            {
-                var seg = _segments[idx];
-                _segments[idx] = seg with
-                {
-                    ZoomX = null, ZoomY = null, ZoomW = null, ZoomH = null,
-                    ZoomOrigRes = null, ZoomStartMs = null, ZoomEndMs = null
-                };
-            }
-        }
-
-        _zoomSessionCreatedSegment = false;
-        _hasZoomBox = false;
-        ExitZoomMode();
-        RefreshSegmentList();
-        RedrawTimeline();
-        UpdateDeleteButtonVisibility();
-        Notify(removedBlock ? "Zoom cancelled — the block it would have used was removed too."
-                            : "Zoom cancelled.");
-    }
+    // ZOOMLIVE_01 — CancelZoomMode IS GONE, AND ITS ABSENCE IS THE POINT.
+    //
+    // It stripped the zoom off the block (or deleted the block outright) because Escape used to
+    // mean "abandon this transaction". With the box committing itself as it is dragged there is no
+    // transaction to abandon, and a key that silently deletes finished work is exactly the
+    // behaviour this whole change set exists to remove. The three survivors do the job honestly:
+    //   ExitZoomMode                 — put the box away, keep the work
+    //   RemoveZoomFromSelectedSegment — delete the zoom, keep the speed block
+    //   Delete / ✕ / right-click      — delete the whole block
+    // DO NOT REINSTATE A KEY THAT DESTROYS A ZOOM WITHOUT ASKING.
 
     /// <summary>
     /// ZOOM_04 — takes the zoom off the selected block, leaving the block itself alone.
@@ -4009,6 +4337,7 @@ public partial class GranularSpeedEditorWindow : Window
             NotifyError(snapMsg);
         }
         _zoomSessionCreatedSegment = true;
+        _zoomCreatedSegmentIndex = _selectedSegmentIndex;   // ZOOMLIVE_07
 
         _pendingStartMs = -1;
         _pendingEndMs = -1;
@@ -4087,6 +4416,7 @@ public partial class GranularSpeedEditorWindow : Window
         int newIndex = _segments.FindIndex(s => ReferenceEquals(s, created));
         SelectSegmentAt(newIndex < 0 ? _segments.Count - 1 : newIndex);
         _zoomSessionCreatedSegment = true;
+        _zoomCreatedSegmentIndex = _selectedSegmentIndex;   // ZOOMLIVE_07
 
         RuntimeLog.Info("Granular",
             $"Zoom container auto-created at base speed {_baseSpeed:0.0}x: {FormatMs(start)}–{FormatMs(end)}.");
@@ -4098,27 +4428,12 @@ public partial class GranularSpeedEditorWindow : Window
     /// IDEA_3 helper — selects a block and brings the rest of the UI in line with it, without the
     /// status-bar text the list-row click path writes.
     /// </summary>
-    private void SelectSegmentAt(int index)
-    {
-        if (index < 0 || index >= _segments.Count) return;
-
-        if (_zoomModeActive && index != _selectedSegmentIndex)
-        {
-            ExitZoomMode();
-        }
-
-        _selectedSegmentIndex = index;
-        _pendingSpeed = _segments[index].Speed;
-
-        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
-        var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
-        if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, _segments[index].Speed);
-        if (speedLbl != null) speedLbl.Text = $"{_segments[index].Speed:0.0}x";
-
-        RefreshSegmentList();
-        UpdateDeleteButtonVisibility();
-        RedrawTimeline();
-    }
+    /// <summary>
+    /// ZOOMLIVE_02 — kept as a name several call sites already use; it is now one line.
+    /// The two implementations had drifted apart (this one never synced the ramp radios and never
+    /// moved the playhead), which is precisely the class of bug a second selection path invites.
+    /// </summary>
+    private void SelectSegmentAt(int index) => SelectSegment(index, jumpPlayhead: true);
 
     /// <summary>
     /// APPLY ZOOM-IN commit path. On the GPU preview path, stall the UI behind a
@@ -4128,7 +4443,11 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private async System.Threading.Tasks.Task CommitZoomAndPrimePreviewAsync()
     {
-        ExitZoomMode();
+        // ZOOMLIVE_01 — ⚠️ THIS USED TO CALL ExitZoomMode() AND MUST NOT.
+        // It ran exactly once, from the ✅, so closing the box was the right ending. It now runs on
+        // EVERY drag release, so closing here would slam the box shut the instant the user let go
+        // of it — they could never make a second adjustment. Leaving zoom mode is now only ever a
+        // deliberate act: the ZOOM-IN toggle, Escape, or selecting a different block.
         if (!_gpuLiveZoomPreview) return;
 
         var busy = this.FindControl<Border>("ZoomApplyBusyOverlay");
@@ -4220,15 +4539,19 @@ public partial class GranularSpeedEditorWindow : Window
             _zoomUiRect = new Avalonia.Rect(vid.X + seg.ZoomX.Value * sx, vid.Y + seg.ZoomY.Value * sy,
                                             seg.ZoomW.Value * sx, seg.ZoomH.Value * sy);
             _hasZoomBox = true;
+            _zoomBoxTouched = true;   // ZOOMLIVE_01 — a stored zoom is real by definition
         }
         else
         {
             PlaceDefaultZoomBoxWhenLaidOut(canvas);
         }
 
+        SyncZoomModeChecksFromSegment();      // ZOOMLIVE_01 — Slow/Instant reflects THIS segment
         RenderZoomBox();
         MaybeShowZoomTutorial(canvas);
-        SetStatus("Drag the box to aim it, or its corners to resize. Press the ✅ when it looks right.");
+        SetStatus(_zoomBoxTouched
+            ? "Editing this zoom. Drag the box to re-aim it, or its corners to resize. Every change is saved as you go."
+            : "Drag the box to aim it, or its corners to resize. The zoom starts the moment you touch it.");
     }
 
     private void ExitZoomMode()
@@ -4251,10 +4574,37 @@ public partial class GranularSpeedEditorWindow : Window
             if (!zoomBtn.Classes.Contains("ZoomAction")) zoomBtn.Classes.Add("ZoomAction");
         }
 
-        if (_zoomConfirmBtn != null) _zoomConfirmBtn.IsVisible = false;
         if (_zoomFactorBadge != null) _zoomFactorBadge.IsVisible = false;
 
+        // ZOOMLIVE_01 — LEAVING WITHOUT EVER TOUCHING THE BOX.
+        // ZOOM-IN creates a 1x block to hang the zoom on when nothing is selected. If the user
+        // never touched the box there is no zoom, so that block is an invisible artefact of a
+        // button press — it has no speed change and no zoom, and it would sit on the timeline
+        // forever. Nothing was ever committed, so nothing is lost by removing it.
+        int orphan = _zoomCreatedSegmentIndex;
+        if (_zoomSessionCreatedSegment && !_zoomBoxTouched
+            && orphan >= 0 && orphan < _segments.Count
+            && !_segments[orphan].ZoomW.HasValue)
+        {
+            RuntimeLog.Info("Granular",
+                $"Zoom cancelled before it was aimed — removing the empty block it would have used (#{orphan + 1}).");
+            _segments.RemoveAt(orphan);
+
+            // ZOOMLIVE_07 — removing an earlier element shifts every index after it. The selection
+            // may already point at a DIFFERENT block (this runs as part of switching selection), so
+            // it is repaired rather than blanked.
+            if (_selectedSegmentIndex == orphan) _selectedSegmentIndex = -1;
+            else if (_selectedSegmentIndex > orphan) _selectedSegmentIndex--;
+
+            RefreshSegmentList();
+            RedrawTimeline();
+            UpdateDeleteButtonVisibility();
+        }
+
+        _hasZoomBox = false;
+        _zoomBoxTouched = false;
         _zoomSessionCreatedSegment = false;
+        _zoomCreatedSegmentIndex = -1;
     }
 
     private void EnsureZoomVisuals(Avalonia.Controls.Canvas canvas)
@@ -4313,28 +4663,12 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.Children.Add(edge);
         }
 
-        _zoomConfirmBtn = new Button
-        {
-            Content = "✓",
-            FontSize = Infrastructure.ThemeManager.ScaledFontSize(38),
-            FontWeight = Avalonia.Media.FontWeight.Bold,
-            Width = ZoomConfirmSizePx,
-            Height = ZoomConfirmSizePx,
-            Padding = new Thickness(0),
-            CornerRadius = new Avalonia.CornerRadius(ZoomConfirmSizePx / 2),
-            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
-            IsVisible = false,
-            ZIndex = 20
-        };
-        _zoomConfirmBtn.Background = ZoomBrush();
-        _zoomConfirmBtn.Foreground = Infrastructure.ThemeResources.Brush(this, "AppOnAccentTextBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#ffffff")));
-        Avalonia.Controls.ToolTip.SetTip(_zoomConfirmBtn, "Lock this zoom in. You can remove it later with REMOVE ZOOM.");
-        Avalonia.Automation.AutomationProperties.SetName(_zoomConfirmBtn, "Confirm this zoom");
-        _zoomConfirmBtn.Classes.Add("zoomconfirmbtn");
-        _zoomConfirmBtn.Click += (_, __) => ConfirmZoomFromCheckmark();
-        canvas.Children.Add(_zoomConfirmBtn);
+        // ZOOMLIVE_01 — THE FLOATING ✅ IS GONE. Do not put it back.
+        // It was the only way to commit a zoom, and it was ceremony: PointerReleased already wrote
+        // the box into the segment on every draw/move/resize, so pressing it re-committed values
+        // that were already stored. What it really did was make the feature feel one-shot — a zoom
+        // could not be re-opened afterwards, because the button implied a transaction that had
+        // closed. Registration is now the gesture itself (see _zoomBoxTouched).
 
         _zoomFactorText = new TextBlock
         {
@@ -4357,70 +4691,26 @@ public partial class GranularSpeedEditorWindow : Window
         canvas.Children.Add(_zoomFactorBadge);
     }
 
-    /// <summary>
-    /// ZOOMCONF_01 — diameter of the floating green ✅. Raised 52 -> 76 because it is the ONE
-    /// control that ends a zoom and users were leaving the editor without pressing it; at 52 it
-    /// read as a decoration on the corner of the box rather than the action the box is waiting for.
-    /// The corner-parking maths keys off this constant, so both the inside-the-box and
-    /// outside-the-box placements follow automatically.
-    /// </summary>
-    private const double ZoomConfirmSizePx = 100;
-
-    /// <summary>ZOOMCONF_01 — how long the ✅ pulses after the box is moved or resized.</summary>
-    private static readonly TimeSpan ZoomConfirmBlinkDuration = TimeSpan.FromSeconds(5);
-
-    /// <summary>ZOOMCONF_01 — stops the pulse; restarted from scratch on every box change.</summary>
-    private Avalonia.Threading.DispatcherTimer? _zoomConfirmBlinkTimer;
+    // ZOOMLIVE_01 — ZoomConfirmSizePx, ZoomConfirmBlinkDuration and the blink timer were all
+    // scaffolding for the floating ✅ and went with it. The pulse existed to tell the user their
+    // box had not been saved yet; there is no longer such a state to warn about.
 
     /// <summary>
-    /// ZOOMCONF_01 — MAKE THE ✅ PULSE FOR 3 SECONDS AFTER THE BOX IS MOVED OR RESIZED.
+    /// ZOOMLIVE_01 — HAS THIS BOX BEEN TOUCHED YET?
     ///
     /// <para>
-    /// Drawing or adjusting the box changes nothing on its own — the zoom is only committed when
-    /// the ✅ is pressed. Nothing on screen said so, so a user would size the box, see the live
-    /// preview follow it, and reasonably conclude they were finished. The pulse fires exactly at
-    /// the moment the gesture ENDS, which is when the question "what now?" is actually asked.
+    /// Pressing ZOOM-IN drops a default box in the middle of the picture. That box is a SUGGESTION,
+    /// not a zoom: until the user drags or resizes it, nothing is written to the segment and the
+    /// box is drawn faint. Otherwise pressing ZOOM-IN and walking away would silently zoom the
+    /// video into its own middle — a zoom the user never aimed and never saw the point of.
     /// </para>
     /// <para>
-    /// ⚠️ IT IS TRIGGERED ON POINTER RELEASE, NOT ON EVERY POINTER MOVE. RenderZoomBox runs on every
-    /// move during a drag; restarting a 3-second animation there would leave the button flashing
-    /// continuously while the user works, which reads as a fault rather than a prompt.
-    /// </para>
-    /// <para>
-    /// The animation itself is `Button.zoomconfirmblink` in AvaloniaApp.axaml (1s per cycle, 3
-    /// cycles). The class is removed by this timer rather than by the animation, so a second
-    /// adjustment inside the 3s window restarts a full pulse instead of inheriting a part-finished one.
+    /// ⚠️ It also decides what LEAVING zoom mode means. If ZOOM-IN auto-created a speed block for
+    /// this zoom and the box was never touched, that block is removed on exit; leaving it behind
+    /// accumulates invisible 1x blocks the user never asked for and cannot see.
     /// </para>
     /// </summary>
-    private void StartZoomConfirmBlink()
-    {
-        if (_zoomConfirmBtn == null || !_zoomModeActive) return;
-
-        StopZoomConfirmBlink();
-
-        _zoomConfirmBtn.Classes.Add("zoomconfirmblink");
-
-        _zoomConfirmBlinkTimer = new Avalonia.Threading.DispatcherTimer { Interval = ZoomConfirmBlinkDuration };
-        _zoomConfirmBlinkTimer.Tick += (_, __) => StopZoomConfirmBlink();
-        _zoomConfirmBlinkTimer.Start();
-    }
-
-    private void StopZoomConfirmBlink()
-    {
-        try { _zoomConfirmBlinkTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        _zoomConfirmBlinkTimer = null;
-        _zoomConfirmBtn?.Classes.Remove("zoomconfirmblink");
-    }
-
-    /// <summary>
-    /// ZOOM_10 — which corner the ✅ is parked in. Re-chosen only while the box is STILL, and held
-    /// for the whole of a drag, so the button travels with the corner instead of teleporting
-    /// between corners on every pointer move.
-    /// </summary>
-    private int _zoomConfirmCorner = 3;
-
-    /// <summary>ZOOM_03 — the floating ✅ that ends a zoom. Created by EnsureZoomVisuals.</summary>
-    private Button? _zoomConfirmBtn;
+    private bool _zoomBoxTouched;
     private Border? _zoomFactorBadge;
     private TextBlock? _zoomFactorText;
 
@@ -4504,9 +4794,13 @@ public partial class GranularSpeedEditorWindow : Window
                 return;
             }
 
+            // ZOOMLIVE_01 — ⚠️ THIS USED TO CALL CommitZoomToSegment("Placed") AND MUST NOT.
+            // Committing here means merely PRESSING ZOOM-IN zooms the video into its own middle,
+            // with no aiming and no consent. The box is placed and drawn faint; the first drag or
+            // resize is what writes it to the segment.
             _zoomUiRect = BuildDefaultZoomRect(canvas);
             _hasZoomBox = true;
-            CommitZoomToSegment("Placed");
+            _zoomBoxTouched = false;
             RenderZoomBox();
         }, isRetry ? Avalonia.Threading.DispatcherPriority.Background
                    : Avalonia.Threading.DispatcherPriority.Loaded);
@@ -4540,36 +4834,8 @@ public partial class GranularSpeedEditorWindow : Window
             w, h);
     }
 
-    /// <summary>
-    /// ZOOM_03 — puts the floating ✅ inside whichever corner of the box has the most open video
-    /// around it, and the strength badge on the opposite side.
-    ///
-    /// WHY THE CORNER MOVES. A fixed corner ends up jammed against the edge of the picture as soon
-    /// as the user drags the box there, and lands under the pointer exactly when they are dragging
-    /// that edge. Scoring each corner by its distance to the nearest video edge and taking the
-    /// largest keeps the button pointing into open space, so it drifts away from the screen edges
-    /// on its own and never fights the corner-resize handle the user is reaching for.
-    /// </summary>
-    private static int BestZoomCornerIndex(Avalonia.Rect box, Avalonia.Rect vid)
-    {
-        var corners = new[]
-        {
-            new Avalonia.Point(box.X,     box.Y),
-            new Avalonia.Point(box.Right, box.Y),
-            new Avalonia.Point(box.X,     box.Bottom),
-            new Avalonia.Point(box.Right, box.Bottom),
-        };
-
-        int best = 3; double bestScore = double.MinValue;
-        for (int i = 0; i < 4; i++)
-        {
-            double score = Math.Min(
-                Math.Min(corners[i].X - vid.X, vid.Right - corners[i].X),
-                Math.Min(corners[i].Y - vid.Y, vid.Bottom - corners[i].Y));
-            if (score > bestScore) { bestScore = score; best = i; }
-        }
-        return best;
-    }
+    // ZOOMLIVE_01 — BestZoomCornerIndex parked the floating ✅ in the most open corner. Removed
+    // with the button it served.
 
     private void RenderZoomBox()
     {
@@ -4589,7 +4855,6 @@ public partial class GranularSpeedEditorWindow : Window
                 _zoomBoxRect.IsVisible = false;
                 foreach (var h in _zoomHandles) h.IsVisible = false;
                 for (int i = 0; i < 4; i++) if (_zoomDim[i] != null) { _zoomDim[i].Width = 0; _zoomDim[i].Height = 0; }
-                if (_zoomConfirmBtn != null) { StopZoomConfirmBlink(); _zoomConfirmBtn.IsVisible = false; }
                 if (_zoomFactorBadge != null) _zoomFactorBadge.IsVisible = false;
                 return;
             }
@@ -4621,27 +4886,12 @@ public partial class GranularSpeedEditorWindow : Window
             }
 
             var vidRect = GetVideoDisplayRect(canvas);
-            if (_zoomConfirmBtn != null)
-            {
-                bool dragging = _zoomDrag != ZoomDrag.None;
-                bool fits = r.Width >= ZoomConfirmSizePx * 1.6 && r.Height >= ZoomConfirmSizePx * 1.6;
-                _zoomConfirmBtn.IsVisible = true;
 
-                if (!dragging) _zoomConfirmCorner = BestZoomCornerIndex(r, vidRect);
-                int c = _zoomConfirmCorner;
-                const double pad = 10;
-                double bx = fits
-                    ? (c == 0 || c == 2 ? r.X + pad : r.Right - pad - ZoomConfirmSizePx)
-                    : (c == 0 || c == 2 ? r.X - pad - ZoomConfirmSizePx : r.Right + pad);
-                double by = fits
-                    ? (c == 0 || c == 1 ? r.Y + pad : r.Bottom - pad - ZoomConfirmSizePx)
-                    : (c == 0 || c == 1 ? r.Y - pad - ZoomConfirmSizePx : r.Bottom + pad);
-
-                bx = Math.Clamp(bx, 2, Math.Max(2, cw - ZoomConfirmSizePx - 2));
-                by = Math.Clamp(by, 2, Math.Max(2, ch - ZoomConfirmSizePx - 2));
-                Avalonia.Controls.Canvas.SetLeft(_zoomConfirmBtn, bx);
-                Avalonia.Controls.Canvas.SetTop(_zoomConfirmBtn, by);
-            }
+            // ZOOMLIVE_01 — an UNTOUCHED default box is a suggestion, so it is drawn faint. The
+            // first drag or resize both commits it and makes it solid, which is the only feedback
+            // the user needs about the difference between "proposed" and "live".
+            _zoomBoxRect.Opacity = _zoomBoxTouched ? 1.0 : 0.45;
+            foreach (var h in _zoomHandles) h.Opacity = _zoomBoxTouched ? 1.0 : 0.45;
 
             if (_zoomFactorBadge != null && _zoomFactorText != null)
             {
@@ -4791,8 +5041,25 @@ public partial class GranularSpeedEditorWindow : Window
             return;
         }
 
+        // ZOOMLIVE_01 — THE GESTURE IS THE COMMIT. First touch also promotes the suggested box
+        // into a real zoom, which is what `_zoomBoxTouched` records.
+        bool firstTouch = !_zoomBoxTouched;
+        _zoomBoxTouched = true;
+        _zoomSessionCreatedSegment = false;   // the block now has a zoom on it; it has earned its place
+
         CommitZoomToSegment(wasDraw ? "Created" : wasResize ? "Resized" : "Moved");
-        StartZoomConfirmBlink();
+
+        if (firstTouch)
+        {
+            PulseZoomConfirmFeedback();
+            RenderZoomBox();                  // repaint at full opacity
+        }
+
+        // ⚠️ ON RELEASE ONLY, NEVER PER POINTER MOVE. Priming the simulated crop stalls the window
+        // behind a blocking overlay while mpv buffers; running it during a drag would reproduce
+        // exactly the stutter that MEME_08/DRAG_FIX had to remove from the meme drag.
+        _ = CommitZoomAndPrimePreviewAsync();
+
         e.Handled = true;
     }
 
@@ -5717,7 +5984,16 @@ public partial class GranularSpeedEditorWindow : Window
 
         // Snapped against the timeline WITHOUT this meme in it — see BaseTimeline's note. Using
         // OutTimeline here would ask a ruler that contains the block where the block should go.
-        double snapped = BaseTimeline().SnapInsertionPoint(Math.Max(0, rawSourceRelSec));
+        //
+        // MEME_09 — ⚠️ NEAREST EDGE, NOT `SnapInsertionPoint` ALONE. A meme may not interrupt a
+        // speed block (D8), and SnapInsertionPoint enforces that by returning the block's END for
+        // ANY point inside it. That is right for placing a meme and WRONG for dragging one: drag
+        // leftwards into a 30-second slow-mo block and the band is thrown 30 seconds to the RIGHT,
+        // the opposite way to the hand holding it, then pins there for the block's whole width.
+        // That is the "extremely stuck" behaviour. Snapping to whichever edge is NEARER means the
+        // band stops at the boundary you are pushing against, which is what a person expects a
+        // thing to do when it cannot go further.
+        double snapped = BaseTimeline().SnapInsertionPoint(SnapMemeToNearestLegalEdge(rawSourceRelSec));
 
         if (Math.Abs(snapped - _memes[idx].AtSourceSecRelative) < 0.0005) return false;
         if (!MemeSeparationIsSafe(snapped, id, out _)) return false;
@@ -5725,6 +6001,46 @@ public partial class GranularSpeedEditorWindow : Window
         _memes[idx] = _memes[idx] with { AtSourceSecRelative = snapped };
         return true;
     }
+
+    /// <summary>
+    /// MEME_09 — pulls a dragged meme OUT of any speed block by the SHORTEST route.
+    ///
+    /// <para>
+    /// D8 forbids a meme interrupting a speed segment or a freeze, so a point inside one has to
+    /// move. <see cref="OutputTimeline.SnapInsertionPoint"/> always moves it FORWARD, which is
+    /// correct when placing a new meme (you asked for "here or later") and actively hostile when
+    /// dragging an existing one (you are pushing it left and it leaps right).
+    /// </para>
+    /// <para>
+    /// This returns the nearer of the blocking block's two edges, so the band comes to rest against
+    /// the obstacle from whichever side you approached it. The result is still passed through
+    /// <c>SnapInsertionPoint</c> afterwards — this only chooses a better candidate, it never
+    /// bypasses the legality rule.
+    /// </para>
+    /// </summary>
+    private double SnapMemeToNearestLegalEdge(double rawSourceRelSec)
+    {
+        double at = Math.Max(0, rawSourceRelSec);
+
+        foreach (var seg in _segments)
+        {
+            double s0 = seg.StartMs / 1000.0;
+            double s1 = seg.EndMs / 1000.0;
+            if (at <= s0 + 0.0005 || at >= s1 - 0.0005) continue;
+
+            // Inside this block. Leave by the closer door.
+            double toStart = at - s0;
+            double toEnd = s1 - at;
+            _memeDragBlockedBy = seg;
+            return toStart <= toEnd ? s0 : s1;
+        }
+
+        _memeDragBlockedBy = null;
+        return at;
+    }
+
+    /// <summary>MEME_09 — the block currently refusing the dragged meme, for the status line.</summary>
+    private FortniteVideoSoftware.Core.Media.SpeedSegment? _memeDragBlockedBy;
 
     /// <summary>
     /// MEME_06 — drops the LIVE timeline cache. Adding, moving or removing a meme changes where the
@@ -6792,7 +7108,6 @@ public partial class GranularSpeedEditorWindow : Window
         FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
 
         RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
-        StopZoomConfirmBlink();
         ClearLiveZoomCrop();
         _playbackTimer?.Stop();
 

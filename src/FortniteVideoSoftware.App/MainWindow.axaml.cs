@@ -927,6 +927,10 @@ private bool _exportedCleanSinceLastEdit;
                     InitialState = _voiceOverResult
                 };
                 dialog.SourceMeasuredLufs = _sourceMeasuredLufs;
+                // ZOOMLIVE_06 — the studio simulates the zoom now, and portrait changes what the
+                // usable area is, exactly as it does for the Music Wizard's copy of this line.
+                dialog.IsPortraitPreview =
+                    this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
                 try
                 {
                     await dialog.ShowDialog(this);

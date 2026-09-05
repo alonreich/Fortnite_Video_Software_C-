@@ -6,6 +6,16 @@ using System.Threading;
 using System.Threading.Tasks;
 using FortniteVideoSoftware.Core.Media;
 
+// ⚠️ NAME COLLISION — DO NOT REPLACE THIS ALIAS WITH A BARE `MemePlacement`.
+// This file's own namespace, FortniteVideoSoftware.App.Infrastructure, ALREADY declares an
+// unrelated `enum MemePlacement { Start, End }` in MemePlacementStore.cs (MEME_02 — which end of
+// the video a SHIPPED meme defaults to). A namespace's own members beat a `using` import, so a
+// bare `MemePlacement` here silently binds to that ENUM instead of the Core RECORD this file
+// actually works with, and every member access then fails with "does not contain a definition
+// for 'DurationSec'". The alias is the fix, and it must be named something OTHER than
+// `MemePlacement` — an alias that collides with a member of the same namespace is itself an error.
+using CoreMeme = FortniteVideoSoftware.Core.Media.MemePlacement;
+
 namespace FortniteVideoSoftware.App.Infrastructure;
 
 /// <summary>
@@ -96,7 +106,7 @@ public sealed class MemePreviewDirector
     private readonly Action<bool, string> _setBusy;
     private readonly string _logTag;
 
-    private readonly List<MemePlacement> _memes = new();
+    private readonly List<CoreMeme> _memes = new();
     private readonly Stopwatch _memeClock = new();
 
     private double _lastSourceSec = double.NaN;
@@ -159,7 +169,7 @@ public sealed class MemePreviewDirector
     /// Replaces the placement list. Safe to call as often as the host likes — it only rebuilds when
     /// the set genuinely changed, and it never interrupts a cutaway that is already running.
     /// </summary>
-    public bool SetMemes(IReadOnlyList<MemePlacement>? memes)
+    public bool SetMemes(IReadOnlyList<CoreMeme>? memes)
     {
         string before = Signature();
         _memes.Clear();
@@ -269,7 +279,7 @@ public sealed class MemePreviewDirector
         _ = ReturnToSourceAsync(ipc);
     }
 
-    private async Task RunMemeAsync(MpvIpcClient ipc, MemePlacement meme, double anchorAbs)
+    private async Task RunMemeAsync(MpvIpcClient ipc, CoreMeme meme, double anchorAbs)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0) return;
         try

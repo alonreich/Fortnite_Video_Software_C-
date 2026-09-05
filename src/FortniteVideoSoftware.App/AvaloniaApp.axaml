@@ -837,68 +837,9 @@
             <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}"/>
         </Style>
 
-        <!-- ZOOM_01 — The pulse animation to attract the user's eye to the checkmark.
-             The C# layer adds this class for exactly 5 seconds after dragging the box, then removes it.
-             2.5s per cycle = slow, high contrast blinks.
-             ⚠️ IT PULSES OPACITY, NOT SIZE. A scaling pulse on a button parked against the corner
-             of the box crosses the box edge on every cycle and reads as a rendering fault. -->
-        <Style Selector="Button.zoomconfirmblink">
-            <Style.Animations>
-                <Animation Duration="0:0:2.5" IterationCount="INFINITE">
-                    <KeyFrame Cue="0%">
-                        <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="33%">
-                        <Setter Property="Opacity" Value="0.4"/>
-                        <Setter Property="Background" Value="{DynamicResource AppOnAccentTextBrush}"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="66%">
-                        <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="{DynamicResource AppSuccessBrush}"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                        <Setter Property="Opacity" Value="1.0"/>
-                        <Setter Property="Background" Value="{DynamicResource AppZoomBrush}"/>
-                    </KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-
-        <Style Selector="Button.zoomconfirmbtn">
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" />
-                    <BrushTransition Property="BorderBrush" Duration="0:0:0.2" />
-                </Transitions>
-            </Setter>
-            <Setter Property="BorderThickness" Value="3" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
-        </Style>
-        
-        <Style Selector="Button.zoomconfirmbtn /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.15" />
-                </Transitions>
-            </Setter>
-            <Setter Property="BoxShadow" Value="0 4 10 0 #50000000" />
-        </Style>
-        
-        <Style Selector="Button.zoomconfirmbtn:pointerover">
-            <Setter Property="BorderBrush" Value="{DynamicResource AppFocusInnerBrush}" />
-            <Setter Property="RenderTransform" Value="scale(1.05)" />
-        </Style>
-
-        <Style Selector="Button.zoomconfirmbtn:pressed">
-            <Setter Property="RenderTransform" Value="scale(0.85)" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AppZoomDeepBorderBrush}" />
-            <Setter Property="Opacity" Value="0.8" />
-        </Style>
-
-        <Style Selector="Button.zoomconfirmbtn:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="BoxShadow" Value="inset 0 4 10 0 #80000000" />
-        </Style>
+        <!-- ZOOMLIVE_01 — the `zoomconfirmblink` animation and every `zoomconfirmbtn` style were
+             removed with the floating ✅ they dressed. The zoom now writes itself to the segment as
+             the box is dragged, so there is no unsaved state left to pulse about. -->
 
         <!-- VOICE_02 — THE LIVE-MICROPHONE STATE. `MicRecordButton` and `RecordingLight` have
              added and removed the class `recording` since the screen shipped, and NO selector
@@ -1586,7 +1527,7 @@
              pair (Primary, Secondary, Success, Danger, VoiceOverEntry, ToggleButton.Primary)
              are untouched; these nine now match them. -->
         <Style Selector="Button.SpeedPreset:disabled, Button.BaseSpeedPreset:disabled,
-                         Button.ZoomAction:disabled, Button.zoomconfirmbtn:disabled,
+                         Button.ZoomAction:disabled,
                          Button.WhatsApp:disabled, Button.Instagram:disabled,
                          Button.YouTube:disabled, Button.TikTok:disabled,
                          Button.CloseBtn:disabled">
@@ -1596,7 +1537,6 @@
         <Style Selector="Button.SpeedPreset:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.BaseSpeedPreset:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.ZoomAction:disabled /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.zoomconfirmbtn:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.WhatsApp:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.Instagram:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.YouTube:disabled /template/ ContentPresenter#PART_ContentPresenter,

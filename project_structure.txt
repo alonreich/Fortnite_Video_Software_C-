@@ -1066,6 +1066,16 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   keeps the timeline scrubbable. NOT a second `MpvVideoView` (that doubles the D3D11/WGL/16-texture
   interop stack in four windows) and NOT an mpv EDL stream (that invalidates every existing
   time-pos-is-source-time mapping in all four).
+- ZOOM IS LIVE AND STAYS EDITABLE (ZOOMLIVE_01..06): the rubber-band writes itself to the segment
+  as it is dragged — there is no ✅ and no commit step. An untouched default box is drawn faint and
+  is NOT a zoom. Clicking a block anywhere (timeline OR the right-hand pane — one selection path
+  now) selects it, parks the playhead on its first frame PAUSED, and re-opens its zoom box if it has
+  one. Grabbing a magnifier parks the picture on that end. While the box is open the magnifiers own
+  the clicks and the block's own edges stand down. Delete removes the whole block; REMOVE ZOOM drops
+  only the zoom. ⚠️ `PlaceDefaultZoomBoxWhenLaidOut` must not commit and
+  `CommitZoomAndPrimePreviewAsync` must not `ExitZoomMode()` — both were correct for a one-shot ✅
+  and are wrong now that they run on every drag release. Full spec:
+  `Product_Features_Specifications.txt` §63; the Voice Over half is §64.
 - Undo / Redo in the Granular Speed Editor (UNDO_01): Ctrl+Z / Ctrl+Y, plus a button pair at the
   bottom of the segment pane and a live hint strip under them naming the exact action the shortcut
   would take back (UNDOHINT_01). Covers add/delete segment, clear all, set freeze and delete parts.
@@ -1095,6 +1105,21 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   (3) the cut-aware loudnorm pass produces the same perceived level as an uncut export; (4) music
   and voice-over stay aligned across a cut; (5) 20+ small cuts trip the chunk warning and still
   export.
+- ⚠️ ZOOMLIVE_01..06 IS NOT RENDER-TESTED EITHER, AND ONE ITEM IS PURELY VISUAL. Owed on real
+  hardware: (1) a zoom made by dragging alone exports at the same crop the preview showed; (2)
+  re-opening a zoom, moving it and exporting again picks up the NEW box; (3) INSTANT→GLIDING refusal
+  fires when two gliding zooms are genuinely too close; (4) a block shrunk past its own zoom span
+  exports the clamped span; (5) the Voice Over studio's crop matches the Granular editor's for the
+  same frame. Item (5) is the one most likely to be subtly wrong, because that window keeps its trim
+  in SECONDS (`_trimStartSec`/`_trimEndSec`) while the Granular editor keeps it in MILLISECONDS, and
+  the simulator wants clip-relative seconds from both.
+- ⚠️ THE GRANULAR EDITOR STILL HAS NO LIVE CRASH RECOVERY OF ITS OWN. Every zoom change is logged
+  (`RuntimeLog.Info("Granular", ...)` on commit, removal, ramp flip and span clamp) and all eight
+  zoom fields survive in the Main App's recovery state — but the Main App only receives them on
+  APPLY. A crash with the editor OPEN loses the in-progress edits, exactly as it always has for
+  segments and cuts. Fixing it properly means giving the editor its own save channel rather than
+  bolting one onto the zoom path; it is called out here so the gap is not mistaken for an oversight
+  in ZOOMLIVE_05's logging.
 - ⚠️ NEITHER HAS THE MID-VIDEO MEME (MEME_06/07/08). The timeline mathematics IS verified — the
   chunk model was ported to Python and cross-checked (a 5s meme at 20s on a 60s clip gives 65s
   finished; source 30 -> output 35; output 22 holds the anchor; with a 2x block before it the block
@@ -1111,6 +1136,18 @@ collapsing pixels inside it onto its start, and shifting pixels after it back by
   into the Granular editor, which makes that path reachable. The subdivision handles it — cut edges
   are just another boundary in the existing boundary set — and it is covered in simulation, but it
   is the case most worth testing first.
+- ⚠️ TWO DIFFERENT TYPES ARE BOTH CALLED `MemePlacement`, AND THE COLLISION HAS NOW BROKEN THE
+  BUILD TWICE. `FortniteVideoSoftware.Core.Media.MemePlacement` is the RECORD (a meme placed at a
+  moment: FilePath / AtSourceSecRelative / DurationSec / Id). `FortniteVideoSoftware.App
+  .Infrastructure.MemePlacement` is an unrelated `enum { Start, End }` in `MemePlacementStore.cs`
+  (MEME_02 — which end a SHIPPED meme defaults to). A namespace's OWN members beat a `using`
+  import, so any new file placed in `App.Infrastructure` that writes a bare `MemePlacement` binds
+  silently to the ENUM and then fails with "does not contain a definition for 'DurationSec'".
+  `MemePreviewDirector.cs` works around it with `using CoreMeme = ...Core.Media.MemePlacement;`
+  (the alias MUST be named something other than `MemePlacement` — an alias colliding with a member
+  of its own namespace is itself an error). THE REAL FIX IS STILL OWED: rename the App enum to
+  something like `MemeDefaultSlot`. Blast radius is small and known — `MemePlacementStore.cs`,
+  `MemeAssets.cs` and `MainWindow.axaml.cs`, ~21 sites.
 - The Granular editor's undo history is WINDOW-SCOPED. It is not persisted and is cleared on APPLY,
   so a crash mid-edit loses the history (though not the project — recovery covers that).
 - ⚠️⚠️ G07 "FULL-VRAM / ZERO-COPY EXPORT PATH" — CLOSED AS NOT ACHIEVABLE. DO NOT RE-OPEN WITHOUT READING THIS. ⚠️⚠️
@@ -1195,6 +1232,50 @@ When the app is freshly installed and no config exists, the default upload video
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- ZOOMLIVE_01..06 — THE ZOOM STOPPED BEING A ONE-SHOT WIZARD (`GranularSpeedEditorWindow`,
+  `VoiceOverWindow`, `MainWindow`, `AvaloniaApp.axaml`). REPORTED as "bad, complicated and
+  non-intuitive": pick a segment, answer a snappy-vs-gliding question, drag a box, press a floating
+  green ✅ — and from then on nothing about it could be changed. THE ✅ WAS ALREADY CEREMONY:
+  `ZoomCanvas_PointerReleased` wrote the box into the segment on every draw/move/resize and
+  `PlaceDefaultZoomBoxWhenLaidOut` committed the default box, so pressing it re-committed values
+  that were already stored. What it actually did was make the feature FEEL closed, because a button
+  labelled "lock in" implies a transaction that has ended. ZOOMLIVE_01: the button, its 100px
+  diameter constant, its 5-second pulse, the pulse timer, the corner-parking maths
+  (`BestZoomCornerIndex`) and six `zoomconfirmbtn` styles are all deleted. Registration is the
+  gesture: an untouched default box is drawn at 0.45 opacity and writes NOTHING, and the first drag
+  or resize both commits it and paints it solid (`_zoomBoxTouched`) — otherwise merely pressing
+  ZOOM-IN would zoom the video into its own middle with no aiming and no consent. ⚠️ TWO CALLS HAD
+  TO CHANGE OR THE FEATURE BREAKS: `PlaceDefaultZoomBoxWhenLaidOut` must NOT commit, and
+  `CommitZoomAndPrimePreviewAsync` must NOT call `ExitZoomMode()` — it ran once from the ✅, so
+  closing the box was a fine ending; it now runs on every drag release and would slam the box shut
+  the instant the user let go. ZOOM-IN became a toggle (it used to refuse and scold) and Escape now
+  puts the box away instead of DELETING the zoom — `CancelZoomMode` is gone, with a comment saying
+  not to reinstate a key that destroys finished work without asking. ZOOMLIVE_02: FOUR selection
+  paths (`SelectSegment`, `SelectSegmentAt`, the timeline pointer handler, the list row) had drifted
+  into doing different things — only one moved the playhead, only one synced the ramp radios, only
+  one closed zoom mode — so "select a segment" meant four things depending on where you clicked.
+  All four now funnel through one method that always selects, always parks the playhead on the
+  block's first frame AND PAUSES (you cannot aim a rubber-band at a moving picture), and re-opens
+  the zoom box iff that block carries a zoom. ZOOMLIVE_03: grabbing a magnifier parks the picture on
+  THAT end's frame, and marker precedence is by MODE — while the box is open the two magnifiers own
+  the clicks and the block's own edges stand down, because four grabbable things within a few pixels
+  make "whichever is nearer" a coin toss exactly when they overlap. ZOOMLIVE_04: the timeline
+  right-click menu grew Edit Zoom and "Remove Zoom (keep the speed)", both hidden rather than greyed
+  on a block with no zoom; Delete still removes the WHOLE block, speed and zoom together, because a
+  zoomed slow-motion block is one object. ZOOMLIVE_05, the two edge cases the request did not
+  mention: a block move/resize now pulls `ZoomStartMs`/`ZoomEndMs` back inside the block (they are
+  deliberately independent of its edges, so shrinking it could hand the exporter a zoom phase over
+  source time that block never renders), and flipping INSTANT→GLIDING is now subject to the same
+  `ZoomRampRequiredGapBetweenSlowZooms` rule the magnifier drag has always enforced — it REFUSES and
+  explains rather than sliding the block, because the user asked for a ramp mode, not for their zoom
+  to move. ZOOMLIVE_06: the Voice Over studio simulates the zoom at last — it was the ONE preview of
+  four that never ran `ZoomPreviewSimulator`, so a user recording over a zoomed stretch narrated
+  scenery the finished video does not show. It shares the same simulator (which reads its ramp
+  timing off `GranularSpeedBuilder`, so previews and export cannot drift), takes `IsPortraitPreview`
+  from the Main App exactly as the Music Wizard does, and CLEARS `video-crop` on close because it
+  pushes into a host the Main App owns and reuses. ⚠️ It must never write a crop during a meme
+  cutaway — mpv is showing the meme, and MEME_07 deliberately cleared the crop because the export
+  splices a meme in UNCROPPED; the tick's early return on the director's `IsActive` is the guard.
 - MEME_07 / MEME_08 / DRAG_FIX — THE MEME NOW PLAYS IN THE PREVIEW, AND THE BLOCK DRAGS CLEANLY
   (`Infrastructure/MemePreviewDirector.cs` NEW, all four preview windows, `MemePickerWindow.axaml`).
   REPORTED as three things: the picker did not need a clown icon on every row; a created meme "does

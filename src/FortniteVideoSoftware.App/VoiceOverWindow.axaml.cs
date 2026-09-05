@@ -126,6 +126,68 @@ public partial class VoiceOverWindow : Window
     private double _trimEndSec = 0;
     private readonly List<SpeedSegment> _speedSegments = new();
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // ZOOMLIVE_06 — THE VOICE OVER STUDIO NOW SHOWS THE ZOOM TOO.
+    //
+    // This was the ONE preview of the four that had never simulated a zoom. The Main App, the
+    // Granular editor and Music Wizard phase 3 all ran ZoomPreviewSimulator; this window did not,
+    // so a user recording a take over a zoomed stretch saw the full uncropped frame and pitched
+    // their commentary at scenery the finished video does not show.
+    //
+    // ⚠️ IT SHARES ONE SIMULATOR WITH THE OTHER THREE ON PURPOSE. ZoomPreviewSimulator reads its
+    // ramp timing straight off GranularSpeedBuilder, so the previews and the exported file cannot
+    // drift apart. Do not compute a crop locally here.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>ZOOMLIVE_06 — set by the Main App, exactly as it sets the Music Wizard's copy.</summary>
+    public bool IsPortraitPreview { get; set; }
+
+    /// <summary>ZOOMLIVE_06 — last crop pushed to mpv, so an unchanged value is never re-sent every tick.</summary>
+    private string _lastLiveCrop = "";
+
+    /// <summary>
+    /// ZOOMLIVE_06 — pushes the simulated zoom crop for wherever the playhead is now.
+    ///
+    /// <para>
+    /// ⚠️ NEVER CALL THIS WHILE A MEME CUTAWAY IS ON SCREEN. During a cutaway mpv is showing the
+    /// meme, <c>CurrentTime</c> belongs to that file, and the director has deliberately cleared
+    /// <c>video-crop</c> because the export splices a meme in UNCROPPED. Writing a crop here would
+    /// zoom the meme and then be clobbered on the way back. The tick's early return on
+    /// <c>_memePreview.IsActive</c> is what guarantees it (MEME_07).
+    /// </para>
+    /// </summary>
+    private void UpdateLiveZoomCrop()
+    {
+        if (!FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration) return;
+
+        var ipc = _videoHost?.IpcClient;
+        if (ipc == null || !_isMpvReady) return;
+        if (_speedSegments.Count == 0 && !IsPortraitPreview) { ClearLiveZoomCrop(); return; }
+        if (ipc.VideoWidth <= 0 || ipc.VideoHeight <= 0) return;
+
+        // This window keeps its trim in SECONDS (_trimStartSec/_trimEndSec), unlike the Granular
+        // editor's milliseconds. The simulator wants clip-relative seconds either way.
+        double tSec = Math.Max(0, ipc.CurrentTime - _trimStartSec);
+        double endSec = _trimEndSec > 0 ? _trimEndSec : ipc.Duration;
+        double durSec = Math.Max(0.1, endSec - _trimStartSec);
+
+        var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
+            _speedSegments, tSec, durSec, IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight);
+
+        if (!result.HasCrop) { ClearLiveZoomCrop(); return; }
+        if (result.Crop == _lastLiveCrop) return;
+        _lastLiveCrop = result.Crop;
+        _ = ipc.SetPropertyAsync("video-crop", result.Crop);
+    }
+
+    /// <summary>ZOOMLIVE_06 — drops any simulated crop. Called on teardown and when no zoom applies.</summary>
+    private void ClearLiveZoomCrop()
+    {
+        if (_lastLiveCrop.Length == 0) return;
+        _lastLiveCrop = "";
+        _ = _videoHost?.IpcClient?.SetPropertyAsync("video-crop", "");
+    }
+
     /// <summary>
     /// ══════════════════════════════════════════════════════════════════════════════
     /// CUTS_02 — THE PARTS OF THE CLIP THAT NO LONGER EXIST.
@@ -437,6 +499,10 @@ public partial class VoiceOverWindow : Window
 
     private async void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // ZOOMLIVE_06 — this window pushes `video-crop` into a host the Main App owns and reuses.
+        // Leaving a crop behind would zoom the main screen's preview after the studio closes.
+        ClearLiveZoomCrop();
+
         if (_isSafeToClose) return;
 
         if (HasApplicableVoiceEffect())
@@ -819,6 +885,7 @@ public partial class VoiceOverWindow : Window
 
         EnforceTrimEndStop();   // VOFIX_01 — replaces the A-B repeat loop
         EnforceCutSkip();       // CUTS_02 — never sit inside footage that was deleted
+        UpdateLiveZoomCrop();   // ZOOMLIVE_06 — show the zoom the export will apply
         PumpRecordArming();
         UpdatePlayPauseIconUI();
         UpdatePlayheadUI();
