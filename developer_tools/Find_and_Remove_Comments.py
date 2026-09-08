@@ -1,11 +1,25 @@
 import sys
 import os
+
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# NO CACHE. BOTH LINES, BEFORE EVERY OTHER IMPORT.
+#
+# ⚠️ THE ENV VAR IS NOT OPTIONAL IN THIS FILE — IT IS THE ONLY ONE THAT WORKS HERE.
+# This script uses multiprocessing.Pool. On Windows that SPAWNS fresh Python processes which
+# re-import this module from scratch, and a child process does NOT inherit the parent's
+# `sys.dont_write_bytecode` — it reads PYTHONDONTWRITEBYTECODE from the environment. With only
+# the sys flag set (as it was), every worker process was free to write a __pycache__.
+# `dont_write_bytecode` also has to sit ABOVE the imports: it governs imports made after it, so
+# below the import block it protected nothing that had already been loaded.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
 import re
 import ctypes
+import shutil
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
-
-sys.dont_write_bytecode = True
 
 def get_downloads_directory():
     user_profile = os.environ.get('USERPROFILE')
@@ -204,7 +218,40 @@ def print_table(title, data, headers):
         print(" | ".join(f"{str(val):<{w}}" for val, w in zip(row, widths)))
     print("-" * len(h_str))
 
+def purge_bytecode_cache():
+    """
+    Removes any __pycache__ / .pyc this tool's folder has accumulated.
+
+    ⚠️ THIS IS DELIBERATELY DUPLICATED IN EVERY developer_tools SCRIPT INSTEAD OF BEING SHARED.
+    Putting it in a common module would mean each script has to IMPORT that module — and importing
+    a local module is the single most reliable way to create the __pycache__ this function exists
+    to prevent. A shared helper here would cause the problem it is meant to solve.
+
+    Scoped to developer_tools ONLY. It must never wander into the rest of the repository.
+    """
+    tools_dir = Path(__file__).resolve().parent
+    removed = []
+    try:
+        for cache_dir in tools_dir.rglob("__pycache__"):
+            if cache_dir.is_dir():
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                if not cache_dir.exists():
+                    removed.append(cache_dir.name)
+        for stray in list(tools_dir.rglob("*.pyc")) + list(tools_dir.rglob("*.pyo")):
+            try:
+                stray.unlink()
+                removed.append(stray.name)
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"[!] Could not sweep bytecode cache: {exc}")
+        return
+    if removed:
+        print(f"[*] Removed {len(removed)} bytecode cache item(s).")
+
+
 def main():
+    purge_bytecode_cache()
     os.system('title Fortnite Video Software C# Advanced Code Cleaner')
     print(f"{CYAN}--- FORTNITE VIDEO SOFTWARE C# ADVANCED CODE CLEANER ---{RESET}")
     print("Target Directory: .")
@@ -257,6 +304,10 @@ def main():
     print_table("TABLE 3: SCOPE-AWARE DUPLICATES (REPORT ONLY)", all_dupes, ["File", "Scope", "Type", "Signature", "Lines"])
 
     print(f"\n{CYAN}Done.{RESET}")
+
+def _sweep_on_exit():
+    purge_bytecode_cache()   # worker processes may have written cache after main() finished
+
 
 if __name__ == "__main__":
     main()

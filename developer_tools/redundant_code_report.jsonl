@@ -1,0 +1,440 @@
+{"schema":"redundant-code/2","READ_THIS_NOT_THE_HTML":"You are in the correct file. The sibling redundant_code_report.html is ~5.5x larger, is styled for human eyes and repeats every code block in full. Do not open it.","how_to_use":"Line 1 is this header. Every later line is one finding: json.loads it. a and b are [fileIndex, firstLine, lastLine] into files[]. Read those ranges from disk yourself - code bodies are intentionally not included here. Findings are sorted longest first; start at the top.","record":{"i":"id","k":"0=two places in ONE file, 1=two DIFFERENT files","sim":"0.80-1.00 share of lines identical; LOWER BOUND, see caveats","n":"block length in code lines","d":"how many of n differ","a":"[fileIndex, firstLine, lastLine]","b":"same, the other side","h":"first code line, for recognition only"},"caveats":["Comparison is on NORMALISED lines: identifiers -> V, numbers -> 0, literals -> empty, whitespace dropped. Two blocks differing only in names/values score 1.0 - that is intended.","Sides advance in lockstep, so only substitutions are modelled, not insertions. A block with an extra line on one side scores lower than it deserves. sim never overstates.","A pair sharing no seed_lines identical lines in a row is not found at all.","sim 1.0 means identical AFTER normalisation, not byte-identical."],"settings":{"seed_lines":6,"min_similarity":0.8,"max_consecutive_gap":3,"min_block_lines":6,"overlap_suppress_ratio":0.6},"totals":{"files_scanned":118,"code_lines_scanned":46321,"raw_matches":1822,"suppressed_overlapping":1318,"discarded_hollow":65,"reported":439,"same_file":212,"cross_file":227,"identical":235,"near":204},"generated_utc":"2026-09-06T10:18:31+00:00","root":"C:/Fortnite_Video_Software - C#","files":["src/FortniteVideoSoftware.App/MainWindow.axaml.cs","src/FortniteVideoSoftware.Core/Media/MergerWorker.cs","src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs","src/FortniteVideoSoftware.App/Controls/SettingsWindow.axaml.cs","src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs","src/FortniteVideoSoftware.App/Controls/FinishedDialogWindow.axaml.cs","src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs","src/FortniteVideoSoftware.Core/Media/WaveformGenerator.cs","src/FortniteVideoSoftware.App/RuntimeLog.cs","src/FortniteVideoSoftware.Core/Infrastructure/CoreLogger.cs","src/FortniteVideoSoftware.App/PreviewMonitorWindow.axaml.cs","src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs","src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs","src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs","src/FortniteVideoSoftware.App/MpvVideoView.cs","src/FortniteVideoSoftware.App/Controls/VoiceOverPreviewPlayer.cs","src/FortniteVideoSoftware.Core/Media/MediaProber.cs","src/FortniteVideoSoftware.App/DeploymentProgressWindow.axaml.cs","src/FortniteVideoSoftware.Core/Ipc/CropConfigStore.cs","src/FortniteVideoSoftware.App/Controls/CoachOverlay.cs","src/FortniteVideoSoftware.App/Controls/FloatingNotice.cs","src/FortniteVideoSoftware.Core/Ipc/StateTransferStore.cs","src/FortniteVideoSoftware.App/TaskbarProgress.cs","src/FortniteVideoSoftware.App/DeploymentLifecycle.cs","src/FortniteVideoSoftware.App/ThumbnailStripGenerator.cs","src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs","src/FortniteVideoSoftware.App/DeploymentFootprint.cs","src/FortniteVideoSoftware.Core/Media/AudioLoudnessProbe.cs","src/FortniteVideoSoftware.App/NativeDialog.cs","src/FortniteVideoSoftware.App/Controls/AmbientDropzoneControl.axaml.cs","src/FortniteVideoSoftware.App/Controls/MemeWallControl.axaml.cs","src/FortniteVideoSoftware.Core/Media/EncoderManager.cs","src/FortniteVideoSoftware.App/SingleInstanceGuard.cs","src/FortniteVideoSoftware.App/Phase4Gate.cs","src/FortniteVideoSoftware.App/Program.cs","src/FortniteVideoSoftware.App/ErrorReporter.cs","src/FortniteVideoSoftware.App/Controls/CloudSyncProgressWindow.axaml.cs","src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs","src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs","src/FortniteVideoSoftware.Core/Infrastructure/KnownFolders.cs","src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs","src/FortniteVideoSoftware.Core/Media/VideoConfig.cs","src/FortniteVideoSoftware.Core/Media/HardwareCapability.cs","src/FortniteVideoSoftware.App/Controls/AudioFixPromptWindow.axaml.cs","src/FortniteVideoSoftware.App/Controls/PhaseOverlayControl.axaml.cs","src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs","src/FortniteVideoSoftware.App/CrashLogDigest.cs","src/FortniteVideoSoftware.App/PreviewDetachController.cs","src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs","src/FortniteVideoSoftware.Core/Media/VoiceRecorder.cs","src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs","src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs","src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.axaml.cs","src/FortniteVideoSoftware.App/Controls/AmbientBubblesBackground.cs","src/FortniteVideoSoftware.App/Controls/ParticleBurstCanvas.cs","src/FortniteVideoSoftware.App/Controls/SpinningWheelSlider.cs","src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs","src/FortniteVideoSoftware.App/ShellFileAssociation.cs","src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs","src/FortniteVideoSoftware.App/Controls/RadialMenuControl.axaml.cs","src/FortniteVideoSoftware.App/Controls/ErrorDialogWindow.axaml.cs","src/FortniteVideoSoftware.Core/Media/AudioFilterChain.cs","src/FortniteVideoSoftware.Core/Media/MpvWrapper.cs","src/FortniteVideoSoftware.App/Infrastructure/MemePlacementStore.cs","src/FortniteVideoSoftware.App/MemeCatalog.cs","src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs","src/FortniteVideoSoftware.App/Infrastructure/MemePreviewDirector.cs","src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs","src/FortniteVideoSoftware.App/Controls/Tactile.cs","src/FortniteVideoSoftware.App/Infrastructure/MemeAssets.cs","src/FortniteVideoSoftware.App/Infrastructure/ThemeResources.cs","src/FortniteVideoSoftware.Core/Media/MicLevelMonitor.cs","src/FortniteVideoSoftware.App/Controls/MemePickerWindow.axaml.cs","src/FortniteVideoSoftware.App/Infrastructure/OutputFolderResolver.cs","src/FortniteVideoSoftware.App/SpeedPresetButtons.cs","src/FortniteVideoSoftware.Core/Media/ExportEncoderStrategy.cs","src/FortniteVideoSoftware.App/Win32FileDropInterop.cs","src/FortniteVideoSoftware.App/OpenWithLaunch.cs","src/FortniteVideoSoftware.Core/Infrastructure/DiskSpaceGuard.cs","src/FortniteVideoSoftware.Core/Infrastructure/NamedSystemMutex.cs","src/FortniteVideoSoftware.Core/Media/MPVSafetyManager.cs"]}
+{"i":1,"k":0,"sim":0.949,"n":79,"d":4,"a":[0,4035,4121],"b":[0,4333,4419],"h":"icon.Child = canvas;"}
+{"i":2,"k":1,"sim":1.0,"n":36,"d":0,"a":[1,130,177],"b":[2,269,319],"h":"if (_currentProcess != null)"}
+{"i":3,"k":0,"sim":1.0,"n":35,"d":0,"a":[0,3664,3704],"b":[0,3706,3746],"h":"var startNoteText = new TextBlock { Text = \"\u266a\", FontFamily = new Avalonia.Media.FontFamily(\"Segoe UI"}
+{"i":4,"k":0,"sim":1.0,"n":32,"d":0,"a":[3,252,284],"b":[3,288,320],"h":"var loudness = this.FindControl<ComboBox>(\"LoudnessPromptComboBox\");"}
+{"i":5,"k":0,"sim":0.9,"n":30,"d":3,"a":[4,259,290],"b":[4,293,326],"h":"ButtonClick(\"MagicWandButton\", (_, _) => ShowMagicWandCandidates());"}
+{"i":6,"k":0,"sim":1.0,"n":30,"d":0,"a":[5,86,116],"b":[5,117,148],"h":"}"}
+{"i":7,"k":1,"sim":0.967,"n":30,"d":1,"a":[1,624,655],"b":[2,1921,1959],"h":"}"}
+{"i":8,"k":1,"sim":0.897,"n":29,"d":3,"a":[4,2971,3000],"b":[3,834,863],"h":"}"}
+{"i":9,"k":1,"sim":1.0,"n":29,"d":0,"a":[6,3065,3096],"b":[7,67,97],"h":"}"}
+{"i":10,"k":0,"sim":0.821,"n":28,"d":5,"a":[0,3949,3979],"b":[0,4118,4148],"h":"}"}
+{"i":11,"k":0,"sim":0.821,"n":28,"d":5,"a":[0,3949,3979],"b":[0,4260,4304],"h":"}"}
+{"i":12,"k":1,"sim":0.964,"n":28,"d":1,"a":[1,584,613],"b":[2,1787,1816],"h":"}"}
+{"i":13,"k":1,"sim":0.963,"n":27,"d":1,"a":[4,2397,2426],"b":[0,1748,1777],"h":"private void ShowPlayheadBadge(double timeSeconds, double sliderValuePercentage)"}
+{"i":14,"k":0,"sim":0.889,"n":27,"d":3,"a":[0,3463,3495],"b":[0,3553,3584],"h":"};"}
+{"i":15,"k":0,"sim":0.852,"n":27,"d":4,"a":[3,209,238],"b":[3,257,284],"h":"\"Normal\","}
+{"i":16,"k":0,"sim":0.963,"n":27,"d":1,"a":[2,910,937],"b":[2,1192,1219],"h":"{"}
+{"i":17,"k":1,"sim":0.962,"n":26,"d":1,"a":[1,903,949],"b":[2,1974,2013],"h":"}"}
+{"i":18,"k":0,"sim":0.846,"n":26,"d":4,"a":[6,1853,1882],"b":[6,2375,2405],"h":"}"}
+{"i":19,"k":1,"sim":0.88,"n":25,"d":3,"a":[8,190,224],"b":[9,21,48],"h":"}"}
+{"i":20,"k":1,"sim":0.833,"n":24,"d":4,"a":[0,5836,5878],"b":[10,46,71],"h":"}"}
+{"i":21,"k":1,"sim":0.875,"n":24,"d":3,"a":[4,2374,2401],"b":[0,1724,1751],"h":"double duration = _videoHost?.IpcClient?.Duration ?? 0.0;"}
+{"i":22,"k":1,"sim":0.958,"n":24,"d":1,"a":[0,3125,3153],"b":[11,902,930],"h":"}"}
+{"i":23,"k":1,"sim":0.833,"n":24,"d":4,"a":[6,3031,3057],"b":[7,26,52],"h":"seqArgs.Add(\"-filter_complex\");"}
+{"i":24,"k":1,"sim":1.0,"n":24,"d":0,"a":[1,820,844],"b":[2,1487,1511],"h":"}"}
+{"i":25,"k":1,"sim":1.0,"n":23,"d":0,"a":[6,5337,5359],"b":[3,842,864],"h":"private void AttachTitleBarDrag()"}
+{"i":26,"k":0,"sim":0.87,"n":23,"d":3,"a":[0,3752,3776],"b":[0,3783,3807],"h":"startHitBox.PointerPressed += (s, e) => {"}
+{"i":27,"k":0,"sim":0.909,"n":22,"d":2,"a":[12,1950,1974],"b":[12,4302,4325],"h":"}"}
+{"i":28,"k":1,"sim":0.955,"n":22,"d":1,"a":[12,3541,3585],"b":[6,381,410],"h":"}"}
+{"i":29,"k":1,"sim":1.0,"n":22,"d":0,"a":[11,2131,2158],"b":[13,3599,3626],"h":"}"}
+{"i":30,"k":0,"sim":0.864,"n":22,"d":3,"a":[0,5881,5907],"b":[0,5912,5940],"h":"_isGranularSpeedActive = active;"}
+{"i":31,"k":0,"sim":0.909,"n":22,"d":2,"a":[14,410,435],"b":[14,1424,1449],"h":"}"}
+{"i":32,"k":0,"sim":1.0,"n":21,"d":0,"a":[13,1785,1805],"b":[13,1807,1827],"h":"if (thumbPath != null && _thumbnailLaneImage != null)"}
+{"i":33,"k":0,"sim":0.905,"n":21,"d":2,"a":[11,305,326],"b":[11,327,348],"h":"};"}
+{"i":34,"k":0,"sim":0.952,"n":21,"d":1,"a":[13,2302,2322],"b":[13,2324,2344],"h":"var leftHandle = new Rectangle"}
+{"i":35,"k":1,"sim":1.0,"n":21,"d":0,"a":[1,937,968],"b":[2,2511,2546],"h":"}"}
+{"i":36,"k":0,"sim":1.0,"n":20,"d":0,"a":[0,965,989],"b":[0,1002,1026],"h":"markStartButton.Content = $\"START: {FormatTime(TimeSpan.FromSeconds(time))}\";"}
+{"i":37,"k":1,"sim":0.8,"n":20,"d":4,"a":[6,843,864],"b":[11,245,266],"h":"}"}
+{"i":38,"k":1,"sim":1.0,"n":20,"d":0,"a":[4,393,412],"b":[11,177,196],"h":"if (timelinePanel != null && timelineCanvas != null && _timelineSlider != null)"}
+{"i":39,"k":1,"sim":0.85,"n":20,"d":3,"a":[12,6260,6283],"b":[0,3304,3326],"h":"double speed = seg.Speed;"}
+{"i":40,"k":0,"sim":0.9,"n":20,"d":2,"a":[0,620,654],"b":[0,881,907],"h":"};"}
+{"i":41,"k":1,"sim":1.0,"n":20,"d":0,"a":[0,4714,4734],"b":[15,74,94],"h":"double voiceTime = editedTime - take.StartProjectSec;"}
+{"i":42,"k":1,"sim":0.95,"n":20,"d":1,"a":[0,6078,6097],"b":[15,44,63],"h":"foreach (var take in takes)"}
+{"i":43,"k":0,"sim":0.9,"n":20,"d":2,"a":[16,143,163],"b":[16,167,191],"h":"}"}
+{"i":44,"k":0,"sim":0.842,"n":19,"d":3,"a":[11,244,264],"b":[11,379,399],"h":"};"}
+{"i":45,"k":1,"sim":1.0,"n":19,"d":0,"a":[0,1044,1062],"b":[11,179,197],"h":"bool isScrubbing = false;"}
+{"i":46,"k":1,"sim":0.947,"n":19,"d":1,"a":[4,640,660],"b":[0,1914,1934],"h":"System.IO.Path.Combine(localAppData, \"Temp\", \"Highlights\"),"}
+{"i":47,"k":0,"sim":0.842,"n":19,"d":3,"a":[17,165,183],"b":[17,188,207],"h":"}"}
+{"i":48,"k":0,"sim":0.842,"n":19,"d":3,"a":[0,1803,1823],"b":[0,1827,1847],"h":"}"}
+{"i":49,"k":0,"sim":0.947,"n":19,"d":1,"a":[0,3509,3530],"b":[0,3597,3618],"h":"RuntimeLog.Info(\"UI\", $\"Trim START marker dragged to {TimeSpan.FromMilliseconds(_trimStartMs):hh\\\\:m"}
+{"i":50,"k":0,"sim":0.895,"n":19,"d":2,"a":[18,100,119],"b":[18,127,146],"h":"{"}
+{"i":51,"k":1,"sim":0.947,"n":19,"d":1,"a":[19,201,221],"b":[20,365,385],"h":"private static Panel? ResolveHostPanel(Window window)"}
+{"i":52,"k":1,"sim":1.0,"n":19,"d":0,"a":[1,796,816],"b":[2,1458,1478],"h":"try { ChildProcessTracker.AddProcess(_currentProcess); } catch (System.Exception ex) { CoreLogger.Sw"}
+{"i":53,"k":0,"sim":0.889,"n":18,"d":2,"a":[0,3441,3461],"b":[0,3527,3548],"h":"}"}
+{"i":54,"k":0,"sim":1.0,"n":18,"d":0,"a":[14,421,441],"b":[14,1281,1298],"h":"WglInterop.wglDeleteContext(_hglrc);"}
+{"i":55,"k":0,"sim":0.833,"n":18,"d":3,"a":[6,1900,1918],"b":[6,1950,1978],"h":"}"}
+{"i":56,"k":0,"sim":0.833,"n":18,"d":3,"a":[16,102,120],"b":[16,165,187],"h":"}"}
+{"i":57,"k":0,"sim":0.889,"n":18,"d":2,"a":[11,1039,1059],"b":[11,2048,2068],"h":"if (!await ShouldAddVideoToQueueAsync(path))"}
+{"i":58,"k":0,"sim":0.889,"n":18,"d":2,"a":[2,1455,1475],"b":[2,2114,2133],"h":"try"}
+{"i":59,"k":1,"sim":0.882,"n":17,"d":2,"a":[0,7059,7115],"b":[13,189,255],"h":"}"}
+{"i":60,"k":0,"sim":0.941,"n":17,"d":1,"a":[0,2339,2364],"b":[0,2367,2390],"h":"var unlockHint = this.FindControl<TextBlock>(\"TrimUnlockHint\");"}
+{"i":61,"k":0,"sim":1.0,"n":17,"d":0,"a":[6,1853,1872],"b":[6,1913,1932],"h":"}"}
+{"i":62,"k":0,"sim":0.941,"n":17,"d":1,"a":[21,131,152],"b":[21,167,199],"h":"payload[\"schema_version\"] = SchemaVersion;"}
+{"i":63,"k":0,"sim":0.941,"n":17,"d":1,"a":[5,59,79],"b":[5,154,173],"h":"DialogResult = 0;"}
+{"i":64,"k":0,"sim":1.0,"n":17,"d":0,"a":[21,316,334],"b":[21,345,363],"h":"List<string>? dropped = null;"}
+{"i":65,"k":0,"sim":0.882,"n":17,"d":2,"a":[21,427,446],"b":[21,456,475],"h":"return;"}
+{"i":66,"k":1,"sim":0.875,"n":16,"d":2,"a":[0,586,603],"b":[6,893,910],"h":"};"}
+{"i":67,"k":1,"sim":0.812,"n":16,"d":3,"a":[0,1050,1066],"b":[6,1074,1095],"h":"}"}
+{"i":68,"k":1,"sim":0.812,"n":16,"d":3,"a":[0,1047,1062],"b":[6,1103,1120],"h":"isScrubbing = true;"}
+{"i":69,"k":0,"sim":0.938,"n":16,"d":1,"a":[4,1968,1986],"b":[4,2581,2599],"h":"}"}
+{"i":70,"k":1,"sim":1.0,"n":16,"d":0,"a":[4,2374,2392],"b":[11,201,219],"h":"double duration = _videoHost?.IpcClient?.Duration ?? 0.0;"}
+{"i":71,"k":1,"sim":0.938,"n":16,"d":1,"a":[18,134,150],"b":[21,525,541],"h":"try"}
+{"i":72,"k":1,"sim":0.875,"n":16,"d":2,"a":[18,134,150],"b":[21,543,559],"h":"try"}
+{"i":73,"k":1,"sim":0.875,"n":16,"d":2,"a":[18,134,150],"b":[21,561,577],"h":"try"}
+{"i":74,"k":0,"sim":0.875,"n":16,"d":2,"a":[21,523,538],"b":[21,577,592],"h":"{"}
+{"i":75,"k":0,"sim":0.812,"n":16,"d":3,"a":[22,200,216],"b":[22,220,236],"h":"{"}
+{"i":76,"k":0,"sim":1.0,"n":16,"d":0,"a":[11,702,718],"b":[11,819,834],"h":"var data = await prober.ProbeAsync();"}
+{"i":77,"k":0,"sim":0.8,"n":15,"d":3,"a":[4,2665,2680],"b":[4,2695,2710],"h":"{"}
+{"i":78,"k":1,"sim":0.933,"n":15,"d":1,"a":[10,53,67],"b":[13,936,950],"h":"titleBar.DoubleTapped += (s, e) =>"}
+{"i":79,"k":0,"sim":0.933,"n":15,"d":1,"a":[23,148,163],"b":[23,244,259],"h":"return 0;"}
+{"i":80,"k":0,"sim":0.933,"n":15,"d":1,"a":[14,367,382],"b":[14,384,399],"h":"}"}
+{"i":81,"k":0,"sim":1.0,"n":15,"d":0,"a":[24,233,249],"b":[24,389,406],"h":"Process? process = null;"}
+{"i":82,"k":0,"sim":0.933,"n":15,"d":1,"a":[6,3118,3137],"b":[6,3143,3160],"h":"}"}
+{"i":83,"k":1,"sim":0.8,"n":15,"d":3,"a":[18,115,130],"b":[21,529,544],"h":"}"}
+{"i":84,"k":1,"sim":0.8,"n":15,"d":3,"a":[11,822,836],"b":[16,90,104],"h":"var streams = data[\"streams\"]?.AsArray();"}
+{"i":85,"k":0,"sim":0.933,"n":15,"d":1,"a":[25,225,245],"b":[25,289,311],"h":"}"}
+{"i":86,"k":1,"sim":0.933,"n":15,"d":1,"a":[1,821,836],"b":[2,2136,2151],"h":"}"}
+{"i":87,"k":1,"sim":0.857,"n":14,"d":2,"a":[0,589,603],"b":[11,237,251],"h":"var keepWorkingButton = this.FindControl<Button>(\"KeepWorkingButton\");"}
+{"i":88,"k":0,"sim":0.929,"n":14,"d":1,"a":[26,200,214],"b":[26,215,229],"h":"}"}
+{"i":89,"k":1,"sim":0.929,"n":14,"d":1,"a":[6,1747,1761],"b":[27,286,304],"h":"throw;"}
+{"i":90,"k":1,"sim":0.857,"n":14,"d":2,"a":[12,861,878],"b":[0,1773,1792],"h":"}"}
+{"i":91,"k":1,"sim":0.857,"n":14,"d":2,"a":[12,966,979],"b":[0,5131,5144],"h":"e.Handled = true;"}
+{"i":92,"k":1,"sim":0.857,"n":14,"d":2,"a":[12,5772,5795],"b":[13,1420,1436],"h":"}"}
+{"i":93,"k":0,"sim":0.857,"n":14,"d":2,"a":[14,1275,1288],"b":[14,1290,1303],"h":"{"}
+{"i":94,"k":1,"sim":0.857,"n":14,"d":2,"a":[28,51,64],"b":[21,579,592],"h":"try"}
+{"i":95,"k":1,"sim":0.929,"n":14,"d":1,"a":[29,46,59],"b":[30,99,112],"h":"if (_container != null)"}
+{"i":96,"k":0,"sim":0.857,"n":14,"d":2,"a":[21,61,76],"b":[21,227,242],"h":"{"}
+{"i":97,"k":0,"sim":0.929,"n":14,"d":1,"a":[31,292,305],"b":[31,311,324],"h":"]);"}
+{"i":98,"k":1,"sim":0.846,"n":13,"d":2,"a":[12,852,865],"b":[32,222,234],"h":"}"}
+{"i":99,"k":0,"sim":1.0,"n":13,"d":0,"a":[12,2759,2772],"b":[12,3316,3329],"h":"$\"Zoom on segment #{index + 1}.\\nDrag to move where the zoom ends.\");"}
+{"i":100,"k":0,"sim":0.923,"n":13,"d":1,"a":[12,4318,4333],"b":[12,4402,4417],"h":"}"}
+{"i":101,"k":1,"sim":1.0,"n":13,"d":0,"a":[12,5460,5473],"b":[0,4757,4770],"h":"return;"}
+{"i":102,"k":1,"sim":0.923,"n":13,"d":1,"a":[12,5779,5795],"b":[0,4976,4989],"h":"private double GetEditorSpeedForPosition(double relPosMs)"}
+{"i":103,"k":1,"sim":0.923,"n":13,"d":1,"a":[0,1023,1035],"b":[11,162,174],"h":"if (timelineSlider != null)"}
+{"i":104,"k":1,"sim":1.0,"n":13,"d":0,"a":[0,4586,4604],"b":[13,174,189],"h":"var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute("}
+{"i":105,"k":1,"sim":0.923,"n":13,"d":1,"a":[0,4589,4607],"b":[6,489,505],"h":"if (!result.HasCrop) { ClearLiveZoomCrop(); return; }"}
+{"i":106,"k":0,"sim":0.923,"n":13,"d":1,"a":[6,1646,1659],"b":[6,3039,3052],"h":"var psi = new ProcessStartInfo"}
+{"i":107,"k":0,"sim":0.923,"n":13,"d":1,"a":[33,45,57],"b":[33,99,111],"h":"(\"[mus_low][mus_high_ducked]amix=\",                    \"low + ducked-high recombine (:234)\"),"}
+{"i":108,"k":0,"sim":0.846,"n":13,"d":2,"a":[34,179,193],"b":[34,215,229],"h":"RuntimeLog.Success(\"PATHS\", \"Resolved paths printed successfully.\");"}
+{"i":109,"k":0,"sim":0.846,"n":13,"d":2,"a":[13,3156,3168],"b":[13,3230,3243],"h":"if (_recordingLight != null)"}
+{"i":110,"k":0,"sim":0.923,"n":13,"d":1,"a":[13,3464,3477],"b":[13,3514,3540],"h":"{"}
+{"i":111,"k":0,"sim":0.923,"n":13,"d":1,"a":[21,101,128],"b":[21,223,237],"h":"}"}
+{"i":112,"k":1,"sim":0.833,"n":12,"d":2,"a":[4,2966,2977],"b":[5,177,188],"h":"{"}
+{"i":113,"k":0,"sim":0.917,"n":12,"d":1,"a":[6,1164,1188],"b":[6,1205,1229],"h":"}"}
+{"i":114,"k":1,"sim":0.917,"n":12,"d":1,"a":[4,2971,2983],"b":[6,5194,5207],"h":"}"}
+{"i":115,"k":1,"sim":0.833,"n":12,"d":2,"a":[4,2948,2959],"b":[12,3110,3121],"h":"}"}
+{"i":116,"k":1,"sim":0.833,"n":12,"d":2,"a":[35,156,174],"b":[12,4468,4481],"h":"}"}
+{"i":117,"k":1,"sim":0.833,"n":12,"d":2,"a":[35,156,174],"b":[6,3883,3895],"h":"}"}
+{"i":118,"k":1,"sim":1.0,"n":12,"d":0,"a":[12,7164,7176],"b":[6,5348,5359],"h":"e.Handled = true;"}
+{"i":119,"k":0,"sim":0.833,"n":12,"d":2,"a":[12,1026,1038],"b":[12,1141,1156],"h":"canvas.PointerPressed += (s, e) =>"}
+{"i":120,"k":0,"sim":1.0,"n":12,"d":0,"a":[12,2633,2645],"b":[12,2646,2658],"h":"canvas.Children.Add(ghost);"}
+{"i":121,"k":0,"sim":0.917,"n":12,"d":1,"a":[0,415,426],"b":[0,819,830],"h":"if (ActiveVideoHost?.IpcClient != null)"}
+{"i":122,"k":0,"sim":1.0,"n":12,"d":0,"a":[0,641,654],"b":[0,1175,1188],"h":"if (_isGranularSpeedActive)"}
+{"i":123,"k":1,"sim":0.833,"n":12,"d":2,"a":[0,1064,1075],"b":[11,508,519],"h":"var mainSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>(\"Main"}
+{"i":124,"k":0,"sim":0.833,"n":12,"d":2,"a":[14,367,379],"b":[14,401,413],"h":"}"}
+{"i":125,"k":0,"sim":0.833,"n":12,"d":2,"a":[6,1815,1828],"b":[6,2279,2296],"h":"if (score > bestScore)"}
+{"i":126,"k":1,"sim":0.833,"n":12,"d":2,"a":[36,126,139],"b":[37,26,48],"h":"{"}
+{"i":127,"k":0,"sim":1.0,"n":12,"d":0,"a":[21,102,128],"b":[21,145,162],"h":"}"}
+{"i":128,"k":1,"sim":0.833,"n":12,"d":2,"a":[1,108,128],"b":[2,237,262],"h":"public MergerWorker(ApplicationPaths? paths = null)"}
+{"i":129,"k":0,"sim":0.917,"n":12,"d":1,"a":[1,468,481],"b":[1,504,517],"h":"}"}
+{"i":130,"k":1,"sim":1.0,"n":12,"d":0,"a":[1,777,789],"b":[2,1436,1448],"h":"var psi = new ProcessStartInfo"}
+{"i":131,"k":0,"sim":0.917,"n":12,"d":1,"a":[38,484,498],"b":[38,506,520],"h":"{"}
+{"i":132,"k":1,"sim":0.818,"n":11,"d":2,"a":[4,1779,1795],"b":[0,6538,6553],"h":"}"}
+{"i":133,"k":1,"sim":0.818,"n":11,"d":2,"a":[4,1808,1819],"b":[25,337,348],"h":"}"}
+{"i":134,"k":1,"sim":0.818,"n":11,"d":2,"a":[25,252,263],"b":[21,218,229],"h":"CoreLogger.Info(\"Recovery\", $\"Session lock acquired (PID {Environment.ProcessId}).\");"}
+{"i":135,"k":1,"sim":0.818,"n":11,"d":2,"a":[6,974,991],"b":[11,348,359],"h":"}"}
+{"i":136,"k":0,"sim":0.909,"n":11,"d":1,"a":[6,825,837],"b":[6,1158,1175],"h":"}"}
+{"i":137,"k":1,"sim":0.818,"n":11,"d":2,"a":[34,314,325],"b":[39,59,69],"h":"{"}
+{"i":138,"k":1,"sim":0.818,"n":11,"d":2,"a":[40,64,74],"b":[41,61,72],"h":"{"}
+{"i":139,"k":1,"sim":0.909,"n":11,"d":1,"a":[4,2669,2680],"b":[40,91,103],"h":"}"}
+{"i":140,"k":1,"sim":0.818,"n":11,"d":2,"a":[23,1204,1220],"b":[25,395,406],"h":"}"}
+{"i":141,"k":1,"sim":0.818,"n":11,"d":2,"a":[23,1204,1220],"b":[42,109,130],"h":"}"}
+{"i":142,"k":1,"sim":0.818,"n":11,"d":2,"a":[23,1204,1220],"b":[42,151,166],"h":"}"}
+{"i":143,"k":1,"sim":0.818,"n":11,"d":2,"a":[0,6868,6878],"b":[32,219,229],"h":"RuntimeLog.Success(\"RECOVERY\", $\"Session restored. Video={Path.GetFileName(videoPath)}, Trim={_trimS"}
+{"i":144,"k":0,"sim":0.909,"n":11,"d":1,"a":[12,2132,2142],"b":[12,3357,3367],"h":"{"}
+{"i":145,"k":0,"sim":1.0,"n":11,"d":0,"a":[12,2715,2725],"b":[12,2761,2771],"h":"if (headStaggerPx > 0)"}
+{"i":146,"k":0,"sim":0.818,"n":11,"d":2,"a":[6,5080,5090],"b":[6,5103,5116],"h":"try"}
+{"i":147,"k":1,"sim":0.818,"n":11,"d":2,"a":[6,1035,1052],"b":[3,796,807],"h":"try"}
+{"i":148,"k":0,"sim":0.818,"n":11,"d":2,"a":[6,1945,1956],"b":[6,3386,3396],"h":"BuildAutoFillQueue();"}
+{"i":149,"k":1,"sim":0.909,"n":11,"d":1,"a":[32,296,312],"b":[42,251,268],"h":"}"}
+{"i":150,"k":0,"sim":0.818,"n":11,"d":2,"a":[33,106,117],"b":[33,207,219],"h":"{"}
+{"i":151,"k":0,"sim":0.909,"n":11,"d":1,"a":[11,765,775],"b":[11,779,789],"h":"Avalonia.Threading.Dispatcher.UIThread.Post(() =>"}
+{"i":152,"k":0,"sim":1.0,"n":11,"d":0,"a":[43,49,59],"b":[43,61,71],"h":"if (_alwaysCheck != null)"}
+{"i":153,"k":0,"sim":0.909,"n":11,"d":1,"a":[44,1392,1402],"b":[44,1424,1434],"h":"case \"door\":"}
+{"i":154,"k":0,"sim":1.0,"n":11,"d":0,"a":[45,125,137],"b":[45,165,177],"h":"Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);"}
+{"i":155,"k":1,"sim":0.8,"n":10,"d":2,"a":[46,96,107],"b":[25,218,232],"h":"$\"Folded {ingested} crash/error event(s) from Windows Event Viewer (since {sinceIso}) into this log."}
+{"i":156,"k":1,"sim":0.8,"n":10,"d":2,"a":[4,1899,1909],"b":[47,215,225],"h":"}"}
+{"i":157,"k":1,"sim":0.8,"n":10,"d":2,"a":[4,1899,1909],"b":[48,157,167],"h":"}"}
+{"i":158,"k":1,"sim":0.8,"n":10,"d":2,"a":[4,1899,1909],"b":[49,163,173],"h":"}"}
+{"i":159,"k":1,"sim":0.8,"n":10,"d":2,"a":[0,1689,1699],"b":[40,105,116],"h":"}"}
+{"i":160,"k":1,"sim":0.8,"n":10,"d":2,"a":[47,212,223],"b":[2,2393,2403],"h":"}"}
+{"i":161,"k":1,"sim":0.9,"n":10,"d":1,"a":[39,123,132],"b":[21,215,224],"h":"}"}
+{"i":162,"k":1,"sim":0.9,"n":10,"d":1,"a":[4,346,356],"b":[6,854,864],"h":"}"}
+{"i":163,"k":0,"sim":0.8,"n":10,"d":2,"a":[0,810,820],"b":[0,829,858],"h":"};"}
+{"i":164,"k":0,"sim":1.0,"n":10,"d":0,"a":[0,952,962],"b":[0,982,992],"h":"};"}
+{"i":165,"k":1,"sim":1.0,"n":10,"d":0,"a":[4,2976,2986],"b":[12,7152,7162],"h":"}"}
+{"i":166,"k":0,"sim":1.0,"n":10,"d":0,"a":[3,197,207],"b":[3,241,258],"h":"}"}
+{"i":167,"k":1,"sim":0.8,"n":10,"d":2,"a":[4,2970,2980],"b":[39,80,91],"h":"}"}
+{"i":168,"k":1,"sim":0.8,"n":10,"d":2,"a":[35,158,174],"b":[50,411,421],"h":"{"}
+{"i":169,"k":1,"sim":0.8,"n":10,"d":2,"a":[4,2359,2368],"b":[13,1297,1306],"h":"{"}
+{"i":170,"k":0,"sim":0.8,"n":10,"d":2,"a":[4,2815,2826],"b":[4,2831,2842],"h":"}"}
+{"i":171,"k":1,"sim":0.9,"n":10,"d":1,"a":[4,2918,2929],"b":[3,816,828],"h":"if (_isSafeToClose)"}
+{"i":172,"k":1,"sim":0.8,"n":10,"d":2,"a":[6,2233,2242],"b":[3,831,840],"h":"catch (Exception ex)"}
+{"i":173,"k":1,"sim":0.9,"n":10,"d":1,"a":[4,2964,2973],"b":[51,96,105],"h":"{"}
+{"i":174,"k":1,"sim":0.9,"n":10,"d":1,"a":[25,394,404],"b":[42,213,223],"h":"return state;"}
+{"i":175,"k":1,"sim":0.8,"n":10,"d":2,"a":[35,151,160],"b":[14,1492,1502],"h":"}"}
+{"i":176,"k":0,"sim":1.0,"n":10,"d":0,"a":[12,2074,2083],"b":[12,2084,2093],"h":"border.PointerEntered += (_, _) =>"}
+{"i":177,"k":1,"sim":1.0,"n":10,"d":0,"a":[0,7093,7105],"b":[6,712,724],"h":"private Infrastructure.MemePreviewDirector? _memePreview;"}
+{"i":178,"k":0,"sim":0.8,"n":10,"d":2,"a":[12,3112,3121],"b":[12,5601,5610],"h":"{"}
+{"i":179,"k":1,"sim":1.0,"n":10,"d":0,"a":[12,5473,5483],"b":[0,4659,4669],"h":"}"}
+{"i":180,"k":1,"sim":0.8,"n":10,"d":2,"a":[12,6225,6259],"b":[52,127,144],"h":"}"}
+{"i":181,"k":0,"sim":1.0,"n":10,"d":0,"a":[12,6798,6809],"b":[12,6825,6836],"h":"}"}
+{"i":182,"k":1,"sim":0.9,"n":10,"d":1,"a":[12,7145,7156],"b":[11,977,988],"h":"}"}
+{"i":183,"k":1,"sim":0.8,"n":10,"d":2,"a":[0,374,384],"b":[11,274,283],"h":"var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>(\"OverlayLayer"}
+{"i":184,"k":0,"sim":0.8,"n":10,"d":2,"a":[0,434,443],"b":[0,1162,1176],"h":"var settingsBtn = this.FindControl<MenuItem>(\"MenuSettingsBtn\");"}
+{"i":185,"k":1,"sim":0.9,"n":10,"d":1,"a":[0,878,888],"b":[6,879,889],"h":"UpdateTimelineMarkers();"}
+{"i":186,"k":0,"sim":1.0,"n":10,"d":0,"a":[6,874,883],"b":[6,885,894],"h":"var loopCheck = this.FindControl<CheckBox>(\"LoopMusicCheckBox\");"}
+{"i":187,"k":0,"sim":0.9,"n":10,"d":1,"a":[0,1796,1805],"b":[0,1813,1823],"h":"var dropzone = this.FindControl<Controls.AmbientDropzoneControl>(\"AmbientDropzone\");"}
+{"i":188,"k":0,"sim":1.0,"n":10,"d":0,"a":[0,2178,2190],"b":[0,2193,2202],"h":"var timelineOverlay = this.FindControl<Border>(\"TimelineOverlay\");"}
+{"i":189,"k":0,"sim":1.0,"n":10,"d":0,"a":[0,3757,3766],"b":[0,3833,3842],"h":"};"}
+{"i":190,"k":0,"sim":1.0,"n":10,"d":0,"a":[0,3877,3887],"b":[0,5112,5122],"h":"if (newStart < 0) {"}
+{"i":191,"k":1,"sim":1.0,"n":10,"d":0,"a":[0,5806,5819],"b":[11,1796,1809],"h":"}"}
+{"i":192,"k":0,"sim":0.9,"n":10,"d":1,"a":[0,6930,6940],"b":[0,6971,6982],"h":"}"}
+{"i":193,"k":0,"sim":1.0,"n":10,"d":0,"a":[14,437,448],"b":[14,1471,1482],"h":"if (_openglLibrary != nint.Zero)"}
+{"i":194,"k":1,"sim":0.8,"n":10,"d":2,"a":[14,872,881],"b":[13,2645,2655],"h":"}"}
+{"i":195,"k":0,"sim":0.9,"n":10,"d":1,"a":[14,1456,1465],"b":[14,1487,1496],"h":"{"}
+{"i":196,"k":0,"sim":1.0,"n":10,"d":0,"a":[6,3118,3131],"b":[6,3132,3142],"h":"}"}
+{"i":197,"k":0,"sim":0.8,"n":10,"d":2,"a":[6,4319,4337],"b":[6,4450,4468],"h":"var playBtn = this.FindControl<Button>(\"PlayBtn\");"}
+{"i":198,"k":0,"sim":0.9,"n":10,"d":1,"a":[6,5191,5201],"b":[6,5295,5309],"h":"}"}
+{"i":199,"k":1,"sim":0.9,"n":10,"d":1,"a":[51,100,109],"b":[18,54,63],"h":"{"}
+{"i":200,"k":0,"sim":0.8,"n":10,"d":2,"a":[11,1128,1138],"b":[11,1144,1154],"h":"$\"This exact video is already in the queue:\\n\\n\" +"}
+{"i":201,"k":0,"sim":1.0,"n":10,"d":0,"a":[13,3482,3491],"b":[13,3492,3502],"h":"}"}
+{"i":202,"k":1,"sim":0.9,"n":10,"d":1,"a":[53,168,179],"b":[54,228,239],"h":"double frameDelta = Math.Min(now - _lastFrameSeconds, 0.25);"}
+{"i":203,"k":0,"sim":1.0,"n":10,"d":0,"a":[37,54,64],"b":[37,86,95],"h":"yesBtn.Classes.Remove(\"Success\");"}
+{"i":204,"k":0,"sim":0.9,"n":10,"d":1,"a":[55,469,478],"b":[55,479,488],"h":"case Key.Up:"}
+{"i":205,"k":1,"sim":1.0,"n":10,"d":0,"a":[18,9,20],"b":[21,53,64],"h":"public CropConfigStore(ApplicationPaths? paths = null)"}
+{"i":206,"k":1,"sim":1.0,"n":10,"d":0,"a":[27,238,248],"b":[16,40,50],"h":"var psi = new ProcessStartInfo"}
+{"i":207,"k":0,"sim":0.9,"n":10,"d":1,"a":[56,683,693],"b":[56,718,728],"h":"$\"fps={targetFps}:round=near,\" +"}
+{"i":208,"k":1,"sim":0.889,"n":9,"d":1,"a":[46,190,198],"b":[57,76,85],"h":"}"}
+{"i":209,"k":1,"sim":0.889,"n":9,"d":1,"a":[46,190,198],"b":[32,406,414],"h":"}"}
+{"i":210,"k":1,"sim":0.889,"n":9,"d":1,"a":[4,1775,1784],"b":[13,2671,2680],"h":"}"}
+{"i":211,"k":1,"sim":0.889,"n":9,"d":1,"a":[4,1898,1907],"b":[48,193,202],"h":"}"}
+{"i":212,"k":0,"sim":0.889,"n":9,"d":1,"a":[46,167,175],"b":[46,190,198],"h":"}"}
+{"i":213,"k":1,"sim":0.889,"n":9,"d":1,"a":[0,763,784],"b":[6,1196,1212],"h":"UpdateTimelineMarkers();"}
+{"i":214,"k":1,"sim":0.889,"n":9,"d":1,"a":[0,778,788],"b":[6,1238,1256],"h":"}"}
+{"i":215,"k":1,"sim":0.889,"n":9,"d":1,"a":[4,2977,2986],"b":[11,126,135],"h":"}"}
+{"i":216,"k":1,"sim":0.889,"n":9,"d":1,"a":[0,1698,1707],"b":[10,45,54],"h":"ToggleMuteFromSpeakerIcon();"}
+{"i":217,"k":0,"sim":0.889,"n":9,"d":1,"a":[4,596,605],"b":[4,1201,1210],"h":"}"}
+{"i":218,"k":1,"sim":0.889,"n":9,"d":1,"a":[40,64,72],"b":[2,1426,1434],"h":"{"}
+{"i":219,"k":0,"sim":0.889,"n":9,"d":1,"a":[4,2009,2017],"b":[4,2023,2031],"h":"{"}
+{"i":220,"k":1,"sim":0.889,"n":9,"d":1,"a":[4,2916,2925],"b":[12,7099,7108],"h":"try { _playheadBadgeTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }"}
+{"i":221,"k":1,"sim":0.889,"n":9,"d":1,"a":[12,3105,3116],"b":[0,5790,5798],"h":"}"}
+{"i":222,"k":1,"sim":0.889,"n":9,"d":1,"a":[35,151,159],"b":[11,1185,1193],"h":"}"}
+{"i":223,"k":1,"sim":1.0,"n":9,"d":0,"a":[12,942,951],"b":[13,2592,2601],"h":"var markEnd = new Avalonia.Input.KeyGesture(kb.MarkEnd);"}
+{"i":224,"k":0,"sim":0.889,"n":9,"d":1,"a":[3,319,329],"b":[3,501,511],"h":"};"}
+{"i":225,"k":0,"sim":1.0,"n":9,"d":0,"a":[12,2832,2840],"b":[12,6071,6079],"h":"{"}
+{"i":226,"k":1,"sim":1.0,"n":9,"d":0,"a":[12,2990,2999],"b":[0,7096,7105],"h":"private void BuildMemePreviewDirector()"}
+{"i":227,"k":1,"sim":1.0,"n":9,"d":0,"a":[0,1098,1106],"b":[11,938,946],"h":"volumeSlider.PropertyChanged += (s, e) =>"}
+{"i":228,"k":1,"sim":0.889,"n":9,"d":1,"a":[0,1278,1290],"b":[11,286,298],"h":"};"}
+{"i":229,"k":1,"sim":0.889,"n":9,"d":1,"a":[0,2132,2141],"b":[11,549,562],"h":"}"}
+{"i":230,"k":0,"sim":1.0,"n":9,"d":0,"a":[0,2717,2735],"b":[0,2736,2745],"h":"e.Handled = true;"}
+{"i":231,"k":1,"sim":1.0,"n":9,"d":0,"a":[0,6133,6141],"b":[55,105,113],"h":"if (_recoveryDebounceTimer == null)"}
+{"i":232,"k":0,"sim":1.0,"n":9,"d":0,"a":[0,6900,6910],"b":[0,6936,6946],"h":"}"}
+{"i":233,"k":0,"sim":0.889,"n":9,"d":1,"a":[14,964,972],"b":[14,1166,1174],"h":"{"}
+{"i":234,"k":0,"sim":1.0,"n":9,"d":0,"a":[14,1051,1059],"b":[14,1238,1246],"h":"{"}
+{"i":235,"k":0,"sim":0.889,"n":9,"d":1,"a":[6,986,996],"b":[6,5099,5111],"h":"{"}
+{"i":236,"k":0,"sim":1.0,"n":9,"d":0,"a":[6,1738,1746],"b":[6,3065,3073],"h":"}"}
+{"i":237,"k":0,"sim":1.0,"n":9,"d":0,"a":[6,1837,1847],"b":[6,2685,2693],"h":"ResetAutoFillQueueState();"}
+{"i":238,"k":1,"sim":1.0,"n":9,"d":0,"a":[58,556,564],"b":[39,181,189],"h":"return true;"}
+{"i":239,"k":1,"sim":1.0,"n":9,"d":0,"a":[28,55,63],"b":[21,377,385],"h":"}"}
+{"i":240,"k":0,"sim":1.0,"n":9,"d":0,"a":[8,209,217],"b":[8,229,237],"h":"public static void Swallowed("}
+{"i":241,"k":0,"sim":0.889,"n":9,"d":1,"a":[13,1590,1598],"b":[13,1654,1663],"h":"if (_micRecordButton != null)"}
+{"i":242,"k":0,"sim":0.889,"n":9,"d":1,"a":[13,3463,3471],"b":[13,3505,3514],"h":"foreach (var session in _sessions)"}
+{"i":243,"k":1,"sim":1.0,"n":9,"d":0,"a":[53,99,108],"b":[50,195,204],"h":"if (top is Window w)"}
+{"i":244,"k":1,"sim":1.0,"n":9,"d":0,"a":[53,167,176],"b":[50,218,227],"h":"double now = NowSeconds;"}
+{"i":245,"k":1,"sim":1.0,"n":9,"d":0,"a":[29,41,50],"b":[59,117,126],"h":"}"}
+{"i":246,"k":1,"sim":0.889,"n":9,"d":1,"a":[36,129,139],"b":[60,30,40],"h":"}"}
+{"i":247,"k":1,"sim":0.889,"n":9,"d":1,"a":[37,23,33],"b":[60,37,48],"h":"}"}
+{"i":248,"k":0,"sim":0.889,"n":9,"d":1,"a":[61,196,205],"b":[61,417,427],"h":"{"}
+{"i":249,"k":1,"sim":1.0,"n":9,"d":0,"a":[27,238,246],"b":[2,2095,2103],"h":"var psi = new ProcessStartInfo"}
+{"i":250,"k":0,"sim":0.889,"n":9,"d":1,"a":[16,104,113],"b":[16,129,138],"h":"}"}
+{"i":251,"k":0,"sim":0.889,"n":9,"d":1,"a":[62,138,152],"b":[62,154,167],"h":"}"}
+{"i":252,"k":0,"sim":0.889,"n":9,"d":1,"a":[38,426,463],"b":[38,498,514],"h":"}"}
+{"i":253,"k":1,"sim":0.875,"n":8,"d":1,"a":[46,99,107],"b":[13,1579,1588],"h":"}"}
+{"i":254,"k":1,"sim":0.875,"n":8,"d":1,"a":[46,99,107],"b":[40,56,64],"h":"}"}
+{"i":255,"k":1,"sim":1.0,"n":8,"d":0,"a":[34,311,318],"b":[63,105,112],"h":"RuntimeLog.Info(\"TEMP CLEANUP\", $\"Removed leftover installer folder {Path.GetFileName(folder)}.\");"}
+{"i":256,"k":0,"sim":1.0,"n":8,"d":0,"a":[46,150,157],"b":[46,178,185],"h":"{"}
+{"i":257,"k":0,"sim":1.0,"n":8,"d":0,"a":[4,1023,1031],"b":[4,1036,1044],"h":"e.Handled = true;"}
+{"i":258,"k":1,"sim":0.875,"n":8,"d":1,"a":[4,2947,2954],"b":[64,112,120],"h":"}"}
+{"i":259,"k":1,"sim":0.875,"n":8,"d":1,"a":[4,2284,2292],"b":[35,160,174],"h":"}"}
+{"i":260,"k":1,"sim":1.0,"n":8,"d":0,"a":[4,2345,2352],"b":[13,1277,1285],"h":"if (_isSeeking)"}
+{"i":261,"k":1,"sim":1.0,"n":8,"d":0,"a":[4,2964,2971],"b":[49,246,253],"h":"{"}
+{"i":262,"k":0,"sim":1.0,"n":8,"d":0,"a":[23,631,639],"b":[23,693,701],"h":"}"}
+{"i":263,"k":0,"sim":0.875,"n":8,"d":1,"a":[23,873,881],"b":[23,900,908],"h":"}"}
+{"i":264,"k":1,"sim":0.875,"n":8,"d":1,"a":[23,897,904],"b":[63,62,69],"h":"}"}
+{"i":265,"k":1,"sim":1.0,"n":8,"d":0,"a":[6,1748,1755],"b":[11,1190,1197],"h":"}"}
+{"i":266,"k":1,"sim":1.0,"n":8,"d":0,"a":[12,840,847],"b":[0,5590,5597],"h":"Avalonia.Threading.Dispatcher.UIThread.Post(async () => {"}
+{"i":267,"k":1,"sim":0.875,"n":8,"d":1,"a":[12,972,979],"b":[0,5127,5134],"h":"}"}
+{"i":268,"k":0,"sim":1.0,"n":8,"d":0,"a":[12,1403,1410],"b":[12,1429,1436],"h":"int? overlapIdx = FindSegmentAtPosition(currentMs);"}
+{"i":269,"k":0,"sim":1.0,"n":8,"d":0,"a":[12,1623,1630],"b":[12,1667,1674],"h":"}"}
+{"i":270,"k":1,"sim":1.0,"n":8,"d":0,"a":[12,3007,3016],"b":[0,7111,7120],"h":"}"}
+{"i":271,"k":1,"sim":1.0,"n":8,"d":0,"a":[12,3007,3016],"b":[13,265,274],"h":"}"}
+{"i":272,"k":0,"sim":1.0,"n":8,"d":0,"a":[0,608,616],"b":[0,620,629],"h":"};"}
+{"i":273,"k":1,"sim":0.875,"n":8,"d":1,"a":[0,573,581],"b":[13,995,1003],"h":"var slider = this.FindControl<Slider>(\"TimelineSlider\");"}
+{"i":274,"k":0,"sim":0.875,"n":8,"d":1,"a":[0,1115,1123],"b":[0,7331,7339],"h":"}"}
+{"i":275,"k":1,"sim":0.875,"n":8,"d":1,"a":[0,2909,2917],"b":[6,391,399],"h":"this,"}
+{"i":276,"k":1,"sim":1.0,"n":8,"d":0,"a":[0,3391,3399],"b":[11,1719,1727],"h":"double tickInterval = 5;"}
+{"i":277,"k":0,"sim":1.0,"n":8,"d":0,"a":[0,3498,3506],"b":[0,3589,3596],"h":"UpdateDraggingVisuals(canvasWidth, duration);"}
+{"i":278,"k":1,"sim":1.0,"n":8,"d":0,"a":[0,4720,4727],"b":[13,845,852],"h":"take.Player.Play();"}
+{"i":279,"k":1,"sim":0.875,"n":8,"d":1,"a":[0,6274,6282],"b":[60,66,74],"h":"}"}
+{"i":280,"k":0,"sim":1.0,"n":8,"d":0,"a":[0,6464,6476],"b":[0,6479,6491],"h":"}"}
+{"i":281,"k":0,"sim":1.0,"n":8,"d":0,"a":[0,6501,6508],"b":[0,6509,6516],"h":"var pathsArray = new System.Text.Json.Nodes.JsonArray();"}
+{"i":282,"k":1,"sim":1.0,"n":8,"d":0,"a":[0,7297,7304],"b":[6,1511,1518],"h":"var addMemeCb = this.FindControl<ToggleSwitch>(\"AddMemeCheckbox\");"}
+{"i":283,"k":1,"sim":0.875,"n":8,"d":1,"a":[14,721,729],"b":[65,216,228],"h":"}"}
+{"i":284,"k":1,"sim":1.0,"n":8,"d":0,"a":[6,1015,1030],"b":[3,582,590],"h":"var result = await this.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPi"}
+{"i":285,"k":1,"sim":1.0,"n":8,"d":0,"a":[32,339,346],"b":[58,556,563],"h":"return true;"}
+{"i":286,"k":0,"sim":1.0,"n":8,"d":0,"a":[6,2563,2571],"b":[6,2588,2596],"h":"{"}
+{"i":287,"k":1,"sim":0.875,"n":8,"d":1,"a":[6,3887,3895],"b":[66,343,351],"h":"}"}
+{"i":288,"k":1,"sim":1.0,"n":8,"d":0,"a":[21,136,143],"b":[1,857,864],"h":"}"}
+{"i":289,"k":1,"sim":0.875,"n":8,"d":1,"a":[6,5289,5297],"b":[11,1185,1192],"h":"}"}
+{"i":290,"k":1,"sim":0.875,"n":8,"d":1,"a":[6,5289,5297],"b":[11,2025,2033],"h":"}"}
+{"i":291,"k":1,"sim":1.0,"n":8,"d":0,"a":[28,71,78],"b":[51,103,110],"h":"}"}
+{"i":292,"k":1,"sim":1.0,"n":8,"d":0,"a":[28,71,78],"b":[21,404,411],"h":"}"}
+{"i":293,"k":0,"sim":0.875,"n":8,"d":1,"a":[8,469,476],"b":[8,519,526],"h":"{"}
+{"i":294,"k":1,"sim":0.875,"n":8,"d":1,"a":[32,128,136],"b":[67,86,93],"h":"}"}
+{"i":295,"k":0,"sim":1.0,"n":8,"d":0,"a":[11,1852,1860],"b":[11,1869,1877],"h":"private void SetClipIn()"}
+{"i":296,"k":1,"sim":0.875,"n":8,"d":1,"a":[11,1916,1925],"b":[36,123,132],"h":"}"}
+{"i":297,"k":0,"sim":1.0,"n":8,"d":0,"a":[13,2004,2012],"b":[13,2013,2021],"h":"}"}
+{"i":298,"k":0,"sim":1.0,"n":8,"d":0,"a":[68,60,68],"b":[68,152,160],"h":"}"}
+{"i":299,"k":0,"sim":0.875,"n":8,"d":1,"a":[68,182,190],"b":[68,212,221],"h":"}"}
+{"i":300,"k":1,"sim":1.0,"n":8,"d":0,"a":[69,139,146],"b":[41,65,73],"h":"}"}
+{"i":301,"k":0,"sim":1.0,"n":8,"d":0,"a":[70,66,74],"b":[70,96,104],"h":"}"}
+{"i":302,"k":0,"sim":1.0,"n":8,"d":0,"a":[61,195,202],"b":[61,347,354],"h":"if (!string.IsNullOrEmpty(voiceOverLabel))"}
+{"i":303,"k":0,"sim":1.0,"n":8,"d":0,"a":[61,383,390],"b":[61,416,423],"h":"if (useLoudnorm)"}
+{"i":304,"k":1,"sim":1.0,"n":8,"d":0,"a":[56,290,298],"b":[38,219,227],"h":"bool InsideCut(double at)"}
+{"i":305,"k":1,"sim":1.0,"n":8,"d":0,"a":[56,444,457],"b":[38,268,281],"h":"{"}
+{"i":306,"k":1,"sim":1.0,"n":8,"d":0,"a":[1,247,254],"b":[2,684,691],"h":"var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);"}
+{"i":307,"k":1,"sim":1.0,"n":8,"d":0,"a":[71,105,112],"b":[49,150,157],"h":"float max = 0;"}
+{"i":308,"k":1,"sim":1.0,"n":7,"d":0,"a":[4,1778,1784],"b":[0,5639,5645],"h":"RefreshActionButtons();"}
+{"i":309,"k":1,"sim":1.0,"n":7,"d":0,"a":[23,795,801],"b":[0,6537,6543],"h":"File.Delete(shortcutPath);"}
+{"i":310,"k":1,"sim":1.0,"n":7,"d":0,"a":[69,126,132],"b":[40,55,61],"h":"copied++;"}
+{"i":311,"k":1,"sim":1.0,"n":7,"d":0,"a":[4,2976,2983],"b":[11,961,968],"h":"}"}
+{"i":312,"k":1,"sim":1.0,"n":7,"d":0,"a":[4,624,630],"b":[6,5108,5114],"h":"{"}
+{"i":313,"k":0,"sim":1.0,"n":7,"d":0,"a":[4,796,803],"b":[4,891,898],"h":"{"}
+{"i":314,"k":0,"sim":1.0,"n":7,"d":0,"a":[4,1711,1717],"b":[4,1829,1835],"h":"try"}
+{"i":315,"k":0,"sim":1.0,"n":7,"d":0,"a":[4,1714,1721],"b":[4,2089,2097],"h":"JsonObject crops = EnsureObject(config, \"crops_1080p\");"}
+{"i":316,"k":0,"sim":1.0,"n":7,"d":0,"a":[4,1820,1827],"b":[4,1975,1982],"h":"return;"}
+{"i":317,"k":0,"sim":1.0,"n":7,"d":0,"a":[4,2815,2822],"b":[4,2823,2830],"h":"}"}
+{"i":318,"k":1,"sim":1.0,"n":7,"d":0,"a":[23,1204,1210],"b":[72,77,84],"h":"}"}
+{"i":319,"k":1,"sim":1.0,"n":7,"d":0,"a":[23,1204,1210],"b":[73,181,187],"h":"}"}
+{"i":320,"k":1,"sim":1.0,"n":7,"d":0,"a":[12,889,896],"b":[13,2571,2578],"h":"e.Handled = true;"}
+{"i":321,"k":0,"sim":1.0,"n":7,"d":0,"a":[12,3459,3465],"b":[12,3472,3478],"h":"var edit = new Avalonia.Controls.MenuItem"}
+{"i":322,"k":0,"sim":1.0,"n":7,"d":0,"a":[12,6972,6979],"b":[12,6980,6986],"h":"if (u != null)"}
+{"i":323,"k":1,"sim":1.0,"n":7,"d":0,"a":[12,7045,7053],"b":[0,7222,7231],"h":"var norm = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(rel, durMs / 1000.0);"}
+{"i":324,"k":0,"sim":1.0,"n":7,"d":0,"a":[0,881,888],"b":[0,1158,1166],"h":"};"}
+{"i":325,"k":0,"sim":1.0,"n":7,"d":0,"a":[0,668,674],"b":[0,1191,1197],"h":"UpdateEstimatedQuality();"}
+{"i":326,"k":0,"sim":1.0,"n":7,"d":0,"a":[0,2390,2396],"b":[0,2398,2404],"h":"var qs = this.FindControl<SpinningWheelSlider>(\"QualitySlider\");"}
+{"i":327,"k":1,"sim":1.0,"n":7,"d":0,"a":[0,2879,2886],"b":[6,2181,2188],"h":"_thumbnailSaveDebounce.Tick -= ThumbnailSaveDebounce_Tick;"}
+{"i":328,"k":1,"sim":1.0,"n":7,"d":0,"a":[14,223,229],"b":[66,382,388],"h":"}"}
+{"i":329,"k":1,"sim":1.0,"n":7,"d":0,"a":[14,695,708],"b":[13,1368,1380],"h":"}"}
+{"i":330,"k":1,"sim":1.0,"n":7,"d":0,"a":[14,695,708],"b":[25,56,63],"h":"}"}
+{"i":331,"k":0,"sim":1.0,"n":7,"d":0,"a":[6,845,851],"b":[6,919,925],"h":"var clearSearchBtn = this.FindControl<Button>(\"ClearSearchBtn\");"}
+{"i":332,"k":0,"sim":1.0,"n":7,"d":0,"a":[6,928,936],"b":[6,953,962],"h":"};"}
+{"i":333,"k":1,"sim":1.0,"n":7,"d":0,"a":[6,2650,2656],"b":[3,798,804],"h":"new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)"}
+{"i":334,"k":0,"sim":1.0,"n":7,"d":0,"a":[6,1900,1906],"b":[6,2416,2422],"h":"}"}
+{"i":335,"k":0,"sim":1.0,"n":7,"d":0,"a":[6,4012,4022],"b":[6,4132,4141],"h":"}"}
+{"i":336,"k":1,"sim":1.0,"n":7,"d":0,"a":[6,5194,5201],"b":[71,70,78],"h":"}"}
+{"i":337,"k":1,"sim":1.0,"n":7,"d":0,"a":[28,71,77],"b":[18,60,66],"h":"}"}
+{"i":338,"k":0,"sim":1.0,"n":7,"d":0,"a":[33,12,18],"b":[33,20,26],"h":"JsonArray lootCrop = new JsonArray(100, 50, 0, 0);"}
+{"i":339,"k":0,"sim":1.0,"n":7,"d":0,"a":[34,205,212],"b":[34,214,221],"h":"Console.WriteLine(\"state written\");"}
+{"i":340,"k":0,"sim":1.0,"n":7,"d":0,"a":[8,218,224],"b":[8,259,265],"h":"Info(\"SWALLOWED\", $\"{where} \u2014 {ex.GetType().Name}: {ex.Message}\");"}
+{"i":341,"k":0,"sim":1.0,"n":7,"d":0,"a":[74,56,63],"b":[74,67,74],"h":"}"}
+{"i":342,"k":0,"sim":1.0,"n":7,"d":0,"a":[11,317,323],"b":[11,1394,1400],"h":"else"}
+{"i":343,"k":0,"sim":1.0,"n":7,"d":0,"a":[13,2550,2558],"b":[13,2573,2581],"h":"}"}
+{"i":344,"k":0,"sim":1.0,"n":7,"d":0,"a":[13,2783,2789],"b":[13,2813,2819],"h":"if (DateTime.UtcNow > _armDeadlineUtc)"}
+{"i":345,"k":1,"sim":1.0,"n":7,"d":0,"a":[53,74,81],"b":[50,155,162],"h":"ClipToBounds = false;"}
+{"i":346,"k":0,"sim":1.0,"n":7,"d":0,"a":[54,267,273],"b":[54,274,280],"h":"case ParticleKind.Spark:"}
+{"i":347,"k":0,"sim":1.0,"n":7,"d":0,"a":[44,1145,1151],"b":[44,1155,1161],"h":"ShowTaunt(_rand.Next(2) == 0 ? \"Up here!\" : \"Can't reach me!\", (_attackerIsA ? _ax : _bx) + 20, perc"}
+{"i":348,"k":0,"sim":1.0,"n":7,"d":0,"a":[52,291,297],"b":[52,320,326],"h":"double w = host.Bounds.Width;"}
+{"i":349,"k":0,"sim":1.0,"n":7,"d":0,"a":[21,88,94],"b":[21,201,208],"h":"try"}
+{"i":350,"k":1,"sim":1.0,"n":7,"d":0,"a":[75,58,64],"b":[45,42,48],"h":"var shared = HardwareCapability.TryLoadEncoder(ffmpegPath);"}
+{"i":351,"k":1,"sim":1.0,"n":7,"d":0,"a":[1,373,379],"b":[2,321,327],"h":"var encoderMgr = await Task.Run(() => new EncoderManager(mergeStrategy, _ffmpegPath), cancellationTo"}
+{"i":352,"k":1,"sim":1.0,"n":7,"d":0,"a":[1,896,903],"b":[2,2032,2039],"h":"}"}
+{"i":353,"k":1,"sim":1.0,"n":7,"d":0,"a":[71,116,123],"b":[49,168,175],"h":"}"}
+{"i":354,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,219,224],"b":[12,3804,3809],"h":"if (_sourceCanvas != null)"}
+{"i":355,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,329,335],"b":[36,24,30],"h":"BuildMaskOverlayUi();"}
+{"i":356,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,338,344],"b":[6,829,835],"h":"{"}
+{"i":357,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,346,352],"b":[6,1052,1063],"h":"}"}
+{"i":358,"k":0,"sim":1.0,"n":6,"d":0,"a":[4,417,423],"b":[4,2977,2983],"h":"}"}
+{"i":359,"k":0,"sim":1.0,"n":6,"d":0,"a":[4,511,516],"b":[4,596,601],"h":"}"}
+{"i":360,"k":0,"sim":1.0,"n":6,"d":0,"a":[4,1619,1624],"b":[4,2425,2430],"h":"private void DeleteSelectedItem()"}
+{"i":361,"k":0,"sim":1.0,"n":6,"d":0,"a":[4,1898,1903],"b":[4,2080,2085],"h":"}"}
+{"i":362,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,2263,2269],"b":[12,6847,6858],"h":"}"}
+{"i":363,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,2669,2674],"b":[45,81,86],"h":"}"}
+{"i":364,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,2864,2869],"b":[6,2441,2446],"h":"if (e.Key == Key.Delete)"}
+{"i":365,"k":0,"sim":1.0,"n":6,"d":0,"a":[4,2893,2898],"b":[4,2904,2909],"h":"ApplyItemLayout(_selectedItem);"}
+{"i":366,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,2918,2924],"b":[6,4985,4991],"h":"if (_isSafeToClose)"}
+{"i":367,"k":1,"sim":1.0,"n":6,"d":0,"a":[4,2931,2937],"b":[44,308,313],"h":"_timelineTimer = null;"}
+{"i":368,"k":0,"sim":1.0,"n":6,"d":0,"a":[23,1050,1055],"b":[23,1070,1075],"h":"foreach ((RegistryHive hive, RegistryView view, string path) in DeploymentFootprint.GetUninstallRegi"}
+{"i":369,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,828,833],"b":[0,6786,6791],"h":"}"}
+{"i":370,"k":0,"sim":1.0,"n":6,"d":0,"a":[12,875,882],"b":[12,891,898],"h":"}"}
+{"i":371,"k":0,"sim":1.0,"n":6,"d":0,"a":[12,951,956],"b":[12,957,962],"h":"{"}
+{"i":372,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,1997,2003],"b":[3,320,326],"h":"}"}
+{"i":373,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,1998,2004],"b":[0,2492,2516],"h":"}"}
+{"i":374,"k":0,"sim":1.0,"n":6,"d":0,"a":[12,2307,2325],"b":[12,3497,3512],"h":"}"}
+{"i":375,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,5413,5418],"b":[0,4777,4782],"h":"{"}
+{"i":376,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,6377,6383],"b":[11,581,590],"h":"UpdateMemeButtonsState();"}
+{"i":377,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,6377,6383],"b":[11,847,857],"h":"UpdateMemeButtonsState();"}
+{"i":378,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,6727,6732],"b":[6,4885,4890],"h":"_undoGestureKey = coalesceKey;"}
+{"i":379,"k":1,"sim":1.0,"n":6,"d":0,"a":[12,7100,7105],"b":[0,5760,5765],"h":"DeleteThumbStrip();"}
+{"i":380,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,112,128],"b":[5,169,175],"h":"SchedulePrewarm();"}
+{"i":381,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,455,460],"b":[0,462,467],"h":"var menuTogglePreview = this.FindControl<MenuItem>(\"MenuTogglePreviewMonitor\");"}
+{"i":382,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,609,615],"b":[0,798,804],"h":"}"}
+{"i":383,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,609,615],"b":[3,382,388],"h":"}"}
+{"i":384,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,1281,1288],"b":[11,414,419],"h":"var bossHpCb = this.FindControl<ToggleSwitch>(\"BossHpCheckbox\");"}
+{"i":385,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,1509,1517],"b":[0,5857,5880],"h":"}"}
+{"i":386,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2152,2158],"b":[14,694,706],"h":"}"}
+{"i":387,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,2178,2185],"b":[0,7046,7053],"h":"var timelineOverlay = this.FindControl<Border>(\"TimelineOverlay\");"}
+{"i":388,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2298,2305],"b":[6,633,638],"h":"var portrait = this.FindControl<ToggleSwitch>(\"PortraitModeCheckbox\");"}
+{"i":389,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,2312,2326],"b":[0,5899,5909],"h":"ApplyMaskProfileToOverlayUi();"}
+{"i":390,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2435,2440],"b":[76,131,136],"h":"}"}
+{"i":391,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2767,2778],"b":[6,4757,4767],"h":"}"}
+{"i":392,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2767,2778],"b":[52,149,156],"h":"}"}
+{"i":393,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,2794,2799],"b":[1,319,324],"h":"}"}
+{"i":394,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,3292,3298],"b":[2,346,352],"h":"}"}
+{"i":395,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,5166,5171],"b":[0,5172,5177],"h":"e.Handled = true;"}
+{"i":396,"k":0,"sim":1.0,"n":6,"d":0,"a":[0,6614,6619],"b":[0,6667,6672],"h":"_cuts.Clear();"}
+{"i":397,"k":1,"sim":1.0,"n":6,"d":0,"a":[0,6875,6880],"b":[13,687,692],"h":"}"}
+{"i":398,"k":0,"sim":1.0,"n":6,"d":0,"a":[14,1322,1327],"b":[14,1345,1350],"h":"if (!swThreadStopped)"}
+{"i":399,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,280,286],"b":[6,3774,3780],"h":"}"}
+{"i":400,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,505,510],"b":[6,516,521],"h":"{"}
+{"i":401,"k":1,"sim":1.0,"n":6,"d":0,"a":[6,995,1000],"b":[11,1267,1272],"h":"if (state != null && state.TryGetPropertyValue(\"CustomMusicDirectory\", out var node) && node != null"}
+{"i":402,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,1129,1134],"b":[6,1135,1140],"h":"if (thumbContent != null)"}
+{"i":403,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,1151,1156],"b":[6,2702,2707],"h":"bool wasPlaying = _isPreviewPlaying;"}
+{"i":404,"k":1,"sim":1.0,"n":6,"d":0,"a":[6,1253,1266],"b":[11,403,411],"h":"}"}
+{"i":405,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,1266,1276],"b":[6,1279,1289],"h":"var nextBtn = this.FindControl<Button>(\"NextBtn\");"}
+{"i":406,"k":1,"sim":1.0,"n":6,"d":0,"a":[6,2080,2086],"b":[32,296,301],"h":"}"}
+{"i":407,"k":0,"sim":1.0,"n":6,"d":0,"a":[6,3646,3652],"b":[6,3655,3661],"h":"? Infrastructure.ThemeResources.Brush(this, \"AppWarningBrush\", Avalonia.Media.Brush.Parse(\"#facc15\")"}
+{"i":408,"k":1,"sim":1.0,"n":6,"d":0,"a":[77,18,23],"b":[39,167,173],"h":"public static bool IsVideoFilePath(string? arg)"}
+{"i":409,"k":0,"sim":1.0,"n":6,"d":0,"a":[33,65,71],"b":[33,111,117],"h":"}"}
+{"i":410,"k":1,"sim":1.0,"n":6,"d":0,"a":[32,128,133],"b":[78,171,176],"h":"}"}
+{"i":411,"k":0,"sim":1.0,"n":6,"d":0,"a":[11,358,363],"b":[11,1344,1349],"h":"if (VideoQueue.Count < 1)"}
+{"i":412,"k":0,"sim":1.0,"n":6,"d":0,"a":[11,1001,1006],"b":[11,1264,1269],"h":"try"}
+{"i":413,"k":0,"sim":1.0,"n":6,"d":0,"a":[11,1564,1569],"b":[11,1578,1583],"h":"{"}
+{"i":414,"k":0,"sim":1.0,"n":6,"d":0,"a":[13,1558,1563],"b":[13,1565,1570],"h":"if (settings.VoiceProtectGameMode == FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.Re"}
+{"i":415,"k":1,"sim":1.0,"n":6,"d":0,"a":[13,1753,1758],"b":[39,81,87],"h":"}"}
+{"i":416,"k":0,"sim":1.0,"n":6,"d":0,"a":[13,2608,2613],"b":[13,2614,2619],"h":"e.Handled = true;"}
+{"i":417,"k":1,"sim":1.0,"n":6,"d":0,"a":[19,661,666],"b":[20,402,407],"h":"private static void SafeLog(string message)"}
+{"i":418,"k":0,"sim":1.0,"n":6,"d":0,"a":[37,49,55],"b":[37,80,86],"h":"var yesBtn = this.FindControl<Button>(\"YesBtn\");"}
+{"i":419,"k":0,"sim":1.0,"n":6,"d":0,"a":[37,165,170],"b":[37,225,230],"h":"{"}
+{"i":420,"k":1,"sim":1.0,"n":6,"d":0,"a":[60,87,92],"b":[5,89,94],"h":"{"}
+{"i":421,"k":0,"sim":1.0,"n":6,"d":0,"a":[50,368,374],"b":[50,390,396],"h":"}"}
+{"i":422,"k":0,"sim":1.0,"n":6,"d":0,"a":[54,140,145],"b":[54,164,169],"h":"Color = color,"}
+{"i":423,"k":0,"sim":1.0,"n":6,"d":0,"a":[55,463,468],"b":[55,474,479],"h":"case Key.Down:"}
+{"i":424,"k":1,"sim":1.0,"n":6,"d":0,"a":[51,61,67],"b":[18,152,158],"h":"string? directory = Path.GetDirectoryName(path);"}
+{"i":425,"k":1,"sim":1.0,"n":6,"d":0,"a":[79,53,59],"b":[25,257,263],"h":"}"}
+{"i":426,"k":0,"sim":1.0,"n":6,"d":0,"a":[25,210,216],"b":[25,242,248],"h":"}"}
+{"i":427,"k":0,"sim":1.0,"n":6,"d":0,"a":[25,233,238],"b":[25,267,272],"h":"try"}
+{"i":428,"k":0,"sim":1.0,"n":6,"d":0,"a":[25,267,272],"b":[25,405,410],"h":"try"}
+{"i":429,"k":1,"sim":1.0,"n":6,"d":0,"a":[25,377,382],"b":[2,1424,1429],"h":"}"}
+{"i":430,"k":0,"sim":1.0,"n":6,"d":0,"a":[61,133,138],"b":[61,195,200],"h":"if (!string.IsNullOrEmpty(mainAudioLabel))"}
+{"i":431,"k":0,"sim":1.0,"n":6,"d":0,"a":[31,94,101],"b":[31,103,110],"h":"};"}
+{"i":432,"k":1,"sim":1.0,"n":6,"d":0,"a":[56,297,303],"b":[38,177,183],"h":"double ToClipRelative(double absSec)"}
+{"i":433,"k":1,"sim":1.0,"n":6,"d":0,"a":[56,306,311],"b":[38,184,189],"h":"if (segments != null)"}
+{"i":434,"k":0,"sim":1.0,"n":6,"d":0,"a":[45,115,121],"b":[45,157,163],"h":"RedirectStandardError = true,"}
+{"i":435,"k":1,"sim":1.0,"n":6,"d":0,"a":[45,127,132],"b":[1,846,851],"h":"try"}
+{"i":436,"k":0,"sim":1.0,"n":6,"d":0,"a":[65,240,246],"b":[65,249,255],"h":"{"}
+{"i":437,"k":0,"sim":1.0,"n":6,"d":0,"a":[80,112,117],"b":[80,119,124],"h":"{"}
+{"i":438,"k":0,"sim":1.0,"n":6,"d":0,"a":[2,829,834],"b":[2,895,900],"h":"var secondPassFilter = BuildLoudnormSecondPassFilter();"}
+{"i":439,"k":0,"sim":1.0,"n":6,"d":0,"a":[2,1704,1709],"b":[2,1717,1722],"h":"File.Move(bestPath, corePath, overwrite: true);"}

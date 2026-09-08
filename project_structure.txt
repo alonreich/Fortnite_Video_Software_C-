@@ -1232,6 +1232,32 @@ When the app is freshly installed and no config exists, the default upload video
 
 9. LATEST SESSION UPDATES (CHANGELOG)
 ------------------------------------------------------------------------------
+- INSTALL_02 / MEME_09 — TWO FRICTION FIXES REPORTED FROM REAL USE.
+  INSTALL_02 (`DeploymentLifecycle.ConfirmVersionTransition`): the installer asked "This exact
+  version is already installed… Continue and reinstall?" on every same-version run. It asked a
+  question whose answer was already given — the user had just double-clicked the installer — and
+  re-running the same build is ALSO the normal way to repair a damaged install, which the prompt
+  made feel like a mistake. `cmp > 0` became `cmp >= 0`, so upgrade and same-version reinstall both
+  proceed silently. ⚠️ THE DOWNGRADE WARNING STAYS and is a different thing: it names a real,
+  irreversible consequence (settings written by a newer build can become unreadable) and the user
+  may not realise the installer they launched is older. The PRESERVE SETTINGS prompt is untouched —
+  that one has two genuine answers.
+  MEME_09 (`GranularSpeedEditorWindow`): REPORTED as a meme band being "extremely stuck/stuttery"
+  and hard to grab. THREE independent causes, none of them the drag mathematics fixed in DRAG_FIX.
+  (a) `SnapInsertionPoint` moves a blocked point FORWARD, which is right when PLACING a meme and
+  hostile when DRAGGING one — push the band left into a 30s slow-mo block and it is thrown 30s
+  RIGHT, opposite to the hand holding it, then pins there for the block's whole width. A new
+  `SnapMemeToNearestLegalEdge` picks the NEARER edge first; the result still passes through
+  `SnapInsertionPoint`, so D8 is untouched. The status line now names the block that is refusing it
+  — silence there was indistinguishable from the app having frozen, which is how it was reported.
+  (b) SELF-INFLICTED, from MEME_07: `RefreshMemePreviewAsync` raised the full-window PLEASE WAIT
+  curtain plus a 220ms settle on EVERY drag release. Add/remove change the finished LENGTH and earn
+  that; a MOVE changes no length at all. It now takes `stall`, and the drag-end call passes false.
+  (c) A meme occupies its own length in OUTPUT seconds, so on a long clip the band is a sliver — a
+  5s meme in a 10-minute video is ~8px on a 1000px ruler. The coloured band is now painted at its
+  true width with `IsHitTestVisible=false`, and a separate INVISIBLE grab rectangle is held to
+  `MemeGrabMinWidthPx` (18px) and centred on it — the same split HITBOX_01/02 used for the freeze
+  and zoom markers. The band still tells the truth about how much of the video the meme occupies.
 - ZOOMLIVE_01..06 — THE ZOOM STOPPED BEING A ONE-SHOT WIZARD (`GranularSpeedEditorWindow`,
   `VoiceOverWindow`, `MainWindow`, `AvaloniaApp.axaml`). REPORTED as "bad, complicated and
   non-intuitive": pick a segment, answer a snappy-vs-gliding question, drag a box, press a floating

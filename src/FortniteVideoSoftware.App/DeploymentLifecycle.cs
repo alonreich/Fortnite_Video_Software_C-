@@ -290,8 +290,23 @@ internal static class DeploymentLifecycle
     }
 
     /// <summary>
-    /// ISSUE_02 — a downgrade or same-version reinstall is a deliberate choice, so confirm it.
-    /// A straight upgrade proceeds without an extra prompt. Returns true to continue.
+    /// ISSUE_02 — a DOWNGRADE is a deliberate choice, so confirm it. An upgrade and a same-version
+    /// reinstall both proceed without an extra prompt. Returns true to continue.
+    ///
+    /// <para>
+    /// ⚠️ INSTALL_02 — THE SAME-VERSION PROMPT WAS REMOVED ON PURPOSE. DO NOT PUT IT BACK.
+    /// It read "This exact version is already installed. … Continue and reinstall?" and it asked a
+    /// question whose answer was already given: the user double-clicked the installer, so YES is
+    /// the only thing they can have meant. Re-running the same version is also the normal way to
+    /// repair a damaged install, which the prompt made feel like a mistake. The one prompt that
+    /// genuinely still matters here is the PRESERVE SETTINGS question a few lines up — that one
+    /// has two real answers and is untouched.
+    /// </para>
+    /// <para>
+    /// The DOWNGRADE warning stays, and is a different thing entirely: it warns about a real,
+    /// irreversible consequence (settings written by a newer build can become unreadable), and the
+    /// user may well have launched an older installer without realising it was older.
+    /// </para>
     /// </summary>
     private static bool ConfirmVersionTransition(string? existingVersion)
     {
@@ -302,19 +317,15 @@ internal static class DeploymentLifecycle
         }
 
         int cmp = current.CompareTo(installed);
-        if (cmp > 0) return true;
 
-        string heading = cmp < 0
-            ? "You are about to install an OLDER version than the one already installed."
-            : "This exact version is already installed.";
+        // INSTALL_02 — upgrade (cmp > 0) AND same-version reinstall (cmp == 0) both proceed silently.
+        if (cmp >= 0) return true;
 
         return NativeDialog.ShowQuestion(
-            heading + "\r\n\r\n" +
+            "You are about to install an OLDER version than the one already installed.\r\n\r\n" +
             $"Installed version: {installed}\r\n" +
             $"This installer:    {current}\r\n\r\n" +
-            (cmp < 0
-                ? "Going backwards can make settings saved by the newer version unreadable.\r\n\r\nContinue anyway?"
-                : "Continue and reinstall?"),
+            "Going backwards can make settings saved by the newer version unreadable.\r\n\r\nContinue anyway?",
             "Fortnite Video Software Setup");
     }
 

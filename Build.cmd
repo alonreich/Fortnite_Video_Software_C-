@@ -5,15 +5,17 @@ set "VSCONSOLEOUTPUT=1"
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul || exit /b 1
 
+if /I "%~1"=="__BUILD_LOGGED__" goto :run_logged
 if "%~1"=="--internal-log" goto :run_logged
-if exist build.log del /f /q build.log
-powershell -NoProfile -Command "& { & '%~f0' --internal-log %* 2>&1 | Tee-Object -FilePath build.log; exit $LASTEXITCODE }"
-set "RC=%ERRORLEVEL%"
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File ".\developer_tools\BuildLog.ps1" %* <nul
+
+  set "RC=%ERRORLEVEL%"
 
 rem =====================================================================================
 rem  THE ONLY PLACE THAT PAUSES.
 rem  It lives in the OUTER invocation on purpose: the inner run is piped through
-rem  Tee-Object, and a `pause` inside a pipe prompts into the pipe instead of the console,
+rem  BuildLog.ps1, and a `pause` inside a pipe prompts into the pipe instead of the console,
 rem  which looks like a hang. Exit codes carry the verdict out here:
 rem      0 = build OK and release published (or publishing was not requested)
 rem      1 = BUILD FAILED           -> nothing was published, the release is untouched
@@ -38,6 +40,11 @@ if "%RC%"=="2" (
   echo ###########################################################
   pause
 )
+
+  popd >nul
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%developer_tools\SetConsoleFont.ps1" <nul
+
 exit /b %RC%
 
 :run_logged

@@ -43,3 +43,10 @@ Thumbs.db
 old_code/*
 Old_Code/*
 developer_tools/redundant_code_report.html_to_delete/
+
+# Python bytecode — the developer_tools scripts all guard against writing it and sweep it on
+# every run, but an editor, a `py_compile`, or one script importing another can still create it.
+# This is the last line of defence: it must never reach the repository.
+__pycache__/
+*.py[cod]
+*$py.class

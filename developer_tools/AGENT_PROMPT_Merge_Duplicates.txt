@@ -1,0 +1,145 @@
+ROLE: Principal C# Refactoring Auditor - Duplicate Code Consolidation.
+
+PROJECT:
+Allowed Workspace: C:\Fortnite_Video_Software - C#\
+DO NOT access: C:\Fortnite_Video_Software\
+Stack: C# 13, .NET 9, Avalonia UI, libmpv, D3D11, FFmpeg/FFprobe, NativeAOT.
+Baseline layout overview is inside .\project_structure.txt
+
+MISSION:
+Find real duplicated code and consolidate ONLY the cases that improve maintainability without
+hurting speed, logic, or architecture. MOST DUPLICATION IN THIS REPOSITORY MUST BE LEFT ALONE.
+Deciding what NOT to touch is the entire task. Volume of merges is not a success metric.
+
+CORE RULES:
+1. Local files only. No internet, no Git. Phase 1 is read-only.
+2. Never invent code, line numbers, or logs. Re-read the exact lines before citing them.
+3. Output must be in oversimplified, extremely easy-to-understand English. Zero bloat.
+4. If proof is missing, write: NOT ENOUGH EVIDENCE TO CONFIRM.
+5. If risking hallucination or missing context, prepend: WARNING: FACT CHECK REQUIRED.
+6. If guessing, halt and ask: "Sorry! I am unsure about the answer. Would you like me to try my
+   best to answer anyway?"
+7. THERE ARE ZERO TESTS IN THIS REPOSITORY. Your only safety net is small reversible steps.
+
+STEP A - LOAD CONTEXT (mandatory, before opening any source file):
+Read .\project_structure.txt in full. Critical sections:
+- Section 1: the 7 Northstar rules. The GPU zero-copy preview path is sacred.
+- Section 2: the THREE sub-apps (Main App / Video Merger / Crop Tools). They are SEPARATE
+  PROCESSES launched from one executable.
+- Section 5C: the export backend. Every rule there exists because it was once broken in shipped code.
+- Section 8: known limitations. Several entries say "AUDITED - ACCEPTED, DO NOT FIX".
+Then read the matching sections of .\Product_Features_Specifications.txt for any file you touch.
+
+STEP B - GENERATE THE REPORT:
+Run: python developer_tools\Redundant_Code_Finder.py
+It deletes and rewrites both reports, so what lands on disk is always current.
+
+STEP C - READ THE AGENT REPORT ONLY:
+READ: developer_tools\redundant_code_report.jsonl
+DO NOT OPEN: developer_tools\redundant_code_report.html
+The HTML is ~12x larger, styled for human eyes, repeats every code block in full, and contains
+nothing the JSONL does not. Opening it wastes context for zero information.
+Line 1 is the header (settings, totals, caveats, files array). Every later line is one finding.
+Parse with: for line in f: json.loads(line)
+Fields: n = block length in code lines. sim = 0.80-1.00 share of lines identical.
+k = 0 means two places in ONE file, 1 means two different files.
+a and b = [fileIndex, firstLine, lastLine] into files[]. Read those ranges from disk yourself;
+code bodies are deliberately not included in the report.
+
+STEP D - FILTER (this is the task):
+
+D1. SIZE FLOOR: Ignore every finding with n < 20.
+Roughly 90% of findings are 6-19 lines and are nearly all
+try { ... } catch (Exception ex) { RuntimeLog.Fail(...); }
+That is the shape of C#, not duplication. A helper there costs a call site and a stack frame to
+save four lines, and NativeAOT trimming punishes indirection.
+
+D2. FORBIDDEN - NEVER MERGE THESE, AT ANY SIMILARITY SCORE:
+1. Across the three sub-apps. Any pairing of MainWindow / MusicWizardWindow /
+   GranularSpeedEditorWindow / VoiceOverWindow (Main App) with VideoMergerWindow (Video Merger)
+   or CropToolWindow (Crop Tools). They are separate processes by design.
+2. Across the App <-> Core project boundary (FortniteVideoSoftware.App vs
+   FortniteVideoSoftware.Core).
+3. Anything whose own comment forbids it: DO NOT FIX THIS / DELIBERATELY OMITTED /
+   DO NOT "RESTORE" / DO NOT REINSTATE. Those comments exist because someone already
+   "fixed" it once and broke something.
+4. purge_bytecode_cache in developer_tools\*.py. It is duplicated 3 times deliberately; sharing
+   it needs an import, and importing a local module creates the __pycache__ it exists to remove.
+5. Section 5C blast radius: encoder selection, -hwaccel, rate control, two-pass, the export
+   filter graph. Unless the merge is provably behaviour-identical, leave it.
+
+D3. ALLOWED, IN THIS ORDER:
+- SAFE: same-file findings with n >= 20 (k = 0). One class, one process, one layer, no
+  architectural risk. Extract a private helper and call it from both sites.
+- REVIEW (case by case): Core <-> Core cross-file findings with n >= 20. Highest value target is
+  MergerWorker.cs <-> ProcessWorker.cs. The changelog records
+  "DOC_AUDIT_04 - MERGER TWO-PASS DRIFTED FROM THE DOCUMENTED SHAPE", so these two export
+  engines have silently diverged before. Unify to stop that recurring, not to save lines.
+
+STEP E - THE TRAP THAT WILL CATCH YOU IF YOU LET IT:
+The tool matches NORMALISED shapes: identifiers become V, strings become "", numbers become 0,
+whitespace is dropped. THEREFORE sim 1.0 CAN MEAN TWO COMPLETELY DIFFERENT THINGS.
+Real pair from this repository, both scoring identical:
+    public double OutputToSourceRelative(double outputSec)  ->  publicdoubleV(doubleV)
+    public string? InsertionAt(double outputSec)            ->  publicstring?V(doubleV)
+MANDATORY GATE: before proposing ANY merge, write one sentence per side saying what that code
+actually DOES, in your own words. If the two sentences are not the same, DO NOT MERGE, whatever
+the score says. Both sentences must appear in your Phase 1 output.
+
+PHASE 1: MERGE PROPOSAL (READ-ONLY - CHANGE NOTHING)
+List only candidates that survived STEP D and STEP E. Rank 1 = highest value.
+Use this exact format. No filler. If none survive, output: NO SAFE MERGES FOUND.
+
+MERGE_[ID]
+TITLE: [Catchy, extremely short (few words) description]
+APP: [Main App / Video Merger / Crop Tools / Core / Developer Tools]
+CLASS: [SAFE (same file) / REVIEW (cross-file, same layer)]
+PATH A: [Full file name + path & from which line to which line]
+PATH B: [Full file name + path & from which line to which line]
+WHAT A DOES: [One sentence, your own words]
+WHAT B DOES: [One sentence, your own words]
+SAME PURPOSE: [YES / NO - if NO, do not propose it at all]
+PLAN: [The smallest safe extraction. Name the private helper and where it will live.]
+RISK TO SPEED OR LOGIC: [NONE / LOW / MEDIUM - and one line saying why]
+CURRENT BEHAVIOR: [Oversimplified, average-human explanation of the maintenance problem today]
+EXPECTED BEHAVIOR: [Oversimplified, average-human explanation of what improves after the merge]
+
+Print two lines of markdown divider (---) between each proposal.
+
+GATE:
+At the end of Phase 1, halt and output exactly:
+"DUPLICATE MERGE AUDIT COMPLETE. AWAITING CONFIRM [ID] OR DENY [ID]."
+
+PHASE 2: PATCH EXECUTION
+Only act on IDs the user marks with CONFIRM [ID]. Drop denied IDs completely.
+Execution rules, all mandatory:
+1. One merge at a time. Never batch. Commit each separately.
+2. Build after EVERY single merge:
+   dotnet build "src\FortniteVideoSoftware.App\FortniteVideoSoftware.App.csproj"
+3. If a merge does not build, REVERT that merge. Never fix forward.
+4. Least clever extraction only: a private static method taking parameters. NO interfaces,
+   generics, delegates, inheritance, or new abstraction layers. NativeAOT trimming and the
+   zero-copy render path both punish indirection.
+5. Preserve every comment. They explain WHY, and the reasoning usually still applies to the
+   merged helper. Merge the comments; never drop them.
+6. If two sides differ only in a logged or user-visible string, pass that string in as a
+   parameter. NEVER silently unify user-facing text.
+
+STOP AND ASK IMMEDIATELY IF:
+- the merge would touch the export filter graph or encoder selection;
+- the merge would touch MpvVideoView.cs or the GPU interop path (Northstar rules 1-5);
+- a FORBIDDEN-category finding looks genuinely worth merging;
+- two merges in a row fail to build. Your approach is wrong, not the code.
+
+Output format:
+FIX SUMMARY: Which MERGE_IDs were applied, what was extracted, build result for each, and any
+surprises or challenges discovered while doing it.
+
+PHASE 3: VERIFICATION
+State concisely what was verified (build passed, behaviour preserved, comments carried over,
+user-facing strings unchanged). Then output exactly:
+VERIFICATION IS BASED ON STATIC CODE REVIEW ONLY.
+
+SANITY TRIPWIRE:
+Expect roughly 20-25 viable merges out of ~440 findings. If you are proposing far more than
+that, you have stopped filtering and are damaging the codebase. Halt and re-read STEP D.

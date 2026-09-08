@@ -1,4 +1,16 @@
+import sys
 import os
+
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# NO CACHE. BOTH LINES, BEFORE EVERY OTHER IMPORT. This file previously had NEITHER guard.
+# Running it directly was safe (Python does not cache the __main__ module), but importing it
+# from anywhere would have dropped a __pycache__ beside it. `dont_write_bytecode` must sit above
+# the imports because it only governs imports made after it; the env var covers child processes.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -128,5 +140,38 @@ def run_aggregator():
                 
     print(f"Done! Aggregated {processed_count} files into {len(out_files)} logical groups.")
 
+def purge_bytecode_cache():
+    """
+    Removes any __pycache__ / .pyc this tool's folder has accumulated.
+
+    ⚠️ THIS IS DELIBERATELY DUPLICATED IN EVERY developer_tools SCRIPT INSTEAD OF BEING SHARED.
+    Putting it in a common module would mean each script has to IMPORT that module — and importing
+    a local module is the single most reliable way to create the __pycache__ this function exists
+    to prevent. A shared helper here would cause the problem it is meant to solve.
+
+    Scoped to developer_tools ONLY. It must never wander into the rest of the repository.
+    """
+    tools_dir = Path(__file__).resolve().parent
+    removed = []
+    try:
+        for cache_dir in tools_dir.rglob("__pycache__"):
+            if cache_dir.is_dir():
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                if not cache_dir.exists():
+                    removed.append(cache_dir.name)
+        for stray in list(tools_dir.rglob("*.pyc")) + list(tools_dir.rglob("*.pyo")):
+            try:
+                stray.unlink()
+                removed.append(stray.name)
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"[!] Could not sweep bytecode cache: {exc}")
+        return
+    if removed:
+        print(f"[*] Removed {len(removed)} bytecode cache item(s).")
+
+
 if __name__ == '__main__':
+    purge_bytecode_cache()
     run_aggregator()
