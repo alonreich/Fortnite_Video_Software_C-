@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,7 +51,12 @@ public class MainMediaController
                 else
                 {
                     RuntimeLog.Fail("Process", $"Video processing failed: {message}");
-                    tcs.TrySetResult(new ExportResult { Success = false, ErrorMessage = worker.FailureDetail ?? message });
+                    tcs.TrySetResult(new ExportResult 
+                    { 
+                        Success = false, 
+                        ErrorMessage = worker.LastFailure?.Summary ?? worker.FailureDetail ?? message,
+                        Failure = worker.LastFailure 
+                    });
                 }
             };
             
@@ -120,7 +125,9 @@ public class MainMediaController
         catch (Exception ex)
         {
             RuntimeLog.Fail("Process", ex);
-            return new ExportResult { Success = false, ErrorMessage = ex.ToString() };
+            var failure = FfmpegErrorClassifier.ClassifyException(ex, ExportStage.Preflight,
+                new ExportAttemptIdentity { AttemptIndex = 1, Operation = "ExportSetup", Description = "Export preparation" });
+            return new ExportResult { Success = false, ErrorMessage = failure.Summary, Failure = failure };
         }
     }
 }

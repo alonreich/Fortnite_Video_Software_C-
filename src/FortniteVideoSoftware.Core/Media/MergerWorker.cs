@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -12,6 +12,16 @@ public class MergerWorker : IDisposable
     private bool _finishEmitted;
     private string _ffmpegPath;
     private string _ffprobePath;
+
+    /// <summary>
+    /// Single-flight gate for the cooperative shutdown ladder. Cancel(), the cancellation-token
+    /// registration inside <see cref="ExecuteFFmpegAsync"/>, and <see cref="Dispose"/> can all
+    /// race; the gate guarantees exactly ONE ladder ('q' quit command → grace period → hard
+    /// kill → exit confirmation) ever runs per FFmpeg process.
+    /// </summary>
+    private readonly object _shutdownGate = new();
+    private Process? _shutdownTarget;
+    private Task? _shutdownTask;
 
     public event Action<int>? ProgressUpdate;
     public event Action<bool, string>? Finished;
@@ -47,6 +57,8 @@ public class MergerWorker : IDisposable
     /// "?" until the first progress line arrives.
     /// </summary>
     public string LastReportedSpeed { get; private set; } = "?";
+    public string LastVideoPipeline { get; private set; } = "";
+    public bool UsedGpuVideoProcessing { get; private set; }
 
     /// <summary>
     /// IDEA_8 — optional per-clip in/out points, in SOURCE seconds, index-aligned with
@@ -105,6 +117,12 @@ public class MergerWorker : IDisposable
     /// </summary>
     public string? FailureDetail { get; private set; }
 
+    /// <summary>
+    /// Strongly typed failure model providing structured category, stage, attempt history,
+    /// exit/error codes, and supporting diagnostics for ErrorReporter.
+    /// </summary>
+    public ExportFailure? LastFailure { get; private set; }
+
     public MergerWorker(ApplicationPaths? paths = null)
     {
         _paths = paths ?? ApplicationPaths.CreateDefault();
@@ -120,6 +138,7 @@ public class MergerWorker : IDisposable
 
     private volatile bool _isCanceled;
 
+
     /// <summary>True when this job ended because the user stopped it, not because it failed.</summary>
     public bool WasCanceled => _isCanceled;
 
@@ -127,10 +146,46 @@ public class MergerWorker : IDisposable
     {
         _isCanceled = true;
         CoreLogger.Info("Merger", "Merge cancelled by user.");
-        if (_currentProcess != null)
+
+        // Cooperative stop, fire-and-forget: the ladder ('q' quit command → 1500 ms grace →
+        // Kill(entireProcessTree) → 2000 ms exit confirmation) is strictly bounded and runs
+        // off the UI thread, so this call returns immediately while FFmpeg still gets the
+        // chance to finalize its output files cleanly instead of being shot mid-write.
+        BeginCooperativeShutdown(_currentProcess);
+    }
+
+    /// <summary>
+    /// Starts the bounded cooperative shutdown ladder for <paramref name="proc"/> exactly once.
+    /// Single-flight: Cancel(), the token registration, and Dispose() may all race each other,
+    /// but only one ladder ever runs per process. Faults are observed so a background stop can
+    /// never surface as an unobserved task exception.
+    /// </summary>
+    private void BeginCooperativeShutdown(Process? proc)
+    {
+        if (proc == null) return;
+
+        Task? started = null;
+        lock (_shutdownGate)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            if (ReferenceEquals(_shutdownTarget, proc) && _shutdownTask != null) return;
+            _shutdownTarget = proc;
+            _shutdownTask = Task.Run(() => GracefulProcessTerminator.TerminateAsync(proc, "FFmpeg MERGE", attemptQuitCommand: true));
+            started = _shutdownTask;
         }
+
+        _ = started.ContinueWith(
+            static t => { if (t.IsFaulted && t.Exception != null) CoreLogger.Swallowed(t.Exception); },
+            TaskScheduler.Default);
+    }
+
+    /// <summary>Awaits the in-flight shutdown ladder, if any. Bounded by the ladder itself.</summary>
+    private async Task AwaitActiveShutdownAsync()
+    {
+        Task? pending;
+        lock (_shutdownGate) { pending = _shutdownTask; }
+        if (pending == null) return;
+        try { await pending; }
+        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     /// <summary>
@@ -147,11 +202,14 @@ public class MergerWorker : IDisposable
         {
             if (!proc.HasExited)
             {
-                if (!proc.WaitForExit(graceMs))
-                {
-                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-                    proc.WaitForExit(2000);
-                }
+                // Bounded last-resort ladder (no stdin quit here — the caller already attempted
+                // the cooperative stop): grace period → hard kill of the tree → confirmation.
+                GracefulProcessTerminator.Terminate(
+                    proc,
+                    logTag,
+                    attemptQuitCommand: false,
+                    cooperativeGraceMs: graceMs,
+                    hardKillConfirmMs: 2000);
             }
         }
         catch (Exception ex)
@@ -169,20 +227,35 @@ public class MergerWorker : IDisposable
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        UsedGpuVideoProcessing = false;
         using var cancelMirror = cancellationToken.CanBeCanceled
             ? cancellationToken.Register(() => _isCanceled = true)
             : default;
+
+        // Hoisted so the cancellation handlers below can clean the job's partial outputs up
+        // before the final cancelled status is emitted, even on the exception paths.
+        string? tempJobDir = null;
 
         try
         {
             if (InputFiles.Count == 0)
             {
-                EmitFinished(false, "No input files provided.");
+                LastFailure = new ExportFailure
+                {
+                    Category = ExportFailureCategory.CorruptInput,
+                    Stage = ExportStage.Preflight,
+                    Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "InputValidation", Description = "Input files validation" },
+                    Summary = "No input files were provided for merging.",
+                    SpecificCause = "InputFiles list is empty.",
+                    DiagnosticLines = ["No input files provided."]
+                };
+                FailureDetail = LastFailure.FormatDiagnosticReport();
+                EmitFinished(false, LastFailure.Summary);
                 return;
             }
 
             string jobId = Guid.NewGuid().ToString("N")[..8];
-            string tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_merger_{jobId}");
+            tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_merger_{jobId}");
             Directory.CreateDirectory(tempJobDir);
 
             try
@@ -191,6 +264,7 @@ public class MergerWorker : IDisposable
                 double totalDuration = 0;
                 var fileDurations = new double[InputFiles.Count];
                 var fileHasAudio = new bool[InputFiles.Count];
+                var fileResolutions = new (int width, int height)[InputFiles.Count];
                 var clipWindows = new (double start, double end, bool trimmed)[InputFiles.Count];
                 var clipDurations = new double[InputFiles.Count];
                 double peakSourceVideoBitrateKbps = 0;
@@ -200,6 +274,7 @@ public class MergerWorker : IDisposable
                     var prober = new MediaProber(_ffprobePath, InputFiles[fi]);
                     double dur = await prober.GetDurationAsync();
                     bool hasAudio = await prober.HasAudioAsync();
+                    fileResolutions[fi] = await prober.GetResolutionAsync();
                     fileDurations[fi] = dur;
                     fileHasAudio[fi] = hasAudio;
 
@@ -247,8 +322,17 @@ public class MergerWorker : IDisposable
                     var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);
                     if (!space.Ok)
                     {
-                        FailureDetail = space.Message;
-                        EmitFinished(false, space.Message ?? "Not enough free disk space.");
+                        LastFailure = new ExportFailure
+                        {
+                            Category = ExportFailureCategory.DiskFull,
+                            Stage = ExportStage.Preflight,
+                            Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "Preflight", Description = "Disk space check" },
+                            Summary = space.Message ?? "Not enough free disk space.",
+                            SpecificCause = space.Message,
+                            DiagnosticLines = [space.Message ?? "Not enough free disk space."]
+                        };
+                        FailureDetail = LastFailure.FormatDiagnosticReport();
+                        EmitFinished(false, LastFailure.Summary);
                         return;
                     }
                 }
@@ -259,10 +343,10 @@ public class MergerWorker : IDisposable
 
                 int musicInputIndex = InputFiles.Count;
 
-                List<string> BuildInputArgs(string encoder)
+                List<string> BuildInputArgs(ExportVideoPipeline pipeline)
                 {
-                    var decodeFlags = EncoderManager.GetDecodeFlags(encoder);
-                    var args = new List<string>();
+                    var decodeFlags = pipeline.DecodeFlags;
+                    var args = new List<string>(pipeline.DeviceFlags);
                     for (int i = 0; i < InputFiles.Count; i++)
                     {
                         args.AddRange(decodeFlags);
@@ -284,6 +368,17 @@ public class MergerWorker : IDisposable
                     string scaleFilter = OutputRatio == TargetAspectRatio.Portrait9x16
                         ? $"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
                         : $"scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2";
+
+                    int canvasW = OutputRatio == TargetAspectRatio.Portrait9x16 ? 1080 : 1920;
+                    int canvasH = OutputRatio == TargetAspectRatio.Portrait9x16 ? 1920 : 1080;
+                    var resolution = fileResolutions[i];
+                    if (resolution.width > 0 && resolution.height > 0 &&
+                        (long)resolution.width * canvasH == (long)resolution.height * canvasW)
+                    {
+                        // Matching aspect ratios need neither padding nor crop. This exact
+                        // scale has a CUDA equivalent; mixed aspect ratios keep their effects.
+                        scaleFilter = $"scale={canvasW}:{canvasH}:flags=lanczos";
+                    }
 
                     var win = clipWindows[i];
                     string vTrim = win.trimmed
@@ -325,7 +420,8 @@ public class MergerWorker : IDisposable
 
                 string finalAudioLabel = aOutputLabel;
 
-                if (effectiveMusicTracks.Count > 0)
+                // Apply the Wizard's gameplay level even when its music is unavailable.
+                // No Wizard config means unity gain, independent of preview volume.
                 {
                     MusicConfig ??= new JsonObject();
 
@@ -373,8 +469,17 @@ public class MergerWorker : IDisposable
                 var encoderMgr = await Task.Run(() => new EncoderManager(mergeStrategy, _ffmpegPath), cancellationToken).ConfigureAwait(false);
                 if (encoderMgr.EncoderPreflightError != null)
                 {
-                    FailureDetail = encoderMgr.EncoderPreflightError;
-                    EmitFinished(false, encoderMgr.EncoderPreflightError);
+                    LastFailure = new ExportFailure
+                    {
+                        Category = ExportFailureCategory.MissingEncoder,
+                        Stage = ExportStage.Preflight,
+                        Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "Preflight", Description = "Encoder discovery preflight" },
+                        Summary = encoderMgr.EncoderPreflightError,
+                        SpecificCause = encoderMgr.EncoderPreflightError,
+                        DiagnosticLines = [encoderMgr.EncoderPreflightError]
+                    };
+                    FailureDetail = LastFailure.FormatDiagnosticReport();
+                    EmitFinished(false, LastFailure.Summary);
                     return;
                 }
                 string currentEncoder = encoderMgr.GetInitialEncoder(!encoderMgr.ForcedCpu);
@@ -404,9 +509,21 @@ public class MergerWorker : IDisposable
 
                 TwoPassEncoding.Cleanup(twoPassMasterPath, twoPassLogPrefix);
 
+                bool gpuFiltersDisabled = false;
+                var earlierAttempts = new List<ExportFailure>();
+                int attemptCounter = 0;
                 while (true)
                 {
+                    attemptCounter++;
                     var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, losslessBitrateKbps, outputDuration, "60", qualityLevel, false);
+                    var videoPipeline = ExportVideoPipeline.Create(currentEncoder, filterScript, !gpuFiltersDisabled);
+                    videoPipeline.ApplyCodecFlags(codecArgs);
+                    // IO_OPT: Pass short filter graphs inline to avoid the disk write.
+                    bool useInlineFilter = videoPipeline.FilterGraph.Length < 8000;
+                    if (!useInlineFilter)
+                        await File.WriteAllTextAsync(filterScriptPath, videoPipeline.FilterGraph, cancellationToken);
+                    LastVideoPipeline = videoPipeline.Description;
+                    CoreLogger.Info("FFmpeg", LastVideoPipeline);
 
                     if (QualityPercent >= 100 && losslessMaxrateKbps > 0)
                     {
@@ -441,15 +558,17 @@ public class MergerWorker : IDisposable
                                    && QualityPercent >= 100
                                    && !twoPassDisabled;
 
-                    CoreLogger.Info("FFmpeg", $"Executing merge: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={(twoPass ? (twoPassFastRoute ? "two-pass(fast)" : "two-pass(slow)") : "single-pass")}.");
+                    CoreLogger.Info("FFmpeg", $"Executing merge: decode={videoPipeline.DecoderDescription}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={(twoPass ? (twoPassFastRoute ? "two-pass(fast)" : "two-pass(slow)") : "single-pass")}.");
 
                     bool attemptSuccess;
 
                     if (twoPass && twoPassFastRoute)
                     {
                         var masterArgs = new List<string>(cmdArgs);
-                        masterArgs.AddRange(BuildInputArgs(currentEncoder));
-                        masterArgs.AddRange(["-filter_complex_script", filterScriptPath]);
+                        masterArgs.AddRange(BuildInputArgs(videoPipeline));
+                        masterArgs.AddRange(useInlineFilter
+                            ? ["-filter_complex", videoPipeline.FilterGraph]
+                            : ["-filter_complex_script", filterScriptPath]);
                         masterArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         masterArgs.AddRange(TwoPassEncoding.MasterCodecArgs());
                         masterArgs.AddRange(["-c:a", "aac", "-b:a", "192k"]);
@@ -457,14 +576,32 @@ public class MergerWorker : IDisposable
 
                         CoreLogger.Debug("FFmpeg", $"Two-pass master: {_ffmpegPath} {string.Join(" ", masterArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
 
-                        attemptSuccess = await ExecuteFFmpegAsync(masterArgs, outputDuration, cancellationToken, 0, 60)
-                                         && File.Exists(twoPassMasterPath) && new FileInfo(twoPassMasterPath).Length > 0;
+                        var masterAttempt = new ExportAttemptIdentity
+                        {
+                            AttemptIndex = attemptCounter,
+                            Operation = "MasterPass",
+                            Encoder = currentEncoder,
+                            Description = $"Attempt #{attemptCounter}: Two-pass master ({currentEncoder})"
+                        };
+
+                        var (mSuccess, mFailure) = await ExecuteFFmpegAsync(masterArgs, outputDuration, cancellationToken, masterAttempt, earlierAttempts, 0, 60);
+                        attemptSuccess = mSuccess && File.Exists(twoPassMasterPath) && new FileInfo(twoPassMasterPath).Length > 0;
 
                         if (attemptSuccess)
                         {
-                            attemptSuccess = await RunTwoPassTailAsync(
+                            var (tailSuccess, tailFailure) = await RunTwoPassTailAsync(
                                 twoPassMasterPath, corePath, twoPassLogPrefix,
-                                losslessBitrateKbps!.Value, outputDuration, cancellationToken);
+                                losslessBitrateKbps!.Value, outputDuration, cancellationToken,
+                                attemptCounter, currentEncoder, earlierAttempts);
+                            attemptSuccess = tailSuccess;
+                            if (!attemptSuccess && tailFailure != null)
+                            {
+                                earlierAttempts.Add(tailFailure);
+                            }
+                        }
+                        else if (mFailure != null)
+                        {
+                            earlierAttempts.Add(mFailure);
                         }
 
                         TwoPassEncoding.Cleanup(twoPassMasterPath, twoPassLogPrefix);
@@ -482,25 +619,51 @@ public class MergerWorker : IDisposable
                         int passKbps = Math.Min(EncoderManager.MaxBitrateKbps, Math.Max(300, losslessBitrateKbps!.Value));
 
                         var pass1Args = new List<string>(cmdArgs);
-                        pass1Args.AddRange(BuildInputArgs(currentEncoder));
+                        pass1Args.AddRange(BuildInputArgs(videoPipeline));
                         pass1Args.AddRange(["-filter_complex_script", filterScriptPath]);
                         pass1Args.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         pass1Args.AddRange(TwoPassEncoding.PassArgs(passKbps, 1, twoPassLogPrefix));
                         pass1Args.AddRange(["-c:a", "aac", "-b:a", "192k", "-sn", "-dn", "-f", "null", "NUL"]);
 
-                        attemptSuccess = await ExecuteFFmpegAsync(pass1Args, outputDuration, cancellationToken, 0, 45);
+                        var pass1Attempt = new ExportAttemptIdentity
+                        {
+                            AttemptIndex = attemptCounter,
+                            Operation = "TwoPassAnalysis",
+                            Encoder = currentEncoder,
+                            Description = $"Attempt #{attemptCounter}: Two-pass analysis ({currentEncoder})"
+                        };
+
+                        var (p1Success, p1Failure) = await ExecuteFFmpegAsync(pass1Args, outputDuration, cancellationToken, pass1Attempt, earlierAttempts, 0, 45);
+                        attemptSuccess = p1Success;
 
                         if (attemptSuccess)
                         {
                             var pass2Args = new List<string>(cmdArgs);
-                            pass2Args.AddRange(BuildInputArgs(currentEncoder));
+                            pass2Args.AddRange(BuildInputArgs(videoPipeline));
                             pass2Args.AddRange(["-filter_complex_script", filterScriptPath]);
                             pass2Args.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                             pass2Args.AddRange(TwoPassEncoding.PassArgs(passKbps, 2, twoPassLogPrefix));
                             pass2Args.AddRange(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
                             pass2Args.Add(corePath);
 
-                            attemptSuccess = await ExecuteFFmpegAsync(pass2Args, outputDuration, cancellationToken, 45, 100);
+                            var pass2Attempt = new ExportAttemptIdentity
+                            {
+                                AttemptIndex = attemptCounter,
+                                Operation = "TwoPassEncode",
+                                Encoder = currentEncoder,
+                                Description = $"Attempt #{attemptCounter}: Two-pass encode ({currentEncoder})"
+                            };
+
+                            var (p2Success, p2Failure) = await ExecuteFFmpegAsync(pass2Args, outputDuration, cancellationToken, pass2Attempt, earlierAttempts, 45, 100);
+                            attemptSuccess = p2Success;
+                            if (!attemptSuccess && p2Failure != null)
+                            {
+                                earlierAttempts.Add(p2Failure);
+                            }
+                        }
+                        else if (p1Failure != null)
+                        {
+                            earlierAttempts.Add(p1Failure);
                         }
 
                         TwoPassEncoding.Cleanup(twoPassMasterPath, twoPassLogPrefix);
@@ -516,7 +679,7 @@ public class MergerWorker : IDisposable
                     else
                     {
                         var attemptArgs = new List<string>(cmdArgs);
-                        attemptArgs.AddRange(BuildInputArgs(currentEncoder));
+                        attemptArgs.AddRange(BuildInputArgs(videoPipeline));
                         attemptArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         attemptArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         attemptArgs.AddRange(codecArgs);
@@ -525,15 +688,32 @@ public class MergerWorker : IDisposable
 
                         CoreLogger.Debug("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
 
-                        attemptSuccess = await ExecuteFFmpegAsync(attemptArgs, outputDuration, cancellationToken);
+                        var singleAttempt = new ExportAttemptIdentity
+                        {
+                            AttemptIndex = attemptCounter,
+                            Operation = "SinglePassEncode",
+                            Encoder = currentEncoder,
+                            Description = $"Attempt #{attemptCounter}: {currentEncoder} ({(videoPipeline.UsesGpuFrames ? "GPU resident" : "Software filters")})"
+                        };
+
+                        var (sSuccess, sFailure) = await ExecuteFFmpegAsync(attemptArgs, outputDuration, cancellationToken, singleAttempt, earlierAttempts);
+                        attemptSuccess = sSuccess;
+                        if (!attemptSuccess && sFailure != null)
+                        {
+                            earlierAttempts.Add(sFailure);
+                        }
                     }
 
                     if (attemptSuccess && File.Exists(corePath) && new FileInfo(corePath).Length > 0)
                     {
                         successOutputPath = corePath;
+                        UsedGpuVideoProcessing = videoPipeline.UsesGpuFrames;
+                        LastFailure = null;
+                        earlierAttempts.Clear();
+                        FailureDetail = null;
                         string mergeRoute = twoPass ? (twoPassFastRoute ? " route=two-pass(fast)" : " route=two-pass(slow)") : "";
                         CoreLogger.Info("FFmpeg",
-                            $"PIPELINE RESULT: decode={EncoderManager.DescribeDecoder(currentEncoder)} " +
+                            $"PIPELINE RESULT: decode={videoPipeline.DecoderDescription} " +
                             $"encode={EncoderManager.DescribeEncoder(currentEncoder)} speed={LastReportedSpeed}{mergeRoute}" +
                             (currentEncoder == "libx264" && !encoderMgr.ForcedCpu
                                 ? " — WARNING: this is the CPU fallback, the requested hardware encoder FAILED."
@@ -543,14 +723,47 @@ public class MergerWorker : IDisposable
 
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        lastErrorMsg = "Merge canceled.";
+                        lastErrorMsg = CancelledMessage;
+                        LastFailure = new ExportFailure
+                        {
+                            Category = ExportFailureCategory.Cancellation,
+                            Stage = ExportStage.Encoding,
+                            Summary = CancelledMessage,
+                            SpecificCause = "Merge was cancelled by user.",
+                            EarlierAttempts = [.. earlierAttempts]
+                        };
                         break;
+                    }
+
+                    if (videoPipeline.UsesGpuFrames)
+                    {
+                        gpuFiltersDisabled = true;
+                        CoreLogger.Info("Merger", "GPU video processing failed. Retrying the original effects with the same hardware encoder.");
+                        continue;
                     }
 
                     var fallbacks = encoderMgr.GetFallbackList(currentEncoder, allowCpu: true);
                     if (fallbacks.Count == 0)
                     {
                         lastErrorMsg = $"FFmpeg exited with encoder {currentEncoder}. Render failed.";
+                        var finalFail = earlierAttempts.LastOrDefault();
+                        if (finalFail != null)
+                        {
+                            LastFailure = finalFail with { EarlierAttempts = earlierAttempts.Take(earlierAttempts.Count - 1).ToList() };
+                            FailureDetail = LastFailure.FormatDiagnosticReport();
+                        }
+                        else
+                        {
+                            LastFailure = new ExportFailure
+                            {
+                                Category = ExportFailureCategory.EncodingFailure,
+                                Stage = ExportStage.Encoding,
+                                Summary = lastErrorMsg,
+                                SpecificCause = $"Encoder {currentEncoder} failed with no further fallbacks available.",
+                                EarlierAttempts = [.. earlierAttempts]
+                            };
+                            FailureDetail = LastFailure.FormatDiagnosticReport();
+                        }
                         break;
                     }
 
@@ -580,6 +793,8 @@ public class MergerWorker : IDisposable
                     {
                         File.Move(successOutputPath, finalOutput);
                         ProgressUpdate?.Invoke(100);
+                        LastFailure = null;
+                        FailureDetail = null;
                         EmitFinished(true, finalOutput);
                     }
                     catch (Exception moveEx)
@@ -590,6 +805,22 @@ public class MergerWorker : IDisposable
                             $"The finished merge could not be moved to the destination: {moveEx.Message}");
                         CoreLogger.Debug("Merger", $"Destination was: {finalOutput}");
 
+                        LastFailure = new ExportFailure
+                        {
+                            Category = ExportFailureCategory.DestinationError,
+                            Stage = ExportStage.Finalizing,
+                            Attempt = new ExportAttemptIdentity { AttemptIndex = attemptCounter, Operation = "FileMove", Description = "Move output to destination" },
+                            Summary = rescued != null
+                                ? "Your merged video finished, but it could not be saved to the destination folder. It has been kept safe."
+                                : "Your merged video finished, but it could not be saved to the destination folder.",
+                            SpecificCause = moveEx.Message,
+                            DiagnosticLines = [
+                                $"Destination: {finalOutput}",
+                                $"Exception: {moveEx.GetType().Name}: {moveEx.Message}",
+                                rescued != null ? $"Rescued to: {rescued}" : "Rescue attempt failed."
+                            ]
+                        };
+
                         if (rescued != null)
                         {
                             CoreLogger.Info("Merger", $"Finished merge preserved at: {Path.GetFileName(rescued)}");
@@ -598,16 +829,14 @@ public class MergerWorker : IDisposable
                                 $"The merge finished but could not be written to the destination folder.{Environment.NewLine}" +
                                 $"Reason: {moveEx.Message}{Environment.NewLine}" +
                                 $"Your merged video has NOT been lost — it is here:{Environment.NewLine}{rescued}";
-                            EmitFinished(false,
-                                "Your merged video finished, but it could not be saved to the destination folder. " +
-                                "It has been kept safe — see the details for where to find it.");
+                            EmitFinished(false, LastFailure.Summary);
                         }
                         else
                         {
                             FailureDetail =
                                 $"The merge finished but could not be written to the destination folder, and the " +
                                 $"temporary copy could not be preserved either.{Environment.NewLine}Reason: {moveEx.Message}";
-                            EmitFinished(false, "Your merged video finished, but it could not be saved to the destination folder.");
+                            EmitFinished(false, LastFailure.Summary);
                         }
                     }
                 }
@@ -615,38 +844,79 @@ public class MergerWorker : IDisposable
                 {
                     FailureDetail = null;
                     CoreLogger.Info("Merger", "Merge cancelled by the user.");
+
+                    // Remove every partial, half-written artifact BEFORE the cancelled status
+                    // is emitted, so the output location is left clean (zero 0-byte or
+                    // truncated video files) by the time the UI reports the stop.
+                    await CleanupCancelledJobAsync(tempJobDir, corePath, twoPassMasterPath, successOutputPath);
+
+                    LastFailure = new ExportFailure
+                    {
+                        Category = ExportFailureCategory.Cancellation,
+                        Stage = ExportStage.Encoding,
+                        Summary = CancelledMessage,
+                        SpecificCause = "Merge was cancelled by user.",
+                        EarlierAttempts = [.. earlierAttempts]
+                    };
                     EmitFinished(false, CancelledMessage);
                 }
                 else
                 {
-                    EmitFinished(false, lastErrorMsg);
+                    EmitFinished(false, LastFailure?.Summary ?? lastErrorMsg);
                 }
             }
             finally
             {
-                try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+                // Retried delete: the just-stopped encoder's file handles can take a moment to
+                // be released by the OS, and a single un-retried attempt is exactly how
+                // cancelled jobs used to leave partial files behind on disk.
+                await TryDeleteDirectoryWithRetryAsync(tempJobDir, "Merger").ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
         {
             _isCanceled = true;
+            LastFailure = new ExportFailure
+            {
+                Category = ExportFailureCategory.Cancellation,
+                Stage = ExportStage.Encoding,
+                Summary = CancelledMessage,
+                SpecificCause = "Merge pipeline was cancelled."
+            };
             FailureDetail = null;
             CoreLogger.Info("Merger", "Merge pipeline canceled.");
+            await CleanupCancelledJobAsync(tempJobDir);
             EmitFinished(false, CancelledMessage);
         }
         catch (Exception ex)
         {
             if (_isCanceled || cancellationToken.IsCancellationRequested)
             {
+                LastFailure = new ExportFailure
+                {
+                    Category = ExportFailureCategory.Cancellation,
+                    Stage = ExportStage.Encoding,
+                    Summary = CancelledMessage,
+                    SpecificCause = "Merge pipeline was cancelled."
+                };
                 FailureDetail = null;
                 CoreLogger.Info("Merger", $"Merge cancelled by the user (during: {ex.Message}).");
+                await CleanupCancelledJobAsync(tempJobDir);
                 EmitFinished(false, CancelledMessage);
                 return;
             }
 
             CoreLogger.Fail("Merger", $"Merge pipeline failed with exception: {ex.Message}");
             CoreLogger.Debug("Merger", $"Merge pipeline failed with exception detail: {ex}");
-            FailureDetail = ex.ToString();
+            LastFailure = new ExportFailure
+            {
+                Category = ExportFailureCategory.Unknown,
+                Stage = ExportStage.Encoding,
+                Summary = $"Merge pipeline error: {ex.Message}",
+                SpecificCause = ex.Message,
+                DiagnosticLines = [ex.ToString()]
+            };
+            FailureDetail = LastFailure.FormatDiagnosticReport();
             EmitFinished(false, ex.Message);
         }
     }
@@ -741,25 +1011,43 @@ public class MergerWorker : IDisposable
     /// pass 2, so it is encoded exactly once across the whole merge and suffers no double loss.
     /// Progress occupies the 60-100 slice of the bar (the master render owned 0-60).
     /// </summary>
-    private async Task<bool> RunTwoPassTailAsync(
+    private async Task<(bool Success, ExportFailure? Failure)> RunTwoPassTailAsync(
         string masterPath, string finalPath, string passLogPrefix,
-        int videoBitrateKbps, double outputDuration, CancellationToken cancellationToken)
+        int videoBitrateKbps, double outputDuration, CancellationToken cancellationToken,
+        int attemptCounter, string encoder, List<ExportFailure> earlierAttempts)
     {
         var pass1 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass1.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 1, passLogPrefix));
         pass1.AddRange(["-an", "-sn", "-dn", "-f", "null", "NUL"]);
 
         CoreLogger.Info("FFmpeg", "Two-pass merge: analyzing (2 of 3).");
-        if (!await ExecuteFFmpegAsync(pass1, outputDuration, cancellationToken, 60, 75)) return false;
+        var pass1Attempt = new ExportAttemptIdentity
+        {
+            AttemptIndex = attemptCounter,
+            Operation = "TwoPassAnalysis",
+            Encoder = encoder,
+            Description = $"Attempt #{attemptCounter}: Two-pass merge analysis (2 of 3)"
+        };
+        var (pass1Success, pass1Failure) = await ExecuteFFmpegAsync(pass1, outputDuration, cancellationToken, pass1Attempt, earlierAttempts, 60, 75);
+        if (!pass1Success) return (false, pass1Failure);
 
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
         pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
 
         CoreLogger.Info("FFmpeg", "Two-pass merge: encoding (3 of 3).");
-        if (!await ExecuteFFmpegAsync(pass2, outputDuration, cancellationToken, 75, 100)) return false;
+        var pass2Attempt = new ExportAttemptIdentity
+        {
+            AttemptIndex = attemptCounter,
+            Operation = "TwoPassEncode",
+            Encoder = encoder,
+            Description = $"Attempt #{attemptCounter}: Two-pass merge encoding (3 of 3)"
+        };
+        var (pass2Success, pass2Failure) = await ExecuteFFmpegAsync(pass2, outputDuration, cancellationToken, pass2Attempt, earlierAttempts, 75, 100);
+        if (!pass2Success) return (false, pass2Failure);
 
-        return File.Exists(finalPath) && new FileInfo(finalPath).Length > 0;
+        bool exists = File.Exists(finalPath) && new FileInfo(finalPath).Length > 0;
+        return (exists, null);
     }
 
     /// <param name="progressFloor">
@@ -767,8 +1055,14 @@ public class MergerWorker : IDisposable
     /// caller on the full 0-100 range, so single-pass merges behave exactly as before.
     /// </param>
     /// <param name="progressCeiling">T01 — end of this invocation's slice of the 0-100 bar.</param>
-    private async Task<bool> ExecuteFFmpegAsync(List<string> cmdArgs, double totalDuration, CancellationToken cancellationToken,
-                                                double progressFloor = 0.0, double progressCeiling = 100.0)
+    private async Task<(bool Success, ExportFailure? Failure)> ExecuteFFmpegAsync(
+        List<string> cmdArgs,
+        double totalDuration,
+        CancellationToken cancellationToken,
+        ExportAttemptIdentity attemptId,
+        List<ExportFailure>? earlierAttempts = null,
+        double progressFloor = 0.0,
+        double progressCeiling = 100.0)
     {
         string cmdLine = string.Join(" ", cmdArgs.Select(a =>
             a.Length == 0 || a.Contains(' ') || a.Contains('"') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
@@ -779,6 +1073,9 @@ public class MergerWorker : IDisposable
             FileName = _ffmpegPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Redirected on purpose: it is the channel for FFmpeg's interactive quit command
+            // ('q'), which the cooperative shutdown ladder writes to request a clean stop.
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
@@ -788,25 +1085,48 @@ public class MergerWorker : IDisposable
             psi.ArgumentList.Add(arg);
         }
 
-        _currentProcess?.Dispose();
-        _currentProcess = Process.Start(psi);
-        if (_currentProcess == null)
-            return false;
-
-        try { ChildProcessTracker.AddProcess(_currentProcess); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-
-        using var reg = cancellationToken.Register(() =>
+        var collector = new FfmpegDiagnosticCollector();
+        Process proc;
+        try
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-        });
+            _currentProcess?.Dispose();
+            proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start process: {_ffmpegPath}");
+            _currentProcess = proc;
+        }
+        catch (Exception startEx)
+        {
+            var startFailure = FfmpegErrorClassifier.Classify(
+                ExportStage.Encoding,
+                attemptId,
+                processExitCode: null,
+                processStartException: startEx,
+                isTimeout: false,
+                isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
+                collector: null,
+                earlierAttempts: earlierAttempts);
+
+            FailureDetail = startFailure.FormatDiagnosticReport();
+            return (false, startFailure);
+        }
+
+        try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+
+        // Cooperative stop on external cancellation: 'q' quit command → 1500 ms grace →
+        // Kill(entireProcessTree) → 2000 ms exit confirmation. Single-flight and off-thread,
+        // so a cancel can never hang the UI, and FFmpeg gets the chance to finalize its
+        // output instead of being killed mid-write.
+        using var reg = cancellationToken.Register(() => BeginCooperativeShutdown(proc));
 
         var progressTask = Task.Run(async () =>
         {
-            using var reader = _currentProcess.StandardOutput;
-            while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+            using var reader = proc.StandardOutput;
+            // No cancellation token on purpose: the loop drains to EOF once the (cooperatively
+            // stopped) process closes its pipes, so this reader always completes cleanly
+            // before the Process object is disposed below.
+            while (!reader.EndOfStream)
             {
-                var line = await reader.ReadLineAsync(cancellationToken);
-                if (line == null) continue;
+                var line = await reader.ReadLineAsync();
+                if (line == null) break;
                 if (line.StartsWith("out_time_us="))
                 {
                     if (long.TryParse(line.AsSpan(12), out long outTimeUs))
@@ -828,32 +1148,50 @@ public class MergerWorker : IDisposable
             }
         }, cancellationToken);
 
-        var stderrChannel = System.Threading.Channels.Channel.CreateBounded<string>(new System.Threading.Channels.BoundedChannelOptions(400) { SingleWriter = true, FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
         var stderrTask = Task.Run(async () =>
         {
-            using var reader = _currentProcess.StandardError;
+            using var reader = proc.StandardError;
             while (!reader.EndOfStream)
             {
-                string? line = await reader.ReadLineAsync(cancellationToken);
-                if (!string.IsNullOrWhiteSpace(line)
-                    && !line.StartsWith("frame=") && !line.StartsWith("size="))
+                string? line = await reader.ReadLineAsync();
+                if (line != null)
                 {
-                    stderrChannel.Writer.TryWrite(line);
+                    collector.AddStderrLine(line);
                 }
             }
-        }, cancellationToken);
+        });
 
         try
         {
-            await _currentProcess.WaitForExitAsync(cancellationToken);
+            await proc.WaitForExitAsync(cancellationToken);
         }
         catch (OperationCanceledException)
         {
+            // The registration above already started the cooperative ladder; await its bounded
+            // completion (≤ ~3.5 s worst case) so the exit code below is read from a process
+            // that is actually dead rather than one that is still dying.
+            await AwaitActiveShutdownAsync();
         }
 
         try
         {
-            await Task.WhenAll(progressTask, stderrTask);
+            // Drain BOTH output readers before the Process object is disposed — a process
+            // killed with pending pipe data used to leave zombie reader tasks and lost stderr
+            // diagnostics behind. Strictly bounded by the same fallback limit as the ladder,
+            // so a stuck pipe can never stall a cancelled call either.
+            Task drain = Task.WhenAll(progressTask, stderrTask);
+            Task completed = await Task.WhenAny(drain, Task.Delay(GracefulProcessTerminator.HardKillConfirmMs));
+            if (completed == drain)
+            {
+                await drain;
+            }
+            else
+            {
+                CoreLogger.Fail("Merger", "FFmpeg output readers did not drain within the fallback limit; continuing shutdown.");
+                _ = drain.ContinueWith(
+                    static t => { if (t.IsFaulted && t.Exception != null) CoreLogger.Swallowed(t.Exception); },
+                    TaskScheduler.Default);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -863,36 +1201,142 @@ public class MergerWorker : IDisposable
             CoreLogger.Fail("Merger", $"Reader task error: {ex.Message}");
         }
 
-        int exitCode = ReadExitCodeSafely(_currentProcess, "FFmpeg MERGE");
+        int exitCode = ReadExitCodeSafely(proc, "FFmpeg MERGE");
         CoreLogger.Info("FFmpeg MERGE", $"Process exited with code {exitCode}.");
 
-        string[] stderrLines;
-        var errList = new System.Collections.Generic.List<string>();
-        while (stderrChannel.Reader.TryRead(out var errLine)) errList.Add(errLine);
-        stderrLines = errList.ToArray();
+        var stderrLines = collector.GetTailLines();
 
         if (_isCanceled || cancellationToken.IsCancellationRequested)
         {
             CoreLogger.Info("FFmpeg MERGE", "Merge stopped because the user cancelled.");
             FailureDetail = null;
-            return false;
+            var cancelFailure = FfmpegErrorClassifier.Classify(
+                ExportStage.Encoding,
+                attemptId,
+                processExitCode: exitCode,
+                processStartException: null,
+                isTimeout: false,
+                isCancellation: true,
+                collector: collector,
+                earlierAttempts: earlierAttempts);
+            return (false, cancelFailure);
         }
 
         if (exitCode != 0)
         {
-            FailureDetail = stderrLines.Length > 0
-                ? string.Join("\n", stderrLines)
-                : $"FFmpeg exited with code {exitCode}.";
+            var failure = FfmpegErrorClassifier.Classify(
+                ExportStage.Encoding,
+                attemptId,
+                processExitCode: exitCode,
+                processStartException: null,
+                isTimeout: false,
+                isCancellation: false,
+                collector: collector,
+                earlierAttempts: earlierAttempts);
 
-            if (stderrLines.Length > 0)
-                CoreLogger.Fail("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+            FailureDetail = failure.FormatDiagnosticReport();
+            if (stderrLines.Count > 0)
+                CoreLogger.Fail("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Count} lines):\n{string.Join("\n", stderrLines)}");
+
+            return (false, failure);
         }
-        else if (stderrLines.Length > 0)
+        else
         {
-            CoreLogger.Debug("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+            if (stderrLines.Count > 0)
+                CoreLogger.Debug("FFmpeg MERGE", $"FFmpeg stderr (last {stderrLines.Count} lines):\n{string.Join("\n", stderrLines)}");
+            return (true, null);
+        }
+    }
+
+    /// <summary>
+    /// Removes every artifact a cancelled FFmpeg job may have left behind: the per-job temp
+    /// directory plus any explicitly listed partial outputs. Runs BEFORE the cancelled status
+    /// is emitted, so by the time the UI reports the stop there are no 0-byte or truncated
+    /// video files left in the output location. Never throws — a cleanup failure must not
+    /// mask the cancellation itself.
+    /// </summary>
+    private static async Task CleanupCancelledJobAsync(string? tempJobDir, params string?[] partialFiles)
+    {
+        foreach (string? file in partialFiles)
+        {
+            await TryDeleteFileWithRetryAsync(file, "Merger").ConfigureAwait(false);
         }
 
-        return exitCode == 0;
+        if (!string.IsNullOrEmpty(tempJobDir))
+        {
+            await TryDeleteDirectoryWithRetryAsync(tempJobDir, "Merger").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Deletes a file, retrying briefly: a just-stopped encoder's file handles can take a
+    /// moment to be released by the OS, and a single un-retried delete is exactly how
+    /// cancelled jobs leave partial outputs behind on disk. Never throws.
+    /// </summary>
+    private static async Task TryDeleteFileWithRetryAsync(string? path, string logTag)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                if (!File.Exists(path)) return;
+                File.Delete(path);
+                CoreLogger.Info(logTag, $"Removed partial output '{Path.GetFileName(path)}' after cancellation.");
+                return;
+            }
+            catch (IOException)
+            {
+                // Handle still held by the dying encoder — retry after a short backoff.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return; // Permissions will not improve by retrying.
+            }
+            catch (System.Exception ex)
+            {
+                CoreLogger.Swallowed(ex);
+                return;
+            }
+
+            await Task.Delay(150 * attempt).ConfigureAwait(false);
+        }
+
+        CoreLogger.Fail(logTag, $"Could not remove partial output '{path}' after 3 attempts.");
+    }
+
+    /// <summary>Directory counterpart of <see cref="TryDeleteFileWithRetryAsync"/>. Never throws.</summary>
+    private static async Task TryDeleteDirectoryWithRetryAsync(string? path, string logTag)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                if (!Directory.Exists(path)) return;
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch (IOException)
+            {
+                // A child handle inside the tree is still being released — retry.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return; // Permissions will not improve by retrying.
+            }
+            catch (System.Exception ex)
+            {
+                CoreLogger.Swallowed(ex);
+                return;
+            }
+
+            await Task.Delay(150 * attempt).ConfigureAwait(false);
+        }
+
+        CoreLogger.Fail(logTag, $"Could not remove temp job directory '{path}' after 3 attempts.");
     }
 
     private void EmitFinished(bool success, string message)
@@ -902,10 +1346,6 @@ public class MergerWorker : IDisposable
         Finished?.Invoke(success, message);
     }
 
-    /// <summary>
-    /// ISSUE_03 — moves a COMPLETED merge out of the per-job temp folder (which the pipeline's
-    /// <c>finally</c> deletes wholesale) into the temp ROOT, so a destination that cannot be
-    /// written never costs the user the work that was already done. Returns null only if there is
     /// genuinely nothing left to save.
     /// </summary>
     private string? TryRescueFinishedRender(string sourcePath)
@@ -955,8 +1395,8 @@ public class MergerWorker : IDisposable
                 if (!proc.HasExited)
                 {
                     _isCanceled = true;
-                    CoreLogger.Info("Merger", "Worker disposed while the encoder was still running — terminating the FFmpeg process tree.");
-                    proc.Kill(entireProcessTree: true);
+                    CoreLogger.Info("Merger", "Worker disposed while the encoder was still running — stopping the FFmpeg process tree (cooperative quit, then hard kill).");
+                    GracefulProcessTerminator.Terminate(proc, "FFmpeg MERGE", attemptQuitCommand: true);
                 }
             }
             catch (System.Exception ex) { CoreLogger.Swallowed(ex); }

@@ -24,6 +24,24 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
 {
     private readonly List<VoiceOverPreviewTake> _takes = new();
     private VoiceOverWindow.VoiceOverResult? _result;
+    private bool _disposed;
+
+    public VoiceOverPreviewPlayer()
+    {
+        MpvIpcClient.GlobalMasterVolumeChanged += OnMasterVolumeChanged;
+    }
+
+    private void OnMasterVolumeChanged(int volume)
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnMasterVolumeChanged(MpvIpcClient.GlobalMasterVolume));
+            return;
+        }
+        if (_disposed) return;
+        foreach (var take in _takes)
+            take.Reader.Volume = volume / 100f;
+    }
 
     public VoiceOverWindow.VoiceOverResult? Result
     {
@@ -45,7 +63,10 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
         {
             try
             {
-                var reader = new NAudio.Wave.AudioFileReader(take.Path);
+                var reader = new NAudio.Wave.AudioFileReader(take.Path)
+                {
+                    Volume = MpvIpcClient.GlobalMasterVolume / 100f
+                };
                 var player = new NAudio.Wave.WaveOutEvent();
                 player.Init(reader);
                 _takes.Add(new VoiceOverPreviewTake
@@ -125,6 +146,8 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        MpvIpcClient.GlobalMasterVolumeChanged -= OnMasterVolumeChanged;
         DisposeTakes();
     }
 }

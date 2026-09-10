@@ -190,9 +190,18 @@
                        LaneBHost -> the film-frame strip
                      ⚠️ LaneASeekable stays FALSE: the upper lane runs its own pointer pipeline
                      (block move, edge resize, drag-to-create) and a seek surface over it would
-                     swallow all of that. -->
+                     swallow all of that.
+                     ZOOM_01 — MarkerHeadroomPx reserves, INSIDE the scroll content, the 52px band
+                     the floating freeze/zoom/meme markers already paint into above the ruler
+                     (FreezeMarkerOverlayTop = -52; a ScrollViewer clips, so that band must be
+                     real content space or the marker heads disappear the moment zoom is used).
+                     The -56 top margin cancels the extra height AND the border padding, so the
+                     ruler, lanes and markers sit at EXACTLY the on-screen position they had
+                     before zoom existed; only the headroom band (empty except for markers) rides
+                     up over the video, as the markers always did. -->
                 <Border Grid.Row="1" Background="{DynamicResource AppOverlayBrush}" CornerRadius="6" Padding="8,4" Margin="10,4,10,4" ClipToBounds="False">
-                    <controls:TimelineLanesControl Name="GranularLanes" ClipToBounds="False"/>
+                    <controls:TimelineLanesControl Name="GranularLanes" ClipToBounds="False"
+                                                   MarkerHeadroomPx="56" Margin="0,-56,0,0"/>
                 </Border>
 
                 <!-- ROW 2: Transport, with the freeze cluster on the left and ZOOM-IN on the right.

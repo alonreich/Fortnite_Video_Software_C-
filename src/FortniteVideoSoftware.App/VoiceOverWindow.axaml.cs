@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -315,17 +315,20 @@ public partial class VoiceOverWindow : Window
         public NAudio.Wave.AudioFileReader Reader { get; }
         public NAudio.Wave.WaveOutEvent Player { get; }
         public VoiceOverSession Session { get; }
+        private readonly float _previewGain;
 
         public PreviewPlayer(VoiceOverSession session, float previewGain = 1.0f)
         {
             Session = session;
             Reader = new NAudio.Wave.AudioFileReader(session.WavPath);
-
-            Reader.Volume = previewGain;
+            _previewGain = previewGain;
+            ApplyMasterVolume(MpvIpcClient.GlobalMasterVolume);
 
             Player = new NAudio.Wave.WaveOutEvent();
             Player.Init(Reader);
         }
+
+        public void ApplyMasterVolume(int volume) => Reader.Volume = _previewGain * volume / 100f;
 
         public void Dispose()
         {
@@ -486,6 +489,7 @@ public partial class VoiceOverWindow : Window
         CacheControls();
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, BoundsKey);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        MpvIpcClient.GlobalMasterVolumeChanged += OnMasterVolumeChanged;
         Closing += OnWindowClosing;
         AttachTitleBarDrag();
         AttachResizeGrip();
@@ -493,6 +497,19 @@ public partial class VoiceOverWindow : Window
         WireEffectStateControls();
         UpdateTransportState();
         UpdateApplyState();
+    }
+
+    private void OnMasterVolumeChanged(int volume)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnMasterVolumeChanged(MpvIpcClient.GlobalMasterVolume));
+            return;
+        }
+        if (_isClosing) return;
+        _ = _videoHost?.IpcClient?.SetPreviewVolumeAsync(volume);
+        foreach (var player in _previewPlayers)
+            player.ApplyMasterVolume(volume);
     }
 
     private bool _isSafeToClose = false;
@@ -813,6 +830,7 @@ public partial class VoiceOverWindow : Window
 
                     StopPreviewPlayers();
                     _previewPlayers.AddRange(built);
+                    OnMasterVolumeChanged(MpvIpcClient.GlobalMasterVolume);
                     _previewPlayersBuiltForCount = builtForCount;
                 });
             });
@@ -3181,7 +3199,7 @@ public partial class VoiceOverWindow : Window
     {
         if (string.IsNullOrWhiteSpace(path)) return;
 
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             for (int attempt = 0; attempt < 4; attempt++)
             {
@@ -3193,11 +3211,11 @@ public partial class VoiceOverWindow : Window
                 }
                 catch (System.IO.IOException) when (attempt < 3)
                 {
-                    System.Threading.Thread.Sleep(60);
+                    await Task.Delay(60);
                 }
                 catch (UnauthorizedAccessException) when (attempt < 3)
                 {
-                    System.Threading.Thread.Sleep(60);
+                    await Task.Delay(60);
                 }
                 catch (Exception ex)
                 {
@@ -3564,6 +3582,7 @@ public partial class VoiceOverWindow : Window
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         _isClosing = true;
+        MpvIpcClient.GlobalMasterVolumeChanged -= OnMasterVolumeChanged;
         _generationCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;

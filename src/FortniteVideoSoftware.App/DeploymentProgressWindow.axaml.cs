@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -183,7 +183,7 @@ namespace FortniteVideoSoftware.App
                 }
             });
 
-            await Task.Delay(1000);
+            await Task.Delay(350);
             Dispatcher.UIThread.Post(() => Close());
         }
 

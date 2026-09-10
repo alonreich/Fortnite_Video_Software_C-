@@ -1,8 +1,10 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
+        xmlns:vm="clr-namespace:FortniteVideoSoftware.App.ViewModels"
         x:Class="FortniteVideoSoftware.App.MainWindow"
+        x:DataType="vm:MainViewModel"
         Title="Fortnite Video Software"
         Background="{DynamicResource AppSurfaceBrush}"
         MinWidth="800" MinHeight="600"
@@ -230,7 +232,7 @@
                         </TextBlock>
                         <!-- Custom fluid "test tube" volume slider (see Controls/FluidVolumeSlider.cs).
                              Rollback: swap for a standard vertical Slider with the same Name/bindings (rollback folder no longer exists). -->
-                        <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="{Binding $parent[local:MainWindow].MainVolume, Mode=TwoWay}" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" MinHeight="140" Background="Transparent" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
+                        <controls:FluidVolumeSlider Grid.Row="1" Name="VolumeSlider" Orientation="Vertical" Minimum="0" Maximum="100" Value="{Binding MainVolume, Mode=TwoWay}" MinWidth="57" HorizontalAlignment="Center" VerticalAlignment="Stretch" MinHeight="140" Background="Transparent" Margin="0,0,0,0" ToolTip.Tip="Slide up or down to make the video louder or quieter." Cursor="Hand" ClipToBounds="False" ZIndex="10000" Foreground="{DynamicResource AppInfoBrush}" />
                         <Button Grid.Row="2" Name="SpeakerHitBox" Classes="Secondary" MinWidth="44" MinHeight="44" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0" ZIndex="10001" Focusable="True" ToolTip.Tip="Click here to quickly mute or unmute the video." AutomationProperties.Name="Mute or restore volume" ClipToBounds="False">
                             <Path Name="VolumeSpeakerIcon" Fill="Transparent" Stroke="{DynamicResource AppInfoBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Width="{DynamicResource AppFontSize20}" Height="{DynamicResource AppFontSize20}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Data="{DynamicResource AppSpeakerIconGeometry}" />
                         </Button>
@@ -280,7 +282,7 @@
                     <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel Name="QualityPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="0,0,20,8" VerticalAlignment="Center">
                             <TextBlock Text="OUTPUT FILE SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-<controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding $parent[local:MainWindow].QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
+<controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
                             <TextBlock Name="QualityLabel" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
 
@@ -320,7 +322,7 @@
                             <!-- Slider Column -->
                             <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                 <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,2" />
-                                <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding $parent[local:MainWindow].MainSpeedSliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
+                                <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding MainSpeedSliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
                                 <TextBlock Name="MainSpeedLabel" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                             
@@ -393,9 +395,9 @@
                                     <TextBlock Text="LAYOUTS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Portrait (9:16)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsPortraitMode, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
+                                        <ToggleSwitch Name="PortraitModeCheckbox" IsChecked="{Binding IsPortraitMode, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Portrait mode (9:16)" ToolTip.Tip="Turn this on to make the video tall for mobile phones like TikTok or YouTube Shorts." />
                                     </Grid>
-                                    <TextBox Name="PortraitTextInput" Text="{Binding $parent[local:MainWindow].OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="36" MaxHeight="80" FontSize="{DynamicResource AppFontSize12}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                                    <TextBox Name="PortraitTextInput" Text="{Binding OverlayText, Mode=TwoWay}" Watermark="Overlay Text" HorizontalAlignment="Stretch" MinHeight="36" MaxHeight="80" FontSize="{DynamicResource AppFontSize12}" ToolTip.Tip="Type text here to show it at the very top of your mobile-friendly video." TextWrapping="Wrap" AcceptsReturn="True" IsVisible="{Binding #PortraitModeCheckbox.IsChecked}" ScrollViewer.VerticalScrollBarVisibility="Auto" />
                                 </StackPanel>
 
                                 <Separator Name="InGameOverlaysSeparator" Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,6,0,6"/>
@@ -407,15 +409,15 @@
                                     <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
+                                        <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
                                     </Grid>
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Teammate HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsTeammates, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
+                                        <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding IsTeammates, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />
                                     </Grid>
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Spectating Eye" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <ToggleSwitch Name="SpectatingCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsSpectating, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
+                                        <ToggleSwitch Name="SpectatingCheckbox" IsChecked="{Binding IsSpectating, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Spectating eye overlay" ToolTip.Tip="Turn this on to show the spectator eye counter in the video." />
                                     </Grid>
                                 </StackPanel>
 
@@ -425,11 +427,11 @@
                                     <TextBlock Text="EFFECTS &amp; MEMES" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Enable Fade" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsEnableFade, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
+                                        <ToggleSwitch Name="EnableFadeCheckbox" IsChecked="{Binding IsEnableFade, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Enable fade" ToolTip.Tip="Turn this on to make the video slowly fade in at the start and fade out at the end." />
                                     </Grid>
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Add MEME" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding $parent[local:MainWindow].IsAddMeme, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
+                                        <ToggleSwitch Name="AddMemeCheckbox" IsChecked="{Binding IsAddMeme, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Add MEME" ToolTip.Tip="Turn this on to add funny meme popups over your video." />
                                     </Grid>
                                     <ComboBox Name="MemeComboBox" HorizontalAlignment="Stretch" IsVisible="{Binding #AddMemeCheckbox.IsChecked}" PlaceholderText="Select MEME" ToolTip.Tip="Choose which meme effect to display over your video." MinHeight="32" FontSize="{DynamicResource AppFontSize11}" />
 

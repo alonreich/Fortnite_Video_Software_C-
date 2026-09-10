@@ -97,6 +97,7 @@ public sealed class MpvVideoView : Control, IDisposable
         MpvWrapper.mpv_set_option_string(_mpvHandle, "keep-open", "yes");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
         MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
+        MpvWrapper.mpv_set_option_string(_mpvHandle, "volume", MpvIpcClient.ToMpvVolume(MpvIpcClient.GlobalMasterVolume).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
         {

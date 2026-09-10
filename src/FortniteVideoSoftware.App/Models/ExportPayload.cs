@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Media;
@@ -70,4 +70,6 @@ public record ExportResult
     public string? OutputPath { get; init; }
     public string? ErrorMessage { get; init; }
     public string? Warning { get; init; }
+    public FortniteVideoSoftware.Core.Media.ExportFailure? Failure { get; init; }
 }
+

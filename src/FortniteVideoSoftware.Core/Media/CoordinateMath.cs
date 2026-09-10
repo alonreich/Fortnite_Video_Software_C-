@@ -1,4 +1,4 @@
-﻿
+
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -159,6 +159,8 @@ public static class CoordinateConstants
     public static readonly Frac BackendScale = new(InternalW, PortraitW);
     public static readonly Frac UIToInternalScale = BackendScale;
 }
+
+public readonly record struct ZoomWindow(int CropW, int CropH, int PadX, int PadY, int CanvasW, int CanvasH, int CropX, int CropY);
 
 
 public static class CoordinateMath
@@ -492,6 +494,49 @@ public static class CoordinateMath
         int height = ScaleRound(new Frac(rh, 1) / backendScale);
 
         return (width, height);
+    }
+
+    public static int EvenDim(double v)
+    {
+        int i = (int)v;
+        if (i < 2) return 2;
+        return i - (i % 2);
+    }
+
+    public static double ZoomPadMargin(double cropExtent)
+    {
+        double needed = Math.Max(0.0, cropExtent) / 2.0 + 2.0;
+        return EvenDim(Math.Ceiling(needed));
+    }
+
+    public static int SnapExtent(double raw, int centre)
+    {
+        int lo = (int)Math.Floor(raw);
+        lo -= lo & 1;
+        if (lo < 2) lo = 2;
+        int pick = ((centre - lo / 2) & 1) == 0 ? lo : lo + 2;
+        return pick < 2 ? 2 : pick;
+    }
+
+    /// <summary>
+    /// DRIFT_01 — snaps zoom crop window onto the grid FFmpeg actually uses.
+    /// Emits a window that is whole and chroma-aligned, preserving the centre exactly.
+    /// </summary>
+    public static ZoomWindow SnapZoomWindow(double cropWRaw, double cropHRaw, double resW, double resH,
+                                            double cxTarget, double cyTarget)
+    {
+        int cx = (int)Math.Round(cxTarget, MidpointRounding.AwayFromZero);
+        int cy = (int)Math.Round(cyTarget, MidpointRounding.AwayFromZero);
+
+        int w = SnapExtent(cropWRaw, cx);
+        int h = SnapExtent(cropHRaw, cy);
+
+        int padX = (int)ZoomPadMargin(w);
+        int padY = (int)ZoomPadMargin(h);
+
+        return new ZoomWindow(w, h, padX, padY,
+                              (int)resW + 2 * padX, (int)resH + 2 * padY,
+                              padX + cx - w / 2, padY + cy - h / 2);
     }
 
     private static Frac Max(Frac a, Frac b) => a > b ? a : b;

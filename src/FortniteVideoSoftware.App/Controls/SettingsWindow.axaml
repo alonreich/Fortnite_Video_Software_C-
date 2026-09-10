@@ -234,6 +234,17 @@
                                   Foreground="{DynamicResource AppTextMutedBrush}"
                                   ToolTip.Tip="Off by default. These two buttons sit next to OPEN FOLDER and either close the app or discard the current project."
                                   IsChecked="{Binding ConfirmFinishedDialogExit, Mode=TwoWay}" />
+
+                                <!-- AUTO-UPDATE: master switch for the update suggestor. ON by
+                                     default; the update prompt's "Never tell me about updates
+                                     again" choice flips this off, so this checkbox always tells
+                                     the truth about the feature's state. -->
+                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,15,0,0"/>
+                                <TextBlock Text="Updates" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                                <CheckBox Content="Automatically check for updates"
+                                          Foreground="{DynamicResource AppTextMutedBrush}"
+                                          IsChecked="{Binding AutoUpdateChecks, Mode=TwoWay}"
+                                          ToolTip.Tip="When on, the app quietly looks for a newer version when it starts and ASKS before downloading or changing anything. When off, it never checks and never asks." />
                             </StackPanel>
                             </ScrollViewer>
                         </TabItem>

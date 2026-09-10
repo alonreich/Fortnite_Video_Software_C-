@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -122,6 +122,51 @@ public static class ErrorReporter
         }
     }
 
+    /// <summary>
+    /// Shows the standard failure dialog for a strongly typed export failure.
+    /// </summary>
+    public static async Task ShowAsync(Window? owner, FortniteVideoSoftware.Core.Media.ExportFailure failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        string title = failure.Category switch
+        {
+            FortniteVideoSoftware.Core.Media.ExportFailureCategory.Cancellation => "Export cancelled",
+            FortniteVideoSoftware.Core.Media.ExportFailureCategory.Timeout => "Export timed out",
+            _ => failure.Stage == FortniteVideoSoftware.Core.Media.ExportStage.Finalizing ? "Save failed" : "Export failed"
+        };
+
+        string message = failure.Summary;
+        string detail = failure.FormatDiagnosticReport();
+        string rootCause = failure.SpecificCause ?? failure.Category.ToString();
+
+        RuntimeLog.Fail(title.ToUpperInvariant(), message);
+        if (!string.IsNullOrWhiteSpace(rootCause))
+        {
+            RuntimeLog.Fail(title.ToUpperInvariant(), $"Root cause: {rootCause}");
+        }
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            RuntimeLog.Debug(title.ToUpperInvariant(), $"Diagnostic details:\n{detail}");
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            await ShowCoreAsync(owner, title, message, detail);
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(
+                () => ShowCoreAsync(owner, title, message, detail));
+        }
+    }
+
+    /// <summary>Fire-and-forget convenience for typed export failure.</summary>
+    public static void Show(Window? owner, FortniteVideoSoftware.Core.Media.ExportFailure failure)
+    {
+        _ = ShowAsync(owner, failure);
+    }
+
     /// <summary>Fire-and-forget convenience for call sites that cannot await (event handlers).</summary>
     public static void Show(Window? owner, string title, string message, string? rawDetail = null)
     {
@@ -165,18 +210,13 @@ public static class ErrorReporter
     }
 
     /// <summary>
-    /// Picks the ONE line most likely to be the actual root cause.
-    /// Strategy: scan the supplied raw text for a known signature; if that fails, take the last
-    /// non-noise line of the raw text; if there is no raw text at all, tail the log file for the
-    /// most recent FAIL/FATAL entry.
+    /// Picks the ONE line most likely to be the actual root cause from supplied diagnostic text.
+    /// Does not search the shared application log so old unrelated failures are never attached.
     /// </summary>
     public static string ExtractRootCause(string? rawDetail)
     {
         string? fromRaw = ScanForCause(rawDetail);
         if (!string.IsNullOrWhiteSpace(fromRaw)) return Truncate(fromRaw!);
-
-        string? fromLog = ScanForCause(ReadLogTail(200));
-        if (!string.IsNullOrWhiteSpace(fromLog)) return Truncate(fromLog!);
 
         string? lastLine = LastMeaningfulLine(rawDetail);
         return lastLine != null ? Truncate(lastLine) : string.Empty;

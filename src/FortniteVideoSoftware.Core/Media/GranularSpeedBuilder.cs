@@ -1,4 +1,4 @@
-﻿
+
 using System.Globalization;
 using System.Text;
 using FortniteVideoSoftware.Core.Infrastructure;
@@ -183,74 +183,13 @@ public class GranularSpeedBuilder
     /// The +2px and the even-alignment are float-rounding insurance; `crop` is unforgiving and
     /// two wasted pixels cost nothing.
     /// </summary>
-    private static double ZoomPadMargin(double cropExtent)
-    {
-        double needed = Math.Max(0.0, cropExtent) / 2.0 + 2.0;
-        return EvenDim(Math.Ceiling(needed));
-    }
-
-
-    /// <summary>
-    /// DRIFT_01 — SNAPS THE ZOOM CROP WINDOW ONTO THE GRID FFMPEG ACTUALLY USES.
-    ///
-    /// THE BUG THIS FIXES (measured, 2560x1440 portrait, 134x202 box at X=1188):
-    /// `cropW = resW / targetZ` is almost never a whole number — here 359.1111 — and `cropX`
-    /// inherits that fraction (1257.4444). `vf_crop` does NOT honour either: it TRUNCATES both to
-    /// int and then masks them DOWN to the chroma grid (`&amp; ~1` for yuv420p). 359.1111 -> 358 and
-    /// 1257.4444 -> 1256, so the sampled window slid 2px LEFT of the box the user drew. The zoom
-    /// then magnifies that error by `targetZ` (~8x at the quality floor) and the portrait slice
-    /// magnifies it again, landing as ~15 OUTPUT px of sideways drift on the finished 1080-wide
-    /// file — the picture sits right of where it was framed and the right edge of the box is cut
-    /// off. Verified against the live mpv preview: markers at source 1188/1255/1322 land at output
-    /// 3.6/539.5/1075.4 in the preview but 17.4/556.4/off-frame in the export.
-    ///
-    /// WHY IT LOOKS PURELY SIDEWAYS: in portrait `targetZ` is always the HEIGHT ratio
-    /// (`resH / zc.H`), so `cropH = resH / targetZ` is exactly `zc.H` and `cropY` is exactly an
-    /// integer — vertical never rounds. Only the width is fractional. The drift is therefore
-    /// horizontal by construction, which is precisely how it was reported.
-    ///
-    /// THE FIX: emit a window that is ALREADY whole and chroma-aligned, so FFmpeg has nothing left
-    /// to snap. `cropW`/`cropH` go to a neighbouring EVEN integer chosen so that
-    /// `centre - size / 2` is also even; with an even `pad` offset that makes `cropX`/`cropY` exact
-    /// even integers. The CENTRE is preserved EXACTLY (it was the thing drifting); the size moves
-    /// by at most 2px, i.e. a &lt;1% change in zoom strength, which is invisible.
-    ///
-    /// DO NOT go back to passing fractions to `crop` "because the expression parser accepts them".
-    /// It accepts them and then throws the fraction away.
-    /// </summary>
-    private readonly record struct ZoomWindow(int CropW, int CropH, int PadX, int PadY, int CanvasW, int CanvasH, int CropX, int CropY);
+    private static double ZoomPadMargin(double cropExtent) => CoordinateMath.ZoomPadMargin(cropExtent);
 
     private static ZoomWindow SnapZoomWindow(double cropWRaw, double cropHRaw, double resW, double resH,
                                              double cxTarget, double cyTarget)
-    {
-        int cx = (int)Math.Round(cxTarget, MidpointRounding.AwayFromZero);
-        int cy = (int)Math.Round(cyTarget, MidpointRounding.AwayFromZero);
+        => CoordinateMath.SnapZoomWindow(cropWRaw, cropHRaw, resW, resH, cxTarget, cyTarget);
 
-        int w = SnapExtent(cropWRaw, cx);
-        int h = SnapExtent(cropHRaw, cy);
-
-        int padX = (int)ZoomPadMargin(w);
-        int padY = (int)ZoomPadMargin(h);
-
-        return new ZoomWindow(w, h, padX, padY,
-                              (int)resW + 2 * padX, (int)resH + 2 * padY,
-                              padX + cx - w / 2, padY + cy - h / 2);
-    }
-
-    /// <summary>
-    /// DRIFT_01 — nearest EVEN extent whose half has the same parity as the window centre, so that
-    /// `centre - extent / 2` is even and the crop origin lands on the chroma grid untouched.
-    /// Of the two even values straddling <paramref name="raw"/> exactly one satisfies that, so the
-    /// chosen extent is never more than 2px from the ideal.
-    /// </summary>
-    private static int SnapExtent(double raw, int centre)
-    {
-        int lo = (int)Math.Floor(raw);
-        lo -= lo & 1;
-        if (lo < 2) lo = 2;
-        int pick = ((centre - lo / 2) & 1) == 0 ? lo : lo + 2;
-        return pick < 2 ? 2 : pick;
-    }
+    private static int SnapExtent(double raw, int centre) => CoordinateMath.SnapExtent(raw, centre);
 
     /// <param name="needHudBranch">
     /// ISSUE_08 — whether the caller will actually CONSUME the HUD output label.
@@ -496,19 +435,22 @@ public class GranularSpeedBuilder
         if (nChunks == 0)
         {
             var audioFilters = BuildAtempoChain(baseSpeed);
+            // AVSYNC_01 — an empty chain (speed 1.0x) must not leave a dangling comma;
+            // the leading comma lives in the segment so it disappears with it.
+            string baseAtempoSegment = audioFilters.Count > 0 ? "," + string.Join(",", audioFilters) : "";
             string aChain = !string.IsNullOrEmpty(inputAudioLabel)
-                ? $"{inputAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS,{string.Join(",", audioFilters)}[a_speed_out]"
-                : $"anullsrc=r=48000:cl=stereo,atrim=duration={totalDurationSec / baseSpeed:F4},asetpts=PTS-STARTPTS[a_speed_out]";
+                ? $"{inputAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS{baseAtempoSegment}[a_speed_out]"
+                : $"anullsrc=r=48000:cl=stereo,atrim=duration={(totalDurationSec / baseSpeed).ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_speed_out]";
 
             if (!needHudBranch)
             {
-                string vOnly = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_speed_out]";
+                string vOnly = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed.ToString("F4", CultureInfo.InvariantCulture)}'[v_speed_out]";
                 return (string.Join(";", [.. preChainParts, vOnly, aChain]), "[v_speed_out]", "", "[a_speed_out]",
                     totalDurationSec / baseSpeed, TimeMapper);
             }
 
-            string vChain = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_speed_out]";
-            string vChainHud = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed:F4}'[v_hud_out]";
+            string vChain = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed.ToString("F4", CultureInfo.InvariantCulture)}'[v_speed_out]";
+            string vChainHud = $"{inputVideoLabel}setpts='(PTS-STARTPTS)/{baseSpeed.ToString("F4", CultureInfo.InvariantCulture)}'[v_hud_out]";
             return (string.Join(";", [.. preChainParts, vChain, vChainHud, aChain]), "[v_speed_out]", "[v_hud_out]", "[a_speed_out]",
                 totalDurationSec / baseSpeed, TimeMapper);
         }
@@ -675,7 +617,7 @@ public class GranularSpeedBuilder
                 double freezeQuantDur = fpsValue > 0 ? targetFrameCount / fpsValue : dur;
 
                 fullParts.Add(
-                    $"{vSrcMain}trim=start={chunk.Start:F4}:duration={sampleWindowActual:F4}," +
+                    $"{vSrcMain}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
                     $"setpts=PTS-STARTPTS," +
                     $"select='lte(n\\,0)'," +
                     $"{zoomFilter}format=yuv420p,setsar=1," +
@@ -687,7 +629,7 @@ public class GranularSpeedBuilder
                 if (needHudBranch)
                 {
                     fullParts.Add(
-                        $"{vSrcHud}trim=start={chunk.Start:F4}:duration={sampleWindowActual:F4}," +
+                        $"{vSrcHud}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
                         $"setpts=PTS-STARTPTS," +
                         $"select='lte(n\\,0)'," +
                         $"format=yuv420p,setsar=1," +
@@ -712,19 +654,19 @@ public class GranularSpeedBuilder
                 double quantizedDur = fpsValue > 0 ? Math.Round(outDur * fpsValue) / fpsValue : outDur;
 
                 fullParts.Add(
-                    $"{vSrcMain}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
-                    $"setpts='PTS-({chunk.Start:F4}/TB)'," +
+                    $"{vSrcMain}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:end={chunk.End.ToString("F4", CultureInfo.InvariantCulture)}," +
+                    $"setpts='PTS-({chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}/TB)'," +
                     $"{zoomFilter}" +
-                    $"setpts='PTS/{chunk.Speed:F4}'," +
+                    $"setpts='PTS/{chunk.Speed.ToString("F4", CultureInfo.InvariantCulture)}'," +
                     $"fps={targetFps}:start_time=0:round=near," +
                     $"format=yuv420p,setsar=1{vChunkMainLabel}");
 
                 if (needHudBranch)
                 {
                     fullParts.Add(
-                        $"{vSrcHud}trim=start={chunk.Start:F4}:end={chunk.End:F4}," +
-                        $"setpts='PTS-({chunk.Start:F4}/TB)'," +
-                        $"setpts='PTS/{chunk.Speed:F4}'," +
+                        $"{vSrcHud}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:end={chunk.End.ToString("F4", CultureInfo.InvariantCulture)}," +
+                        $"setpts='PTS-({chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}/TB)'," +
+                        $"setpts='PTS/{chunk.Speed.ToString("F4", CultureInfo.InvariantCulture)}'," +
                         $"fps={targetFps}:start_time=0:round=near," +
                         $"format=yuv420p,setsar=1{vChunkHudLabel}");
                 }
@@ -740,11 +682,13 @@ public class GranularSpeedBuilder
                     // Deliberately shorter than one frame at 60fps, so it cannot be heard as a dip.
                     string spliceFade = BuildSpliceFade(quantizedDur);
 
+                    // AVSYNC_01 — an empty chain (speed 1.0x) must not leave a dangling comma.
+                    string atempoSegment = audioFilters.Count > 0 ? string.Join(",", audioFilters) + "," : "";
                     fullParts.Add(
-                        $"{aSrc}atrim=start={chunk.Start:F4}:end={chunk.End:F4}," +
+                        $"{aSrc}atrim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:end={chunk.End.ToString("F4", CultureInfo.InvariantCulture)}," +
                         $"aresample=48000:async=1:min_comp=0.001," +
-                        $"asetpts='PTS-({chunk.Start:F4}/TB)'," +
-                        $"{string.Join(",", audioFilters)}," +
+                        $"asetpts='PTS-({chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}/TB)'," +
+                        $"{atempoSegment}" +
                         $"apad,atrim=duration={quantizedDur.ToString("F5", CultureInfo.InvariantCulture)}," +
                         $"asetpts=PTS-STARTPTS{spliceFade}{aChunkLabel}");
                 }
@@ -852,11 +796,25 @@ public class GranularSpeedBuilder
     private static List<string> BuildAtempoChainCore(double speed)
     {
         var filters = new List<string>();
+
+        // AVSYNC_01 — 1.0x is a TRUE no-op and must produce NO filter, not
+        // `atempo=1.0000`. FFmpeg's atempo runs its WSOLA overlap-add machinery
+        // even at rate 1.0, and around a sharp attack (silence -> transient) it
+        // displaces the attack by up to one search window while keeping the
+        // stream length identical — measured at 19.3 ms early on a synthetic
+        // 1 kHz beep by tests/MediaPipelineChecks ("A/V sync drift" check).
+        // Packet timestamps stay perfect, so nothing downstream can detect or
+        // repair it: the audio simply no longer matches the frames it belongs
+        // to. Every 1x chunk of every granular export used to run through this.
+        // Callers embed the chain into comma-joined graphs and handle an empty
+        // list by omitting the segment entirely.
+        if (Math.Abs(speed - 1.0) < 0.0001) return filters;
+
         double tmp = speed;
 
         while (tmp < 0.5) { filters.Add("atempo=0.5"); tmp /= 0.5; }
         while (tmp > 2.0) { filters.Add("atempo=2.0"); tmp /= 2.0; }
-        filters.Add($"atempo={tmp:F4}");
+        filters.Add($"atempo={tmp.ToString("F4", CultureInfo.InvariantCulture)}");
 
         return filters;
     }
@@ -872,4 +830,3 @@ public class GranularSpeedBuilder
         catch { return 60.0; }
     }
 }
-

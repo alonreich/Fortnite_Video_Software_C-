@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.App;
 
@@ -69,7 +70,11 @@ internal static class CrashLogDigest
             }
             catch (OperationCanceledException)
             {
-                try { proc.Kill(true); } catch (Exception ex) { RuntimeLog.Info("EVENTLOG DIGEST", $"Failed to kill wevtutil process: {ex.Message}"); }
+                // wevtutil is NOT an interactive stdin tool, so the cooperative 'q' quit
+                // command is skipped: escalate straight to the bounded hard stop
+                // (Kill(entireProcessTree) → 2000 ms exit confirmation). Never throws.
+                await GracefulProcessTerminator.TerminateAsync(
+                    proc, "EVENTLOG DIGEST", attemptQuitCommand: false).ConfigureAwait(false);
             }
 
             string output = await readOutput.ConfigureAwait(false);

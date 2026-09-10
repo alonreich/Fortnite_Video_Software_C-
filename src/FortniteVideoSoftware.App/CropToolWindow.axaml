@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -482,7 +482,16 @@
                         <ScrollViewer MaxHeight="250">
                             <StackPanel Name="SummaryContent" Spacing="10" />
                         </ScrollViewer>
-                        <TextBlock Text="Automatically returning to main app..." FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppInfoBrush}" HorizontalAlignment="Center" Margin="0,20,0,0" />
+                        <Button Name="ReturnNowButton"
+                                Classes="Primary"
+                                Content="RETURN TO MAIN APP NOW"
+                                HorizontalAlignment="Center"
+                                FontWeight="Bold"
+                                FontSize="{DynamicResource AppFontSize14}"
+                                Padding="24,10"
+                                Margin="0,15,0,0"
+                                Cursor="Hand" />
+                        <TextBlock Name="SummaryAutoReturnText" Text="Returning automatically in 1s or click above to return immediately" FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" Foreground="{DynamicResource AppTextMutedBrush}" HorizontalAlignment="Center" Margin="0,5,0,0" />
                     </StackPanel>
                 </Border>
             </Grid>

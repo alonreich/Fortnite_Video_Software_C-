@@ -76,29 +76,20 @@ public class EncoderManager
     }
 
     /// <summary>
-    /// G04/G08: the FFmpeg `-hwaccel` flag is a PER-INPUT option — it binds only to the very next
-    /// `-i`. Emitting it once at the head of the command line leaves every additional video input
-    /// (the thumbnail-intro clone, video memes, extra merge clips) decoding in software. Callers
-    /// must call this immediately before EVERY video `-i`.
-    /// Returns an empty list for CPU encoders and for non-video inputs.
-    /// NOTE: `-hwaccel_output_format` is deliberately NOT emitted — see project_structure.txt
-    /// ISSUE_01. The export filter graph is software, so decoded frames must be returned to
-    /// system memory automatically. Re-adding that flag kills the encode outright.
+    /// Per-video-input decoder options, chosen together with the filter graph.
+    /// Software effects decode to RAM directly, avoiding GPU download followed by
+    /// encoder upload. Resident CUDA graphs share one device across all inputs.
     /// </summary>
-    public static List<string> GetDecodeFlags(string encoderName) => encoderName switch
+    public static List<string> GetDecodeFlags(string encoderName, bool keepFramesOnGpu = false) => (encoderName, keepFramesOnGpu) switch
     {
-        "h264_nvenc" => ["-hwaccel", "cuda"],
-        "h264_amf" => ["-hwaccel", "d3d11va"],
-        "h264_qsv" => ["-hwaccel", "qsv"],
+        ("h264_nvenc", true) => ["-hwaccel", "cuda", "-hwaccel_device", "exportgpu", "-hwaccel_output_format", "cuda"],
         _ => [],
     };
 
     /// <summary>G09: human-readable name of the chip doing the DECODING for a given encoder.</summary>
-    public static string DescribeDecoder(string encoderName) => encoderName switch
+    public static string DescribeDecoder(string encoderName, bool keepFramesOnGpu = false) => (encoderName, keepFramesOnGpu) switch
     {
-        "h264_nvenc" => "GPU (NVDEC/cuda)",
-        "h264_amf" => "GPU (d3d11va)",
-        "h264_qsv" => "GPU (QuickSync)",
+        ("h264_nvenc", true) => "GPU (NVDEC/cuda, VRAM frames)",
         _ => "CPU (software)",
     };
 
@@ -303,7 +294,7 @@ public class EncoderManager
         }
         else if (encoderName == "h264_qsv")
         {
-            string qsvPreset = qualityLevel <= 1 ? "balanced" : "slow";
+            string qsvPreset = qualityLevel <= 1 ? "fast" : "slow";
             string laDepth = qualityLevel <= 1 ? "60" : "100";
             vcodec.AddRange([
                 "-pix_fmt", "yuv420p", "-preset", qsvPreset, "-bf", "2", "-look_ahead", "1",

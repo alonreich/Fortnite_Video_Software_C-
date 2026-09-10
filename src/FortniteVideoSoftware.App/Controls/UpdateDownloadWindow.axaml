@@ -1,0 +1,46 @@
+<!-- AUTO-UPDATE — transient, non-persisted modal progress window for the in-app updater.
+     Same CenterOwner exemption as ConfirmDialogWindow (ISSUE_06 note there). -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FortniteVideoSoftware.App.Controls.UpdateDownloadWindow"
+        Title="Updating"
+        Width="520" SizeToContent="Height"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0"
+                BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, *, Auto">
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="DialogTitle" Text="Updating" Classes="WindowTitleText"
+                               Foreground="{DynamicResource TitleBarForeground}"/>
+                </Border>
+
+                <StackPanel Grid.Row="1" Margin="25,20,25,10" Spacing="12">
+                    <TextBlock Name="HeadlineText" Text="Downloading the new version…"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"
+                               FontSize="{DynamicResource AppFontSize14}" FontWeight="SemiBold"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                    <ProgressBar Name="Progress" Minimum="0" Maximum="100" Height="14"
+                                 HorizontalAlignment="Stretch"/>
+                    <TextBlock Name="StatusText" Text="Starting…"
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               FontSize="{DynamicResource AppFontSize12}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center"
+                            Spacing="15" Margin="0,5,0,25">
+                    <Button Name="CancelBtn" Classes="Secondary" Content="CANCEL DOWNLOAD" MinWidth="130"
+                            Cursor="Hand" IsCancel="True"
+                            AutomationProperties.Name="Cancel the update download"
+                            ToolTip.Tip="Stops the download. Your current version is not changed."/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

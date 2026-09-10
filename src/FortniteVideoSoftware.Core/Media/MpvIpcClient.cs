@@ -32,6 +32,13 @@ public class MpvIpcClient : IDisposable
     private volatile bool _isPaused;
     private volatile bool _isEof;
 
+    // THROTTLE_01 — see AnyPlaybackActive. Static because the question it answers is app-wide:
+    // background work (the film-lane prewarm) must yield to the MAIN preview just as much as to
+    // the Granular editor's or the Music Wizard's player, and no one client knows about the rest.
+    private static int _playingClientCount;
+    private bool _countedAsPlaying;
+    private readonly object _playbackGate = new();
+
     private ulong _timePosObsId;
     private ulong _pauseObsId;
     private ulong _durationObsId;
@@ -43,8 +50,8 @@ public class MpvIpcClient : IDisposable
     public static event Action<int>? GlobalMasterVolumeChanged;
     public static void SetGlobalMasterVolume(int volume)
     {
-        GlobalMasterVolume = volume;
-        GlobalMasterVolumeChanged?.Invoke(volume);
+        GlobalMasterVolume = Math.Clamp(volume, 0, 100);
+        GlobalMasterVolumeChanged?.Invoke(GlobalMasterVolume);
     }
 
     public double CurrentTime { get; private set; }
@@ -53,6 +60,38 @@ public class MpvIpcClient : IDisposable
     public bool IsPaused { get => _isPaused; private set => _isPaused = value; }
     /// <summary>Thread-safe EOF state (updated by event loop, read by UI).</summary>
     public bool IsEof { get => _isEof; private set => _isEof = value; }
+
+    /// <summary>
+    /// THROTTLE_01 — true while ANY live <see cref="MpvIpcClient"/> has a file loaded and is
+    /// actively playing it (unpaused, not at EOF). One volatile read, safe from any thread.
+    /// Background media work — the film-lane prewarm — polls this so background FFmpeg
+    /// extraction yields to whatever the user is watching.
+    ///
+    /// ⚠️ WHY NOT JUST IsPaused: mpv's default pause state is FALSE, so an idle client with no
+    /// file loaded would read as "playing" forever and would freeze every prewarm permanently.
+    /// Counting a client only while <c>Duration &gt; 0 &amp;&amp; !IsPaused &amp;&amp; !IsEof</c>
+    /// says "video is being decoded right now", which is exactly the thing background work must
+    /// not fight for disk and CPU.
+    /// </summary>
+    public static bool AnyPlaybackActive => Volatile.Read(ref _playingClientCount) > 0;
+
+    /// <summary>
+    /// THROTTLE_01 — recomputes this client's contribution to <see cref="AnyPlaybackActive"/>.
+    /// Called on the event-loop thread whenever pause/duration/eof changes, and once from
+    /// <see cref="Dispose"/> so a dying player can never leave the count stuck above zero.
+    /// </summary>
+    private void UpdatePlaybackContribution()
+    {
+        lock (_playbackGate)
+        {
+            bool playing = !_disposed && _mpvHandle != nint.Zero
+                           && Duration > 0 && !IsPaused && !IsEof;
+            if (playing == _countedAsPlaying) return;
+            _countedAsPlaying = playing;
+            if (playing) Interlocked.Increment(ref _playingClientCount);
+            else Interlocked.Decrement(ref _playingClientCount);
+        }
+    }
     public int VideoWidth { get; private set; }
     public int VideoHeight { get; private set; }
 
@@ -132,6 +171,7 @@ public class MpvIpcClient : IDisposable
 
             MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
             MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "volume", ToMpvVolume(GlobalMasterVolume).ToString(CultureInfo.InvariantCulture));
 
             int err = MpvWrapper.mpv_initialize(_mpvHandle);
             if (err < 0)
@@ -250,14 +290,19 @@ public class MpvIpcClient : IDisposable
                     IsPaused = paused;
                     PauseChanged?.Invoke(paused);
                 }
+                UpdatePlaybackContribution(); // THROTTLE_01 — run even when unchanged: property
+                                              // events can arrive before/after duration in any
+                                              // order, and the call early-outs for free.
                 break;
 
             case "duration":
                 Duration = value > 0 ? value : 0;
+                UpdatePlaybackContribution(); // THROTTLE_01 — a load starts playing (pause=false)
                 break;
 
             case "eof-reached":
                 IsEof = value > 0.5;
+                UpdatePlaybackContribution(); // THROTTLE_01 — playback finished
                 break;
 
             case "container-fps":
@@ -403,9 +448,16 @@ public class MpvIpcClient : IDisposable
     }
 
     /// <summary>
-    /// Sets an mpv double property (formatted with InvariantCulture) via
-    /// <c>mpv_set_property_string</c>.
+    /// Converts the app's linear audio percentage to mpv's cubic volume scale.
     /// </summary>
+    public static double ToMpvVolume(double linearPercent) =>
+        100.0 * Math.Cbrt(Math.Clamp(double.IsFinite(linearPercent) ? linearPercent : 0.0, 0.0, 100.0) / 100.0);
+
+    /// <summary>Match FFmpeg/NAudio linear gain while compensating for mpv's cubic volume curve.</summary>
+    public Task SetPreviewVolumeAsync(double linearPercent) =>
+        SetPropertyDoubleAsync("volume", ToMpvVolume(linearPercent));
+
+    /// <summary>Sets a raw mpv double property using invariant number formatting.</summary>
     public Task SetPropertyDoubleAsync(string name, double value)
     {
         if (_mpvHandle != nint.Zero)
@@ -470,6 +522,11 @@ public class MpvIpcClient : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // THROTTLE_01 — must run before anything below tears state down: a player that was
+        // counted as playing has to give its count back or background work would stay yielded
+        // forever. _disposed is already true here, so this can only ever decrement.
+        UpdatePlaybackContribution();
 
         bool loopStopped = true;
         if (_cts != null)

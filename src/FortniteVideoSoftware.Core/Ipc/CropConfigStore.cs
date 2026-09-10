@@ -65,8 +65,19 @@ public sealed class CropConfigStore
         {
         }
 
+        // Newest backup first. Do not rotate during recovery: that would replace a
+        // useful backup with the damaged live file and discard the oldest backup.
+        for (int i = 1; i <= 5; i++)
+        {
+            JsonObject? backup = AtomicJsonFile.ReadObject(BackupPath(i));
+            if (backup is null || !IsUsableConfig(backup)) continue;
+
+            AtomicJsonFile.WriteObject(Paths.CropCoordinatesFile, backup);
+            CoreLogger.Info("CropConfig", $"Restored crop settings from backup {i}.");
+            return backup;
+        }
+
         JsonObject healed = CropConfigDefaults.Create();
-        RotateBackupsUnlocked();
         AtomicJsonFile.WriteObject(Paths.CropCoordinatesFile, healed);
         return Clone(healed);
     }

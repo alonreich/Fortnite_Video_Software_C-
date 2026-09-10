@@ -4,12 +4,14 @@ using Avalonia.Input;
 using System.Collections.Immutable;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Media;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -604,6 +606,12 @@ public partial class GranularSpeedEditorWindow : Window
         if (!string.IsNullOrWhiteSpace(originalResolution)) _originalResolution = originalResolution;
         _selectedFreezePresetS = -1.0;
 
+        // RECOVERY_03 — rehydrate an unfinished granular session left behind by a crash, BEFORE
+        // any UI is built and long before the Loaded event calls InitializeMpv(). When a snapshot
+        // matches (same video, same trim window) it REPLACES the seeds passed in by MainWindow:
+        // those describe the last ACCEPTED state, and the snapshot is strictly newer.
+        bool restoredGranularSession = TryRehydrateGranularRecovery();
+
         try { _gpuLiveZoomPreview = FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration; }
         catch { _gpuLiveZoomPreview = false; }
         RuntimeLog.Info("Granular", $"Live zoom preview path: {(_gpuLiveZoomPreview ? "GPU (mpv video-crop simulation)" : "CPU (yellow box overlay only)")}");
@@ -730,15 +738,15 @@ public partial class GranularSpeedEditorWindow : Window
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "GranularBounds");
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
-        _pendingSpeed = baseSpeed;
-        _lastAppliedSpeed = baseSpeed;
+        _pendingSpeed = _baseSpeed;       // RECOVERY_03 — _baseSpeed may come from a restored snapshot
+        _lastAppliedSpeed = _baseSpeed;
 
         var initialSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"); if(initialSpeedSlider!=null)initialSpeedSlider.SetRange(1, 40);
         SpeedPresetButtons.SetSpinningWheelValue(initialSpeedSlider, _pendingSpeed);
         var initialSpeedLabel = this.FindControl<TextBlock>("PendingSpeedLabel");
         if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:0.0}x";
         
-        if (existingSegments != null)
+        if (!restoredGranularSession && existingSegments != null)   // RECOVERY_03 — seeds are stale when a snapshot was restored
         {
             foreach (var seg in existingSegments)
             {
@@ -774,6 +782,11 @@ public partial class GranularSpeedEditorWindow : Window
         AttachTitleBarDrag();
         RefreshSegmentList();
         UpdateDeleteButtonVisibility();
+
+        // RECOVERY_03 — persist the OPENING state (seeds or restored snapshot) so a crash before
+        // the first edit restores exactly what the user was looking at. Restarting the debounce
+        // here supersedes any capture armed by the PushUndo calls while seeding above.
+        ScheduleGranularRecoverySave();
 
         if (_freezeTimeMs >= 0)
         {
@@ -872,11 +885,165 @@ public partial class GranularSpeedEditorWindow : Window
         
         var endBtn = this.FindControl<Button>("MarkEndBtn");
         if (endBtn != null) ToolTip.SetTip(endBtn, $"Mark the end of the segment ({kb.MarkEnd})");
+
+        RefreshTransportKeyBindings();
+    }
+
+    // ============================================================
+    // KEYFOCUS_01 — transport commands (PlayPause / MarkStart / MarkEnd).
+    // The buttons raise them on click, the per-button Avalonia Input.KeyBindings raise them
+    // while the button (or its subtree) holds focus, and the window-level gesture dispatcher
+    // (GranularKeyDownHandler) raises them for the global bound gestures — one command,
+    // three entry points, no synthesized Click events anywhere.
+    // ============================================================
+
+    private FortniteVideoSoftware.App.ViewModels.RelayCommand? _playPauseCommand;
+    private FortniteVideoSoftware.App.ViewModels.RelayCommand? _markStartCommand;
+    private FortniteVideoSoftware.App.ViewModels.RelayCommand? _markEndCommand;
+
+    /// <summary>Attaches the transport Commands and settings-bound KeyBindings to the transport buttons.</summary>
+    private void RefreshTransportKeyBindings()
+    {
+        var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
+
+        _playPauseCommand ??= new FortniteVideoSoftware.App.ViewModels.RelayCommand(TogglePlayPause);
+        _markStartCommand ??= new FortniteVideoSoftware.App.ViewModels.RelayCommand(ExecuteMarkStart);
+        _markEndCommand ??= new FortniteVideoSoftware.App.ViewModels.RelayCommand(ExecuteMarkEnd);
+
+        void Attach(string name, Avalonia.Input.Key key, System.Windows.Input.ICommand command)
+        {
+            var btn = this.FindControl<Button>(name);
+            if (btn == null) return;
+            btn.Command = command;
+            btn.KeyBindings.Clear();
+            btn.KeyBindings.Add(new Avalonia.Input.KeyBinding
+            {
+                Gesture = new Avalonia.Input.KeyGesture(key),
+                Command = command
+            });
+        }
+
+        Attach("GranularPlayPause", kb.PlayPause, _playPauseCommand);
+        Attach("MarkStartBtn", kb.MarkStart, _markStartCommand);
+        Attach("MarkEndBtn", kb.MarkEnd, _markEndCommand);
+    }
+
+    private void TogglePlayPause()
+    {
+        RuntimeLog.Info("UI", "User toggled Play/Pause in Granular Speed Editor.");
+        if (_isCurrentlyFrozen)
+        {
+            _isCurrentlyFrozen = false;
+            return;
+        }
+        if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
+    }
+
+    private void ExecuteMarkStart()
+    {
+        RuntimeLog.Info("UI", "User clicked Mark Start in Granular Speed Editor.");
+
+        int currentMs = (int)(GetCurrentTime() * 1000);
+
+        int? overlapIdx = FindSegmentAtPosition(currentMs);
+        if (overlapIdx.HasValue)
+        {
+            var overlapping = _segments[overlapIdx.Value];
+            ShowFeedback($"⚠ Inside segment #{overlapIdx.Value + 1}! Delete it first.");
+            NotifyError($"Cannot mark here — overlaps segment #{overlapIdx.Value + 1} [{FormatMs(overlapping.StartMs)} – {FormatMs(overlapping.EndMs)}]. Delete it first.");
+            return;
+        }
+
+        _selectedSegmentIndex = -1;
+        UpdateDeleteButtonVisibility();
+
+        _pendingStartMs = currentMs;
+        ShowFeedback($"START: {FormatMs(_pendingStartMs)}");
+        RedrawTimeline();
+    }
+
+    private void ExecuteMarkEnd()
+    {
+        RuntimeLog.Info("UI", "User clicked Mark End in Granular Speed Editor.");
+
+        int currentMs = (int)(GetCurrentTime() * 1000);
+
+        if (_pendingStartMs < 0)
+        {
+            int? overlapIdx = FindSegmentAtPosition(currentMs);
+            if (overlapIdx.HasValue)
+            {
+                var overlapping = _segments[overlapIdx.Value];
+                ShowFeedback($"⚠ Inside segment #{overlapIdx.Value + 1}! Delete it first.");
+                NotifyError($"Cannot mark here — overlaps segment #{overlapIdx.Value + 1} [{FormatMs(overlapping.StartMs)} – {FormatMs(overlapping.EndMs)}]. Delete it first.");
+                return;
+            }
+        }
+
+        if (_pendingStartMs >= 0 && currentMs <= _pendingStartMs)
+        {
+            ShowFeedback("⚠ END can't be before START");
+            NotifyError($"Cannot mark END at {FormatMs(currentMs)} — it must be AFTER the START at {FormatMs(_pendingStartMs)}.");
+            return;
+        }
+
+        _pendingEndMs = currentMs;
+
+        _selectedSegmentIndex = -1;
+
+        if (_pendingStartMs < 0)
+        {
+            int prevEndMs = -1;
+            foreach (var s in _segments)
+            {
+                if (s.EndMs <= _pendingEndMs && (int)s.EndMs > prevEndMs)
+                    prevEndMs = (int)s.EndMs;
+            }
+
+            if (prevEndMs < 0)
+            {
+                _pendingStartMs = 0;
+            }
+            else
+            {
+                _pendingStartMs = prevEndMs + 1000;
+                if (_pendingStartMs > _pendingEndMs)
+                {
+                    _pendingStartMs = prevEndMs;
+                }
+            }
+        }
+
+        if (_videoHost?.IpcClient != null)
+        {
+            _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
+
+            var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
+            var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
+            if (playIcon != null && pauseIcon != null)
+            {
+                playIcon.IsVisible = true;
+                pauseIcon.IsVisible = false;
+            }
+        }
+
+        NotifyUndoable($"Segment added at {FormatMs(_pendingEndMs)}", "MarkEndBtn");   // ANCHOR_01
+
+        AddPendingSegment();
+
+        if (_segments.Count > 0)
+        {
+            _selectedSegmentIndex = _segments.Count - 1;
+        }
+        UpdateDeleteButtonVisibility();
+        RedrawTimeline();
     }
 
     private void GranularKeyUpHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
+        // KEYFOCUS_01 — while a text input (TextBox / NumericUpDown / ComboBox) owns focus the
+        // keyboard belongs to it: suspend the transport-suppression hotkeys entirely.
+        if (FortniteVideoSoftware.App.Infrastructure.KeyboardFocusPolicy.HotkeysSuspended(Avalonia.Controls.TopLevel.GetTopLevel(this)))
             return;
 
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
@@ -892,7 +1059,9 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void GranularKeyDownHandler(object? sender, Avalonia.Input.KeyEventArgs e)
     {
-        if (Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Controls.TextBox or Avalonia.Controls.NumericUpDown)
+        // KEYFOCUS_01 — hotkeys are suspended while a text input (TextBox / NumericUpDown /
+        // ComboBox) owns focus: return without touching e.Handled so the control keeps the key.
+        if (FortniteVideoSoftware.App.Infrastructure.KeyboardFocusPolicy.HotkeysSuspended(Avalonia.Controls.TopLevel.GetTopLevel(this)))
             return;
 
         var kb = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeyBinds;
@@ -947,23 +1116,20 @@ public partial class GranularSpeedEditorWindow : Window
         var fineSeekBackCtrl = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Control);
         var fineSeekBackShift = new Avalonia.Input.KeyGesture(kb.FineSeekBackward, Avalonia.Input.KeyModifiers.Shift);
 
+        // KEYFOCUS_01 — transport gestures execute the same commands the buttons and their
+        // KeyBindings use (no synthesized Click events). Handled mirrors KeyBinding.TryHandle:
+        // only set when the command actually ran.
         if (playPause.Matches(e))
         {
-            var btn = this.FindControl<Button>("GranularPlayPause");
-            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            e.Handled = true;
+            ExecuteTransportCommand(_playPauseCommand, e);
         }
         else if (markStart.Matches(e))
         {
-            var btn = this.FindControl<Button>("MarkStartBtn");
-            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            e.Handled = true;
+            ExecuteTransportCommand(_markStartCommand, e);
         }
         else if (markEnd.Matches(e))
         {
-            var btn = this.FindControl<Button>("MarkEndBtn");
-            btn?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            e.Handled = true;
+            ExecuteTransportCommand(_markEndCommand, e);
         }
         else if (fineSeekFwdCtrl.Matches(e) || fineSeekFwdShift.Matches(e))
         {
@@ -990,6 +1156,14 @@ public partial class GranularSpeedEditorWindow : Window
             _ = SeekInternal(target - (_trimStartMs / 1000.0));
             e.Handled = true;
         }
+    }
+
+    /// <summary>Executes a transport command from the global gesture dispatcher (KeyBinding.TryHandle semantics).</summary>
+    private static void ExecuteTransportCommand(FortniteVideoSoftware.App.ViewModels.RelayCommand? command, Avalonia.Input.KeyEventArgs e)
+    {
+        if (command == null || !command.CanExecute(null)) return;
+        command.Execute(null);
+        e.Handled = true;
     }
 
     private async Task SeekInternal(double time) {
@@ -1376,124 +1550,17 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
 
-        var playPause = this.FindControl<Button>("GranularPlayPause");
-        playPause?.AddHandler(Button.ClickEvent, (_, _) =>
-        {
-            RuntimeLog.Info("UI", "User toggled Play/Pause in Granular Speed Editor.");
-            if (_isCurrentlyFrozen)
-            {
-                _isCurrentlyFrozen = false;
-                return;
-            }
-            if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
-        });
+        // KEYFOCUS_01 — GranularPlayPause now binds through a Command + KeyBinding
+        // (RefreshTransportKeyBindings); the click behaviour lives in TogglePlayPause().
 
 
         WireDeletePartsButton();
         WireMemeButtons();          // MEME_06
         WireUndoRedo();            // UNDO_01
 
-        var markStart = this.FindControl<Button>("MarkStartBtn");
-        markStart?.AddHandler(Button.ClickEvent, (_, _) =>
-        {
-            RuntimeLog.Info("UI", "User clicked Mark Start in Granular Speed Editor.");
+        // KEYFOCUS_01 — MARK START wiring moved to _markStartCommand (ExecuteMarkStart).
 
-            int currentMs = (int)(GetCurrentTime() * 1000);
-
-            int? overlapIdx = FindSegmentAtPosition(currentMs);
-            if (overlapIdx.HasValue)
-            {
-                var overlapping = _segments[overlapIdx.Value];
-                ShowFeedback($"⚠ Inside segment #{overlapIdx.Value + 1}! Delete it first.");
-                NotifyError($"Cannot mark here — overlaps segment #{overlapIdx.Value + 1} [{FormatMs(overlapping.StartMs)} – {FormatMs(overlapping.EndMs)}]. Delete it first.");
-                return;
-            }
-
-            _selectedSegmentIndex = -1;
-            UpdateDeleteButtonVisibility();
-
-            _pendingStartMs = currentMs;
-            ShowFeedback($"START: {FormatMs(_pendingStartMs)}");
-            RedrawTimeline();
-        });
-
-        var markEndBtn = this.FindControl<Button>("MarkEndBtn");
-        markEndBtn?.AddHandler(Button.ClickEvent, (_, _) =>
-        {
-            RuntimeLog.Info("UI", "User clicked Mark End in Granular Speed Editor.");
-
-            int currentMs = (int)(GetCurrentTime() * 1000);
-
-            if (_pendingStartMs < 0)
-            {
-                int? overlapIdx = FindSegmentAtPosition(currentMs);
-                if (overlapIdx.HasValue)
-                {
-                    var overlapping = _segments[overlapIdx.Value];
-                    ShowFeedback($"⚠ Inside segment #{overlapIdx.Value + 1}! Delete it first.");
-                    NotifyError($"Cannot mark here — overlaps segment #{overlapIdx.Value + 1} [{FormatMs(overlapping.StartMs)} – {FormatMs(overlapping.EndMs)}]. Delete it first.");
-                    return;
-                }
-            }
-
-            if (_pendingStartMs >= 0 && currentMs <= _pendingStartMs)
-            {
-                ShowFeedback("⚠ END can't be before START");
-                NotifyError($"Cannot mark END at {FormatMs(currentMs)} — it must be AFTER the START at {FormatMs(_pendingStartMs)}.");
-                return;
-            }
-
-            _pendingEndMs = currentMs;
-
-            _selectedSegmentIndex = -1;
-
-            if (_pendingStartMs < 0)
-            {
-                int prevEndMs = -1;
-                foreach (var s in _segments)
-                {
-                    if (s.EndMs <= _pendingEndMs && (int)s.EndMs > prevEndMs)
-                        prevEndMs = (int)s.EndMs;
-                }
-
-                if (prevEndMs < 0)
-                {
-                    _pendingStartMs = 0;
-                }
-                else
-                {
-                    _pendingStartMs = prevEndMs + 1000;
-                    if (_pendingStartMs > _pendingEndMs)
-                    {
-                        _pendingStartMs = prevEndMs;
-                    }
-                }
-            }
-
-            if (_videoHost?.IpcClient != null)
-            {
-                _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
-                
-                var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
-                var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
-                if (playIcon != null && pauseIcon != null)
-                {
-                    playIcon.IsVisible = true;
-                    pauseIcon.IsVisible = false;
-                }
-            }
-
-            NotifyUndoable($"Segment added at {FormatMs(_pendingEndMs)}", "MarkEndBtn");   // ANCHOR_01
-            
-            AddPendingSegment();
-
-            if (_segments.Count > 0)
-            {
-                _selectedSegmentIndex = _segments.Count - 1;
-            }
-            UpdateDeleteButtonVisibility();
-            RedrawTimeline();
-        });
+        // KEYFOCUS_01 — MARK END wiring moved to _markEndCommand (ExecuteMarkEnd).
 
         var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
         if (speedSlider != null)
@@ -1910,6 +1977,11 @@ public partial class GranularSpeedEditorWindow : Window
 
         int before = _segments.Count;
         AddPendingSegment();
+
+        // RECOVERY_03 — armed AFTER AddPendingSegment() so it covers both exits below (the success
+        // path returns early); the 300ms-later capture happens after the list has settled either
+        // way, which is the whole reason the trigger sits here and not at the method's last brace.
+        ScheduleGranularRecoverySave();
 
         if (_segments.Count > before)
         {
@@ -2505,6 +2577,16 @@ public partial class GranularSpeedEditorWindow : Window
 
         lanes.LaneASeekable = false;
         lanes.LaneBSeekable = true;
+
+        // ZOOM_01 — this window opts into the shared control's timeline zoom. Ctrl+mouse-wheel
+        // scales the lane horizontally (1.0–10.0) anchored at the cursor; the plain wheel pans
+        // while zoomed. Zero-copy guardrail: the zoom lives ONLY in the pixel map — the segment,
+        // cut, meme and freeze models and the OutputTimeline/FFmpeg chunk maths are untouched.
+        lanes.ZoomGesturesEnabled = true;
+        lanes.ZoomChanged += z =>
+            SetStatus(z <= 1.0001
+                ? "Timeline zoom reset to 100%. Hold Ctrl and scroll to zoom the timeline."
+                : $"Timeline zoom {z * 100:0}% — Ctrl+scroll to zoom, scroll to pan.");
 
         lanes.SeekRequested += outSec =>
         {
@@ -3901,6 +3983,7 @@ public partial class GranularSpeedEditorWindow : Window
         UpdateDeleteButtonVisibility();
         SetStatus("Selected segment deleted.");
         NotifyUndoable("Segment deleted", "DeleteSegmentBtn");   // ANCHOR_01
+        ScheduleGranularRecoverySave();   // RECOVERY_03 — the deletion must survive a force-kill
     }
 
     /// <summary>
@@ -6196,11 +6279,39 @@ public partial class GranularSpeedEditorWindow : Window
         _freezeTimeMs = _trimStartMs + relSec * 1000.0;
     }
 
-    /// <summary>TRIM-RELATIVE source ms -> an X pixel on the output-time canvas.</summary>
+    /// <summary>
+    /// ZOOM_01 — the current horizontal timeline zoom (1.0–10.0), owned by the shared lanes
+    /// control. Read-only here: it changes only through Ctrl+mouse-wheel on the timeline.
+    /// </summary>
+    private double TimelineZoomFactor
+        => this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes")
+               ?.ZoomFactor ?? 1.0;
+
+    /// <summary>
+    /// TRIM-RELATIVE source ms -> an X pixel on the output-time canvas.
+    ///
+    /// <para>
+    /// ZOOM_01 — <paramref name="w"/> MUST be a ZOOMED layer width (the canvas' own
+    /// <c>Bounds.Width</c>, which the shared control lays out at viewport × TimelineZoomFactor).
+    /// The zoom factor therefore multiplies into the pixel map exactly once, through this width —
+    /// every caller already passes a layer's <c>Bounds.Width</c>, so zooming needs no other change
+    /// anywhere on this path. Passing an UNZOOMED (viewport) width here while zoomed is the same
+    /// class of bug as the pre-ZOOMMAP_01 hand-rolled `x/w * duration`.
+    /// </para>
+    /// </summary>
     private double SrcMsToX(double srcRelMs, double w)
         => (OutTimeline().SourceToOutput(srcRelMs / 1000.0) / OutDurationSec()) * w;
 
-    /// <summary>An X pixel on the output-time canvas -> TRIM-RELATIVE source ms.</summary>
+    /// <summary>
+    /// An X pixel on the output-time canvas -> TRIM-RELATIVE source ms.
+    ///
+    /// <para>
+    /// ZOOM_01 — the exact inverse of <see cref="SrcMsToX"/>: <paramref name="w"/> is the ZOOMED
+    /// layer width the pointer coordinate came from, so the zoom factor divides back out through
+    /// it. Pointer positions obtained with <c>e.GetPosition(canvas)</c> carry the same zoomed
+    /// basis and round-trip losslessly at any zoom level.
+    /// </para>
+    /// </summary>
     private double XToSrcMs(double x, double w)
     {
         if (w <= 0) return 0;
@@ -6704,6 +6815,11 @@ public partial class GranularSpeedEditorWindow : Window
     {
         _undoGestureKey = "";
         _undoGestureAt = DateTime.MinValue;
+
+        // RECOVERY_03 — every settled drag (segment, zoom, freeze, meme) funnels through here on
+        // pointer release; arming the snapshot at gesture END captures the settled state, not the
+        // pre-drag one that PushUndo recorded when the gesture began.
+        ScheduleGranularRecoverySave();
     }
 
     /// <param name="coalesceKey">
@@ -6749,6 +6865,7 @@ public partial class GranularSpeedEditorWindow : Window
         }
 
         RefreshUndoRedoButtons();
+        ScheduleGranularRecoverySave();   // RECOVERY_03 — debounced live snapshot after every undoable change
     }
 
     /// <summary>
@@ -6904,6 +7021,10 @@ public partial class GranularSpeedEditorWindow : Window
         }
         catch (Exception ex) { RuntimeLog.Fail("UNDO", ex); }
         finally { _restoringSnapshot = false; }
+
+        // RECOVERY_03 — undo/redo rewrites the persisted truth too; without this a force-kill right
+        // after Ctrl+Z would restore the state the user had just taken back.
+        ScheduleGranularRecoverySave();
     }
 
     /// <summary>
@@ -7090,6 +7211,301 @@ public partial class GranularSpeedEditorWindow : Window
         Controls.FloatingNotice.Error(this, msg);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // RECOVERY_03 — LIVE (WRITE-AHEAD, DEBOUNCED) CRASH RECOVERY FOR THE EDITING SESSION.
+    //
+    // MainWindow serialises its state to recovery_v2.json the moment anything changes, but while
+    // THIS window is open the granular edits (_segments, _cuts, _memes, the freeze) live only in
+    // memory: MainWindow's payload still describes the last ACCEPTED state, so a crash before
+    // AcceptGranularBtn permanently lost everything done inside the editor. The fix mirrors
+    // MainWindow's approach at editor scale: every mutation arms a 300ms one-shot debounce and,
+    // when it fires, the editor's live lists are serialised into a "granular_session" node inside
+    // the SAME recovery file — read-modify-write, so MainWindow's payload keys survive — through
+    // RecoveryManager.SaveStateAsync, whose AtomicJsonFile.WriteObject (temp file + File.Move)
+    // means a force-kill mid-write can never leave a torn JSON behind.
+    //
+    // The node is REMOVED on any deliberate close (OnClosing): after Accept, MainWindow rewrites
+    // the file without it anyway; after Cancel nothing else would, and a stale node would
+    // resurrect cancelled edits the next time the same video is opened. A force-kill never
+    // reaches OnClosing — which is exactly why the node surviving one is the whole point.
+    //
+    // Rehydration runs in the constructor, long before the Loaded event calls InitializeMpv(), so
+    // every draw, list refresh and preview consumes the recovered lists as if the user had just
+    // made them. A node is honoured only when its video path AND trim window match this window;
+    // anything else is a stale snapshot from another clip (or an older trim) and is ignored.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    private const string GranularRecoveryKey = "granular_session";
+    private const int GranularRecoverySchemaVersion = 1;
+    private const int GranularRecoveryDebounceMs = 300;
+
+    private readonly ApplicationPaths _granularRecoveryPaths = ApplicationPaths.CreateDefault();
+    private readonly RecoveryManager _granularRecovery = new();
+    private System.Timers.Timer? _granularRecoveryTimer;
+
+    /// <summary>
+    /// RECOVERY_03 — arms the debounce. Safe to call from anywhere on the UI thread and any number
+    /// of times in quick succession: each call discards the pending window and restarts it, so
+    /// only the state settled 300ms after the LAST edit is ever written to disk.
+    /// </summary>
+    private void ScheduleGranularRecoverySave()
+    {
+        if (_granularRecoveryTimer == null)
+        {
+            _granularRecoveryTimer = new System.Timers.Timer(GranularRecoveryDebounceMs)
+            {
+                AutoReset = false   // one-shot; being re-armed by the next call IS the debounce
+            };
+            _granularRecoveryTimer.Elapsed += (s, e) => GranularRecoveryTimer_Elapsed(e);
+        }
+        else
+        {
+            _granularRecoveryTimer.Stop();
+        }
+        _granularRecoveryTimer.Start();
+    }
+
+    /// <summary>
+    /// RECOVERY_03 — the debounce closed with no further edits: capture and persist.
+    ///
+    /// The CAPTURE runs on the UI thread (the lists are UI-owned) and the disk work is then handed
+    /// back to the thread pool, so the UI never touches the file. Capturing at FIRE time rather
+    /// than at SCHEDULE time is deliberate: triggers such as PushUndo run BEFORE the mutation they
+    /// precede, and 300ms later the change has long settled — the payload therefore always
+    /// describes the state the user is actually looking at.
+    /// </summary>
+    private void GranularRecoveryTimer_Elapsed(System.Timers.ElapsedEventArgs e)
+    {
+        JsonObject payload;
+        try
+        {
+            Avalonia.Threading.Dispatcher ui = Avalonia.Threading.Dispatcher.UIThread;
+            payload = ui.CheckAccess()
+                ? BuildGranularRecoveryPayload()
+                : ui.Invoke(BuildGranularRecoveryPayload);
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Swallowed(ex);   // a shutting-down dispatcher must never take the timer down
+            return;
+        }
+
+        Task.Run(() =>
+        {
+            try
+            {
+                // Read-modify-write: MainWindow owns this file too. Overlay ONLY the granular node
+                // so a save from here can never erase the app-level recovery state beside it.
+                JsonObject merged = AtomicJsonFile.ReadObject(_granularRecoveryPaths.RecoveryStateFile)
+                    ?? new JsonObject();
+                merged[GranularRecoveryKey] = payload;
+
+                // SaveStateAsync -> SaveState -> AtomicJsonFile.WriteObject: temp file + File.Move.
+                _granularRecovery.SaveStateAsync(merged);
+            }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        });
+    }
+
+    /// <summary>
+    /// RECOVERY_03 — the live editor state as one JSON node. UI thread only (reads the lists).
+    /// Segments and cuts are TRIM-RELATIVE ms and memes are CLIP-RELATIVE source seconds — the
+    /// exact frames of reference this window holds them in, so rehydration needs no translation.
+    /// </summary>
+    private JsonObject BuildGranularRecoveryPayload()
+    {
+        var segments = new JsonArray();
+        foreach (var s in _segments)
+        {
+            segments.Add(new JsonObject
+            {
+                ["start_ms"] = s.StartMs,
+                ["end_ms"] = s.EndMs,
+                ["speed"] = s.Speed,
+                ["zoom_x"] = s.ZoomX,
+                ["zoom_y"] = s.ZoomY,
+                ["zoom_w"] = s.ZoomW,
+                ["zoom_h"] = s.ZoomH,
+                ["zoom_orig_res"] = s.ZoomOrigRes,
+                ["zoom_slow"] = s.ZoomSlow,
+                ["zoom_start_ms"] = s.ZoomStartMs,
+                ["zoom_end_ms"] = s.ZoomEndMs
+            });
+        }
+
+        var cuts = new JsonArray();
+        foreach (var c in _cuts)
+        {
+            cuts.Add(new JsonObject { ["start_ms"] = c.StartMs, ["end_ms"] = c.EndMs });
+        }
+
+        var memes = new JsonArray();
+        foreach (var m in _memes)
+        {
+            memes.Add(new JsonObject
+            {
+                ["file_path"] = m.FilePath,
+                ["at_source_sec_relative"] = m.AtSourceSecRelative,
+                ["duration_sec"] = m.DurationSec,
+                ["id"] = m.Id
+            });
+        }
+
+        return new JsonObject
+        {
+            ["schema_version"] = GranularRecoverySchemaVersion,
+            ["open"] = true,
+            ["video_path"] = _videoPath,
+            ["trim_start_ms"] = _trimStartMs,
+            ["trim_end_ms"] = _trimEndMs,
+            ["base_speed"] = _baseSpeed,
+            ["freeze_time_ms"] = _freezeTimeMs,
+            ["freeze_duration_s"] = _freezeDurationS,
+            ["saved_at_utc"] = DateTime.UtcNow.ToString("O"),
+            ["segments"] = segments,
+            ["cuts"] = cuts,
+            ["memes"] = memes
+        };
+    }
+
+    /// <summary>
+    /// RECOVERY_03 — constructor-time rehydration. Returns true when the recovery payload holds an
+    /// unfinished granular session for THIS video and trim window, and the live lists now hold it.
+    /// A malformed entry is dropped, never fatal: the rest of the session still restores.
+    /// </summary>
+    private bool TryRehydrateGranularRecovery()
+    {
+        JsonObject? session = null;
+        try
+        {
+            session = AtomicJsonFile.ReadObject(_granularRecoveryPaths.RecoveryStateFile)
+                ?[GranularRecoveryKey]?.AsObject();
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+
+        if (session == null) return false;
+        if (!GetJsonBool(session["open"], false)) return false;
+        if (GetJsonIntOrNull(session["schema_version"]) != GranularRecoverySchemaVersion) return false;
+
+        // Session identity: same file, same trim window (1ms tolerance for the double round-trip).
+        // A snapshot from another video — or the same video after its trim moved — must not
+        // resurrect into this timeline; it is ignored exactly like a stale seed.
+        string? videoPath = GetJsonString(session["video_path"]);
+        if (string.IsNullOrEmpty(videoPath) ||
+            !string.Equals(videoPath, _videoPath, StringComparison.OrdinalIgnoreCase)) return false;
+        if (Math.Abs(GetJsonDouble(session["trim_start_ms"], double.MinValue) - _trimStartMs) > 1.0) return false;
+        if (Math.Abs(GetJsonDouble(session["trim_end_ms"], double.MinValue) - _trimEndMs) > 1.0) return false;
+
+        var segments = new List<SpeedSegment>();
+        if (session["segments"] is JsonArray segArr)
+        {
+            foreach (var node in segArr)
+            {
+                if (node is not JsonObject o) continue;
+                double start = GetJsonDouble(o["start_ms"], -1);
+                double end = GetJsonDouble(o["end_ms"], -1);
+                if (end <= start || start < -0.5) continue;
+                segments.Add(new SpeedSegment(
+                    start,
+                    end,
+                    GetJsonDouble(o["speed"], 1.1),
+                    GetJsonIntOrNull(o["zoom_x"]),
+                    GetJsonIntOrNull(o["zoom_y"]),
+                    GetJsonIntOrNull(o["zoom_w"]),
+                    GetJsonIntOrNull(o["zoom_h"]),
+                    GetJsonString(o["zoom_orig_res"]),
+                    GetJsonBool(o["zoom_slow"], false),
+                    GetJsonDoubleOrNull(o["zoom_start_ms"]),
+                    GetJsonDoubleOrNull(o["zoom_end_ms"])));
+            }
+        }
+
+        var cuts = new List<CutRange>();
+        if (session["cuts"] is JsonArray cutArr)
+        {
+            foreach (var node in cutArr)
+            {
+                if (node is not JsonObject o) continue;
+                double start = GetJsonDouble(o["start_ms"], -1);
+                double end = GetJsonDouble(o["end_ms"], -1);
+                if (end <= start) continue;
+                cuts.Add(new CutRange(start, end));
+            }
+        }
+
+        var memes = new List<MemePlacement>();
+        if (session["memes"] is JsonArray memeArr)
+        {
+            int i = 0;
+            foreach (var node in memeArr)
+            {
+                if (node is not JsonObject o) continue;
+                string? file = GetJsonString(o["file_path"]);
+                double at = GetJsonDouble(o["at_source_sec_relative"], -1);
+                double dur = GetJsonDouble(o["duration_sec"], 0);
+                if (string.IsNullOrEmpty(file) || at < 0 || dur <= 0) continue;
+                memes.Add(new MemePlacement(file!, at, dur,
+                    GetJsonString(o["id"]) is string id && id.Length > 0 ? id : MemePlacement.NewId(i)));
+                i++;
+            }
+        }
+
+        _segments.Clear();
+        _segments.AddRange(segments);
+        _cuts.Clear();
+        _cuts.AddRange(cuts);
+        _memes.Clear();
+        _memes.AddRange(memes);
+        _baseSpeed = Math.Clamp(GetJsonDouble(session["base_speed"], _baseSpeed), 1.0, 40.0);
+        _freezeTimeMs = GetJsonDouble(session["freeze_time_ms"], -1.0);
+        if (_freezeTimeMs < -0.5) _freezeTimeMs = -1.0;
+        _freezeDurationS = Math.Max(0.1, GetJsonDouble(session["freeze_duration_s"], 1.0));
+
+        RuntimeLog.Info("Granular",
+            "RECOVERY_03 - restored an unfinished granular session from the crash-recovery state: " +
+            $"{segments.Count} segment(s), {cuts.Count} cut(s), {memes.Count} meme(s), " +
+            $"freeze {(_freezeTimeMs >= 0 ? $"{_freezeDurationS:0.0}s" : "none")}.");
+        return true;
+    }
+
+    /// <summary>
+    /// RECOVERY_03 — a deliberate close (Accept OR Cancel) ends the live session: strip the node,
+    /// keep every other key. Runs synchronously inside OnClosing — the file is tiny and the close
+    /// path already does synchronous saves (WindowBoundsHelper.SaveBoundsSync).
+    /// </summary>
+    private void RemoveGranularRecoverySession()
+    {
+        try { _granularRecoveryTimer?.Stop(); }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+
+        try
+        {
+            JsonObject? existing = AtomicJsonFile.ReadObject(_granularRecoveryPaths.RecoveryStateFile);
+            if (existing == null || !existing.ContainsKey(GranularRecoveryKey)) return;
+
+            existing.Remove(GranularRecoveryKey);
+            _granularRecovery.SaveState(existing);   // atomic; stamps schema_version itself
+            RuntimeLog.Info("Granular",
+                "RECOVERY_03 - granular session closed cleanly; live-session node removed from the recovery state.");
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+    }
+
+    private static double GetJsonDouble(JsonNode? node, double fallback)
+        => node is JsonValue v && v.TryGetValue(out double d) ? d : fallback;
+
+    private static double? GetJsonDoubleOrNull(JsonNode? node)
+        => node is JsonValue v && v.TryGetValue(out double d) ? d : null;
+
+    private static int? GetJsonIntOrNull(JsonNode? node)
+        => node is JsonValue v && v.TryGetValue(out int i) ? i : null;
+
+    private static bool GetJsonBool(JsonNode? node, bool fallback)
+        => node is JsonValue v && v.TryGetValue(out bool b) ? b : fallback;
+
+    private static string? GetJsonString(JsonNode? node)
+        => node is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
         try { _marchingAntsTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
@@ -7098,6 +7514,12 @@ public partial class GranularSpeedEditorWindow : Window
         try { _zoomTutorialTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         try { _thumbCts?.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         DeleteThumbStrip();
+
+        // RECOVERY_03 — a deliberate close (Accept OR Cancel) ends the live granular session; see
+        // RemoveGranularRecoverySession. A force-kill never reaches this line — which is exactly
+        // why the node surviving one is the point of the feature.
+        RemoveGranularRecoverySession();
+
         if (_isSafeToClose)
         {
             base.OnClosing(e);
@@ -7126,6 +7548,11 @@ public partial class GranularSpeedEditorWindow : Window
         // lists still go here so nothing survives the window that owned them.
         ClearUndoHistory("editor closed");
 
+        // RECOVERY_03 — OnClosing already stopped the debounce timer; release it here so nothing of
+        // this window outlives it.
+        try { _granularRecoveryTimer?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        _granularRecoveryTimer = null;
+
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
@@ -7148,7 +7575,7 @@ public partial class GranularSpeedEditorWindow : Window
     {
         if (_videoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("volume", masterVolumePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _ = _videoHost.IpcClient.SetPreviewVolumeAsync(masterVolumePercentage);
         }
     }
 

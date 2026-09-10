@@ -1,8 +1,9 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using FortniteVideoSoftware.Core.Infrastructure;
 using Microsoft.Win32;
 
 namespace FortniteVideoSoftware.App;
@@ -69,12 +70,16 @@ internal static class DeploymentLifecycle
         bool isWorker = args.Any(a => a.Equals("--install-worker", StringComparison.OrdinalIgnoreCase));
         bool noLaunch = args.Any(a => a.Equals("--no-launch", StringComparison.OrdinalIgnoreCase));
         bool quiet = args.Any(a => a.Equals("--quiet", StringComparison.OrdinalIgnoreCase));
+        // AUTO-UPDATE — set only by the in-app updater. Forces the preserve-settings answer to
+        // YES without asking, so an auto-upgrade never interrupts the user with the installer's
+        // question. The manual double-click install path never sets this and still asks.
+        bool autoUpdate = args.Any(a => a.Equals("--auto-update", StringComparison.OrdinalIgnoreCase));
 
         if (!isWorker)
         {
             await DeploymentReporter.ResetAsync("INSTALL LAUNCHER").ConfigureAwait(false);
             await DeploymentReporter.StepAsync("ELEVATION", "Preparing elevated installer worker from temporary staging.", 5).ConfigureAwait(false);
-            await RelaunchInstallFromTempAsync(noLaunch, quiet).ConfigureAwait(false);
+            await RelaunchInstallFromTempAsync(noLaunch, quiet, autoUpdate).ConfigureAwait(false);
             return 0;
         }
 
@@ -84,7 +89,7 @@ internal static class DeploymentLifecycle
             await DeploymentReporter.StepAsync("ELEVATION", "Current worker is not elevated. Requesting Administrator permission.", 10).ConfigureAwait(false);
             StartElevated(
                 Environment.ProcessPath ?? DeploymentFootprint.InstallPath,
-                BuildInstallWorkerArgs(noLaunch, quiet, ReadUserDesktopArgument(args) ?? ProbeInvokingUserDesktop()));
+                BuildInstallWorkerArgs(noLaunch, quiet, autoUpdate, ReadUserDesktopArgument(args) ?? ProbeInvokingUserDesktop()));
             return 0;
         }
 
@@ -114,7 +119,18 @@ internal static class DeploymentLifecycle
             }
 
             bool hasUserData = DeploymentFootprint.UserDataExists();
-            if (isUpgrade || hasUserData)
+            if (autoUpdate)
+            {
+                // AUTO-UPDATE — the preserve question was already answered "yes, keep everything"
+                // inside the app's update prompt, so the installer must not ask it again. Forcing
+                // preserve ON here (and only here) leaves the manual double-click install path
+                // unchanged: it still asks, exactly as before.
+                preserve = true;
+                await DeploymentReporter.StepAsync("PRESERVE CHOICE",
+                    "AUTO-UPDATE: preservation forced ON (approved in-app). ProgramData, Roaming and Local app data will be kept; no dialog was shown.",
+                    4).ConfigureAwait(false);
+            }
+            else if (isUpgrade || hasUserData)
             {
                 preserve = NativeDialog.ShowQuestion(
                     (isUpgrade ? "Previous Installation Detected!\r\n" : "Existing Settings Detected!\r\n") +
@@ -329,7 +345,12 @@ internal static class DeploymentLifecycle
             "Fortnite Video Software Setup");
     }
 
-    private static bool TryParseVersion(string? value, out Version version)
+    /// <summary>
+    /// Parses the numeric prefix out of a version-ish string ("v2026.09.06.0008" → 2026.9.6.8).
+    /// Internal so the in-app updater (<see cref="Services.UpdateService"/>) compares GitHub
+    /// release tags against the running build with the EXACT same rules the installer uses.
+    /// </summary>
+    internal static bool TryParseVersion(string? value, out Version version)
     {
         version = new Version(0, 0);
         if (string.IsNullOrWhiteSpace(value)) return false;
@@ -918,11 +939,14 @@ internal static class DeploymentLifecycle
                     UseShellExecute = true
                 });
 
-                await Task.Delay(1200).ConfigureAwait(false);
-                if (IsInstalledApplicationRunning())
+                for (int poll = 0; poll < 10; poll++)
                 {
-                    await DeploymentReporter.StepAsync("LAUNCH OK", $"Installed app started on attempt {attempt}.", 99).ConfigureAwait(false);
-                    return;
+                    if (IsInstalledApplicationRunning())
+                    {
+                        await DeploymentReporter.StepAsync("LAUNCH OK", $"Installed app started on attempt {attempt}.", 99).ConfigureAwait(false);
+                        return;
+                    }
+                    await Task.Delay(100).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -930,7 +954,7 @@ internal static class DeploymentLifecycle
                 await DeploymentReporter.StepAsync("LAUNCH RETRY", $"Attempt {attempt} failed: {ex.Message}", 98).ConfigureAwait(false);
             }
 
-            await Task.Delay(800).ConfigureAwait(false);
+            await Task.Delay(200).ConfigureAwait(false);
         }
 
         await DeploymentReporter.StepAsync("LAUNCH WARNING", "Install succeeded, but the installed process could not be confirmed as running.", 99).ConfigureAwait(false);
@@ -1005,7 +1029,7 @@ internal static class DeploymentLifecycle
                 break;
             }
 
-            await Task.Delay(500).ConfigureAwait(false);
+            await Task.Delay(100).ConfigureAwait(false);
         }
     }
 
@@ -1035,7 +1059,7 @@ internal static class DeploymentLifecycle
 
     private static async Task<bool> VerifyZeroFootprintAsync()
     {
-        await Task.Delay(500).ConfigureAwait(false);
+        await Task.Delay(100).ConfigureAwait(false);
         bool clean = true;
 
         foreach (string target in DeploymentFootprint.GetVerificationTargets())
@@ -1099,12 +1123,12 @@ internal static class DeploymentLifecycle
         return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
     }
 
-    private static async Task RelaunchInstallFromTempAsync(bool noLaunch, bool quiet)
+    private static async Task RelaunchInstallFromTempAsync(bool noLaunch, bool quiet, bool autoUpdate)
     {
         string source = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot resolve current executable path.");
 
 
-        string args = BuildInstallWorkerArgs(noLaunch, quiet);
+        string args = BuildInstallWorkerArgs(noLaunch, quiet, autoUpdate);
         
         if (!TryStartElevated(source, args))
         {
@@ -1121,16 +1145,17 @@ internal static class DeploymentLifecycle
     /// </summary>
     private const string DesktopShortcutArgument = "--user-desktop";
 
-    private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet)
+    private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet, bool autoUpdate)
     {
-        return BuildInstallWorkerArgs(noLaunch, quiet, ProbeInvokingUserDesktop());
+        return BuildInstallWorkerArgs(noLaunch, quiet, autoUpdate, ProbeInvokingUserDesktop());
     }
 
-    private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet, string? userDesktop)
+    private static string BuildInstallWorkerArgs(bool noLaunch, bool quiet, bool autoUpdate, string? userDesktop)
     {
         string args = "--install --install-worker" +
                       (noLaunch ? " --no-launch" : "") +
-                      (quiet ? " --quiet" : "");
+                      (quiet ? " --quiet" : "") +
+                      (autoUpdate ? " --auto-update" : "");
 
         return AppendUserDesktopArgument(args, userDesktop);
     }
@@ -1329,7 +1354,15 @@ internal static class DeploymentLifecycle
             }
             catch (TimeoutException)
             {
-                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+                // Deployment helpers are non-interactive, so the stdin quit command is skipped
+                // and the grace period is zero: hard kill the tree immediately — but WITH the
+                // bounded exit confirmation, so the output reads below never race a process
+                // that is still dying. Never throws.
+                await GracefulProcessTerminator.TerminateAsync(
+                    process,
+                    "PROCESS TIMEOUT",
+                    attemptQuitCommand: false,
+                    cooperativeGraceMs: 0).ConfigureAwait(false);
                 output = outputTask.IsCompletedSuccessfully ? outputTask.Result : string.Empty;
                 error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
                 await DeploymentReporter.StepAsync("PROCESS TIMEOUT",

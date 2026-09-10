@@ -1,0 +1,81 @@
+<!-- AUTO-UPDATE — transient, non-persisted modal, so it takes the same CenterOwner exemption
+     as ConfirmDialogWindow (see the ISSUE_06 note there). Do NOT add it to WindowBoundsHelper.
+     The four answers are stacked vertically in importance order: the recommended action first,
+     "not now" second, and the two quieter long-term choices below a separator. -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FortniteVideoSoftware.App.Controls.UpdateAvailableWindow"
+        Title="Update Available"
+        Width="580" SizeToContent="Height"
+        MinHeight="280"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0"
+                BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, *, Auto">
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="DialogTitle" Text="Update Available" Classes="WindowTitleText"
+                               Foreground="{DynamicResource TitleBarForeground}"/>
+                </Border>
+
+                <StackPanel Grid.Row="1" Margin="25,20,25,10" Spacing="10">
+                    <TextBlock Text="A new version of this app was released!"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"
+                               FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                    <TextBlock Text="Would you like to download and install it?"
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               FontSize="{DynamicResource AppFontSize13}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                    <StackPanel HorizontalAlignment="Center" Margin="0,6,0,4" Spacing="3">
+                        <TextBlock Name="YourVersionText" Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize12}" TextAlignment="Center"/>
+                        <TextBlock Name="NewVersionText" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                   FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Margin="25,5,25,25" Spacing="10">
+                    <Button Name="UpdateNowBtn" Classes="Success" Cursor="Hand" IsDefault="True"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            AutomationProperties.Name="Download and install the new version now"
+                            ToolTip.Tip="Downloads the new version, keeps every setting exactly as it is, installs it and reopens the app. Windows will still ask once for Administrator permission.">
+                        <TextBlock Text="Yes. Please download and upgrade to the latest released version now."
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                    </Button>
+
+                    <Button Name="NotNowBtn" Classes="Secondary" Cursor="Hand" IsCancel="True"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            AutomationProperties.Name="Not now, keep using this version"
+                            ToolTip.Tip="Not now. You may be asked again the next time the app starts.">
+                        <TextBlock Text="No. I like this version."
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                    </Button>
+
+                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,5,0,0"/>
+
+                    <Button Name="SkipBtn" Classes="Secondary" Cursor="Hand"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            AutomationProperties.Name="Skip this version"
+                            ToolTip.Tip="Stays quiet about this particular version from now on. Any newer version will be announced normally.">
+                        <TextBlock Text="Skip this version — only tell me when an even newer one comes out."
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                    </Button>
+
+                    <Button Name="NeverBtn" Classes="Secondary" Cursor="Hand"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            AutomationProperties.Name="Never tell me about updates again"
+                            ToolTip.Tip="Turns update checking off completely. You can turn it back on any time in Settings.">
+                        <TextBlock Text="Never tell me about updates again."
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

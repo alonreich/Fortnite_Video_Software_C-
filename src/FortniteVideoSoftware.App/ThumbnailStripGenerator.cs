@@ -27,6 +27,18 @@ namespace FortniteVideoSoftware.App;
 /// On success this returns a path to a temp PNG the caller MUST delete when it is done (both
 /// callers track theirs in a list and delete on teardown). It is not cached and never reused
 /// between runs — see mandate #1.
+///
+/// ── THROTTLE_01 — EVERY PROCESS THIS CLASS SPAWNS IS BELOW-NORMAL AND YIELDS ──────────────
+/// A film strip is a 60px UI decoration; it must never compete with the preview monitor for
+/// CPU or disk. Two mechanisms, both scoped to this file because this file owns every
+/// extraction process:
+///   * OS-level: every FFmpeg here is started at ProcessPriorityClass.BelowNormal, so the
+///     scheduler only gives it cores the Normal-priority player is not using.
+///   * Cooperative: <see cref="StreamAsync"/> accepts a yield gate; while it says "something
+///     is playing" the reader stops consuming, FFmpeg blocks on a full pipe, and its decode
+///     and disk reads stop — resuming later from the exact byte it stopped at. Only
+///     background callers (the prewarm) pass the gate; a lane a user is watching fill never
+///     waits on playback.
 /// </summary>
 public static class ThumbnailStripGenerator
 {
@@ -226,6 +238,20 @@ public static class ThumbnailStripGenerator
         catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
     }
 
+    /// <summary>
+    /// THROTTLE_01 — drops an extraction process one priority band below everything else in the
+    /// app. A 60px timeline decoration must never contend with the preview monitor for CPU:
+    /// Windows only schedules BelowNormal work onto cores the Normal-priority player has left,
+    /// so the strip still renders at full speed when nothing is playing and loses instantly when
+    /// something is. Best-effort by design — if the process already exited or the OS refuses,
+    /// the render simply proceeds at Normal priority.
+    /// </summary>
+    private static void TrySetBelowNormalPriority(Process process)
+    {
+        try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+        catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+    }
+
     private static async Task<bool> RunAsync(
         string ffmpegPath, string[] args, string outPng,
         CancellationToken cancellationToken, string logTag, string pathLabel)
@@ -247,6 +273,7 @@ public static class ThumbnailStripGenerator
             if (process == null) return false;
 
             try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            TrySetBelowNormalPriority(process); // THROTTLE_01
 
             Task<string> stdOut = process.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> stdErr = process.StandardError.ReadToEndAsync(cancellationToken);
@@ -305,6 +332,14 @@ public static class ThumbnailStripGenerator
     private const int StreamWatchdogSeconds = 30;
 
     /// <summary>
+    /// THROTTLE_01 — how often a yielding stream re-checks its gate while it waits for playback
+    /// to stop. 250ms is far below what a human can perceive as lag when the strip RESUMES, and
+    /// costs one volatile read and one timer per tick — nothing measurable next to the decode it
+    /// is deferring.
+    /// </summary>
+    private const int YieldPollMs = 250;
+
+    /// <summary>
     /// ══════════════════════════════════════════════════════════════════════════════════════════
     /// STRIP_03 — PAINT THE LANE WHILE IT IS STILL BEING DECODED.
     ///
@@ -343,6 +378,12 @@ public static class ThumbnailStripGenerator
     /// has landed. This is the moment to swap the loading overlay for the lane.</param>
     /// <param name="onFrame">Invoked ON THE UI THREAD after every frame, including the first.
     /// Repaint here.</param>
+    /// <param name="yieldWhile">THROTTLE_01 — optional cooperative-yield gate for BACKGROUND
+    /// callers only. While it returns true ("playback is active") the reader stops consuming;
+    /// FFmpeg's stdout pipe fills within a frame or two, it blocks on write, and its decode and
+    /// disk reads stop without any process suspension. Reading resumes from the exact byte it
+    /// stopped at when the gate opens. Pass null (the default) for on-demand strips a user is
+    /// watching fill — those must not wait on playback.</param>
     public static async Task<bool> StreamAsync(
         string ffmpegPath,
         string videoPath,
@@ -352,7 +393,8 @@ public static class ThumbnailStripGenerator
         Action<WriteableBitmap> onReady,
         Action? onFrame = null,
         int frames = DefaultFrames,
-        string logTag = "Filmstrip")
+        string logTag = "Filmstrip",
+        Func<bool>? yieldWhile = null)
     {
         if (durationSec <= 0) durationSec = 10;
         if (startSec < 0) startSec = 0;
@@ -404,6 +446,7 @@ public static class ThumbnailStripGenerator
             if (process == null) return false;
 
             try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            TrySetBelowNormalPriority(process); // THROTTLE_01
 
             using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             watchdog.CancelAfter(TimeSpan.FromSeconds(StreamWatchdogSeconds));
@@ -415,6 +458,22 @@ public static class ThumbnailStripGenerator
             int have = 0;
             while (landed < frames)
             {
+                // THROTTLE_01 — cooperative yield. While the gate says "something is playing",
+                // stop READING. The pipe fills within a frame or two, FFmpeg blocks on write, and
+                // its decode and disk reads stop — no process suspension, nothing to clean up.
+                // `have` (the partial frame in frameBuf) and `landed` ARE the cached byte offset:
+                // when playback pauses, the loop resumes at the exact byte it stopped at instead
+                // of restarting the process and re-reading the same blocks from disk. The
+                // watchdog is re-armed every poll, so the 30s ceiling keeps measuring ACTIVE
+                // decode time and can never fire on a stream that is merely being deferred; the
+                // CALLER's token is not re-armed, so a superseded or shutting-down render still
+                // cancels instantly out of the yield.
+                while (yieldWhile != null && yieldWhile())
+                {
+                    watchdog.CancelAfter(TimeSpan.FromSeconds(StreamWatchdogSeconds));
+                    await Task.Delay(YieldPollMs, cancellationToken).ConfigureAwait(false);
+                }
+
                 int read = await pipe.ReadAsync(frameBuf.AsMemory(have, frameBytes - have), ct)
                                      .ConfigureAwait(false);
                 if (read <= 0) break;

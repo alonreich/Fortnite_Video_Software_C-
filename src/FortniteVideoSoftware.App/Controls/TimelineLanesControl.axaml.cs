@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using System;
@@ -28,15 +29,61 @@ namespace FortniteVideoSoftware.App.Controls;
 /// resting on MinHeight is fragile), it REDRAWS ON SIZE CHANGE (there was no SizeChanged handler
 /// on either ruler canvas, so a first paint at width 0 left it permanently blank), and the ticks
 /// are full-height and high-contrast rather than 4px grey hairlines.
+///
+/// ── ZOOM_01 — TIMELINE ZOOM (horizontal affine scaling) ─────────────────────────────────────
+/// <see cref="ZoomFactor"/> (1.0–<see cref="MaxZoomFactor"/>) horizontally scales the whole
+/// presentation layer by sizing <c>LanesGrid</c> to viewport-width × factor inside a horizontal
+/// <see cref="ScrollViewer"/>. Ctrl+mouse-wheel zooms anchored at the cursor, the plain wheel
+/// pans while zoomed, and the viewport auto-follows the playhead when it leaves view. Every
+/// fraction-of-width computation in this control AND in the host windows becomes zoom-correct
+/// with no other change, and no time model ever sees a zoom factor.
 /// </summary>
 public partial class TimelineLanesControl : UserControl
 {
     /// <summary>Raised continuously while the user scrubs — caret drag, ruler click, lane click.</summary>
     public event Action<double>? SeekRequested;
 
+    /// <summary>ZOOM_01 — raised whenever the timeline zoom changes (UI thread).</summary>
+    public event Action<double>? ZoomChanged;
+
+    /// <summary>ZOOM_01 — the zoom ceiling (directive: default 1.0, max 10.0).</summary>
+    public const double MaxZoomFactor = 10.0;
+
+    /// <summary>ZOOM_01 — multiplicative zoom step per Ctrl+wheel notch (1.25^10 ≈ 9.3).</summary>
+    private const double ZoomWheelStep = 1.25;
+
+    /// <summary>ZOOM_01 — pixels panned per plain-wheel notch while zoomed in.</summary>
+    private const double WheelPanPx = 120.0;
+
+    /// <summary>ZOOM_01 — dead band either side of the playhead before the viewport follows it.</summary>
+    private const double CaretFollowMarginPx = 48.0;
+
     private double _durationSec;
     private double _positionSec;
     private bool _caretDragging;
+    private double _zoomFactor = 1.0;
+
+    /// <summary>
+    /// ZOOM_01 — declared height of the row above the ruler that the floating camera markers paint
+    /// into. 0 by default (Music Wizard phase 3 never floats markers); the Granular Speed Editor
+    /// sets 56 to cover <c>FreezeMarkerOverlayTop = -52</c> plus its glow, and cancels the growth
+    /// with a matching negative top margin so the on-screen ruler position does not move.
+    /// </summary>
+    public static readonly StyledProperty<double> MarkerHeadroomPxProperty =
+        AvaloniaProperty.Register<TimelineLanesControl, double>(nameof(MarkerHeadroomPx));
+
+    public double MarkerHeadroomPx
+    {
+        get => GetValue(MarkerHeadroomPxProperty);
+        set => SetValue(MarkerHeadroomPxProperty, value);
+    }
+
+    /// <summary>
+    /// ZOOM_01 — opt-in switch for the Ctrl+wheel zoom / wheel pan gestures. OFF by default so the
+    /// Music Wizard phase 3 instance of this control behaves exactly as before; the Granular Speed
+    /// Editor turns it on in <c>BuildLaneContent</c>.
+    /// </summary>
+    public bool ZoomGesturesEnabled { get; set; }
 
     public TimelineLanesControl()
     {
@@ -45,10 +92,39 @@ public partial class TimelineLanesControl : UserControl
         var lanes = this.FindControl<Grid>("LanesGrid");
         if (lanes != null) lanes.SizeChanged += (_, _) => Refresh();
 
+        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        if (scroll != null)
+        {
+            // Keep the content width pinned to viewport × zoom through viewport changes AND
+            // scrollbar show/hide (which changes Viewport without changing Bounds).
+            scroll.SizeChanged += (_, _) => ApplyZoomSizing();
+            scroll.ScrollChanged += (_, _) => ApplyZoomSizing();
+        }
+
+        // TUNNEL, not bubbling: the ScrollViewer consumes bubbling wheel events before the root
+        // would see them. Tunneling lets the Ctrl+wheel zoom win the race deterministically.
+        this.AddHandler(InputElement.PointerWheelChangedEvent, HandleTimelineWheel,
+            RoutingStrategies.Tunnel);
+
+        ApplyMarkerHeadroom();
+
         WireSeek(this.FindControl<Canvas>("RulerSeekCanvas"));
         WireSeek(this.FindControl<Canvas>("LaneASeekCanvas"));
         WireSeek(this.FindControl<Canvas>("LaneBSeekCanvas"));
         WireCaretDrag();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == MarkerHeadroomPxProperty) ApplyMarkerHeadroom();
+    }
+
+    private void ApplyMarkerHeadroom()
+    {
+        var lanes = this.FindControl<Grid>("LanesGrid");
+        if (lanes != null && lanes.RowDefinitions.Count > 0)
+            lanes.RowDefinitions[0].Height = new GridLength(Math.Max(0, MarkerHeadroomPx));
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
@@ -113,6 +189,7 @@ public partial class TimelineLanesControl : UserControl
         {
             if (_caretDragging) return;
             _positionSec = Math.Clamp(value, 0, Math.Max(0, _durationSec));
+            EnsureCaretVisible();   // ZOOM_01 — follow the playhead when it leaves the viewport
             UpdateCaret();
             UpdateClocks();
         }
@@ -124,6 +201,130 @@ public partial class TimelineLanesControl : UserControl
         DrawRuler();
         UpdateCaret();
         UpdateClocks();
+    }
+
+    /// <summary>
+    /// ZOOM_01 — the horizontal timeline zoom. 1.0 is the legacy 1:1 mapping; up to
+    /// <see cref="MaxZoomFactor"/> the lanes content is laid out at viewport × factor inside the
+    /// horizontal <c>LanesScroll</c> ScrollViewer, which supplies panning.
+    /// </summary>
+    public double ZoomFactor
+    {
+        get => _zoomFactor;
+        set
+        {
+            double z = Math.Clamp(value, 1.0, MaxZoomFactor);
+            if (z <= 1.0001) z = 1.0;
+            if (Math.Abs(z - _zoomFactor) < 0.0001) return;
+
+            _zoomFactor = z;
+            ApplyZoomSizing();
+            Refresh();
+            if (z <= 1.0001 && this.FindControl<ScrollViewer>("LanesScroll") is { } s)
+                s.Offset = new Vector(0, 0);
+            ZoomChanged?.Invoke(z);
+        }
+    }
+
+    /// <summary>
+    /// ZOOM_01 — THE zoom multiplication. Sizes <c>LanesGrid</c> to viewport-width × ZoomFactor so
+    /// the ScrollViewer gets its pan extent and every stretched layer (ruler, gridlines, both
+    /// lanes, seek surfaces, marker overlay, caret host, and the host window's own lane content)
+    /// reports the zoomed width through <c>Bounds.Width</c>. All fraction-based pixel math — this
+    /// control's and the host windows' <c>SrcMsToX</c>/<c>XToSrcMs</c> pairs — therefore carries
+    /// the factor exactly once, with no per-layer transform to drift out of agreement.
+    /// </summary>
+    private void ApplyZoomSizing()
+    {
+        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        var lanes = this.FindControl<Grid>("LanesGrid");
+        if (scroll == null || lanes == null) return;
+
+        double vp = scroll.Viewport.Width > 0 ? scroll.Viewport.Width : scroll.Bounds.Width;
+        if (vp <= 0) return;
+
+        double contentW = vp * _zoomFactor;
+        if (Math.Abs(lanes.Width - contentW) > 0.5) lanes.Width = contentW;
+    }
+
+    /// <summary>
+    /// ZOOM_01 — Ctrl+wheel zooms anchored at the cursor (the content fraction under the pointer
+    /// stays under the pointer); the plain wheel pans horizontally while zoomed in. Registered as a
+    /// TUNNEL handler so the ScrollViewer cannot swallow the gesture first.
+    /// </summary>
+    private void HandleTimelineWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (!ZoomGesturesEnabled) return;
+        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        if (scroll == null) return;
+        double vp = scroll.Viewport.Width;
+        if (vp <= 0) return;
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            e.Handled = true;
+
+            double oldZoom = _zoomFactor;
+            double newZoom = Math.Clamp(
+                e.Delta.Y > 0 ? oldZoom * ZoomWheelStep : oldZoom / ZoomWheelStep,
+                1.0, MaxZoomFactor);
+            if (newZoom <= 1.0001) newZoom = 1.0;
+            if (Math.Abs(newZoom - oldZoom) < 0.0001) return;
+
+            double oldContentW = Math.Max(1, vp * oldZoom);
+            double ptrVp = Math.Clamp(e.GetPosition(scroll).X, 0, vp);
+            double frac = Math.Clamp((scroll.Offset.X + ptrVp) / oldContentW, 0, 1);
+
+            _zoomFactor = newZoom;
+            ApplyZoomSizing();
+
+            double newContentW = vp * newZoom;
+            scroll.Offset = newZoom <= 1.0001
+                ? new Vector(0, 0)
+                : new Vector(Math.Clamp(frac * newContentW - ptrVp, 0, Math.Max(0, newContentW - vp)), 0);
+
+            Refresh();
+            ZoomChanged?.Invoke(newZoom);
+            return;
+        }
+
+        if (_zoomFactor > 1.0001 && Math.Abs(e.Delta.Y) > 0.001)
+        {
+            double maxOff = Math.Max(0, scroll.Extent.Width - vp);
+            if (maxOff <= 0) return;
+            e.Handled = true;
+            // Notch conventions differ across devices (±1 per detent on most, ±120 on raw Win32
+            // feeds, sub-1.0 on trackpads) — clamp to one WheelPanPx per event so every device
+            // pans the same speed.
+            double step = Math.Clamp(e.Delta.Y * WheelPanPx, -WheelPanPx, WheelPanPx);
+            scroll.Offset = new Vector(
+                Math.Clamp(scroll.Offset.X - step, 0, maxOff), 0);
+        }
+    }
+
+    /// <summary>
+    /// ZOOM_01 — pans the viewport so the playhead stays in view while scrubbing, dragging the
+    /// caret or playing. At zoom 1 the extent equals the viewport and this is a guaranteed no-op,
+    /// so non-zoomed hosts behave exactly as before.
+    /// </summary>
+    private void EnsureCaretVisible()
+    {
+        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        if (scroll == null) return;
+        double vp = scroll.Viewport.Width;
+        if (vp <= 0 || _durationSec <= 0) return;
+
+        double contentW = Math.Max(1, vp * _zoomFactor);
+        double x = Math.Clamp(_positionSec / _durationSec, 0, 1) * contentW;
+        double off = scroll.Offset.X;
+
+        double target = off;
+        if (x < off + CaretFollowMarginPx) target = x - CaretFollowMarginPx;
+        else if (x > off + vp - CaretFollowMarginPx) target = x - vp + CaretFollowMarginPx;
+
+        double maxOff = Math.Max(0, scroll.Extent.Width - vp);
+        target = Math.Clamp(target, 0, maxOff);
+        if (Math.Abs(target - off) > 0.5) scroll.Offset = new Vector(target, 0);
     }
 
 
@@ -245,7 +446,15 @@ public partial class TimelineLanesControl : UserControl
         {
             badge.IsVisible = _caretDragging;
             badgeText.Text = FormatClock(_positionSec);
-            badge.Margin = new Thickness(Math.Clamp(x + 8, 0, Math.Max(0, w - 60)), 2, 0, 0);
+
+            // ZOOM_01 — clamp the badge to the VISIBLE right edge, not the content width, or at
+            // high zoom it lands thousands of pixels past the viewport and never reappears. With
+            // no scrolling in play this is exactly the old `w - 60` clamp.
+            var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+            double visibleRight = w;
+            if (scroll != null && scroll.Viewport.Width > 0)
+                visibleRight = Math.Min(w, scroll.Offset.X + scroll.Viewport.Width);
+            badge.Margin = new Thickness(Math.Clamp(x + 8, 0, Math.Max(0, visibleRight - 60)), 2, 0, 0);
         }
     }
 
@@ -292,6 +501,7 @@ public partial class TimelineLanesControl : UserControl
             if (w <= 0 || _durationSec <= 0) return;
             double frac = Math.Clamp(e.GetPosition(host).X / w, 0, 1);
             _positionSec = frac * _durationSec;
+            EnsureCaretVisible();   // ZOOM_01 — edge-follow while dragging the caret
             UpdateCaret();
             UpdateClocks();
             SeekRequested?.Invoke(_positionSec);
@@ -321,6 +531,7 @@ public partial class TimelineLanesControl : UserControl
             if (w <= 0 || _durationSec <= 0) return;
             double frac = Math.Clamp(e.GetPosition(surface).X / w, 0, 1);
             _positionSec = frac * _durationSec;
+            EnsureCaretVisible();   // ZOOM_01 — a seek surface drag can reach past the viewport edge
             UpdateCaret();
             UpdateClocks();
             SeekRequested?.Invoke(_positionSec);

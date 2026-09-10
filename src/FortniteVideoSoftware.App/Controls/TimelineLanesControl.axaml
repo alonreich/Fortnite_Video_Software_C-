@@ -11,10 +11,11 @@
          all click-to-seek behaviour. The windows supply only their own lane CONTENT.
 
            col 0 : elapsed clock   (counts UP   — time into the clip)
-           col 1 : row 0 ruler 22px
-                   row 1 LANE A host 60px   <- window fills this
-                   row 2 LANE B host 60px   <- window fills this
-                   overlays spanning all three rows: gridlines, seek surfaces, caret
+           col 1 : row 0 marker headroom 0px    <- ZOOM_01, height set by MarkerHeadroomPx
+                   row 1 ruler 22px
+                   row 2 LANE A host 60px   <- window fills this
+                   row 3 LANE B host 60px   <- window fills this
+                   overlays spanning rows 1-3: gridlines, seek surfaces, caret
            col 2 : remaining clock (counts DOWN — time left)
 
          ⚠️ THE SEEK SURFACES ARE PER-ROW, NOT ONE BIG ONE. Granular's upper lane handles its own
@@ -23,6 +24,21 @@
 
          ⚠️ THE CARET GRAB BOX SITS ABOVE THE SEEK SURFACES on purpose — grabbing the playhead must
          never register as a click-to-seek. That is the whole reason it has a widened hit area.
+
+         ZOOM_01 — HORIZONTAL AFFINE SCALING (viewport virtualization). LanesGrid is sized IN
+         CODE to viewport-width × ZoomFactor and lives inside a horizontal ScrollViewer that
+         supplies the pan extent. Every layer stretches to that width, so every `fraction ×
+         Bounds.Width` computation — this control's ruler, gridlines and caret, and the host
+         windows' SrcMsToX/XToSrcMs pairs — is zoom-correct with no per-layer scaling code.
+         ⚠️ DO NOT "fix" this with a RenderTransform ScaleTransform instead: a RenderTransform
+         does not affect layout, so the ScrollViewer would have no extent to scroll, and
+         combining a transform with zoom-aware pixel math double-scales. The zoom factor enters
+         through the layer WIDTH, exactly once.
+         ⚠️ THE MARKER HEADROOM ROW IS LOAD-BEARING WHEN ZOOM IS ON. The floating camera markers
+         paint up to 52px ABOVE the ruler; inside a ScrollViewer that band must be real content
+         space or the presenter clip deletes the marker heads. The host sets MarkerHeadroomPx
+         (56 in the Granular editor) and cancels the on-screen growth with a matching negative
+         top margin so the ruler stays exactly where it was.
          ═══════════════════════════════════════════════════════════════════════════════════════ -->
 
     <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
@@ -32,38 +48,53 @@
                    MinWidth="52" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0"
                    ToolTip.Tip="Time into the clip"/>
 
-        <Grid Grid.Column="1" Name="LanesGrid" RowDefinitions="22,Auto,Auto" ClipToBounds="False">
+        <!-- ZOOM_01 — the horizontal viewport. LanesGrid's width is driven from this viewport in
+             code (viewport × ZoomFactor), never from the window, so the pan extent and every
+             layer's pixel math share one definition of "how zoomed are we". -->
+        <ScrollViewer Grid.Column="1" Name="LanesScroll"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled">
+            <Grid Name="LanesGrid" ClipToBounds="False">
+                <Grid.RowDefinitions>
+                    <!-- ZOOM_01 — headroom for the floating markers (see the header note). Height 0
+                         by default so non-zoomed hosts (Music Wizard phase 3) are laid out exactly
+                         as before; MarkerHeadroomPx sets it from code. -->
+                    <RowDefinition Height="0"/>
+                    <RowDefinition Height="22"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
             <!-- Ruler. Explicit Height, NOT MinHeight: a Canvas reports zero desired size, so an
                  Auto row would rest entirely on MinHeight surviving the measure pass. -->
-            <Border Grid.Row="0" Background="Transparent" Height="22" ClipToBounds="False">
+            <Border Grid.Row="1" Background="Transparent" Height="22" ClipToBounds="False">
                 <Canvas Name="RulerCanvas" IsHitTestVisible="False" ClipToBounds="False"
                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
             </Border>
 
-            <Border Grid.Row="1" Name="LaneABorder" BorderBrush="{DynamicResource AppPanelBrush}"
+            <Border Grid.Row="2" Name="LaneABorder" BorderBrush="{DynamicResource AppPanelBrush}"
                     BorderThickness="2" CornerRadius="2" MinHeight="60" ClipToBounds="False">
                 <Panel Name="LaneAHostPanel" ClipToBounds="False"/>
             </Border>
 
-            <Border Grid.Row="2" Name="LaneBBorder" BorderBrush="{DynamicResource AppPanelBrush}"
+            <Border Grid.Row="3" Name="LaneBBorder" BorderBrush="{DynamicResource AppPanelBrush}"
                     BorderThickness="2" CornerRadius="2" MinHeight="60">
                 <Panel Name="LaneBHostPanel"/>
             </Border>
 
             <!-- Faint vertical gridlines dropping from every ruler tick through both lanes, so a
                  moment can be read straight down the screen. Never hit-testable. -->
-            <Canvas Grid.Row="0" Grid.RowSpan="3" Name="GridlinesCanvas"
+            <Canvas Grid.Row="1" Grid.RowSpan="3" Name="GridlinesCanvas"
                     IsHitTestVisible="False" ClipToBounds="False" ZIndex="50"/>
 
             <!-- Per-row seek surfaces (see the header note). -->
-            <Canvas Grid.Row="0" Name="RulerSeekCanvas" Background="Transparent" Cursor="Hand"
+            <Canvas Grid.Row="1" Name="RulerSeekCanvas" Background="Transparent" Cursor="Hand"
                     ZIndex="100" ClipToBounds="False"
                     AutomationProperties.Name="Seek using the time ruler"/>
-            <Canvas Grid.Row="1" Name="LaneASeekCanvas" Background="Transparent" Cursor="Hand"
+            <Canvas Grid.Row="2" Name="LaneASeekCanvas" Background="Transparent" Cursor="Hand"
                     ZIndex="100" IsVisible="False"
                     AutomationProperties.Name="Seek using the upper lane"/>
-            <Canvas Grid.Row="2" Name="LaneBSeekCanvas" Background="Transparent" Cursor="Hand"
+            <Canvas Grid.Row="3" Name="LaneBSeekCanvas" Background="Transparent" Cursor="Hand"
                     ZIndex="100" IsVisible="False"
                     AutomationProperties.Name="Seek using the lower lane"/>
 
@@ -84,13 +115,15 @@
 
                  NO Background on purpose — an empty Canvas is not hit-testable, so ordinary clicks
                  fall straight through to the seek surfaces underneath and only real marker children
-                 take input. ClipToBounds=False lets a head float above row 0. -->
-            <Canvas Grid.Row="0" Grid.RowSpan="3" Name="MarkerOverlayCanvas"
+                 take input. ClipToBounds=False lets a head float above the ruler INTO THE HEADROOM
+                 ROW (ZOOM_01: inside a ScrollViewer that only works if the headroom row reserves
+                 the space). -->
+            <Canvas Grid.Row="1" Grid.RowSpan="3" Name="MarkerOverlayCanvas"
                     ZIndex="150" ClipToBounds="False"/>
 
             <!-- Caret: a wide invisible grab column carrying a thin visible line, plus the time
-                 badge. Spans all three rows so the ruler, both lanes and the playhead always agree. -->
-            <Panel Grid.Row="0" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"
+                 badge. Spans the ruler and both lanes so all three always agree. -->
+            <Panel Grid.Row="1" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"
                    IsHitTestVisible="False" ClipToBounds="False">
                 <!-- ISSUE_34: 14px was narrower than the playhead itself was easy to aim at, so most grab
                  attempts missed and registered as a click-to-seek jump instead of a drag. -->
@@ -101,14 +134,15 @@
                             HorizontalAlignment="Center" VerticalAlignment="Stretch"
                             IsHitTestVisible="False"/>
                 </Border>
-                <Border Name="CaretBadge" IsVisible="False" Background="{DynamicResource AppOverlayBrush}"
-                        CornerRadius="3" Padding="5,2" Margin="4,2,0,0"
-                        HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
-                    <TextBlock Name="CaretBadgeText" Foreground="{DynamicResource AppTextPrimaryBrush}"
-                               FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
-                </Border>
+                    <Border Name="CaretBadge" IsVisible="False" Background="{DynamicResource AppOverlayBrush}"
+                            CornerRadius="3" Padding="5,2" Margin="4,2,0,0"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+                        <TextBlock Name="CaretBadgeText" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                   FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
+                    </Border>
             </Panel>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
 
         <TextBlock Grid.Column="2" Name="RemainingLabel" Text="00:00"
                    Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"

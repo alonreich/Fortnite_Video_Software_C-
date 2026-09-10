@@ -1,4 +1,4 @@
-﻿
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -37,6 +37,8 @@ public class ProcessWorker : IDisposable
     /// progress line arrives.
     /// </summary>
     public string LastReportedSpeed { get; private set; } = "?";
+    public string LastVideoPipeline { get; private set; } = "";
+    public bool UsedGpuVideoProcessing { get; private set; }
 
     private int _lastEmittedPct = -1;
 
@@ -86,6 +88,14 @@ public class ProcessWorker : IDisposable
     public string HardwareStrategy { get; set; } = "CPU";
     public List<MusicTrack>? MusicTracks { get; set; }
     public double? TargetMbOverride { get; set; }
+
+    // ── PROBE_01 ── telemetry for the empirical NVENC complexity probe. Read by
+    // tests/MediaPipelineChecks to assert the probe ran, stayed off the CUDA decode
+    // path, and actually replaced the blind size retry on the first attempt.
+    public bool ComplexityProbeRan { get; private set; }
+    public double ComplexityProbeBitsPerSecond { get; private set; }
+    public double ComplexityProbeScaleFactor { get; private set; } = 1.0;
+    public string? LastComplexityProbeCommandLine { get; private set; }
     public double ThumbnailPosMs { get; set; }
     public double VolumeNormalizeDb { get; set; }
     public double IntroStillSec { get; set; }
@@ -165,6 +175,12 @@ public class ProcessWorker : IDisposable
     /// for the failure dialog. Never shown raw to the user.
     /// </summary>
     public string? FailureDetail { get; private set; }
+
+    /// <summary>
+    /// Strongly typed failure model providing structured category, stage, attempt history,
+    /// exit/error codes, and supporting diagnostics for ErrorReporter.
+    /// </summary>
+    public ExportFailure? LastFailure { get; private set; }
 
     /// <summary>
     /// ISSUE_13 — measured loudness stats from the real first pass. When populated, the export
@@ -311,9 +327,13 @@ public class ProcessWorker : IDisposable
     /// </summary>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        UsedGpuVideoProcessing = false;
         using var cancelMirror = cancellationToken.CanBeCanceled
             ? cancellationToken.Register(() => _isCanceled = true)
             : default;
+
+        var earlierAttempts = new List<ExportFailure>();
+        int attemptCounter = 0;
 
         try
         {
@@ -321,8 +341,17 @@ public class ProcessWorker : IDisposable
             var encoderMgr = await Task.Run(() => new EncoderManager(HardwareStrategy, _ffmpegPath), cancellationToken).ConfigureAwait(false);
             if (encoderMgr.EncoderPreflightError != null)
             {
-                FailureDetail = encoderMgr.EncoderPreflightError;
-                EmitFinished(false, encoderMgr.EncoderPreflightError);
+                LastFailure = new ExportFailure
+                {
+                    Category = ExportFailureCategory.MissingEncoder,
+                    Stage = ExportStage.Preflight,
+                    Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "EncoderPreflight", Encoder = HardwareStrategy, Description = $"Hardware encoder preflight ({HardwareStrategy})" },
+                    Summary = "The requested video encoder is not available on this system.",
+                    SpecificCause = encoderMgr.EncoderPreflightError,
+                    DiagnosticLines = [encoderMgr.EncoderPreflightError]
+                };
+                FailureDetail = LastFailure.FormatDiagnosticReport();
+                EmitFinished(false, LastFailure.Summary);
                 return;
             }
 
@@ -573,6 +602,78 @@ public class ProcessWorker : IDisposable
                         budgetDurationSec, audioKbps, targetMb, keepHighestRes, qualityLevel, outputRes, targetFps);
                 }
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // PROBE_01 — EMPIRICAL COMPLEXITY PROBING FOR SIZE-LOCKED NVENC EXPORTS.
+                //
+                // NVENC ignores `-pass 1` stats files, so a size-locked export used to
+                // allocate `-b:v` from budget arithmetic alone and then, if the file
+                // missed the target, run a full blind second encode scaled by a generic
+                // ratio — which often missed again. Instead we now MEASURE the clip's
+                // complexity before the main graph is built: a 5-second slice from the
+                // middle of the timeline is pushed through h264_nvenc at a reference
+                // CQ (no rate cap) to the null muxer, and its bits-per-second is the
+                // content's "appetite" at reference quality.
+                //
+                // Calibrated empirically on this project's NVENC stack (p7/hq, CBR,
+                // multipass fullres, maxrate == b:v): CBR honours the ask in BOTH
+                // regimes — starved content (appetite 2.5-4.5x budget, QP starved to
+                // ~44) landed +0.1..0.3% over the ask, and flush content filled a
+                // 100 Mbps ask at ~102 Mbps — so the landing error comes from mux
+                // overhead (~0.13% measured), integer bitrate rounding and the HRD
+                // tail of a 2x VBV buffer when the content is starved. The appetite
+                // ratio tells us WHICH regime we are in before spending a full encode:
+                //
+                //   factor = 1 - 0.004 (mux + rounding margin)
+                //                - min(0.004, 0.002 * (appetiteRatio - 1))  [starve tail]
+                //
+                // A 25.0 MB / 20 s export at appetite 2.5x budget therefore asks
+                // ~10.29 Mbps instead of ~10.36 and lands at ~24.8 MB — first attempt,
+                // no blind retry (the retry loop below stays as the safety net for
+                // probe failures and foreign NVENC SDK behaviour).
+                //
+                // ZERO-COPY GUARDRAIL: the probe builds its own argument list with NO
+                // `-hwaccel*` flags and software decoding; frames are uploaded to NVENC
+                // from system RAM. It never touches ExportVideoPipeline device flags
+                // and lives nowhere near the libmpv preview path (MpvVideoView).
+                //
+                // Probe failure (no NVENC session, unparsable output, cancellation)
+                // is non-fatal: the budget arithmetic above stands unchanged.
+                // ══════════════════════════════════════════════════════════════════════════
+                if (targetMb.HasValue && videoBitrateKbps.HasValue
+                    && HardwareStrategy != "CPU"
+                    && budgetDurationSec >= 8.0
+                    && encoderMgr.GetInitialEncoder(useCuda: true) == "h264_nvenc")
+                {
+                    double naiveKbps = videoBitrateKbps.Value;
+                    string probeResolution = IsMobileFormat ? "1080x1920" : OriginalResolution;
+                    double? appetiteBps = await RunNvencComplexityProbeAsync(
+                        actualExtractStartMs, actualExtractEndMs, probeResolution, targetFps,
+                        cancellationToken);
+
+                    if (appetiteBps.HasValue && appetiteBps.Value > 0)
+                    {
+                        ComplexityProbeRan = true;
+                        ComplexityProbeBitsPerSecond = appetiteBps.Value;
+
+                        double budgetBps = naiveKbps * 1000.0;
+                        double appetiteRatio = appetiteBps.Value / budgetBps;
+                        double overheadMargin = 0.004;
+                        double starveTail = appetiteRatio > 1.0
+                            ? Math.Min(0.004, 0.002 * (appetiteRatio - 1.0))
+                            : 0.0;
+                        ComplexityProbeScaleFactor = 1.0 - overheadMargin - starveTail;
+
+                        videoBitrateKbps = Math.Max(
+                            300, (int)Math.Round(naiveKbps * ComplexityProbeScaleFactor));
+
+                        CoreLogger.Info("FFmpeg",
+                            $"PROBE_01 complexity probe: appetite {appetiteBps.Value / 1e6:F2} Mbps vs " +
+                            $"{budgetBps / 1e6:F2} Mbps budget (ratio {appetiteRatio:F2}x) — scaling -b:v/-maxrate " +
+                            $"{naiveKbps} -> {videoBitrateKbps} kbps (x{ComplexityProbeScaleFactor:F4}) to land on " +
+                            $"{targetMb.Value:F1} MB first attempt.");
+                    }
+                }
+
                 var musicTracks = MusicTracks != null ? new List<MusicTrack>(MusicTracks) : new List<MusicTrack>();
                 if (musicTracks.Count == 0 && MusicConfig != null)
                 {
@@ -684,8 +785,17 @@ public class ProcessWorker : IDisposable
                     var space = DiskSpaceGuard.Check(_paths.TempDirectory, plannedOutputDir, estimatedBytes);
                     if (!space.Ok)
                     {
-                        FailureDetail = space.Message;
-                        EmitFinished(false, space.Message ?? "Not enough free disk space.");
+                        LastFailure = new ExportFailure
+                        {
+                            Category = ExportFailureCategory.DiskFull,
+                            Stage = ExportStage.Preflight,
+                            Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "DiskSpaceCheck", Description = "Target drive space check" },
+                            Summary = "The drive ran out of free space or has insufficient space to export this video.",
+                            SpecificCause = space.Message,
+                            DiagnosticLines = space.Message != null ? [space.Message] : Array.Empty<string>()
+                        };
+                        FailureDetail = LastFailure.FormatDiagnosticReport();
+                        EmitFinished(false, LastFailure.Summary);
                         return;
                     }
                 }
@@ -748,18 +858,21 @@ public class ProcessWorker : IDisposable
                 else
                 {
                     string cfrFilter = $"fps={targetFps}:start_time=0:round=near";
-                    coreFilters.Add($"[0:v]setpts='PTS/{SpeedFactor:F4}',{cfrFilter}[v_stabilized]");
+                    coreFilters.Add($"[0:v]setpts='PTS/{SpeedFactor.ToString("F4", CultureInfo.InvariantCulture)}',{cfrFilter}[v_stabilized]");
                     vStabilizedPad = "[v_stabilized]";
 
                     if (sourceHasAudio)
                     {
-                        var atempo = string.Join(",", GranularSpeedBuilder.BuildAtempoChain(SpeedFactor));
-                        coreFilters.Add($"{baseAudioLabel}aresample=48000:async=1,asetpts=PTS,{atempo}[a_prepared_base]");
+                        // AVSYNC_01 — an empty chain (speed 1.0x) must not leave a dangling comma;
+                        // the leading comma lives in the segment so it disappears with it.
+                        var atempoChain = GranularSpeedBuilder.BuildAtempoChain(SpeedFactor);
+                        string baseAtempoSegment = atempoChain.Count > 0 ? "," + string.Join(",", atempoChain) : "";
+                        coreFilters.Add($"{baseAudioLabel}aresample=48000:async=1,asetpts=PTS{baseAtempoSegment}[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
                     else
                     {
-                        coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={gDur:F4},asetpts=PTS-STARTPTS[a_prepared_base]");
+                        coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={gDur.ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
 
@@ -977,22 +1090,22 @@ public class ProcessWorker : IDisposable
                     int introFrames = Math.Max(1, (int)Math.Round(introDurationSec * 60.0));
                     int loopFrames = Math.Max(0, introFrames - 1);
 
-                    coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
+                    coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1).ToString("F4", CultureInfo.InvariantCulture)}," +
                                    $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
                                    $"loop=loop={loopFrames}:size=1:start=0," +
                                    $"fps={targetFps}:round=near," +
-                                   $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_same_frame]");
+                                   $"trim=duration={introDurationSec.ToString("F4", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS[v_intro_same_frame]");
                     coreFilters.Add($"{vStabilizedPad}setsar=1[v_main_after_intro]");
                     coreFilters.Add("[v_intro_same_frame][v_main_after_intro]concat=n=2:v=1:a=0[v_with_intro]");
                     vStabilizedPad = "[v_with_intro]";
 
                     if (!string.IsNullOrEmpty(gVHud))
                     {
-                        coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1):F4}," +
+                        coreFilters.Add($"[{introInputIndex}:v]trim=duration={Math.Max(0.2, introDurationSec + 0.1).ToString("F4", CultureInfo.InvariantCulture)}," +
                                        $"setpts=PTS-STARTPTS,select='eq(n\\,0)',setsar=1," +
                                        $"loop=loop={loopFrames}:size=1:start=0," +
                                        $"fps={targetFps}:round=near," +
-                                       $"trim=duration={introDurationSec:F4},setpts=PTS-STARTPTS[v_intro_hud_same_frame]");
+                                       $"trim=duration={introDurationSec.ToString("F4", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS[v_intro_hud_same_frame]");
                         coreFilters.Add($"{gVHud}setsar=1[gVHud_after_intro]");
                         coreFilters.Add("[v_intro_hud_same_frame][gVHud_after_intro]concat=n=2:v=1:a=0[gVHud_with_intro]");
                         gVHud = "[gVHud_with_intro]";
@@ -1002,7 +1115,7 @@ public class ProcessWorker : IDisposable
                 if (introDurationSec > 0)
                 {
                     coreFilters.Add($"anullsrc=r=48000:cl=stereo," +
-                                   $"atrim=duration={introDurationSec:F4},asetpts=PTS-STARTPTS[a_intro_silence]");
+                                   $"atrim=duration={introDurationSec.ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_intro_silence]");
                     coreFilters.Add($"[a_intro_silence]{currentALabel}concat=n=2:v=0:a=1[a_with_intro]");
                     currentALabel = "[a_with_intro]";
                 }
@@ -1281,8 +1394,10 @@ public class ProcessWorker : IDisposable
                 bool success = false;
                 string lastError = "Render failed.";
 
+
                 string? lastSuccessfulEncoder = null;
                 string? lastAttemptedEncoder = null;
+                bool gpuFiltersDisabled = false;
                 async Task<bool> RunFfmpegOnce(bool useCuda, int? requestedBitrate, int attemptNum)
                 {
                     string currentEncoder = lastSuccessfulEncoder ?? lastAttemptedEncoder ?? encoderMgr.GetInitialEncoder(useCuda);
@@ -1301,12 +1416,23 @@ public class ProcessWorker : IDisposable
                             currentEncoder, requestedBitrate, gDur, targetFps, qualityLevel,
                             targetMb.HasValue);
 
+                        var videoPipeline = ExportVideoPipeline.Create(currentEncoder, filterScript, !gpuFiltersDisabled);
+                        videoPipeline.ApplyCodecFlags(codecArgs);
+                        // IO_OPT: Pass short filter graphs inline to avoid the disk write.
+                        // Falls back to -filter_complex_script for long graphs.
+                        bool useInlineFilter = videoPipeline.FilterGraph.Length < 8000;
+                        if (!useInlineFilter)
+                            await File.WriteAllTextAsync(filterScriptPath, videoPipeline.FilterGraph, cancellationToken);
+                        LastVideoPipeline = videoPipeline.Description;
+                        CoreLogger.Info("FFmpeg", LastVideoPipeline);
+
                         var ffmpegArgs = new List<string>
                         {
                             "-y", "-hide_banner", "-progress", "pipe:1"
                         };
 
-                        var decodeFlags = EncoderManager.GetDecodeFlags(currentEncoder);
+                        ffmpegArgs.AddRange(videoPipeline.DeviceFlags);
+                        var decodeFlags = videoPipeline.DecodeFlags;
 
                         ffmpegArgs.AddRange(decodeFlags);
                         ffmpegArgs.AddRange([
@@ -1349,7 +1475,9 @@ public class ProcessWorker : IDisposable
                         foreach (var voTake in voTakes)
                             ffmpegArgs.AddRange(["-i", voTake.Path]);
 
-                        ffmpegArgs.AddRange(["-filter_complex_script", filterScriptPath]);
+                        ffmpegArgs.AddRange(useInlineFilter
+                            ? ["-filter_complex", videoPipeline.FilterGraph]
+                            : ["-filter_complex_script", filterScriptPath]);
                         double totalOutputDurationSec = renderDurationSec + memeTotalDuration;
 
                         bool graphIsMaster = twoPass && twoPassFastRoute;
@@ -1403,7 +1531,7 @@ public class ProcessWorker : IDisposable
                             : graphIsSlowPass1
                                 ? "two-pass SLOW (pass 1 over the filter graph — not enough temp disk for a master)"
                                 : "single-pass";
-                        CoreLogger.Info("FFmpeg", $"Starting encode: decode={EncoderManager.DescribeDecoder(currentEncoder)}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={routeLabel}, attempt={attemptNum}.");
+                        CoreLogger.Info("FFmpeg", $"Starting encode: decode={videoPipeline.DecoderDescription}, encode={EncoderManager.DescribeEncoder(currentEncoder)}, mode={rcLabel}, route={routeLabel}, attempt={attemptNum}.");
                         CoreLogger.Info("FFmpeg", $"Executing Final Pipeline Command:\n{_ffmpegPath} {cmdLine}");
 
                         try
@@ -1417,7 +1545,7 @@ public class ProcessWorker : IDisposable
                             string needle = $"-filter_complex_script {scriptToken}";
                             if (cmdLine.Contains(needle))
                             {
-                                string inlineCmd = cmdLine.Replace(needle, $"-filter_complex \"{filterScript}\"");
+                                string inlineCmd = cmdLine.Replace(needle, $"-filter_complex \"{videoPipeline.FilterGraph}\"");
                                 CoreLogger.Info("FFmpeg",
                                     "FINAL COMMAND (filter graph inlined — copy/paste runnable, this is exactly what happened):\n" +
                                     $"\"{_ffmpegPath}\" {inlineCmd}");
@@ -1447,8 +1575,40 @@ public class ProcessWorker : IDisposable
                             psi.ArgumentList.Add(arg);
                         }
 
-                        var proc = Process.Start(psi);
-                        if (proc == null) return false;
+                        attemptCounter++;
+                        var attemptId = new ExportAttemptIdentity
+                        {
+                            AttemptIndex = attemptCounter,
+                            Operation = graphIsMaster ? "MasterPass" : (twoPass ? "TwoPassEncode" : "SinglePassEncode"),
+                            Encoder = currentEncoder,
+                            Description = $"Attempt #{attemptCounter}: {currentEncoder} ({(videoPipeline.UsesGpuFrames ? "GPU resident" : "Software filters")})"
+                        };
+
+                        var collector = new FfmpegDiagnosticCollector();
+                        Process proc;
+                        try
+                        {
+                            proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start process: {_ffmpegPath}");
+                        }
+                        catch (Exception startEx)
+                        {
+                            var startFailure = FfmpegErrorClassifier.Classify(
+                                ExportStage.Encoding,
+                                attemptId,
+                                processExitCode: null,
+                                processStartException: startEx,
+                                isTimeout: false,
+                                isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
+                                collector: null,
+                                earlierAttempts: earlierAttempts);
+
+                            earlierAttempts.Add(startFailure);
+                            LastFailure = startFailure;
+                            FailureDetail = startFailure.FormatDiagnosticReport();
+                            lastError = startFailure.Summary;
+                            return false;
+                        }
+
                         _currentProcess = proc;
 
                         bool disposedByGuard = false;
@@ -1465,10 +1625,10 @@ public class ProcessWorker : IDisposable
                         var progressTask = Task.Run(async () =>
                         {
                             using var reader = proc.StandardOutput;
-                            while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+                            while (!reader.EndOfStream)
                             {
-                                var line = await reader.ReadLineAsync(cancellationToken);
-                                if (line == null) continue;
+                                var line = await reader.ReadLineAsync().ConfigureAwait(false);
+                                if (line == null) break;
                                 if (line.StartsWith("out_time_us="))
                                 {
                                     if (long.TryParse(line.AsSpan(12), out long outTimeUs))
@@ -1493,22 +1653,18 @@ public class ProcessWorker : IDisposable
                                     if (v.Length > 0 && v != "N/A") LastReportedSpeed = v;
                                 }
                             }
-                        }, cancellationToken);
+                        });
 
-                        var stderrChannel = System.Threading.Channels.Channel.CreateBounded<string>(new System.Threading.Channels.BoundedChannelOptions(400) { SingleWriter = true, FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
                         var stderrTask = Task.Run(async () =>
                         {
                             using var reader = proc.StandardError;
                             while (!reader.EndOfStream)
                             {
-                                string? line = await reader.ReadLineAsync(cancellationToken);
-                                if (!string.IsNullOrWhiteSpace(line)
-                                    && !line.StartsWith("frame=") && !line.StartsWith("size="))
-                                {
-                                    stderrChannel.Writer.TryWrite(line);
-                                }
+                                string? line = await reader.ReadLineAsync().ConfigureAwait(false);
+                                if (line == null) break;
+                                collector.AddStderrLine(line);
                             }
-                        }, cancellationToken);
+                        });
 
                         try { await proc.WaitForExitAsync(cancellationToken); }
                         catch (OperationCanceledException) { }
@@ -1516,11 +1672,6 @@ public class ProcessWorker : IDisposable
                         try { await Task.WhenAll(progressTask, stderrTask); }
                         catch (OperationCanceledException) { }
                         catch (Exception ex) { CoreLogger.Fail("FFmpeg", $"Reader task error: {ex.Message}"); }
-
-                        string[] stderrLines;
-                        var errList = new System.Collections.Generic.List<string>();
-                        while (stderrChannel.Reader.TryRead(out var errLine)) errList.Add(errLine);
-                        stderrLines = errList.ToArray();
 
                         int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
                         _currentProcess = null;
@@ -1532,6 +1683,7 @@ public class ProcessWorker : IDisposable
                             CoreLogger.Info("FFmpeg", "Encode stopped because the user cancelled.");
                             lastError = CancelledMessage;
                             FailureDetail = null;
+                            LastFailure = null;
                             return false;
                         }
 
@@ -1562,6 +1714,7 @@ public class ProcessWorker : IDisposable
                                 {
                                     lastError = CancelledMessage;
                                     FailureDetail = null;
+                                    LastFailure = null;
                                     return false;
                                 }
 
@@ -1576,27 +1729,52 @@ public class ProcessWorker : IDisposable
                             }
 
                             lastSuccessfulEncoder = currentEncoder;
+                            UsedGpuVideoProcessing = videoPipeline.UsesGpuFrames;
+                            FailureDetail = null;
+                            LastFailure = null;
+                            earlierAttempts.Clear();
                             twoPassProducedResult = twoPass;
 
                             bool cpuFallback = currentEncoder == "libx264" && useCuda && !encoderMgr.ForcedCpu;
                             string passLabel = twoPass ? (twoPassFastRoute ? " route=two-pass(fast)" : " route=two-pass(slow)") : "";
                             CoreLogger.Info("FFmpeg",
-                                $"PIPELINE RESULT: decode={EncoderManager.DescribeDecoder(currentEncoder)} " +
+                                $"PIPELINE RESULT: decode={videoPipeline.DecoderDescription} " +
                                 $"encode={EncoderManager.DescribeEncoder(currentEncoder)} speed={LastReportedSpeed}{passLabel}" +
                                 (cpuFallback
                                     ? " — WARNING: this is the CPU fallback, the requested hardware encoder FAILED."
                                     : string.Empty));
 
-                            if (stderrLines.Length > 0)
-                                CoreLogger.Debug("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+                            var diagLines = collector.GetDiagnosticLines();
+                            if (diagLines.Count > 0)
+                                CoreLogger.Debug("FFmpeg", $"FFmpeg diagnostics ({diagLines.Count} lines):\n{string.Join("\n", diagLines)}");
                             return true;
                         }
 
-                        lastError = $"FFmpeg exited with code {exitCode}";
-                        FailureDetail = stderrLines.Length > 0 ? string.Join("\n", stderrLines) : lastError;
-                        CoreLogger.Fail("FFmpeg", lastError);
-                        if (stderrLines.Length > 0)
-                            CoreLogger.Fail("FFmpeg", $"FFmpeg stderr (last {stderrLines.Length} lines):\n{string.Join("\n", stderrLines)}");
+                        var attemptFailure = FfmpegErrorClassifier.Classify(
+                            ExportStage.Encoding,
+                            attemptId,
+                            processExitCode: exitCode,
+                            processStartException: null,
+                            isTimeout: false,
+                            isCancellation: false,
+                            collector: collector,
+                            earlierAttempts: earlierAttempts);
+
+                        earlierAttempts.Add(attemptFailure);
+                        LastFailure = attemptFailure;
+                        FailureDetail = attemptFailure.FormatDiagnosticReport();
+                        lastError = attemptFailure.Summary;
+                        CoreLogger.Fail("FFmpeg", $"Attempt #{attemptCounter} failed (exit {exitCode}): {attemptFailure.Summary}");
+                        var failureDiags = collector.GetDiagnosticLines();
+                        if (failureDiags.Count > 0)
+                            CoreLogger.Fail("FFmpeg", $"FFmpeg diagnostic lines:\n{string.Join("\n", failureDiags)}");
+
+                        if (videoPipeline.UsesGpuFrames && !_isCanceled && !cancellationToken.IsCancellationRequested)
+                        {
+                            gpuFiltersDisabled = true;
+                            CoreLogger.Info("FFmpeg", "GPU video processing failed. Retrying the original effects with the same hardware encoder.");
+                            continue;
+                        }
 
                         if (useCuda && !_isCanceled)
                         {
@@ -1762,12 +1940,27 @@ public class ProcessWorker : IDisposable
                     if (_isCanceled || cancellationToken.IsCancellationRequested)
                     {
                         FailureDetail = null;
+                        LastFailure = null;
                         CoreLogger.Info("Process", "Export cancelled by the user.");
                         EmitFinished(false, CancelledMessage);
                         return;
                     }
 
-                    EmitFinished(false, lastError);
+                    if (LastFailure == null)
+                    {
+                        LastFailure = FfmpegErrorClassifier.Classify(
+                            ExportStage.Encoding,
+                            new ExportAttemptIdentity { AttemptIndex = attemptCounter > 0 ? attemptCounter : 1, Operation = "SinglePassEncode", Encoder = lastAttemptedEncoder },
+                            processExitCode: null,
+                            processStartException: null,
+                            isTimeout: false,
+                            isCancellation: false,
+                            explicitLines: [lastError],
+                            earlierAttempts: earlierAttempts);
+                        FailureDetail = LastFailure.FormatDiagnosticReport();
+                    }
+
+                    EmitFinished(false, LastFailure.Summary);
                     return;
                 }
 
@@ -1783,15 +1976,37 @@ public class ProcessWorker : IDisposable
 
                 try
                 {
-                    File.Copy(corePath, finalOutput, true);
+                    // IO_OPT: File.Move is nearly instant on the same volume (atomic rename).
+                    // This avoids writing the entire finished video a second time.
+                    // Falls back to File.Copy + File.Delete for cross-volume moves.
+                    try
+                    {
+                        File.Move(corePath, finalOutput, overwrite: true);
+                    }
+                    catch (IOException)
+                    {
+                        // Cross-volume move — fall back to copy + delete.
+                        File.Copy(corePath, finalOutput, true);
+                        try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+                    }
                 }
                 catch (Exception copyEx)
                 {
                     string? rescued = TryRescueFinishedRender(corePath);
 
                     CoreLogger.Fail("Output",
-                        $"The finished render could not be copied to the destination: {copyEx.Message}");
+                        $"The finished render could not be saved to the destination: {copyEx.Message}");
                     CoreLogger.Debug("Output", $"Destination was: {finalOutput}");
+
+                    LastFailure = new ExportFailure
+                    {
+                        Category = ExportFailureCategory.DestinationError,
+                        Stage = ExportStage.Finalizing,
+                        Attempt = new ExportAttemptIdentity { AttemptIndex = 1, Operation = "SaveOutput", Description = "Copy render to destination" },
+                        Summary = "Your video finished encoding, but it could not be saved to the destination folder.",
+                        SpecificCause = copyEx.Message,
+                        DiagnosticLines = [copyEx.ToString()]
+                    };
 
                     if (rescued != null)
                     {
@@ -1814,8 +2029,6 @@ public class ProcessWorker : IDisposable
                     }
                     return;
                 }
-
-                try { File.Delete(corePath); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
                 if (ThumbnailPosMs > 0)
                 {
@@ -1928,6 +2141,7 @@ public class ProcessWorker : IDisposable
         {
             _isCanceled = true;
             FailureDetail = null;
+            LastFailure = null;
             CoreLogger.Info("Process", "Export cancelled by the user.");
             EmitFinished(false, CancelledMessage);
         }
@@ -1936,6 +2150,7 @@ public class ProcessWorker : IDisposable
             if (_isCanceled || cancellationToken.IsCancellationRequested)
             {
                 FailureDetail = null;
+                LastFailure = null;
                 CoreLogger.Info("Process", $"Export cancelled by the user (during: {ex.Message}).");
                 EmitFinished(false, CancelledMessage);
                 return;
@@ -1943,8 +2158,11 @@ public class ProcessWorker : IDisposable
 
             CoreLogger.Fail("Process", $"Pipeline failed with exception: {ex.Message}");
             CoreLogger.Debug("Process", $"Pipeline failed with exception detail: {ex}");
-            FailureDetail = ex.ToString();
-            EmitFinished(false, ex.Message);
+            LastFailure = FfmpegErrorClassifier.ClassifyException(ex, ExportStage.Encoding,
+                new ExportAttemptIdentity { AttemptIndex = attemptCounter > 0 ? attemptCounter : 1, Operation = "Pipeline", Description = "Export pipeline execution" },
+                earlierAttempts);
+            FailureDetail = LastFailure.FormatDiagnosticReport();
+            EmitFinished(false, LastFailure.Summary);
         }
     }
 
@@ -2123,10 +2341,10 @@ public class ProcessWorker : IDisposable
             var progressTask = Task.Run(async () =>
             {
                 using var reader = proc.StandardOutput;
-                while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+                while (!reader.EndOfStream)
                 {
-                    var line = await reader.ReadLineAsync(cancellationToken);
-                    if (line == null) continue;
+                    var line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (line == null) break;
                     if (line.StartsWith("out_time_us=") && long.TryParse(line.AsSpan(12), out long outTimeUs))
                     {
                         if (totalOutputDurationSec > 0)
@@ -2141,21 +2359,19 @@ public class ProcessWorker : IDisposable
                         if (v.Length > 0 && v != "N/A") LastReportedSpeed = v;
                     }
                 }
-            }, cancellationToken);
+            });
 
-            var tail = new System.Collections.Generic.Queue<string>(40);
+            var collector = new FfmpegDiagnosticCollector();
             var stderrTask = Task.Run(async () =>
             {
                 using var reader = proc.StandardError;
                 while (!reader.EndOfStream)
                 {
-                    string? line = await reader.ReadLineAsync(CancellationToken.None);
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.StartsWith("frame=") || line.StartsWith("size=")) continue;
-                    tail.Enqueue(line);
-                    if (tail.Count > 40) tail.Dequeue();
+                    string? line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (line == null) break;
+                    collector.AddStderrLine(line);
                 }
-            }, CancellationToken.None);
+            });
 
             try { await proc.WaitForExitAsync(cancellationToken); }
             catch (OperationCanceledException) { return false; }
@@ -2166,10 +2382,21 @@ public class ProcessWorker : IDisposable
             int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
             if (exitCode == 0) return true;
 
-            string detail = tail.Count > 0 ? string.Join("\n", tail) : $"FFmpeg exited with code {exitCode}";
-            FailureDetail = detail;
-            CoreLogger.Fail("FFmpeg", $"Two-pass {phaseTitle} failed (exit {exitCode}).");
-            CoreLogger.Fail("FFmpeg", $"FFmpeg stderr tail:\n{detail}");
+            var passFailure = FfmpegErrorClassifier.Classify(
+                ExportStage.TwoPassTail,
+                new ExportAttemptIdentity { AttemptIndex = 1, Operation = phaseTitle, Description = $"Two-pass tail ({phaseTitle})" },
+                processExitCode: exitCode,
+                processStartException: null,
+                isTimeout: false,
+                isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
+                collector: collector);
+
+            LastFailure = passFailure;
+            FailureDetail = passFailure.FormatDiagnosticReport();
+            CoreLogger.Fail("FFmpeg", $"Two-pass {phaseTitle} failed (exit {exitCode}): {passFailure.Summary}");
+            var passDiags = collector.GetDiagnosticLines();
+            if (passDiags.Count > 0)
+                CoreLogger.Fail("FFmpeg", $"FFmpeg diagnostic lines:\n{string.Join("\n", passDiags)}");
             return false;
         }
         finally
@@ -2218,6 +2445,176 @@ public class ProcessWorker : IDisposable
         if (spanEnd > cursor + 0.02) ranges.Add((cursor, spanEnd));
 
         return ranges;
+    }
+
+    /// <summary>
+    /// PROBE_01 — measures the clip's NVENC encoding complexity with a 5-second
+    /// reference-quality sample, replacing blind bitrate guessing for size-locked
+    /// exports. See the PROBE_01 block in RunAsync for the calibration data and
+    /// the margin model that consumes the returned bits-per-second figure.
+    ///
+    /// The slice is taken from the MIDDLE of the extract range (`-ss mid -t 5`),
+    /// decoded in SOFTWARE (no `-hwaccel*` flags — the zero-copy guardrail) and
+    /// encoded through h264_nvenc at reference CQ 20 with no rate cap, writing to
+    /// the null muxer so nothing ever touches the disk. Speed segments collapse
+    /// naturally: the `fps` filter duplicates/drops frames exactly like the export
+    /// graph does, so duplicated frames cost ~nothing and the measurement already
+    /// reflects the rendered timeline's complexity.
+    ///
+    /// Returns null (non-fatally) when NVENC is unavailable, the output cannot be
+    /// parsed, or the export is cancelled — callers keep the budget-derived rate.
+    /// </summary>
+    private async Task<double?> RunNvencComplexityProbeAsync(
+        double extractStartMs, double extractEndMs, string outputResolution, string targetFps,
+        CancellationToken cancellationToken)
+    {
+        double extractSec = (extractEndMs - extractStartMs) / 1000.0;
+        if (extractSec < 2.0 || string.IsNullOrEmpty(InputPath) || !File.Exists(InputPath)) return null;
+
+        double probeSec = Math.Min(5.0, extractSec);
+        double probeStartSec = extractStartMs / 1000.0 + (extractSec - probeSec) / 2.0;
+
+        // "1080x1920" / "1920x1080" -> scale geometry. Unparsable input falls back
+        // to FHD landscape rather than aborting the export's probing attempt.
+        int width = 1920, height = 1080;
+        string[] dims = (outputResolution ?? "").Split('x');
+        if (dims.Length == 2 &&
+            int.TryParse(dims[0], out int w) && int.TryParse(dims[1], out int h) &&
+            w > 0 && h > 0)
+        {
+            width = w;
+            height = h;
+        }
+
+        // Frame-count -> seconds needs the real fps; accept "60" or "60000/1001".
+        double fps = 60.0;
+        string fpsExpr = string.IsNullOrWhiteSpace(targetFps) ? "60" : targetFps.Trim();
+        int slash = fpsExpr.IndexOf('/');
+        string fpsNum = slash > 0 ? fpsExpr[..slash] : fpsExpr;
+        string fpsDen = slash > 0 ? fpsExpr[(slash + 1)..] : "1";
+        if (double.TryParse(fpsNum, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double num) &&
+            double.TryParse(fpsDen, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double den) &&
+            den > 0 && num / den > 1.0 && num / den <= 240.0)
+        {
+            fps = num / den;
+        }
+
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var args = new List<string>
+        {
+            "-y", "-hide_banner",
+            "-ss", Math.Max(0, probeStartSec).ToString("F3", ci),
+            "-t", probeSec.ToString("F3", ci),
+            "-i", InputPath,
+            "-vf", $"fps={targetFps},scale={width}:{height},setsar=1,format=yuv420p",
+            // Reference-quality appetite measurement — deliberately NOT the export's
+            // CBR flag set: no rate cap, single pass, so the bits the content WANTS
+            // at CQ 20 are the bits it GETS.
+            "-c:v", "h264_nvenc",
+            "-preset", "p7", "-tune", "hq",
+            "-rc", "vbr", "-cq", "20", "-multipass", "disabled",
+            "-spatial-aq", "1", "-temporal-aq", "1",
+            "-an", "-sn", "-dn",
+            "-f", "null", "-"
+        };
+
+        LastComplexityProbeCommandLine = $"{_ffmpegPath} {FormatForLog(args)}";
+        CoreLogger.Info("FFmpeg",
+            $"PROBE_01: sampling the middle {probeSec:F1}s at {width}x{height}@{fps:F0} through h264_nvenc CQ 20 " +
+            "(software decode, null muxer, no hwaccel flags).");
+        CoreLogger.Debug("FFmpeg", $"PROBE_01 command: {LastComplexityProbeCommandLine}");
+        EmitProgress(1, "Probing Clip Complexity (NVENC)", 0);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = _ffmpegPath,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (string arg in args) psi.ArgumentList.Add(arg);
+
+        using var process = Process.Start(psi);
+        if (process == null) return null;
+
+        try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+
+        using var probeKill = cancellationToken.Register(() =>
+        {
+            try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+        });
+
+        var lastLines = new Queue<string>(100);
+        using var reader = process.StandardError;
+        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line == null) continue;
+
+            lastLines.Enqueue(line);
+            if (lastLines.Count > 100) lastLines.Dequeue();
+
+            int timeIdx = line.IndexOf("time=");
+            if (timeIdx != -1)
+            {
+                int endIdx = line.IndexOf(" ", timeIdx);
+                if (endIdx == -1) endIdx = line.Length;
+                string timeStr = line.Substring(timeIdx + 5, endIdx - (timeIdx + 5));
+                if (TimeSpan.TryParse(timeStr, out TimeSpan ts))
+                {
+                    int percent = probeSec > 0 ? (int)Math.Clamp(ts.TotalSeconds / probeSec * 100, 0, 100) : 0;
+                    EmitProgress(1, "Probing Clip Complexity (NVENC)",
+                        (int)Math.Round(percent / 100.0 * AnalysisBandMax));
+                }
+            }
+        }
+
+        try { await process.WaitForExitAsync(cancellationToken); }
+        catch (OperationCanceledException) { return null; }
+
+        if (_isCanceled || cancellationToken.IsCancellationRequested) return null;
+
+        if (process.ExitCode != 0)
+        {
+            CoreLogger.Info("FFmpeg",
+                $"PROBE_01 complexity probe failed (exit {process.ExitCode}) — keeping the budget-derived bitrate. " +
+                "The size-retry loop remains the safety net.");
+            return null;
+        }
+
+        string stdErr = string.Join("\n", lastLines);
+
+        // "video: 15850KiB" from the null-muxer summary = exact video payload of the slice.
+        double kib = 0;
+        var videoMatches = System.Text.RegularExpressions.Regex.Matches(stdErr, @"video:\s*([\d.]+)\s*[kK]i?B");
+        if (videoMatches.Count == 0 ||
+            !double.TryParse(videoMatches[^1].Groups[1].Value, System.Globalization.NumberStyles.Float, ci, out kib))
+        {
+            CoreLogger.Info("FFmpeg", "PROBE_01 could not parse the probe's video size from ffmpeg output.");
+            return null;
+        }
+
+        // Denominator from the FINAL frame count, not from `time=` (which trails the
+        // last frame's PTS): 300 frames at 60 fps is exactly 5.000s of content.
+        long frames = 0;
+        var frameMatches = System.Text.RegularExpressions.Regex.Matches(stdErr, @"frame=\s*(\d+)");
+        if (frameMatches.Count > 0)
+        {
+            long.TryParse(frameMatches[^1].Groups[1].Value, out frames);
+        }
+
+        double measuredSec = frames / fps;
+        if (kib <= 0 || frames <= 0 || measuredSec < 0.5)
+        {
+            CoreLogger.Info("FFmpeg",
+                $"PROBE_01 measurement was degenerate ({kib:F0} KiB, {frames} frames) — keeping the budget-derived bitrate.");
+            return null;
+        }
+
+        double appetiteBps = kib * 1024.0 * 8.0 / measuredSec;
+        return appetiteBps > 0 ? appetiteBps : null;
     }
 
     private async Task PerformLoudnormPassAsync(double measureStartMs, double measureEndMs, CancellationToken cancellationToken)

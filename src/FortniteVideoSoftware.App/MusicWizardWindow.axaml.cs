@@ -759,9 +759,9 @@ public partial class MusicWizardWindow : Window
     private void OnGlobalMasterVolumeChanged(int volume)
     {
         if (WizardVideoHost?.IpcClient != null)
-            _ = WizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume(volume));
+            _ = WizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume(volume));
         if (_audioIpcClient != null)
-            _ = _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume(volume));
+            _ = _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume(volume));
     }
 
     private void SharedInit()
@@ -1191,7 +1191,7 @@ public partial class MusicWizardWindow : Window
 
                         if (wizardVideoHost?.IpcClient != null)
 
-                            _ = wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
+                            _ = wizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume());
 
                         SaveWizardVolumes();
                         UpdateProblemFlags();
@@ -3234,7 +3234,7 @@ public partial class MusicWizardWindow : Window
 
                 var videoVolSlider = this.FindControl<Slider>("VideoVolSlider");
                 if (videoVolSlider != null)
-                    await wizardVideoHost.IpcClient.SetPropertyDoubleAsync("volume", GetPreviewVideoVolume());
+                    await wizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume());
             }
             SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
 
@@ -3939,7 +3939,7 @@ public partial class MusicWizardWindow : Window
             await _audioIpcClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
         }
 
-        await _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+        await _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
         ApplyPreviewMusicFilters();
         await _audioIpcClient.SetPropertyAsync("pause", "no");
     }
@@ -4150,7 +4150,7 @@ public partial class MusicWizardWindow : Window
     private void ApplyPreviewMusicVolume()
     {
         if (_audioIpcClient == null) return;
-        _ = _audioIpcClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+        _ = _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
     }
 
     private void UpdateProblemFlags()
@@ -4388,7 +4388,7 @@ public partial class MusicWizardWindow : Window
                 await audioClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
             }
 
-            await audioClient.SetPropertyDoubleAsync("volume", GetPreviewMusicVolume());
+            await audioClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
             ApplyPreviewMusicFilters();
             await audioClient.SetPropertyAsync("pause", "no");
         }

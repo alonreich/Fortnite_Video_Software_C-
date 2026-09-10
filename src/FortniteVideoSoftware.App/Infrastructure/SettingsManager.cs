@@ -81,6 +81,16 @@ public class AppSettings
     public string VideoEncoderOverride { get; set; } = "Auto";
 
     /// <summary>
+    /// AUTO-UPDATE — master switch for the in-app update suggestor. TRUE by default: the app
+    /// quietly probes the single "latest" GitHub release at startup (at most once per 24h) and
+    /// only ever ASKS — nothing is downloaded or installed without an explicit Yes. The update
+    /// prompt's "Never tell me about updates again" choice writes false here, so this checkbox
+    /// always reflects the truth and can re-enable the feature at any time. FALSE means no
+    /// network call, no prompt, no nag — ever.
+    /// </summary>
+    public bool AutoUpdateChecks { get; set; } = true;
+
+    /// <summary>
     /// ISSUE_13 — the suite is a dark-first video tool and its Light palette is the weaker of the
     /// two, so a fresh install starts in Dark rather than inheriting whatever the OS happens to
     /// be set to. Users who want Light still get it from Settings > Appearance > Theme.
@@ -395,7 +405,7 @@ public static class SettingsManager
     /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
     /// case to <see cref="Migrate"/>. NEVER reuse a number.
     /// </summary>
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
@@ -498,6 +508,14 @@ public static class SettingsManager
             // defaults (RememberLastChoice, both last-choices true) reproduce EXACTLY the
             // behaviour that build had, so there is nothing to convert.
             from = 5;
+        }
+
+        if (from < 6)
+        {
+            // AUTO-UPDATE — purely additive. A v5 file has no AutoUpdateChecks recorded, and the
+            // C# property default (true) IS the intended behaviour for everyone: checks on, ask
+            // before doing anything. Nothing to convert.
+            from = 6;
         }
 
         loaded.SchemaVersion = from;

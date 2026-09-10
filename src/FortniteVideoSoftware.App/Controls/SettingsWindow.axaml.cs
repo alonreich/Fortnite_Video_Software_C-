@@ -92,6 +92,7 @@ public partial class SettingsWindow : Window
         ConfirmMainAppSwitchTool = SettingsManager.Instance.ConfirmMainAppSwitchTool;
         ConfirmVoiceOverDeleteTake = SettingsManager.Instance.ConfirmVoiceOverDeleteTake;
         ConfirmFinishedDialogExit = SettingsManager.Instance.ConfirmFinishedDialogExit;
+        AutoUpdateChecks = SettingsManager.Instance.AutoUpdateChecks;
 
         UiSoundsEnabled = SettingsManager.Instance.UiSoundsEnabled;
         UiSoundVolume = SettingsManager.Instance.UiSoundVolume;
@@ -152,6 +153,9 @@ public partial class SettingsWindow : Window
 
     /// <summary>ISSUE_07 / ISSUE_04 — pending values. Both ship OFF; see SettingsManager.</summary>
     public bool ConfirmVoiceOverDeleteTake { get; set; }
+
+    /// <summary>AUTO-UPDATE — pending value of <see cref="AppSettings.AutoUpdateChecks"/> (ships ON).</summary>
+    public bool AutoUpdateChecks { get; set; }
     public bool ConfirmFinishedDialogExit { get; set; }
 
     /// <summary>AUDIO_06 — pending value for the UI sound master switch; committed by APPLY.</summary>
@@ -762,6 +766,7 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmMainAppSwitchTool = ConfirmMainAppSwitchTool;
         SettingsManager.Instance.ConfirmVoiceOverDeleteTake = ConfirmVoiceOverDeleteTake;
         SettingsManager.Instance.ConfirmFinishedDialogExit = ConfirmFinishedDialogExit;
+        SettingsManager.Instance.AutoUpdateChecks = AutoUpdateChecks;
 
         SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
         SettingsManager.Instance.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);

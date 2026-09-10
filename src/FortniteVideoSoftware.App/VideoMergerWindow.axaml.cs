@@ -1,4 +1,4 @@
-﻿using Avalonia.Input;
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -980,7 +980,7 @@ public partial class VideoMergerWindow : Window
     {
         if (_videoHost?.IpcClient != null)
         {
-            _ = _videoHost.IpcClient.SetPropertyAsync("volume", masterVolumePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _ = _videoHost.IpcClient.SetPreviewVolumeAsync(masterVolumePercentage);
         }
     }
 
@@ -1411,8 +1411,8 @@ public partial class VideoMergerWindow : Window
             worker.ClipTrims = BuildClipTrimList();
             _activeMergerWorker = worker;
 
-            var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
-            double currentMainVol = volSlider != null ? volSlider.Value / 100.0 : 1.0;
+            // Only the Wizard owns export gain; the bubble slider controls monitoring.
+            double currentMainVol = _musicResult?.VideoVolume ?? 1.0;
 
             if (_musicResult != null)
             {
@@ -1493,9 +1493,16 @@ public partial class VideoMergerWindow : Window
                     else
                     {
                         SetQueueStatus("Merge failed. See the error dialog for details.", true);
-                        await ErrorReporter.ShowAsync(this, "Merge failed",
-                            "The videos could not be merged, so no file was written.",
-                            worker.FailureDetail ?? msg);
+                        if (worker.LastFailure != null)
+                        {
+                            await ErrorReporter.ShowAsync(this, worker.LastFailure);
+                        }
+                        else
+                        {
+                            await ErrorReporter.ShowAsync(this, "Merge failed",
+                                "The videos could not be merged, so no file was written.",
+                                worker.FailureDetail ?? msg);
+                        }
                     }
                 });
             };
@@ -1518,9 +1525,10 @@ public partial class VideoMergerWindow : Window
             UpdateQueueState();
             SetQueueStatus("Merge error. See the error dialog for details.", true);
 
-            await ErrorReporter.ShowAsync(this, "Merge could not start",
-                "Something went wrong while setting up the merge, so it never began.",
-                ex.ToString());
+            var failure = FortniteVideoSoftware.Core.Media.FfmpegErrorClassifier.ClassifyException(ex,
+                FortniteVideoSoftware.Core.Media.ExportStage.Preflight,
+                new FortniteVideoSoftware.Core.Media.ExportAttemptIdentity { AttemptIndex = 1, Operation = "MergeSetup", Description = "Merge preparation" });
+            await ErrorReporter.ShowAsync(this, failure);
         }
         finally
         {
@@ -1777,13 +1785,38 @@ public partial class VideoMergerWindow : Window
 
     private void ReturnToMainApp()
     {
+        try
+        {
+            var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths);
+            store.SendHandoffSync(new FortniteVideoSoftware.Core.Ipc.HandoffPayload
+            {
+                SourceProcess = "VideoMerger",
+                TargetProcess = "MainWindow"
+            });
+        }
+        catch (System.Exception ex) { RuntimeLog.Debug("IPC", $"Merger return handoff: {ex.Message}"); }
+
         _recovery.ReleaseLockOnly();
         ShutdownVideoPipeline();
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)
         {
-            _ = Task.Run(async () => { try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); } Environment.Exit(0); });
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    for (int i = 0; i < 40; i++)
+                    {
+                        if (p.HasExited) break;
+                        p.Refresh();
+                        if (p.MainWindowHandle != IntPtr.Zero) break;
+                        await Task.Delay(50);
+                    }
+                }
+                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+                Environment.Exit(0);
+            });
         }
         else Environment.Exit(0);
     }
@@ -1821,7 +1854,7 @@ public partial class VideoMergerWindow : Window
             if (_videoHost?.IpcClient != null)
             {
                 var stopTask = _videoHost.IpcClient.SendCommandAsync("stop");
-                var timeoutTask = Task.Delay(2000);
+                var timeoutTask = Task.Delay(500);
                 await Task.WhenAny(stopTask, timeoutTask);
             }
             ShutdownVideoPipeline();

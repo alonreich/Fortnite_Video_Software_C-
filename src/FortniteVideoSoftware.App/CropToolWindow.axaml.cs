@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -1993,7 +1993,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         var thinkingOverlay = this.FindControl<Grid>("ThinkingOverlay");
         if (thinkingOverlay != null) thinkingOverlay.IsVisible = true;
         
-        await Task.Delay(100);
+        await Task.Yield();
 
         bool saved = await SaveConfigAsync();
 
@@ -2033,7 +2033,37 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
                 }
                 
                 summaryOverlay.IsVisible = true;
-                await Task.Delay(6000);
+
+                var returnNowButton = this.FindControl<Button>("ReturnNowButton");
+                var returnTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                void OnReturnNow(object? s, RoutedEventArgs e) => returnTcs.TrySetResult(true);
+                void OnOverlayPointer(object? s, Avalonia.Input.PointerPressedEventArgs e) => returnTcs.TrySetResult(true);
+                void OnOverlayKey(object? s, Avalonia.Input.KeyEventArgs e)
+                {
+                    if (e.Key is Avalonia.Input.Key.Enter or Avalonia.Input.Key.Space or Avalonia.Input.Key.Escape)
+                    {
+                        returnTcs.TrySetResult(true);
+                    }
+                }
+
+                if (returnNowButton != null) returnNowButton.Click += OnReturnNow;
+                summaryOverlay.PointerPressed += OnOverlayPointer;
+                summaryOverlay.KeyDown += OnOverlayKey;
+                summaryOverlay.Focus();
+
+                try
+                {
+                    using var cts = new CancellationTokenSource(1000);
+                    cts.Token.Register(() => returnTcs.TrySetResult(false));
+                    await returnTcs.Task;
+                }
+                finally
+                {
+                    if (returnNowButton != null) returnNowButton.Click -= OnReturnNow;
+                    summaryOverlay.PointerPressed -= OnOverlayPointer;
+                    summaryOverlay.KeyDown -= OnOverlayKey;
+                }
             }
             await ReturnToMainAppAsync();
             return;
@@ -2060,30 +2090,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             RuntimeLog.Info("CROP", "Saving crop coordinates.");
             var store = new CropConfigStore(_paths);
             
-            try
-            {
-                using var guard = FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.Acquire(
-                    FortniteVideoSoftware.Core.Ipc.StateTransferStore.MutexName,
-                    TimeSpan.FromSeconds(5));
-                string confPath = _paths.CropCoordinatesFile;
-                if (System.IO.File.Exists(confPath))
-                {
-                    for (int i = 4; i >= 1; i--)
-                    {
-                        string oldB = $"{confPath}.bak{i}";
-                        string newB = $"{confPath}.bak{i + 1}";
-                        if (System.IO.File.Exists(oldB)) System.IO.File.Move(oldB, newB, true);
-                    }
-                    System.IO.File.Copy(confPath, $"{confPath}.bak1", true);
-                    RuntimeLog.Info("CROP", $"Rotation backup created: {IOPath.GetFileName(confPath)}.bak1");
-                    RuntimeLog.Debug("CROP", $"Rotation backup path: {confPath}.bak1");
-                }
-            }
-            catch (Exception backupErr)
-            {
-                RuntimeLog.Info("CROP", $"Failed to create rotation backup: {backupErr.Message}");
-            }
-
+            // Recover before changing backups. SaveAsync owns the single, locked rotation.
             JsonObject config = await store.LoadAsync();
 
             JsonObject crops = EnsureObject(config, "crops_1080p");
@@ -2160,6 +2167,13 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         try
         {
             var store = new StateTransferStore(_paths);
+            await store.SendHandoffAsync(new FortniteVideoSoftware.Core.Ipc.HandoffPayload
+            {
+                SourceProcess = "CropTool",
+                TargetProcess = "MainWindow",
+                ReturnedFromCropTool = true,
+                SelectedClipPath = _videoPath
+            });
             await store.UpdatePropertiesAsync(new JsonObject
             {
                 ["returned_from_crop_tool"] = true
@@ -2172,7 +2186,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             {
                 _ = Task.Run(async () =>
                 {
-                    try { for (int i = 0; i < 50; i++) { if (p.HasExited) break; p.Refresh(); if (p.MainWindowHandle != IntPtr.Zero) break; await Task.Delay(100); } await Task.Delay(500); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+                    try
+                    {
+                        for (int i = 0; i < 40; i++)
+                        {
+                            if (p.HasExited) break;
+                            p.Refresh();
+                            if (p.MainWindowHandle != IntPtr.Zero) break;
+                            await Task.Delay(50);
+                        }
+                    }
+                    catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
                 });
             }
@@ -2861,6 +2885,15 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        // KEYFOCUS_01 — while a text input owns focus (the Element Name box, the new overlay
+        // profile name, …) the keyboard belongs to it: no delete, no undo, no arrow-nudging
+        // while typing. Return without touching e.Handled so the control keeps the key.
+        if (FortniteVideoSoftware.App.Infrastructure.KeyboardFocusPolicy.HotkeysSuspended(TopLevel.GetTopLevel(this)))
+        {
+            base.OnKeyDown(e);
+            return;
+        }
+
         if (e.Key == Key.Delete)
         {
             DeleteSelectedItem();

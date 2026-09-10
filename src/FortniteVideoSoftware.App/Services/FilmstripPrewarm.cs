@@ -2,6 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
+using FortniteVideoSoftware.Core.Media;
 
 namespace FortniteVideoSoftware.App.Services;
 
@@ -39,6 +40,21 @@ namespace FortniteVideoSoftware.App.Services;
 /// ⚠️ FAILURE IS ALWAYS SILENT AND ALWAYS SAFE. Every caller treats a miss as "render it now".
 /// Do not add throwing, do not add retries, and do not make a screen WAIT on a prewarm — the
 /// whole point is that it is invisible whether it worked or not.
+///
+/// ── ⚠️ THROTTLE_01 — THE PREWARM YIELDS TO PLAYBACK, TWO WAYS ──────────────────────────────
+/// A prewarm competes with whatever mpv is doing for the same disk and CPU, and it is the one
+/// strip in the app nobody is waiting for, so it is the ONLY caller that passes a
+/// cooperative-yield gate to <see cref="ThumbnailStripGenerator.StreamAsync"/>:
+///   * LAYER 1 (never start): while <see cref="MpvIpcClient.AnyPlaybackActive"/> is true, the
+///     debounce re-queues the job instead of spawning — zero processes, zero disk, one 450ms
+///     timer retry.
+///   * LAYER 2 (stop mid-stream): if playback STARTS during a render, the stream reader stops
+///     consuming; FFmpeg blocks on a full pipe, its I/O drops to zero, and it resumes from the
+///     cached byte offset the moment playback pauses. The prewarm's OWN token is deliberately
+///     NOT cancelled by playback: cancelling would throw away every decoded frame and restart
+///     the process, re-reading from disk the exact blocks already paid for — the opposite of
+///     the goal. Superseded ranges and app shutdown still cancel instantly, exactly as before.
+/// On-demand strips (a lane a user is watching fill) never pass the gate and never wait.
 /// ══════════════════════════════════════════════════════════════════════════════════════════════
 /// </summary>
 internal static class FilmstripPrewarm
@@ -122,6 +138,17 @@ internal static class FilmstripPrewarm
         lock (_gate) { job = _pending; _pending = null; }
         if (job == null) return;
 
+        // THROTTLE_01 — LAYER 1: while anything is playing, do not spawn the process at all.
+        // Put the job back and retry one debounce later; this costs a single 450ms timer tick
+        // and saves the file open + container-header walk an FFmpeg would do before its first
+        // frame. `??=` keeps a newer job (a fresh Schedule that raced this tick) in place.
+        if (MpvIpcClient.AnyPlaybackActive)
+        {
+            lock (_gate) { _pending ??= job; }
+            _debounce?.Start();
+            return;
+        }
+
         var j = job.Value;
         Start(j.ffmpegPath, j.videoPath, j.startSec, j.durSec, j.frames, j.key);
     }
@@ -149,7 +176,8 @@ internal static class FilmstripPrewarm
                     onReady: wb => built = wb,
                     onFrame: null,
                     frames: frames,
-                    logTag: "Prewarm").ConfigureAwait(false);
+                    logTag: "Prewarm",
+                    yieldWhile: () => MpvIpcClient.AnyPlaybackActive).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex) { RuntimeLog.Swallowed(ex); return; }

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 
@@ -9,17 +9,8 @@ public sealed class StateTransferStore
     public const string MutexName = @"Global\FvsStateTransferMutex";
     public const int SchemaVersion = 1;
     public static readonly TimeSpan DefaultMutexTimeout = TimeSpan.FromSeconds(15);
-
-    /// <summary>
-    /// ISSUE_10 — the budget for saves that happen on the UI thread (window Closing handlers).
-    ///
-    /// The 15s default is right for a background write that must not lose data, but catastrophic
-    /// on the interface thread: three processes share this mutex, so closing a window could hang
-    /// the app for a quarter of a minute with a "Not Responding" title bar. Window bounds are a
-    /// convenience, not data worth freezing the app for — if the lock is genuinely contended for
-    /// two whole seconds, skip the save and let the position be slightly stale.
-    /// </summary>
     public static readonly TimeSpan InteractiveMutexTimeout = TimeSpan.FromSeconds(2);
+
     private static readonly string[] BoundsKeys =
     [
         "MainWindowBounds",
@@ -35,12 +26,14 @@ public sealed class StateTransferStore
         "VoiceOverPreviewMonitorBounds",
         "MergerPreviewMonitorBounds"
     ];
+
     private static readonly string[] SubprocessStateKeys =
     [
         "AdvancedEditorState",
         "VideoMergerState",
         "CropToolState"
     ];
+
     private static readonly string[] DirectoryPreferenceKeys =
     [
         "UploadVideoDirectory",
@@ -57,8 +50,42 @@ public sealed class StateTransferStore
 
     public ApplicationPaths Paths { get; }
 
+    public static JsonObject SanitizeObjectInternal(JsonObject state, string context) => SanitizeObject(state, context);
+    public static void ApplySanitizedUpdatesInternal(JsonObject current, JsonObject updates, string context) => ApplySanitizedUpdates(current, updates, context);
+
+    public static JsonObject LoadFromDiskDirect(ApplicationPaths paths)
+    {
+        try
+        {
+            var store = new StateTransferStore(paths);
+            return store.LoadUnlocked();
+        }
+        catch
+        {
+            return new JsonObject { ["schema_version"] = SchemaVersion };
+        }
+    }
+
     public async Task<JsonObject> LoadAsync(CancellationToken cancellationToken = default)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            return server.GetState();
+        }
+
+        var startedServer = NamedPipeStateServer.TryStart(Paths);
+        if (startedServer != null)
+        {
+            return startedServer.GetState();
+        }
+
+        var ipcState = await NamedPipeStateClient.GetStateAsync(NamedPipeStateClient.FastProbeTimeout, cancellationToken).ConfigureAwait(false);
+        if (ipcState != null)
+        {
+            return ipcState;
+        }
+
         return await Task.Run(() =>
         {
             Paths.EnsureWritableDirectories();
@@ -79,12 +106,26 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <param name="mutexTimeout">
-    /// ISSUE_10 — how long to wait for the cross-process lock. Pass
-    /// <see cref="InteractiveMutexTimeout"/> when calling from the UI thread.
-    /// </param>
     public JsonObject LoadSync(CancellationToken cancellationToken = default, TimeSpan? mutexTimeout = null)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            return server.GetState();
+        }
+
+        var startedServer = NamedPipeStateServer.TryStart(Paths);
+        if (startedServer != null)
+        {
+            return startedServer.GetState();
+        }
+
+        var ipcState = NamedPipeStateClient.GetStateSync(NamedPipeStateClient.FastProbeTimeout, cancellationToken);
+        if (ipcState != null)
+        {
+            return ipcState;
+        }
+
         try
         {
             Paths.EnsureWritableDirectories();
@@ -101,21 +142,18 @@ public sealed class StateTransferStore
         }
     }
 
-    /// <summary>
-    /// ISSUE_09 — writes the supplied state.
-    ///
-    /// WHAT WAS WRONG: this method only caught <c>LockException</c>. Validation throws
-    /// <c>InvalidDataException</c> for an unrecognised key, which escaped as a faulted Task — some
-    /// callers `await` it inside a broad `try {} catch (System.Exception ex) { CoreLogger.Swallowed(ex); }` and some do not, so depending on the
-    /// call site the write was either swallowed or blew up somewhere unrelated. Either way the
-    /// user's change appeared to save and was gone at next launch.
-    ///
-    /// Now: unusable entries are DROPPED (and logged) and everything valid is still written, so a
-    /// single bad key can no longer cost the user the rest of their settings. A genuine I/O failure
-    /// is logged loudly instead of vanishing.
-    /// </summary>
     public async Task SaveAsync(JsonObject state, CancellationToken cancellationToken = default)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.SaveState(state);
+            return;
+        }
+
+        bool sent = await NamedPipeStateClient.SaveStateAsync(state, NamedPipeStateClient.DefaultTimeout, cancellationToken).ConfigureAwait(false);
+        if (sent) return;
+
         await Task.Run(() =>
         {
             Paths.EnsureWritableDirectories();
@@ -144,12 +182,18 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// ISSUE_09 — merges the supplied properties into the stored state. See
-    /// <see cref="SaveAsync"/> for why unrecognised keys are dropped rather than thrown.
-    /// </summary>
     public async Task UpdatePropertiesAsync(JsonObject updates, CancellationToken cancellationToken = default)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.UpdateProperties(updates);
+            return;
+        }
+
+        bool sent = await NamedPipeStateClient.UpdatePropertiesAsync(updates, NamedPipeStateClient.DefaultTimeout, cancellationToken).ConfigureAwait(false);
+        if (sent) return;
+
         await Task.Run(() =>
         {
             Paths.EnsureWritableDirectories();
@@ -180,23 +224,18 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Synchronous update for use in Closing/Closed event handlers where
-    /// async-over-sync would deadlock the UI thread. Performs I/O directly
-    /// on the calling thread without Task.Run + GetAwaiter().GetResult().
-    ///
-    /// ISSUE_09 — the bare `catch (System.Exception ex) { CoreLogger.Swallowed(ex); }` here meant a genuinely failed save looked exactly like a
-    /// successful one, and this is the variant used on window CLOSE, i.e. the one that persists
-    /// window bounds and folder preferences. A failure is now logged so it is at least
-    /// diagnosable, and bad keys are dropped rather than aborting the whole write.
-    /// </summary>
-    /// <param name="mutexTimeout">
-    /// ISSUE_10 — how long to wait for the cross-process lock before giving up. Callers on the UI
-    /// thread must pass <see cref="InteractiveMutexTimeout"/>; the 15s default would otherwise
-    /// freeze the window that is trying to close.
-    /// </param>
     public void UpdatePropertiesSync(JsonObject updates, CancellationToken cancellationToken = default, TimeSpan? mutexTimeout = null)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.UpdateProperties(updates);
+            return;
+        }
+
+        bool sent = NamedPipeStateClient.UpdatePropertiesSync(updates, NamedPipeStateClient.FastProbeTimeout, cancellationToken);
+        if (sent) return;
+
         JsonObject clonedUpdates = Clone(updates);
         try
         {
@@ -223,8 +262,62 @@ public sealed class StateTransferStore
         }
     }
 
+    public async Task<bool> SendHandoffAsync(HandoffPayload payload, TimeSpan? timeout = null, CancellationToken ct = default)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload, typeof(HandoffPayload), IpcJsonContext.Default);
+        var node = JsonNode.Parse(bytes) as JsonObject ?? new JsonObject();
+        if (payload.ReturnedFromCropTool.HasValue)
+        {
+            node["returned_from_crop_tool"] = payload.ReturnedFromCropTool.Value;
+        }
+
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.UpdateProperties(node);
+            return true;
+        }
+
+        bool sent = await NamedPipeStateClient.SendHandoffAsync(node, timeout ?? NamedPipeStateClient.DefaultTimeout, ct).ConfigureAwait(false);
+        if (sent) return true;
+
+        await UpdatePropertiesAsync(node, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    public bool SendHandoffSync(HandoffPayload payload, TimeSpan? timeout = null, CancellationToken ct = default)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload, typeof(HandoffPayload), IpcJsonContext.Default);
+        var node = JsonNode.Parse(bytes) as JsonObject ?? new JsonObject();
+        if (payload.ReturnedFromCropTool.HasValue)
+        {
+            node["returned_from_crop_tool"] = payload.ReturnedFromCropTool.Value;
+        }
+
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.UpdateProperties(node);
+            return true;
+        }
+
+        bool sent = NamedPipeStateClient.SendHandoffSync(node, timeout ?? NamedPipeStateClient.DefaultTimeout, ct);
+        if (sent) return true;
+
+        UpdatePropertiesSync(node, ct);
+        return true;
+    }
+
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
+        var server = NamedPipeStateServer.ActiveInstance;
+        if (server != null && server.IsRunning)
+        {
+            server.ClearState();
+        }
+
+        await NamedPipeStateClient.ClearStateAsync(NamedPipeStateClient.DefaultTimeout, cancellationToken).ConfigureAwait(false);
+
         await Task.Run(() =>
         {
             Paths.EnsureWritableDirectories();
@@ -244,21 +337,6 @@ public sealed class StateTransferStore
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// ===== ISSUE_08 — one odd entry must not wipe every remembered setting =====================
-    ///
-    /// WHAT WAS WRONG: this method called <c>ValidateKnownProperties</c>, which THROWS
-    /// <c>InvalidDataException</c> for any key it does not recognise. That exception was caught
-    /// below as "the file is corrupt", the whole file was renamed to <c>.corrupted</c>, and an
-    /// empty object was returned. So a single unexpected entry — left by an older build, written
-    /// by a newer build, or a half-finished write — silently erased EVERY window position and size
-    /// plus every remembered upload/output/music folder. From the user's side the app had simply
-    /// forgotten everything, with no explanation and nothing they could do about it.
-    ///
-    /// NOW: unrecognised or malformed entries are DROPPED individually (and logged), and every
-    /// entry the app does understand is kept. Quarantine is reserved for what it was actually
-    /// meant for — a file that is not parseable JSON at all.
-    /// </summary>
     private JsonObject LoadUnlocked()
     {
         try
@@ -305,11 +383,6 @@ public sealed class StateTransferStore
         }
     }
 
-    /// <summary>
-    /// ISSUE_08/ISSUE_09 — returns a copy of <paramref name="state"/> containing only the entries
-    /// that pass validation. Anything unrecognised or malformed is dropped and logged rather than
-    /// aborting the whole operation.
-    /// </summary>
     private static JsonObject SanitizeObject(JsonObject state, string context)
     {
         var clean = new JsonObject();
@@ -336,10 +409,6 @@ public sealed class StateTransferStore
         return clean;
     }
 
-    /// <summary>
-    /// ISSUE_09 — merges <paramref name="updates"/> into <paramref name="current"/>, skipping any
-    /// entry that fails validation instead of throwing and losing the entire write.
-    /// </summary>
     private static void ApplySanitizedUpdates(JsonObject current, JsonObject updates, string context)
     {
         List<string>? dropped = null;
@@ -363,10 +432,6 @@ public sealed class StateTransferStore
         }
     }
 
-    /// <summary>
-    /// Validates a single property without throwing. Returns false when the entry must be dropped.
-    /// The accepted value is a detached deep clone, so callers can never alias the caller's tree.
-    /// </summary>
     private static bool TryAcceptProperty(string key, JsonNode? value, out JsonNode? accepted)
     {
         accepted = null;
@@ -415,11 +480,6 @@ public sealed class StateTransferStore
         return source.DeepClone().AsObject();
     }
 
-
-    /// <summary>
-    /// Validates a single entry, throwing <see cref="InvalidDataException"/> when it is unusable.
-    /// Only ever called via <c>TryAcceptProperty</c>, which converts the throw into a drop.
-    /// </summary>
     private static void ValidateKnownProperty(string key, JsonNode? value)
     {
         if (value is null)
@@ -471,11 +531,18 @@ public sealed class StateTransferStore
             return;
         }
 
-        if (key is "source" or "pid" or "written_utc")
+        if (key is "source" or "pid" or "written_utc" or "target" or "handoff_utc" or "selected_clip_path" or "selected_clip_start_ms" or "selected_clip_end_ms")
         {
             return;
         }
-        
+
+        if (key is "window_bounds" or "properties")
+        {
+            if (value is not JsonObject)
+                throw new InvalidDataException($"Invalid session_state object for '{key}'.");
+            return;
+        }
+
         if (key == "RecentMusicPaths")
         {
             if (value is not System.Text.Json.Nodes.JsonArray)

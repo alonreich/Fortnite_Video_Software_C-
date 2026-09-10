@@ -186,7 +186,7 @@ public class AudioFilterChain
 
         if (tracks.Count == 0)
         {
-            double vVol = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
+            double vVol = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 1.0));
             if (appliedNormalizeDb != 0)
                 vVol *= Math.Pow(10, appliedNormalizeDb / 20.0);
             chain.Add($"[a_main_raw]{gameNormalizePrefix}volume={vVol.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}," +
@@ -338,7 +338,7 @@ public class AudioFilterChain
             CoreLogger.Info("Audio", "Voice protection: music bed ducked 85% and carved at 2.5 kHz across the voice-over takes.");
         }
 
-        double vVolGame = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 0.8));
+        double vVolGame = GetDouble(musicConfig, "main_vol", GetDouble(musicConfig, "video_volume", 1.0));
         if (appliedNormalizeDb != 0)
             vVolGame *= Math.Pow(10, appliedNormalizeDb / 20.0);
 
