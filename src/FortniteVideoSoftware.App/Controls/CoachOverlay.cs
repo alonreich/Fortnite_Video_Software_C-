@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -193,10 +193,6 @@ public static class CoachOverlay
         try { Finish(window, markSeen: false); }
         catch (Exception ex) { SafeLog($"Cancel failed: {ex.Message}"); }
     }
-
-    /// <summary>True when this screen's walkthrough has already used up its automatic showings.</summary>
-    public static bool HasBeenSeen(string screenKey, int maxAutoShows = DefaultMaxAutoShows)
-        => UiStateStore.ReadInt(CounterFile(screenKey), 0) >= maxAutoShows;
 
     private static Panel? ResolveHostPanel(Window window)
     {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -10,17 +10,6 @@ namespace FortniteVideoSoftware.App;
 
 public static class WindowBoundsHelper
 {
-    public static void LoadBoundsSync(Window window, string key)
-    {
-        try
-        {
-            var store = new Core.Ipc.StateTransferStore();
-            var state = store.LoadSync();
-            ApplyBounds(window, state, key);
-        }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-    }
-
     /// <summary>
     /// Full window-state persistence: loads saved bounds at construction, re-applies
     /// the position right after the window opens (the OS/per-monitor DPI handshake can
@@ -95,19 +84,6 @@ public static class WindowBoundsHelper
             try { debounce?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             SaveBoundsSync(window, key);
         };
-    }
-
-    public static async Task LoadBoundsAsync(Window window, string key)
-    {
-        try
-        {
-            var store = new Core.Ipc.StateTransferStore();
-            var state = await store.LoadAsync().ConfigureAwait(false);
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                ApplyBounds(window, state, key);
-            });
-        }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private static void ApplyBounds(Window window, JsonObject state, string key)

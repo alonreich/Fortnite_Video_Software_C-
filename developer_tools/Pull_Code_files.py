@@ -53,59 +53,34 @@ def get_group_name(file_path: Path, project_root: Path) -> str:
 
     return "07_Misc"
 
-MAX_PART_CHARS = 90_000  # ~22,500 tokens: the safe size for ONE ChatGPT/Gemini message.
+MAX_CODE_FILES = 9  # 9 code bundles + 1 tree file = 10 files max upload limit
+MIN_PART_CHARS = 500_000  # Avoid splitting small projects into tiny fragments unnecessarily
 
 
-def split_oversized_file(rel_path, block, limit):
-    """A single file bigger than one paste-part is cut into fixed-size pieces
-    and spread over consecutive parts, wrapped in loud CONTINUED banners so
-    the chat AI always knows the file is split and where each piece belongs.
-    Cut positions are exact character offsets (a piece may start mid-line)."""
-    chunk_limit = limit - 1024  # leave room for the banners below
-    # Plain fixed-width slicing: no loop state, deterministic by construction,
-    # and the piece sizes always sum back to exactly len(block).
-    chunks = [block[i:i + chunk_limit] for i in range(0, len(block), chunk_limit)]
+def pack_into_capped_parts(items, max_parts=9):
+    """Packs (rel_path, block) tuples across at most max_parts bundles."""
+    if not items:
+        return []
 
-    total = len(chunks)
-    wrapped = []
-    for i, chunk in enumerate(chunks):
-        piece = chunk
-        if i > 0:
-            piece = (
-                "=" * 80 + "\n"
-                f"[... CONTINUATION OF: {rel_path} - piece {i + 1} of {total} ...]\n"
-                "=" * 80 + "\n"
-            ) + piece.lstrip("\n")
-        if i < total - 1:
-            piece += (
-                "=" * 80 + "\n"
-                "[... THIS FILE IS TOO BIG FOR ONE MESSAGE - IT CONTINUES IN THE NEXT PART ...]\n"
-                "=" * 80 + "\n\n"
-            )
-        wrapped.append(piece)
-    return wrapped
+    total_chars = sum(len(b) for _, b in items)
+    target_limit = max(MIN_PART_CHARS, (total_chars // max_parts) + 1)
 
+    parts = []
+    current_items = []
+    used = 0
 
-def build_parts(blocks, limit):
-    """Fix #1: pack whole-file blocks into parts of at most `limit` characters.
-    Parts are only ever cut BETWEEN files - unless a single file alone exceeds
-    the limit, in which case split_oversized_file handles it."""
-    parts, current, used = [], [], 0
+    for rel_path, block in items:
+        if current_items and (used + len(block) > target_limit) and (len(parts) < max_parts - 1):
+            parts.append(current_items)
+            current_items = [(rel_path, block)]
+            used = len(block)
+        else:
+            current_items.append((rel_path, block))
+            used += len(block)
 
-    def flush():
-        nonlocal current, used
-        if current:
-            parts.append("".join(current))
-        current, used = [], 0
+    if current_items:
+        parts.append(current_items)
 
-    for rel_path, block in blocks:
-        pieces = [block] if len(block) <= limit else split_oversized_file(rel_path, block, limit)
-        for piece in pieces:
-            if used and used + len(piece) > limit:
-                flush()
-            current.append(piece)
-            used += len(piece)
-    flush()
     return parts
 
 
@@ -115,16 +90,21 @@ def run_aggregator():
 
     if not download_dir.exists():
         download_dir.mkdir(parents=True, exist_ok=True)
-    
-    ignored_dirs = {'.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools', 'compile', 'compiled', 'old_code', 'artifacts'}  # 'artifacts' = test-run output junk (fix #3)
+
+    ignored_dirs = {
+        '.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools',
+        'compile', 'compiled', 'old_code', 'artifacts', 'packages', 'testresults',
+        'venv', '.venv', 'env', '.pytest_cache', '__pycache__'
+    }
+
+    divider = "=" * 80
 
     tree_file = download_dir / "00_file_structure.txt"
     with open(tree_file, "w", encoding="utf-8") as tf:
         tf.write(f"Directory Tree of: {project_root}\n")
-        tf.write("=" * 80 + "\n")
+        tf.write(f"{divider}\n")
         try:
             for root, dirs, files in os.walk(project_root):
-                # Fix #4: sorted walk -> the tree is identical on every run.
                 dirs[:] = sorted((d for d in dirs if d.lower() not in ignored_dirs), key=str.lower)
                 rel = Path(root).relative_to(project_root)
                 level = len(rel.parts) if rel.name else 0
@@ -138,9 +118,6 @@ def run_aggregator():
             tf.write(f"[ERROR GENERATING DIRECTORY TREE: {e}]")
 
     source_whitelist = {
-        # TEXT formats only (fix #3). The binary types (.ico, .png, .jpg, .jpeg,
-        # .dll, .exe, .traineddata) were removed on purpose: a chat AI cannot read
-        # them, and every binary filename is already listed in 00_file_structure.txt.
         '.cs', '.axaml', '.cmd', '.bat', '.ps1', '.py', '.json', '.json5', '.xml',
         '.csproj', '.sln', '.txt', '.md', '.svg', '.manifest', '.config',
         '.props', '.targets', '.editorconfig', '.gitignore', '.gitattributes',
@@ -151,18 +128,13 @@ def run_aggregator():
     print(f"Aggregating grouped code into {download_dir}...")
 
     processed_count = 0
-    groups = {}     # group name -> [(relative_path, file_block_text), ...]
-    oversized = []  # single files bigger than one part (auto-split, listed in the report)
+    groups = {}
 
-    # Remove old aggregated files first (00_file_structure.txt above is freshly written).
     for old_file in download_dir.glob("*.txt"):
         if old_file.name != "00_file_structure.txt":
             old_file.unlink(missing_ok=True)
-            
-    # ---- PASS 1: read every whitelisted file into in-memory blocks per group ----
+
     for root, dirs, files in os.walk(project_root):
-        # Fix #4: sorted walk -> the output is identical on every run (and this
-        # loop's dir filter now lower-cases too, matching the tree loop above).
         dirs[:] = sorted((d for d in dirs if d.lower() not in ignored_dirs), key=str.lower)
         current_path = Path(root)
 
@@ -177,7 +149,6 @@ def run_aggregator():
                 content_text = "[BINARY FILE OMITTED - filename is listed in 00_file_structure.txt]\n\n"
             else:
                 try:
-                    # errors='replace': never lose a file over one odd character.
                     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                         content_text = f.read()
                     if not content_text.endswith("\n"):
@@ -186,66 +157,53 @@ def run_aggregator():
                 except Exception as e:
                     content_text = f"[ERROR READING FILE: {e}]\n\n"
 
-            # Fix #6: every file header carries its line count and size, so a
-            # truncated paste is instantly visible to both human and AI.
             line_count = content_text.count("\n")
             size_kb = len(content_text) / 1024.0
-            header = (
-                "=" * 80 + "\n"
-                f"FILE: {relative_path}  ({line_count:,} lines, {size_kb:,.1f} KB)\n"
-                "=" * 80 + "\n"
-            )
+            header = f"{divider}\nFILE: {relative_path}  ({line_count:,} lines, {size_kb:,.1f} KB)\n{divider}\n"
             block = header + content_text
-            if len(block) > MAX_PART_CHARS:
-                oversized.append((relative_path, len(block)))
-
             groups.setdefault(get_group_name(file_path, project_root), []).append((relative_path, block))
             processed_count += 1
 
-    # ---- PASS 2: write each group as one or more chat-message-sized part files ----
+    all_blocks = []
+    for group in sorted(groups):
+        for item in groups[group]:
+            all_blocks.append(item)
+
+    parts = pack_into_capped_parts(all_blocks, max_parts=MAX_CODE_FILES)
+    count = len(parts)
+
     report_rows = []
     if tree_file.exists():
         report_rows.append((tree_file.name, tree_file.stat().st_size))
 
-    total_parts = 0
-    for group in sorted(groups):
-        parts = build_parts(groups[group], MAX_PART_CHARS)
-        count = len(parts)
-        for i, part_text in enumerate(parts, start=1):
-            part_name = f"{group}_part{i:02d}of{count:02d}.txt" if count > 1 else f"{group}.txt"
-            banner = (
-                "=" * 80 + "\n"
-                "FORTNITE VIDEO SOFTWARE - CODE EXPORT\n"
-                f"Group {group} - PART {i} OF {count}\n"
-                "Paste 00_file_structure.txt first, then these parts in order,\n"
-                "one part per chat message.\n"
-                "=" * 80 + "\n\n"
-            )
-            with open(download_dir / part_name, "w", encoding="utf-8", errors="replace") as out:
-                out.write(banner + part_text)
-            # Self-check (#1): no part may ever exceed the paste budget.
-            if len(banner) + len(part_text) > MAX_PART_CHARS + 2048:
-                print(f"  [!] WARNING: {part_name} is {len(banner) + len(part_text):,} chars - OVER the paste limit!")
-            report_rows.append((part_name, len(banner) + len(part_text)))
-            total_parts += 1
+    for i, part_items in enumerate(parts, start=1):
+        part_name = f"code_bundle_part{i:02d}of{count:02d}.txt" if count > 1 else "code_bundle.txt"
+        toc = "\n".join(f"  - {rel_path}" for rel_path, _ in part_items)
+        banner = (
+            f"{divider}\n"
+            f"CODE EXPORT BUNDLE - PART {i} OF {count}\n"
+            f"Directory map: see 00_file_structure.txt\n"
+            f"Files in this bundle ({len(part_items)}):\n"
+            f"{toc}\n"
+            f"{divider}\n\n"
+        )
+        part_body = "".join(block for _, block in part_items)
+        full_payload = banner + part_body
+        with open(download_dir / part_name, "w", encoding="utf-8", errors="replace") as out:
+            out.write(full_payload)
+        report_rows.append((part_name, len(full_payload.encode('utf-8'))))
 
-    # ---- Fix #2: PASTE REPORT - know every size BEFORE pasting anything ----
     print()
-    print("PASTE REPORT - paste 00 first, then the parts in order, ONE PART PER CHAT MESSAGE")
+    print("UPLOAD REPORT - upload 00_file_structure.txt and all bundle parts together")
     print("-" * 80)
     grand_total = 0
-    for name, chars in report_rows:
-        grand_total += chars
-        print(f"  {name:<42} {chars / 1024.0:>10,.1f} KB   ~{chars // 4:>9,} tokens")
+    for name, byte_size in report_rows:
+        grand_total += byte_size
+        print(f"  {name:<38} {byte_size / 1024.0:>10,.1f} KB   ~{byte_size // 4:>9,} tokens")
     print("-" * 80)
-    print(f"  TOTAL: {len(report_rows)} files, {grand_total / 1024.0:,.1f} KB, ~{grand_total // 4:,} tokens")
-    if oversized:
-        print()
-        print("  Single files too big for one message (auto-split with CONTINUED markers):")
-        for rel_path, size in oversized:
-            print(f"    {rel_path}  ({size / 1024.0:,.1f} KB)")
+    print(f"  TOTAL: {len(report_rows)} files (<= 10 limit respected), {grand_total / 1024.0:,.1f} KB")
     print()
-    print(f"Done! Aggregated {processed_count} files into {len(groups)} groups / {total_parts} paste-parts.")
+    print(f"Done! Aggregated {processed_count} files into {len(parts)} bundle(s) + 1 structure file.")
 
 def purge_bytecode_cache():
     """

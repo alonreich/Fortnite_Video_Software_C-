@@ -158,10 +158,102 @@ public partial class MainWindow
                 }
             }
 
+            if (state.TryGetPropertyValue("granular_session", out var granularNode) && granularNode is System.Text.Json.Nodes.JsonObject granularSession)
+            {
+                bool isOpen = granularSession["open"]?.GetValue<bool>() ?? false;
+                string? gVideo = granularSession["video_path"]?.ToString();
+                double gTrimStart = granularSession["trim_start_ms"]?.GetValue<double>() ?? -1;
+                double gTrimEnd = granularSession["trim_end_ms"]?.GetValue<double>() ?? -1;
+                string? loadedPath = (string?)state["loadedVideoPath"];
+
+                if (isOpen && !string.IsNullOrEmpty(gVideo)
+                    && string.Equals(gVideo, loadedPath, StringComparison.OrdinalIgnoreCase)
+                    && Math.Abs(gTrimStart - _trimStartMs) <= 1.0
+                    && Math.Abs(gTrimEnd - _trimEndMs) <= 1.0)
+                {
+                    RuntimeLog.Info("RECOVERY", "In-flight Granular Speed Editor session detected from crash. Reinstating live granular edits.");
+
+                    if (granularSession.ContainsKey("base_speed") && granularSession["base_speed"] is System.Text.Json.Nodes.JsonNode bsNode)
+                    {
+                        double gSpeed = bsNode.GetValue<double>();
+                        if (!double.IsNaN(gSpeed) && gSpeed >= 0.1 && gSpeed <= 40.0)
+                        {
+                            _baseSpeed = gSpeed;
+                            if (speedSlider != null) speedSlider.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
+                        }
+                    }
+
+                    if (granularSession.ContainsKey("freeze_time_ms"))
+                        _freezeTimeMs = granularSession["freeze_time_ms"]?.GetValue<double>() ?? -1;
+                    if (granularSession.ContainsKey("freeze_duration_s"))
+                        _freezeDurationS = granularSession["freeze_duration_s"]?.GetValue<double>() ?? 1.0;
+
+                    if (granularSession["segments"] is System.Text.Json.Nodes.JsonArray gSegs)
+                    {
+                        _speedSegments.Clear();
+                        foreach (var node in gSegs)
+                        {
+                            if (node is not System.Text.Json.Nodes.JsonObject o) continue;
+                            double start = o["start_ms"]?.GetValue<double>() ?? -1;
+                            double end = o["end_ms"]?.GetValue<double>() ?? -1;
+                            if (end <= start || start < -0.5) continue;
+
+                            double? zStart = o.ContainsKey("zoom_start_ms") ? o["zoom_start_ms"]?.GetValue<double>() : null;
+                            double? zEnd = o.ContainsKey("zoom_end_ms") ? o["zoom_end_ms"]?.GetValue<double>() : null;
+
+                            _speedSegments.Add(new SpeedSegment(
+                                start + _trimStartMs,
+                                end + _trimStartMs,
+                                o["speed"]?.GetValue<double>() ?? 1.1,
+                                o["zoom_x"]?.GetValue<int>(),
+                                o["zoom_y"]?.GetValue<int>(),
+                                o["zoom_w"]?.GetValue<int>(),
+                                o["zoom_h"]?.GetValue<int>(),
+                                o["zoom_orig_res"]?.GetValue<string>(),
+                                o["zoom_slow"]?.GetValue<bool>() ?? false,
+                                zStart.HasValue ? zStart.Value + _trimStartMs : null,
+                                zEnd.HasValue ? zEnd.Value + _trimStartMs : null));
+                        }
+                    }
+
+                    if (granularSession["cuts"] is System.Text.Json.Nodes.JsonArray gCuts)
+                    {
+                        _cuts.Clear();
+                        foreach (var node in gCuts)
+                        {
+                            if (node is not System.Text.Json.Nodes.JsonObject o) continue;
+                            double start = o["start_ms"]?.GetValue<double>() ?? -1;
+                            double end = o["end_ms"]?.GetValue<double>() ?? -1;
+                            if (end <= start) continue;
+                            _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(start + _trimStartMs, end + _trimStartMs));
+                        }
+                    }
+
+                    if (granularSession["memes"] is System.Text.Json.Nodes.JsonArray gMemes)
+                    {
+                        _memePlacements.Clear();
+                        int i = 0;
+                        foreach (var node in gMemes)
+                        {
+                            if (node is not System.Text.Json.Nodes.JsonObject o) continue;
+                            string? file = o["file_path"]?.ToString();
+                            double at = o["at_source_sec_relative"]?.GetValue<double>() ?? -1;
+                            double dur = o["duration_sec"]?.GetValue<double>() ?? 0;
+                            if (string.IsNullOrEmpty(file) || !System.IO.File.Exists(file) || at < 0 || dur <= 0) continue;
+                            string id = o["id"]?.ToString() ?? "";
+                            _memePlacements.Add(new FortniteVideoSoftware.Core.Media.MemePlacement(file!, at, dur,
+                                !string.IsNullOrEmpty(id) ? id : FortniteVideoSoftware.Core.Media.MemePlacement.NewId(i)));
+                            i++;
+                        }
+                    }
+                }
+            }
+
             // EDIT3_02 — restore now goes through the SAME setter as every other path instead of
             // hand-copying the styling. The copy had already drifted (it still said REMOVE SPEEDS),
             // and it is safe to call here because SaveRecoveryState no-ops while `_isRestoring`.
-            SetGranularButtonActive(state["isGranularSpeedActive"]?.GetValue<bool>() ?? false);
+            bool hasGranular = _speedSegments.Count > 0 || _freezeTimeMs >= 0;
+            SetGranularButtonActive(hasGranular || (state["isGranularSpeedActive"]?.GetValue<bool>() ?? false));
 
             _musicWizardResult = null;
             if (state["musicResult"] is System.Text.Json.Nodes.JsonObject musicObj)

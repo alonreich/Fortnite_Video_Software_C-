@@ -111,7 +111,10 @@ internal static class DeploymentLifecycle
             bool preserve = false;
             (bool isUpgrade, string? existingVersion) = await ReportExistingVersionAsync().ConfigureAwait(false);
 
-            if (isUpgrade && !ConfirmVersionTransition(existingVersion))
+            // AUTO-UPDATE — consent to the version transition was already given inside the app's
+            // update prompt ("Yes, download and upgrade now"), so the elevated worker must not
+            // re-ask it here. Manual installs still see the comparison dialog as before.
+            if (!autoUpdate && isUpgrade && !ConfirmVersionTransition(existingVersion))
             {
                 await DeploymentReporter.StepAsync("CANCELLED",
                     "The user cancelled after being shown the version comparison.", 100).ConfigureAwait(false);

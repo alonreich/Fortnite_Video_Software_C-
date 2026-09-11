@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -387,15 +387,6 @@ public partial class PhaseOverlayControl : UserControl
                 if (_taskbarGeneration != generation) return;
                 TaskbarProgress.Clear(hwnd);
             });
-        });
-    }
-
-    public void UpdateTimeRemaining(string timeRemaining)
-    {
-        Dispatcher.UIThread.Post(() => 
-        {
-            var trText = this.FindControl<TextBlock>("TimeRemainingText");
-            if (trText != null) trText.Text = timeRemaining;
         });
     }
     

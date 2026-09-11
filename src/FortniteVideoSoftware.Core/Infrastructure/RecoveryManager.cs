@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -328,6 +328,21 @@ public sealed class RecoveryManager
 
                 state["schema_version"] = SchemaVersion;
 
+                // RECOVERY_03 — if an active granular editing session exists in the current recovery file,
+                // preserve it so an app-level state save does not wipe out the in-flight granular edits.
+                if (!state.ContainsKey("granular_session") && File.Exists(_paths.RecoveryStateFile))
+                {
+                    try
+                    {
+                        var existing = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
+                        if (existing != null && existing.TryGetPropertyValue("granular_session", out var gran) && gran != null)
+                        {
+                            state["granular_session"] = gran.DeepClone();
+                        }
+                    }
+                    catch (Exception ex) { CoreLogger.Swallowed(ex); }
+                }
+
                 AtomicJsonFile.WriteObject(_paths.RecoveryStateFile, state);
 
                 if (sequence.HasValue)
@@ -410,37 +425,5 @@ public sealed class RecoveryManager
             }
         }
         catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-    }
-
-    /// <summary>
-    /// ISSUE_1 — sets a FAILED restore aside instead of destroying it.
-    ///
-    /// A failed restore used to call <see cref="ClearState"/>, which deletes the file outright. The
-    /// user answered "yes, restore my work", one bad field threw, and their entire crashed session
-    /// was gone with nothing but a log line — and no second chance, because the evidence had been
-    /// deleted along with the data.
-    ///
-    /// Renaming instead keeps two things true at once: the data survives for a manual rescue or a
-    /// bug report, AND the app cannot get stuck in a crash-restore-crash loop, because the file is
-    /// no longer where <see cref="LoadState"/> looks. Only ONE quarantine file is kept — a repeated
-    /// failure overwrites it rather than growing a pile in the user's data folder.
-    ///
-    /// Returns the quarantine path so the caller can tell the user where their work went, or null
-    /// if there was nothing to move.
-    /// </summary>
-    public string? QuarantineState()
-    {
-        try
-        {
-            if (!File.Exists(_paths.RecoveryStateFile)) return null;
-
-            string quarantinePath = _paths.RecoveryStateFile + ".failed";
-            File.Move(_paths.RecoveryStateFile, quarantinePath, overwrite: true);
-            return quarantinePath;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

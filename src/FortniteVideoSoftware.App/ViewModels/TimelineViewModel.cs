@@ -167,13 +167,6 @@ public sealed class TimelineViewModel : ViewModelBase
         }
     }
 
-    public void SetTrimEnd(double valueMs)
-    {
-        double maxDur = LoadedVideoDurationMs > 0 ? LoadedVideoDurationMs : double.MaxValue;
-        TrimEndMs = Math.Min(maxDur, Math.Max(TrimStartMs, valueMs));
-        IsTrimEndSet = true;
-    }
-
     public void EnsureTrimPointsSet()
     {
         if (!IsTrimEndSet || TrimEndMs <= 0)
@@ -186,17 +179,6 @@ public sealed class TimelineViewModel : ViewModelBase
             TrimStartMs = 0;
             IsTrimStartSet = true;
         }
-    }
-
-    public void UpdateTimes(double currentSeconds, double durationSeconds)
-    {
-        if (durationSeconds > 0 && LoadedVideoDurationMs <= 0)
-        {
-            LoadedVideoDurationMs = durationSeconds * 1000.0;
-        }
-
-        CurrentPositionMs = currentSeconds * 1000.0;
-        UpdateFormattedTimes(currentSeconds, durationSeconds);
     }
 
     public void UpdateFormattedTimes(double? curSec = null, double? durSec = null)

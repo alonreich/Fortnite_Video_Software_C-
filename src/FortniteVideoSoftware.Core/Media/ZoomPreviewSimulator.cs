@@ -1,4 +1,4 @@
-﻿namespace FortniteVideoSoftware.Core.Media;
+namespace FortniteVideoSoftware.Core.Media;
 
 /// <summary>
 /// LIVE ZOOM PREVIEW — ONE IMPLEMENTATION, SHARED BY EVERY PREVIEW SURFACE IN THE SUITE.
@@ -74,7 +74,7 @@ public static class ZoomPreviewSimulator
     /// <param name="srcW">Source width. Required for the no-zoom portrait slice, where there is no zoom box to read it from.</param>
     /// <param name="srcH">Source height.</param>
     public static Result Compute(IReadOnlyList<SpeedSegment>? segments, double tSec, double durSec,
-                                 bool portraitMode = false, int srcW = 0, int srcH = 0)
+                                 bool portraitMode = false, int srcW = 0, int srcH = 0, double trimStartSec = 0)
     {
         if (portraitMode && srcW > 0 && srcH > 0 && (segments == null || segments.Count == 0))
             return PortraitSliceOnly(srcW, srcH);
@@ -87,8 +87,8 @@ public static class ZoomPreviewSimulator
             if (!s.ZoomW.HasValue || !s.ZoomH.HasValue || !s.ZoomX.HasValue || !s.ZoomY.HasValue) continue;
             if (string.IsNullOrEmpty(s.ZoomOrigRes)) continue;
 
-            double zs = (s.ZoomStartMs ?? s.StartMs) / 1000.0;
-            double ze = (s.ZoomEndMs ?? s.EndMs) / 1000.0;
+            double zs = ((s.ZoomStartMs ?? s.StartMs) / 1000.0) - trimStartSec;
+            double ze = ((s.ZoomEndMs ?? s.EndMs) / 1000.0) - trimStartSec;
             if (ze > zs + 0.001) zooms.Add((zs, ze, s));
         }
         if (zooms.Count == 0) return Result.None;

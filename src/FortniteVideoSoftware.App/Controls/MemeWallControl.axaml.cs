@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -64,33 +64,6 @@ public partial class MemeWallControl : UserControl
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
-    }
-
-    /// <summary>
-    /// Populates and shows the meme wall.
-    /// </summary>
-    /// <param name="items">Meme items to display.</param>
-    /// <param name="isPortraitMode">If true, landscape memes are flagged with red warning text.</param>
-    public void ShowWall(IEnumerable<MemeItem> items, bool isPortraitMode)
-    {
-        if (_gridPanel == null) return;
-
-        _gridPanel.Children.Clear();
-
-        foreach (var item in items)
-        {
-            var cell = CreateMemeCell(item, isPortraitMode);
-            _gridPanel.Children.Add(cell);
-        }
-
-        if (_backdrop != null)
-        {
-            _backdrop.Classes.Remove("MemeWallHidden");
-            _backdrop.Classes.Add("MemeWallVisible");
-        }
-        IsVisible = true;
-        Opacity = 1;
-        IsHitTestVisible = true;
     }
 
     /// <summary>Closes the wall without a selection.</summary>

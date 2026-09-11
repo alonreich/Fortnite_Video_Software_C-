@@ -669,13 +669,27 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     Console.WriteLine($"  Max A/V drift across the 2 s cut and 0.5x seams: {worstDrift * 1000:F2} ms over {onsets.Count} beeps.");
 });
 
-Console.WriteLine($"Artifacts: {work}");
 if (failures.Count > 0)
 {
     foreach (string failure in failures) Console.Error.WriteLine(failure);
+    Console.Error.WriteLine($"Failures retained for inspection at: {work}");
     return 1;
 }
-Console.WriteLine("All checks passed.");
+
+if (!args.Contains("--keep-artifacts"))
+{
+    try
+    {
+        if (Directory.Exists(work))
+            Directory.Delete(work, recursive: true);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Warning: Could not remove test artifacts: {ex.Message}");
+    }
+}
+
+Console.WriteLine("All checks passed. Test artifacts cleaned.");
 return 0;
 
 async Task Check(string name, Func<Task> check)

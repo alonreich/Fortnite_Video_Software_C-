@@ -172,7 +172,7 @@ public partial class VoiceOverWindow : Window
         double durSec = Math.Max(0.1, endSec - _trimStartSec);
 
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
-            _speedSegments, tSec, durSec, IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight);
+            _speedSegments, tSec, durSec, IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight, trimStartSec: _trimStartSec);
 
         if (!result.HasCrop) { ClearLiveZoomCrop(); return; }
         if (result.Crop == _lastLiveCrop) return;

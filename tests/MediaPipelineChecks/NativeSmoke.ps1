@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)][string]$Executable
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [switch]$KeepArtifacts
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,4 +69,14 @@ if ($recovered.audit_marker -ne 'native-backup' -or $persisted.audit_marker -ne 
 }
 if ((Get-FileHash -LiteralPath "$cropFile.bak2").Hash -ne $before) { throw 'Recovery changed the backup.' }
 'PASS: NativeAOT crop recovery skips a damaged backup and preserves the valid backup.'
-"Evidence: $testRoot"
+
+if (!$KeepArtifacts) {
+    try {
+        if (Test-Path -LiteralPath $testRoot) {
+            Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } catch { }
+    "Test artifacts cleaned."
+} else {
+    "Evidence retained at: $testRoot"
+}

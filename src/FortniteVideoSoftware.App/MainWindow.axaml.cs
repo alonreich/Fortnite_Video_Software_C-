@@ -284,8 +284,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private List<MemeItem> _memeItems = new();
     private string? _pendingMemeRestorePath;
 
-    private string ResolveMemeFfprobePath() => MemeManagementService.ResolveFfprobePath();
-
     private Task<double> ProbeMusicDurationSecondsAsync(string musicPath)
         => MemeManagementService.ProbeMusicDurationSecondsAsync(ResolveFfmpegPath(), musicPath);
 
@@ -1215,14 +1213,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void ShowTacticalFeedback(string text)
         => Controls.FloatingNotice.Show(this, text);
 
-    /// <summary>
-    /// ISSUE_09 — same notice, coloured for a successful action rather than a warning.
-    /// Kept as the counterpart to ShowTacticalFeedback so a caller reporting a SUCCESS does not
-    /// have to reach past this class into Controls.FloatingNotice and pick a NoticeKind by hand.
-    /// </summary>
-    private void ShowTacticalSuccess(string text)
-        => Controls.FloatingNotice.Success(this, text);
-
     /// <summary>ISSUE_09 — the red variant, for an action the user attempted that could not run.</summary>
     private void ShowTacticalError(string text)
         => Controls.FloatingNotice.Error(this, text);
@@ -1536,7 +1526,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         bool portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
-            _speedSegments, tSec, durSec, portrait, ipc.VideoWidth, ipc.VideoHeight);
+            _speedSegments, tSec, durSec, portrait, ipc.VideoWidth, ipc.VideoHeight, trimStartSec: _trimStartMs / 1000.0);
 
         if (!result.HasCrop) { ClearLiveZoomCrop(); return; }
         if (result.Crop == _lastLiveCrop) return;
@@ -2136,6 +2126,26 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             btn.Content = "GRANULAR SPEED";
             ToolTip.SetTip(btn, "Adjust granular speed settings");
         }
+
+        var mainSpeedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        var presetsPanel = this.FindControl<Grid>("MainSpeedPresetsPanel");
+        if (mainSpeedSlider != null)
+        {
+            mainSpeedSlider.IsEnabled = !active;
+            mainSpeedSlider.Opacity = active ? 0.45 : 1.0;
+            ToolTip.SetTip(mainSpeedSlider, active
+                ? "Granular speed edits are active. Reopen EDIT SPEEDS to adjust speeds or remove granular segments."
+                : "Slide left to make the video slow motion, or right to speed it up.");
+        }
+        if (presetsPanel != null)
+        {
+            presetsPanel.IsEnabled = !active;
+            presetsPanel.Opacity = active ? 0.45 : 1.0;
+            ToolTip.SetTip(presetsPanel, active
+                ? "Granular speed edits are active. Reopen EDIT SPEEDS to adjust speeds or remove granular segments."
+                : null);
+        }
+
         SaveRecoveryState();
     }
 
@@ -2567,34 +2577,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ShutdownVideoPipeline();
         });
     }
-    private void OpenCropTool(object? sender, RoutedEventArgs? e)
-    {
-        // NOMASK_01 — second entry point to the same hand-off; see BlockCropToolsForNoMaskProfile.
-        if (BlockCropToolsForNoMaskProfile()) return;
-
-        SaveRecoveryState(sync: true, isUserEdit: false);
-        _recovery.ReleaseLockOnly();
-        RuntimeLog.Info("UI", "Opening Crop Tools app and closing Main app.");
-
-        try
-        {
-            var store = new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths);
-            store.SendHandoffSync(new FortniteVideoSoftware.Core.Ipc.HandoffPayload
-            {
-                SourceProcess = "MainWindow",
-                TargetProcess = "Crop Tools",
-                SelectedClipPath = _loadedVideoPath,
-                SelectedClipStartMs = _trimStartMs,
-                SelectedClipEndMs = _trimEndMs
-            });
-        }
-        catch (System.Exception ex) { RuntimeLog.Debug("IPC", $"Crop handoff sync: {ex.Message}"); }
-
-        string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
-        var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "--crop-tool") { UseShellExecute = false });
-        ShutdownVideoPipeline();
-        Environment.Exit(0);
-    }
 
     /// <summary>
     /// NOMASK_01 — refuses the Crop Tools hand-off while the reserved "No Mask Profile" is active,
@@ -2793,16 +2775,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
         }
         catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-    }
-
-    /// <summary>Triggers the export process (alias for clicking the PROCESS button).</summary>
-    private void StartProcessing()
-    {
-        var processButton = this.FindControl<Button>("ProcessButton");
-        if (processButton != null && processButton.IsEnabled)
-        {
-            processButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        }
     }
 
     #region UX Innovations (IDEA 001, 004, 005, 006, 007, 008, 009, 010, 011)

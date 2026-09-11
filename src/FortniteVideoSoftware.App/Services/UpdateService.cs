@@ -104,7 +104,7 @@ internal static class UpdateService
             // or recovery prompts for the user's attention.
             await Task.Delay(StartupGracePeriod).ConfigureAwait(false);
 
-            bool ownerStillVisible = await Dispatcher.UIThread.InvokeAsync(() => owner.IsVisible).ConfigureAwait(false);
+            bool ownerStillVisible = await Dispatcher.UIThread.InvokeAsync(() => owner.IsVisible);
             if (!ownerStillVisible) return;
 
             if (!ThrottlePermitsCheck()) return;
@@ -134,8 +134,15 @@ internal static class UpdateService
                 return;
             }
 
-            UpdateChoice choice = await Dispatcher.UIThread.InvokeAsync(
-                () => UpdateAvailableWindow.AskAsync(owner, local, release.Tag)).Unwrap().ConfigureAwait(false);
+            // Same UI-thread marshalling pattern MainWindow uses (Post + completion source):
+            // DispatcherOperation shapes differ per InvokeAsync overload, so we don't touch them.
+            var choiceReady = new TaskCompletionSource<UpdateChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag)); }
+                catch (Exception ex) { choiceReady.SetException(ex); }
+            });
+            UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
 
             switch (choice)
             {
@@ -275,7 +282,14 @@ internal static class UpdateService
         var progressWindow = new UpdateDownloadWindow();
         progressWindow.CancelRequested += () => cts.Cancel();
 
-        Task dialogTask = await Dispatcher.UIThread.InvokeAsync(() => progressWindow.ShowDialog(owner)).ConfigureAwait(false);
+        Task dialogTask = Task.CompletedTask;
+        var dialogShown = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(() =>
+        {
+            try { dialogTask = progressWindow.ShowDialog(owner); dialogShown.SetResult(null); }
+            catch (Exception ex) { dialogShown.SetException(ex); }
+        });
+        await dialogShown.Task.ConfigureAwait(false);
 
         try
         {

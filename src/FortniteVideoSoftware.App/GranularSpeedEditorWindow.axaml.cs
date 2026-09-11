@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using System.Collections.Immutable;
@@ -26,6 +26,7 @@ public partial class GranularSpeedEditorWindow : Window
 {
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
+    private long _lastSeekTimestamp = 0;
     private double? _nextSeekTarget = null;
     private readonly string _videoPath;
     private readonly double _trimStartMs;
@@ -55,8 +56,8 @@ public partial class GranularSpeedEditorWindow : Window
     public IReadOnlyList<SpeedSegment> ResultSegments => _segments
         .Select(s => s with
         {
-            StartMs = s.StartMs + (int)_trimStartMs,
-            EndMs = s.EndMs + (int)_trimStartMs,
+            StartMs = s.StartMs + _trimStartMs,
+            EndMs = s.EndMs + _trimStartMs,
             ZoomStartMs = s.ZoomStartMs.HasValue ? s.ZoomStartMs.Value + _trimStartMs : (double?)null,
             ZoomEndMs = s.ZoomEndMs.HasValue ? s.ZoomEndMs.Value + _trimStartMs : (double?)null
         })
@@ -308,9 +309,13 @@ public partial class GranularSpeedEditorWindow : Window
     private double _dragOrigStartMs;
     private double _dragOrigEndMs;
     private double _dragStartPointerMs;
+    private FortniteVideoSoftware.Core.Media.OutputTimeline? _segDragTimeline;
+    private double _segDragOutDurationSec = 0;
+    private double? _dragOrigZoomStartMs;
+    private double? _dragOrigZoomEndMs;
     private bool _isCanvasScrubbing;
     private const int SegMinWidthMs = 200;
-    private const int SegGapMs = 1000;
+    private const int SegGapMs = 0;
 
     /// <summary>
     /// IDEA_3 — default length of the block auto-created to hold a zoom when the user presses
@@ -671,10 +676,10 @@ public partial class GranularSpeedEditorWindow : Window
             {
                 var finished = _freezeDragMode;
                 _freezeDragMode = FreezeDragMode.None;
-                EndUndoGesture();   // UNDO_02
                 e.Pointer.Capture(null);
                 HideDragReadout();
                 ClampFreezeIntoClip();
+                EndUndoGesture();   // UNDO_02
                 RedrawTimeline();
 
                 SeekGranularPreviewToFreezeMarker();
@@ -715,6 +720,10 @@ public partial class GranularSpeedEditorWindow : Window
                 }
                 _segDragMode = SegDragMode.None;
                 _draggingSegmentIndex = -1;
+                _segDragTimeline = null;
+                _segDragOutDurationSec = 0;
+                _dragOrigZoomStartMs = null;
+                _dragOrigZoomEndMs = null;
                 EndUndoGesture();   // UNDO_02
                 e.Pointer.Capture(null);
                 HideDragReadout();
@@ -934,6 +943,8 @@ public partial class GranularSpeedEditorWindow : Window
         if (_isCurrentlyFrozen)
         {
             _isCurrentlyFrozen = false;
+            _holdCaretOutSec = null;
+            if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", "no");
             return;
         }
         if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
@@ -1167,13 +1178,27 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     private async Task SeekInternal(double time) {
-        if (_isSeeking) { _nextSeekTarget = time; return; }
+        long now = Environment.TickCount64;
+        if (_isSeeking && (now - _lastSeekTimestamp < 350)) {
+            _nextSeekTarget = time;
+            return;
+        }
         _isSeeking = true;
+        _lastSeekTimestamp = now;
         double absTime = (_trimStartMs / 1000.0) + time;
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : double.MaxValue;
-        absTime = Math.Min(absTime, trimEndSec);
+        absTime = Math.Min(absTime, Math.Max(0.0, trimEndSec - 0.005));
         absTime = Math.Max(absTime, _trimStartMs / 1000.0);
-        if (_videoHost?.IpcClient != null) await _videoHost.IpcClient.SendCommandAsync("seek", absTime.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
+        try {
+            if (_videoHost?.IpcClient != null) {
+                await _videoHost.IpcClient.SendCommandAsync("seek", absTime.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
+            } else {
+                _isSeeking = false;
+            }
+        } catch (System.Exception ex) {
+            RuntimeLog.Swallowed(ex);
+            _isSeeking = false;
+        }
     }
 
     private async Task LoadVideoAsync()
@@ -1250,8 +1275,8 @@ public partial class GranularSpeedEditorWindow : Window
                     double effEdgeMs = Math.Min(edgeMs, Math.Max(0.0, sg.EndMs - sg.StartMs) / 3.0);
                     double dStart = Math.Abs(pointerMs - sg.StartMs);
                     double dEnd = Math.Abs(pointerMs - sg.EndMs);
-                    if (dStart <= effEdgeMs && dStart < bestEdgeDist) { bestEdgeDist = dStart; hitIdx = i; mode = SegDragMode.ResizeStart; }
-                    if (dEnd <= effEdgeMs && dEnd < bestEdgeDist) { bestEdgeDist = dEnd; hitIdx = i; mode = SegDragMode.ResizeEnd; }
+                    if (dStart <= effEdgeMs && (dStart < bestEdgeDist || (dStart == bestEdgeDist && i == _selectedSegmentIndex))) { bestEdgeDist = dStart; hitIdx = i; mode = SegDragMode.ResizeStart; }
+                    if (dEnd <= effEdgeMs && (dEnd < bestEdgeDist || (dEnd == bestEdgeDist && i == _selectedSegmentIndex))) { bestEdgeDist = dEnd; hitIdx = i; mode = SegDragMode.ResizeEnd; }
                 }
                 if (hitIdx < 0)
                 {
@@ -1280,6 +1305,10 @@ public partial class GranularSpeedEditorWindow : Window
                     _segDragMode = mode;
                     _dragOrigStartMs = seg.StartMs;
                     _dragOrigEndMs = seg.EndMs;
+                    _dragOrigZoomStartMs = seg.ZoomStartMs;
+                    _dragOrigZoomEndMs = seg.ZoomEndMs;
+                    _segDragTimeline = OutTimeline();
+                    _segDragOutDurationSec = OutDurationSec();
                     _dragStartPointerMs = pointerMs;
                     e.Pointer.Capture(canvas);
                     SetStatus(mode == SegDragMode.Move
@@ -1423,7 +1452,7 @@ public partial class GranularSpeedEditorWindow : Window
                                       _freezeTimeMs - _trimStartMs + _freezeDurationS * 1000.0);
                     RedrawTimeline();
                     
-                    _ = SeekInternal(_freezeTimeMs / 1000.0);
+                    _ = SeekInternal(Math.Max(0, (_freezeTimeMs - _trimStartMs) / 1000.0));
                     
                     e.Handled = true;
                     return;
@@ -1533,14 +1562,21 @@ public partial class GranularSpeedEditorWindow : Window
                     newEnd = Math.Clamp(NearestSnap(newEnd), Math.Min(upperBound, newStart + SegMinWidthMs), upperBound);
 
                 if (hitLeftWall)
-                    SetStatus($"Blocked on the left! Must keep a {SegGapMs/1000.0}s gap from the previous segment.");
+                    SetStatus("Blocked on the left by the previous segment.");
                 else if (hitRightWall)
-                    SetStatus($"Blocked on the right! Must keep a {SegGapMs/1000.0}s gap from the next segment.");
+                    SetStatus("Blocked on the right by the next segment.");
                 else
                     SetStatus(_segDragMode == SegDragMode.Move ? $"Moving segment #{idx + 1} — release to set." : $"Resizing segment #{idx + 1} — release to set.");
 
                 PushUndo("resize segment", "seg-edge");   // UNDO_02
-                _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd };
+                double actualDelta = newStart - _dragOrigStartMs;
+                double? newZoomStart = (_segDragMode == SegDragMode.Move && _dragOrigZoomStartMs.HasValue)
+                    ? _dragOrigZoomStartMs.Value + actualDelta
+                    : _segments[idx].ZoomStartMs;
+                double? newZoomEnd = (_segDragMode == SegDragMode.Move && _dragOrigZoomEndMs.HasValue)
+                    ? _dragOrigZoomEndMs.Value + actualDelta
+                    : _segments[idx].ZoomEndMs;
+                _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd, ZoomStartMs = newZoomStart, ZoomEndMs = newZoomEnd };
                 UpdateDragReadout(newStart, newEnd);
                 UpdateDraggingVisuals(idx, newStart, newEnd);
                 double followRelSec = (_segDragMode == SegDragMode.ResizeEnd ? newEnd : newStart) / 1000.0;
@@ -1770,6 +1806,8 @@ public partial class GranularSpeedEditorWindow : Window
                     {
                         PushUndo("change freeze length", "freeze-len");   // UNDO_02
                         _freezeDurationS = val;
+                        EndUndoGesture();
+                        ScheduleGranularRecoverySave();
                         RedrawTimeline();
                         FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked freeze preset button. Set freeze duration to {val}s.");
                         ShowFeedback($"FREEZE CREATED: {val:0.0}s");
@@ -1813,6 +1851,7 @@ public partial class GranularSpeedEditorWindow : Window
                     _freezeTimeMs = currentAbsMs;
 
                     _freezeDurationS = promptPreset ? Infrastructure.SettingsManager.Instance.Defaults.DefaultFreezeDurationS : _selectedFreezePresetS;
+                    ScheduleGranularRecoverySave();
 
                     var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
                     var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
@@ -1840,7 +1879,9 @@ public partial class GranularSpeedEditorWindow : Window
                 }
                 else
                 {
+                    PushUndo("remove freeze");
                     ClearFreezeImage("FREEZE IMAGE REMOVED");
+                    ScheduleGranularRecoverySave();
                     FortniteVideoSoftware.App.RuntimeLog.Info("GRANULAR_EDITOR", $"State Change: User clicked 'Unfreeze Image' toggle. Button released to State 1 (Default/Blue - FREEZE IMAGE). Existing freeze instance was deleted from the timeline.");
                 }
             };
@@ -2010,9 +2051,6 @@ public partial class GranularSpeedEditorWindow : Window
         double start = Math.Min(_pendingStartMs, _pendingEndMs);
         double end   = Math.Max(_pendingStartMs, _pendingEndMs);
 
-        bool snapped = false;
-        string snapMsg = "";
-
         foreach (var seg in _segments)
         {
             if (start < seg.EndMs && end > seg.StartMs)
@@ -2020,28 +2058,11 @@ public partial class GranularSpeedEditorWindow : Window
                 NotifyError($"Cannot add segment: Overlaps existing segment [{FormatMs(seg.StartMs)} – {FormatMs(seg.EndMs)}].");
                 return;
             }
-            
-            bool tooCloseBefore = seg.EndMs <= start && start - seg.EndMs < SegGapMs;
-            bool tooCloseAfter  = seg.StartMs >= end && seg.StartMs - end < SegGapMs;
-            
-            if (tooCloseBefore)
-            {
-                start = seg.EndMs + SegGapMs;
-                snapped = true;
-                snapMsg = $"Pushed the start to {FormatMs(start)} to keep a safe {SegGapMs/1000.0}s distance from the previous segment.";
-            }
-            if (tooCloseAfter)
-            {
-                end = seg.StartMs - SegGapMs;
-                snapped = true;
-                if (tooCloseBefore) snapMsg = $"Squeezed the segment to fit exactly between the two neighbours ({FormatMs(start)} – {FormatMs(end)}).";
-                else snapMsg = $"Pushed the end to {FormatMs(end)} to keep a safe {SegGapMs/1000.0}s distance from the next segment.";
-            }
         }
         
         if (end - start < 10)
         {
-            NotifyError($"Not enough room! After keeping the required {SegGapMs/1000.0}s gap, the segment would be too small to create.");
+            NotifyError("That segment would be too small to create.");
             return;
         }
 
@@ -2058,15 +2079,7 @@ public partial class GranularSpeedEditorWindow : Window
         _pendingStartMs = -1;
         _pendingEndMs   = -1;
         RefreshSegmentList();
-        
-        if (snapped)
-        {
-            NotifyError(snapMsg);
-        }
-        else
-        {
-            Notify($"Segment added: {FormatMs(start)} – {FormatMs(end)} @ {speed:0.0}x");
-        }
+        Notify($"Segment added: {FormatMs(start)} – {FormatMs(end)} @ {speed:0.0}x");
     }
 
     private void RefreshSegmentList()
@@ -3676,8 +3689,10 @@ public partial class GranularSpeedEditorWindow : Window
         const double OuterReach = 12.0;
         double innerReach = Math.Clamp(blockWidthPx / 2.0, 0.0, OuterReach);
         double boxWidth = OuterReach + innerReach;
-        double boxLeft = isStart ? markerX - OuterReach : markerX - innerReach;
-        double stickOffset = isStart ? OuterReach : innerReach;
+        double rawBoxLeft = isStart ? markerX - OuterReach : markerX - innerReach;
+        double maxLeft = Math.Max(0.0, canvasWidth - boxWidth);
+        double boxLeft = Math.Clamp(rawBoxLeft, 0.0, maxLeft);
+        double stickOffset = Math.Clamp(markerX - boxLeft, 1.5, Math.Max(1.5, boxWidth - 1.5));
 
         var hitBox = new Avalonia.Controls.Border
         {
@@ -3736,9 +3751,13 @@ public partial class GranularSpeedEditorWindow : Window
             _segDragMode = isStart ? SegDragMode.ResizeStart : SegDragMode.ResizeEnd;
             _dragOrigStartMs = seg.StartMs;
             _dragOrigEndMs = seg.EndMs;
+            _dragOrigZoomStartMs = seg.ZoomStartMs;
+            _dragOrigZoomEndMs = seg.ZoomEndMs;
+            _segDragTimeline = OutTimeline();
+            _segDragOutDurationSec = OutDurationSec();
             double totalMs = durationSeconds * 1000.0;
             _dragStartPointerMs = canvasWidth > 0
-                ? Math.Clamp((e.GetPosition(canvas).X / canvasWidth) * totalMs, 0, totalMs)
+                ? Math.Clamp(XToSrcMs(e.GetPosition(canvas).X, canvasWidth), 0, totalMs)
                 : 0;
 
             e.Pointer.Capture(canvas);
@@ -3981,6 +4000,14 @@ public partial class GranularSpeedEditorWindow : Window
         RefreshSegmentList();
         RedrawTimeline();
         UpdateDeleteButtonVisibility();
+        if (_videoHost?.IpcClient != null)
+        {
+            double curMs = GetCurrentTime() * 1000.0;
+            double spd = GetEditorSpeedForPosition(curMs);
+            _lastAppliedSpeed = spd;
+            _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+                spd.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+        }
         SetStatus("Selected segment deleted.");
         NotifyUndoable("Segment deleted", "DeleteSegmentBtn");   // ANCHOR_01
         ScheduleGranularRecoverySave();   // RECOVERY_03 — the deletion must survive a force-kill
@@ -4046,6 +4073,7 @@ public partial class GranularSpeedEditorWindow : Window
         SetFreezePromptControlsEnabled(true);
         RedrawTimeline();
         UpdateDeleteButtonVisibility();
+        ScheduleGranularRecoverySave();
     }
 
     /// <summary>
@@ -4108,6 +4136,13 @@ public partial class GranularSpeedEditorWindow : Window
         RefreshSegmentList();
         RedrawTimeline();
         UpdateDeleteButtonVisibility();
+        ScheduleGranularRecoverySave();
+        if (_videoHost?.IpcClient != null)
+        {
+            _lastAppliedSpeed = _baseSpeed;
+            _ = _videoHost.IpcClient.SetPropertyAsync("speed",
+                _baseSpeed.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture));
+        }
         SetStatus(hadFreeze
             ? "All segments, the frozen frame and pending selections cleared."
             : "All segments and pending selections cleared.");
@@ -4372,9 +4407,6 @@ public partial class GranularSpeedEditorWindow : Window
         double start = Math.Min(_pendingStartMs, _pendingEndMs);
         double end   = Math.Max(_pendingStartMs, _pendingEndMs);
 
-        bool snapped = false;
-        string snapMsg = "";
-
         for (int i = 0; i < _segments.Count; i++)
         {
             var seg = _segments[i];
@@ -4383,27 +4415,11 @@ public partial class GranularSpeedEditorWindow : Window
                 NotifyError($"Cannot create zoom: Overlaps existing block #{i + 1} [{FormatMs(seg.StartMs)} – {FormatMs(seg.EndMs)}].");
                 return false;
             }
-            bool tooCloseBefore = seg.EndMs <= start && start - seg.EndMs < SegGapMs;
-            bool tooCloseAfter  = seg.StartMs >= end && seg.StartMs - end < SegGapMs;
-            
-            if (tooCloseBefore)
-            {
-                start = seg.EndMs + SegGapMs;
-                snapped = true;
-                snapMsg = $"Pushed the start to {FormatMs(start)} to keep a safe {SegGapMs/1000.0}s distance from the previous segment.";
-            }
-            if (tooCloseAfter)
-            {
-                end = seg.StartMs - SegGapMs;
-                snapped = true;
-                if (tooCloseBefore) snapMsg = $"Squeezed the segment to fit exactly between the two neighbours ({FormatMs(start)} – {FormatMs(end)}).";
-                else snapMsg = $"Pushed the end to {FormatMs(end)} to keep a safe {SegGapMs/1000.0}s distance from the next segment.";
-            }
         }
 
         if (end - start < SegMinWidthMs)
         {
-            NotifyError($"Not enough room! After keeping the required {SegGapMs/1000.0}s gap, the zoom segment would be too small to create.");
+            NotifyError($"That zoom segment would be too short — minimum is {SegMinWidthMs}ms.");
             return false;
         }
 
@@ -4414,11 +4430,6 @@ public partial class GranularSpeedEditorWindow : Window
 
         int newIndex = _segments.FindIndex(x => ReferenceEquals(x, created));
         SelectSegmentAt(newIndex < 0 ? _segments.Count - 1 : newIndex);
-        
-        if (snapped)
-        {
-            NotifyError(snapMsg);
-        }
         _zoomSessionCreatedSegment = true;
         _zoomCreatedSegmentIndex = _selectedSegmentIndex;   // ZOOMLIVE_07
 
@@ -4487,7 +4498,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         if (end - start < SegMinWidthMs)
         {
-            NotifyError($"Not enough free space here for a zoom — move the playhead away from the nearby block (a {SegGapMs}ms gap is required) and try again.");
+            NotifyError($"Not enough free space here for a zoom — move the playhead to an open area (minimum {SegMinWidthMs}ms required) and try again.");
             return false;
         }
 
@@ -5544,7 +5555,7 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        if (!_videoHost.IpcClient.IsPaused && _segments.Count > 0)
+        if (!_videoHost.IpcClient.IsPaused)
         {
             double targetSpeed = GetEditorSpeedForPosition(currentRelMs);
             if (Math.Abs(targetSpeed - _lastAppliedSpeed) > 0.001)
@@ -5752,7 +5763,7 @@ public partial class GranularSpeedEditorWindow : Window
                 else { s1 = ch.SourceStartSec; s2 = ch.SourceEndSec; }
 
                 double srcSpan = Math.Max(0.001, s2 - s1);
-                double scaledFullW = slotW * (srcDur / srcSpan);
+                double scaledFullW = Math.Min(slotW * (srcDur / srcSpan), 32768.0);
 
                 var slot = new Avalonia.Controls.Canvas { Width = slotW, Height = h, ClipToBounds = true };
                 Avalonia.Controls.Canvas.SetLeft(slot, x);
@@ -6315,6 +6326,11 @@ public partial class GranularSpeedEditorWindow : Window
     private double XToSrcMs(double x, double w)
     {
         if (w <= 0) return 0;
+        if (_segDragTimeline != null && _segDragOutDurationSec > 0)
+        {
+            double outSecDrag = Math.Clamp(x, 0, w) / w * _segDragOutDurationSec;
+            return _segDragTimeline.OutputToSourceRelative(outSecDrag) * 1000.0;
+        }
         double outSec = Math.Clamp(x, 0, w) / w * OutDurationSec();
         return OutTimeline().OutputToSourceRelative(outSec) * 1000.0;
     }
@@ -7187,10 +7203,6 @@ public partial class GranularSpeedEditorWindow : Window
     private void ShowFeedback(string text)
         => Controls.FloatingNotice.Show(this, text);
 
-    /// <summary>ISSUE_09 — same notice in the "that worked" colour.</summary>
-    private void ShowFeedbackSuccess(string text)
-        => Controls.FloatingNotice.Success(this, text);
-
     private void SetStatus(string msg)
     {
         var lbl = this.FindControl<TextBlock>("BottomStatusLabel");
@@ -7506,8 +7518,10 @@ public partial class GranularSpeedEditorWindow : Window
     private static string? GetJsonString(JsonNode? node)
         => node is JsonValue v && v.TryGetValue(out string? s) ? s : null;
 
-    protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
+    protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        _isSeeking = false;
+        _nextSeekTarget = null;
         try { _marchingAntsTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         try { _playbackTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         try { _freezePulseTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
@@ -7558,6 +7572,8 @@ public partial class GranularSpeedEditorWindow : Window
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
         RuntimeLog.Info("Granular", "Granular Speed Editor closed. Disposing resources.");
 
+        _isSeeking = false;
+        _nextSeekTarget = null;
         _playbackTimer?.Stop();
         _marchingAntsTimer?.Stop();
         _freezePulseTimer?.Stop();

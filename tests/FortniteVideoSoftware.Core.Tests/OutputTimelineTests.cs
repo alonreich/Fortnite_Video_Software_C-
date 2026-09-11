@@ -332,4 +332,45 @@ public class OutputTimelineTests
         // Point in plain footage stays untouched
         Assert.Equal(5.0, timeline.SnapInsertionPoint(5.0), 3);
     }
+
+    [Fact]
+    public void OutputTimeline_FreezeNearEndOfVideo_PreservesFullFreezeDuration()
+    {
+        // 10s video with 2.0s freeze at 9.5s
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(9500, 11500, 0.0)
+        };
+        var timeline = OutputTimeline.Create(10000.0, segments, baseSpeed: 1.0);
+        Assert.Equal(12.0, timeline.TotalOutputSeconds, 2);
+    }
+
+    [Fact]
+    public void OutputTimeline_FreezeAtLastFrame_NotDropped()
+    {
+        // 10s video with 1.5s freeze placed directly on last frame (10.0s)
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(10000, 11500, 0.0)
+        };
+        var timeline = OutputTimeline.Create(10000.0, segments, baseSpeed: 1.0);
+        Assert.Equal(11.5, timeline.TotalOutputSeconds, 2);
+    }
+
+    [Fact]
+    public void ZoomPreviewSimulator_WithTrimStartSec_CalculatesActiveCropCorrectly()
+    {
+        // Absolute segment from 32s to 35s with zoom, trim start at 30s
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(32000, 35000, 1.0, ZoomX: 100, ZoomY: 100, ZoomW: 800, ZoomH: 450, ZoomOrigRes: "1920x1080")
+        };
+
+        // Clip-relative time 2.5s corresponds to absolute 32.5s, inside the zoom
+        var result = ZoomPreviewSimulator.Compute(segments, tSec: 2.5, durSec: 10.0,
+            portraitMode: false, srcW: 1920, srcH: 1080, trimStartSec: 30.0);
+
+        Assert.True(result.HasCrop);
+        Assert.NotEmpty(result.Crop);
+    }
 }

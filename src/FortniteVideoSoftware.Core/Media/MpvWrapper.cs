@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -102,19 +102,6 @@ public static partial class MpvWrapper
     }
 
 
-    /// <summary>Creates and initializes an mpv handle, or returns nint.Zero on failure.</summary>
-    public static nint CreateAndInitialize()
-    {
-        nint handle = mpv_create();
-        if (handle == nint.Zero) return nint.Zero;
-        if (mpv_initialize(handle) < 0)
-        {
-            mpv_terminate_destroy(handle);
-            return nint.Zero;
-        }
-        return handle;
-    }
-
     /// <summary>Safely terminates and destroys an mpv handle (null-safe).</summary>
     public static void SafeDestroy(ref nint handle)
     {
@@ -129,20 +116,6 @@ public static partial class MpvWrapper
     {
         if (handle != nint.Zero)
             mpv_set_property_string(handle, "pause", pause ? "yes" : "no");
-    }
-
-    /// <summary>Reads the 'pause' property. Returns false if handle is invalid.</summary>
-    public static bool GetIsPaused(nint handle)
-    {
-        return GetPropertyString(handle, "pause") == "yes";
-    }
-
-
-    /// <summary>Sets the 'speed' property (InvariantCulture).</summary>
-    public static void SetSpeed(nint handle, double speed)
-    {
-        if (handle != nint.Zero)
-            mpv_set_property_string(handle, "speed", speed.ToString(CultureInfo.InvariantCulture));
     }
 
 
@@ -160,35 +133,6 @@ public static partial class MpvWrapper
             mpv_set_property_string(handle, "volume", volume.ToString(CultureInfo.InvariantCulture));
     }
 
-
-    /// <summary>Absolute seek (seconds, InvariantCulture).</summary>
-    public static void SeekAbsolute(nint handle, double seconds)
-    {
-        if (handle != nint.Zero)
-            mpv_command_string(handle, $"seek {seconds.ToString(CultureInfo.InvariantCulture)} absolute");
-    }
-
-    /// <summary>Relative seek (±seconds, InvariantCulture).</summary>
-    public static void SeekRelative(nint handle, double deltaSeconds)
-    {
-        if (handle != nint.Zero)
-            mpv_command_string(handle, $"seek {deltaSeconds.ToString(CultureInfo.InvariantCulture)} relative");
-    }
-
-
-    /// <summary>Advance one frame forward.</summary>
-    public static void FrameStep(nint handle)
-    {
-        if (handle != nint.Zero)
-            mpv_command_string(handle, "frame-step");
-    }
-
-    /// <summary>Advance one frame backward.</summary>
-    public static void FrameBackStep(nint handle)
-    {
-        if (handle != nint.Zero)
-            mpv_command_string(handle, "frame-back-step");
-    }
 
 
     /// <summary>Stops playback and clears the playlist.</summary>
@@ -249,24 +193,11 @@ public static partial class MpvWrapper
         return result;
     }
 
-    /// <summary>Reads 'time-pos' as a double. Returns 0 on failure.</summary>
-    public static double GetTimePos(nint handle)
-    {
-        string? s = GetPropertyString(handle, "time-pos");
-        return double.TryParse(s, CultureInfo.InvariantCulture, out double v) ? v : 0;
-    }
-
     /// <summary>Reads 'duration' as a double. Returns 0 on failure.</summary>
     public static double GetDuration(nint handle)
     {
         string? s = GetPropertyString(handle, "duration");
         return double.TryParse(s, CultureInfo.InvariantCulture, out double v) ? v : 0;
-    }
-
-    /// <summary>Reads 'eof-reached'. Returns false on failure.</summary>
-    public static bool GetIsEof(nint handle)
-    {
-        return GetPropertyString(handle, "eof-reached") == "yes";
     }
 
 

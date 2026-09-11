@@ -1,4 +1,4 @@
-﻿<Application xmlns="https://github.com/avaloniaui"
+<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
              xmlns:collections="using:System.Collections"
@@ -11,9 +11,7 @@
         <SolidColorBrush x:Key="AppAccentBrush" Color="#60a5fa" />
         <SolidColorBrush x:Key="AppInfoBrush" Color="#38bdf8" />
         <SolidColorBrush x:Key="AppSuccessBrush" Color="#3f9c6b" />
-        <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#348456" />
         <SolidColorBrush x:Key="AppDangerBrush" Color="#a83232" />
-        <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#8f2a2a" />
         <!-- ISSUE_02: Granular timeline "slower-than-normal" segment swatch. Kept distinct from
              AppDangerBrush (#dc2626) because it must equal the block colour drawn in code
              (GetSegmentOverlayColor RGB 239,68,68) so the legend chip matches the timeline. -->
@@ -460,8 +458,6 @@
                 <SolidColorBrush x:Key="AppAccentBrush" Color="#2563eb" />
                 <SolidColorBrush x:Key="AppInfoBrush" Color="#0284c7" />
                 <SolidColorBrush x:Key="AppSuccessBrush" Color="#2c6b47" />
-                <SolidColorBrush x:Key="AppSuccessHoverBrush" Color="#24593b" />
-                <SolidColorBrush x:Key="AppDangerHoverBrush" Color="#7c2323" />
                 <SolidColorBrush x:Key="AppWarningBrush" Color="#a16207" />
                 <SolidColorBrush x:Key="AppSpeedSlowBrush" Color="#dc2626" />
                 <Color x:Key="AppAccentColor">#2563eb</Color>

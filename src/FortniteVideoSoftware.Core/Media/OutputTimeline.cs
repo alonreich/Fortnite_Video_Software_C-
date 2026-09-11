@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -185,6 +185,13 @@ public sealed class OutputTimeline
         {
             foreach (var seg in segments)
             {
+                if (Math.Abs(seg.Speed) < 0.001)
+                {
+                    double fStart = ToClipRel(seg.StartMs / 1000.0);
+                    double fDur = Math.Max(0.001, (seg.EndMs - seg.StartMs) / 1000.0);
+                    normalizedSegments.Add((fStart, fStart + fDur, 0.0));
+                    continue;
+                }
                 double start = ToClipRel(seg.StartMs / 1000.0);
                 double end = ToClipRel(seg.EndMs / 1000.0);
                 if (end <= start + 0.001) continue;
@@ -471,9 +478,6 @@ public sealed class OutputTimeline
 
         return _totalSourceSec;
     }
-
-    /// <summary>FINISHED-VIDEO seconds -> ABSOLUTE source seconds, trim offset included.</summary>
-    public double OutputToSourceAbsolute(double outputSec) => _originSec + OutputToSourceRelative(outputSec);
 
     /// <summary>
     /// True when the finished video is holding a still frame at this moment. The preview uses this

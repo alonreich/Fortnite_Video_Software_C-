@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading;
 using NAudio.Wave;
@@ -147,10 +147,7 @@ public static class UiSoundEffect
     }
 
 
-    public static void PlayClick() => Play(UiCue.Click);
     public static void PlayMark() => Play(UiCue.Mark);
-    public static void PlayOpen() => Play(UiCue.Open);
-    public static void PlayClose() => Play(UiCue.Close);
 
     /// <summary>
     /// AUDIO_02: fired when an export actually FINISHES (FinishedDialogWindow), not when the

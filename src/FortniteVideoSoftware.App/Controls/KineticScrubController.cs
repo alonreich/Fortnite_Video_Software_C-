@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using System;
@@ -45,17 +45,6 @@ public sealed class KineticScrubController : IDisposable
     {
         _timer = new DispatcherTimer { Interval = TickInterval };
         _timer.Tick += OnTick;
-    }
-
-    /// <summary>
-    /// Call on PointerMoved during an active drag to sample velocity.
-    /// </summary>
-    /// <param name="currentMs">Current timeline position in ms.</param>
-    /// <param name="deltaMs">Delta from last sample (ms).</param>
-    public void FeedDragSample(double currentMs, double deltaMs)
-    {
-        _velocityMsPerTick = _velocityMsPerTick * 0.6 + deltaMs * 0.4;
-        _currentMs = currentMs;
     }
 
     /// <summary>

@@ -85,14 +85,6 @@ public sealed class FfmpegDiagnosticCollector
         }
     }
 
-    public IReadOnlyList<string> GetSignificantLines()
-    {
-        lock (_sync)
-        {
-            return _significantLines.ToArray();
-        }
-    }
-
     public IReadOnlyList<string> GetTailLines()
     {
         lock (_sync)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -484,30 +484,6 @@ public class MpvIpcClient : IDisposable
 
         MpvWrapper.SetPause(_mpvHandle, false);
 
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Adds an external audio track via <c>audio-add</c> command.
-    /// </summary>
-    public Task AddExternalAudioAsync(string path)
-    {
-        if (_mpvHandle == nint.Zero)
-            return Task.CompletedTask;
-
-        MpvWrapper.mpv_command_string(_mpvHandle, $"audio-add {QuoteForMpv(path)} select");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Removes track ID 2 (the external audio track) via <c>audio-remove</c>.
-    /// </summary>
-    public Task RemoveExternalAudioAsync()
-    {
-        if (_mpvHandle == nint.Zero)
-            return Task.CompletedTask;
-
-        MpvWrapper.mpv_command_string(_mpvHandle, "audio-remove 2");
         return Task.CompletedTask;
     }
 

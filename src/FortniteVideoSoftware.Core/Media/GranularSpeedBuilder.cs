@@ -246,11 +246,20 @@ public class GranularSpeedBuilder
         {
             foreach (var seg in segments)
             {
-                double start = ToClipRelative(seg.StartMs / 1000.0);
-                double end = ToClipRelative(seg.EndMs / 1000.0);
-                if (end > start + 0.001)
+                if (Math.Abs(seg.Speed) < 0.001)
                 {
-                    normalizedSegments.Add((start, end, seg.Speed));
+                    double fStart = ToClipRelative(seg.StartMs / 1000.0);
+                    double fDur = Math.Max(0.001, (seg.EndMs - seg.StartMs) / 1000.0);
+                    normalizedSegments.Add((fStart, fStart + fDur, 0.0));
+                }
+                else
+                {
+                    double start = ToClipRelative(seg.StartMs / 1000.0);
+                    double end = ToClipRelative(seg.EndMs / 1000.0);
+                    if (end > start + 0.001)
+                    {
+                        normalizedSegments.Add((start, end, seg.Speed));
+                    }
                 }
 
                 if (seg.ZoomW.HasValue && seg.ZoomH.HasValue && seg.ZoomX.HasValue && seg.ZoomY.HasValue && !string.IsNullOrEmpty(seg.ZoomOrigRes))
@@ -611,13 +620,18 @@ public class GranularSpeedBuilder
                 double dur = chunk.FreezeDur;
                 int targetFrameCount = Math.Max(1, (int)Math.Round(dur * fpsValue));
                 double sampleWindow = Math.Max(4.0 / fpsValue, 0.20);
-                double sampleUntil = Math.Min(totalDurationSec, chunk.Start + sampleWindow);
-                double sampleWindowActual = Math.Max(1.0 / fpsValue, sampleUntil - chunk.Start);
+                double sampleStart = chunk.Start;
+                if (sampleStart + (1.0 / fpsValue) > totalDurationSec)
+                {
+                    sampleStart = Math.Max(0.0, totalDurationSec - (1.0 / fpsValue));
+                }
+                double sampleUntil = Math.Min(totalDurationSec, sampleStart + sampleWindow);
+                double sampleWindowActual = Math.Max(1.0 / fpsValue, sampleUntil - sampleStart);
 
                 double freezeQuantDur = fpsValue > 0 ? targetFrameCount / fpsValue : dur;
 
                 fullParts.Add(
-                    $"{vSrcMain}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
+                    $"{vSrcMain}trim=start={sampleStart.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
                     $"setpts=PTS-STARTPTS," +
                     $"select='lte(n\\,0)'," +
                     $"{zoomFilter}format=yuv420p,setsar=1," +
@@ -629,7 +643,7 @@ public class GranularSpeedBuilder
                 if (needHudBranch)
                 {
                     fullParts.Add(
-                        $"{vSrcHud}trim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
+                        $"{vSrcHud}trim=start={sampleStart.ToString("F4", CultureInfo.InvariantCulture)}:duration={sampleWindowActual.ToString("F4", CultureInfo.InvariantCulture)}," +
                         $"setpts=PTS-STARTPTS," +
                         $"select='lte(n\\,0)'," +
                         $"format=yuv420p,setsar=1," +

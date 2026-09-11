@@ -85,4 +85,63 @@ public class SpeedBuilderTests
         Assert.NotEmpty(chainHuge);
         Assert.Equal("atempo=1.5625", chainHuge[^1]); // 2^6 * 1.5625 = 100.0
     }
+
+    [Fact]
+    public void Build_FreezeNearEndOfVideo_GeneratesValidGraphWithSamplingBackoff()
+    {
+        // 10s video with 2.0s freeze placed at the end (10s)
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(10000, 12000, 0.0)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.NotEmpty(videoLabel);
+        Assert.Equal(12.0, finalDuration, 1);
+        Assert.True(filterGraph.Contains("tpad=stop_mode=clone") || filterGraph.Contains("loop="));
+    }
+
+    [Fact]
+    public void Build_CombinedSlowMotionAndFreeze_CalculatesAccurateDurationsAndChains()
+    {
+        // 10s video:
+        // [0..2s] @ 1.0x = 2s output
+        // [2..4s] @ 0.1x = 20s output
+        // [4..6s] @ 1.0x = 2s output
+        // [6s] freeze 1.5s = 1.5s output
+        // [6..10s] @ 1.0x = 4s output
+        // Expected total = 29.5s
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 0.1),
+            new SpeedSegment(6000, 7500, 0.0)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Equal(29.5, finalDuration, 1);
+        Assert.Contains("setpts='PTS/0.1000'", filterGraph);
+    }
+
+    [Fact]
+    public void Build_FullTimelineRubberbandSpread_CalculatesAccurateDurationWithoutHanging()
+    {
+        // Rubberband spread across full 10s clip at 0.25x
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(0, 10000, 0.25)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Equal(40.0, finalDuration, 1);
+        Assert.Contains("setpts='PTS/0.2500'", filterGraph);
+    }
 }

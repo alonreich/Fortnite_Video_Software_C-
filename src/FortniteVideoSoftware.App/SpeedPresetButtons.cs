@@ -55,17 +55,6 @@ internal static class SpeedPresetButtons
         }
     }
 
-    public static void SetSliderValue(Slider? slider, double speed)
-    {
-        if (slider == null)
-        {
-            return;
-        }
-
-        slider.Value = Math.Clamp(speed, slider.Minimum, slider.Maximum);
-        slider.IsEnabled = true;
-    }
-
     public static void SetSpinningWheelValue(SpinningWheelSlider? slider, double speed)
     {
         if (slider == null)

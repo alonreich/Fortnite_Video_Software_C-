@@ -63,26 +63,6 @@ public sealed record MemePlacement(
     public static string NewId(int index) => $"meme{index}";
 
     /// <summary>
-    /// MEME_03 — BACK-COMPATIBILITY SHIM. Converts the legacy single-meme fields into the new list
-    /// so that a payload written before this change still exports identically.
-    /// <paramref name="clipDurationSecRelative"/> is the trimmed clip length; an END meme is placed
-    /// at that instant, a START meme at 0.
-    /// </summary>
-    public static List<MemePlacement> FromLegacy(
-        string? memeFile, bool memeAtStart, double durationSec, double clipDurationSecRelative)
-    {
-        var list = new List<MemePlacement>();
-        if (string.IsNullOrWhiteSpace(memeFile) || durationSec <= 0) return list;
-
-        list.Add(new MemePlacement(
-            memeFile!,
-            memeAtStart ? 0.0 : Math.Max(0.0, clipDurationSecRelative),
-            durationSec,
-            NewId(0)));
-        return list;
-    }
-
-    /// <summary>
     /// Projects placements into the timeline model's own insertion type. Kept here rather than on
     /// <see cref="OutputTimeline"/> so the Core media model stays unaware of file paths.
     /// </summary>

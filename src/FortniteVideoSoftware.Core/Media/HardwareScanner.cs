@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
@@ -87,21 +87,6 @@ public static class HardwareScanner
 
         CoreLogger.Fail("Hardware", "No working hardware encoder detected; using CPU.");
         return "CPU";
-    }
-
-    public static string GetEncoder(string mode)
-    {
-        return Encoders.TryGetValue(mode, out string? encoder) ? encoder : "libx264";
-    }
-
-    public static string GetPixelFormat()
-    {
-        return "yuv420p";
-    }
-
-    public static string GetLevel()
-    {
-        return "4.2";
     }
 
     private static async Task<List<string>> GetAvailableHwaccelsAsync(string ffmpegPath, CancellationToken cancellationToken)

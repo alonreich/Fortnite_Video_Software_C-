@@ -20,16 +20,6 @@ public static class CanvasMath
     public static Frac BackendScale => CoordinateConstants.BackendScale;
     public static double BackendScaleDouble => (double)CoordinateConstants.InternalW / CoordinateConstants.PortraitW;
 
-    /// <summary>
-    /// Even-ceiling helper for Frac, used by mobile filter scaling.
-    /// Matches Python's _even_ceil(_fraction(value)).
-    /// </summary>
-    public static int EvenCeil(Frac value)
-    {
-        int n = CoordinateMath.FracCeil(value);
-        return n % 2 == 0 ? n : n + 1;
-    }
-
     public static JsonArray ProtectCropDrift(string regionName, JsonArray crop)
     {
         if (crop.Count != 4) return crop;

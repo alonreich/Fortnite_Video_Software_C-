@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -48,22 +48,6 @@ public static class OutputFolderResolver
     }
 
     /// <summary>
-    /// Non-interactive best guess, for UI labels ("Saves to: ...") and pre-flight disk checks.
-    /// Returns null when the user would have to be prompted.
-    /// </summary>
-    public static string? PeekDirectory(AppScope scope)
-    {
-        string configured = GetConfigured(scope);
-        if (!string.IsNullOrWhiteSpace(configured) && KnownFolders.IsWritableDirectory(configured))
-        {
-            return configured;
-        }
-
-        string? downloads = KnownFolders.GetDownloads();
-        return KnownFolders.IsWritableDirectory(downloads) ? downloads : null;
-    }
-
-    /// <summary>
     /// Full interactive resolution. Call this once, before starting a render.
     /// Returns the directory to write into, or null if the user cancelled the picker.
     /// </summary>
@@ -98,27 +82,6 @@ public static class OutputFolderResolver
         if (picked == null)
         {
             RuntimeLog.Info("Output", $"{scope} export cancelled — the user did not choose an output folder.");
-            return null;
-        }
-
-        SetConfigured(scope, picked);
-        return picked;
-    }
-
-    /// <summary>
-    /// Lets the user change the destination on purpose (Settings). Returns the new folder or
-    /// null if cancelled. Unlike <see cref="ResolveAsync"/> this never explains a failure.
-    /// </summary>
-    public static async Task<string?> ChooseAsync(Window owner, AppScope scope)
-    {
-        string? picked = await ShowFolderPickerAsync(owner, GetConfigured(scope), scope);
-        if (picked == null) return null;
-
-        if (!KnownFolders.IsWritableDirectory(picked))
-        {
-            await ErrorReporter.ShowAsync(owner, "Folder not usable",
-                "That folder cannot be written to, so it was not saved. Pick a different folder.",
-                $"Selected output folder is not writable: {picked}");
             return null;
         }
 

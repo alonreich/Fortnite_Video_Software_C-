@@ -82,19 +82,6 @@ public sealed class VideoRenderMode
         return s_instance;
     }
 
-    /// <summary>
-    /// For testing: explicitly set a render mode without probing.
-    /// </summary>
-    internal static VideoRenderMode InitializeForTesting(bool useHardwareAcceleration)
-    {
-        s_instance = new VideoRenderMode(new GpuCapabilityProbe.Result(
-            useHardwareAcceleration,
-            useHardwareAcceleration ? "Test GPU" : "Test CPU",
-            "N/A",
-            useHardwareAcceleration ? string.Empty : "Test override"));
-        return s_instance;
-    }
-
     public override string ToString()
     {
         return UseHardwareAcceleration

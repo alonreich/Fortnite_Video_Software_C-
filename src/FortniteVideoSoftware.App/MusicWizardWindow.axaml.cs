@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -484,7 +484,7 @@ public partial class MusicWizardWindow : Window
 
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
             _phase3SpeedSegments, sourceRelativeSec, durSec,
-            IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight);
+            IsPortraitPreview, ipc.VideoWidth, ipc.VideoHeight, trimStartSec: _trimStartMs / 1000.0);
 
         if (!result.HasCrop) { ClearPhase3LiveZoomCrop(); return; }
         if (result.Crop == _lastLiveCrop) return;

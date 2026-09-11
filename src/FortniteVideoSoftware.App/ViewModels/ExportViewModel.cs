@@ -30,7 +30,6 @@ public sealed class ExportViewModel : ViewModelBase
     private string _phaseTitle = "";
     private int _phaseProgress;
     private string _statusText = "Ready";
-    private CancellationTokenSource? _exportCts;
 
     public int QualitySliderValue
     {
@@ -121,8 +120,6 @@ public sealed class ExportViewModel : ViewModelBase
         get => _statusText;
         set => SetProperty(ref _statusText, value);
     }
-
-    public CancellationTokenSource? ExportCts => _exportCts;
 
     public void UpdateEstimatedQuality(double effectiveDurationMs, bool isPortraitMode)
     {
@@ -304,29 +301,5 @@ public sealed class ExportViewModel : ViewModelBase
             return proc.ExitCode == 0;
         }
         return false;
-    }
-
-    public CancellationToken PrepareExportCancellation()
-    {
-        _exportCts?.Cancel();
-        _exportCts?.Dispose();
-        _exportCts = new CancellationTokenSource();
-        IsExporting = true;
-        ProgressPercentage = 0;
-        return _exportCts.Token;
-    }
-
-    public void CancelExport()
-    {
-        if (_exportCts != null && !_exportCts.IsCancellationRequested)
-        {
-            try { _exportCts.Cancel(); } catch (ObjectDisposedException) { }
-        }
-        IsExporting = false;
-    }
-
-    public void CompleteExport()
-    {
-        IsExporting = false;
     }
 }
