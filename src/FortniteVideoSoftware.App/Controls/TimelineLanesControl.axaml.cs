@@ -90,15 +90,15 @@ public partial class TimelineLanesControl : UserControl
         InitializeComponent();
 
         var lanes = this.FindControl<Grid>("LanesGrid");
-        if (lanes != null) lanes.SizeChanged += (_, _) => Refresh();
+        if (lanes != null) lanes.SizeChanged += (_, _) => QueueRefresh();
 
         var scroll = this.FindControl<ScrollViewer>("LanesScroll");
         if (scroll != null)
         {
-            // Keep the content width pinned to viewport × zoom through viewport changes AND
-            // scrollbar show/hide (which changes Viewport without changing Bounds).
+            // ZOOMSIZE_02 — SizeChanged ONLY. ScrollChanged must never resize the content:
+            // scroll POSITION has no bearing on content WIDTH, and reacting to it re-armed the
+            // resize loop on every pan.
             scroll.SizeChanged += (_, _) => ApplyZoomSizing();
-            scroll.ScrollChanged += (_, _) => ApplyZoomSizing();
         }
 
         // TUNNEL, not bubbling: the ScrollViewer consumes bubbling wheel events before the root
@@ -195,12 +195,69 @@ public partial class TimelineLanesControl : UserControl
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // LAYOUTLOOP_01 — REFRESH MUST NEVER RUN INSIDE A LAYOUT PASS. THIS IS NOT A PERF TWEAK.
+    //
+    // `LanesGrid.SizeChanged` used to call Refresh() DIRECTLY. SizeChanged is raised from inside
+    // Avalonia's arrange pass, and Refresh -> DrawRuler does `ruler.Children.Clear()` and then adds
+    // a Rectangle per tick — i.e. it MUTATES THE VISUAL TREE WHILE THE TREE IS BEING ARRANGED.
+    // That invalidates layout, which re-enters arrange, which raises SizeChanged again.
+    //
+    // Captured from a frozen process (dotnet-dump, 2026-09-12). UI thread, reading upward:
+    //     LayoutManager.ExecuteArrangePass
+    //       -> LayoutManager.Arrange  x6 nested
+    //         -> Layoutable.ArrangeCore
+    //           -> TimelineLanesControl.<.ctor>b__22_0(SizeChangedEventArgs)
+    //             -> Refresh -> DrawRuler
+    //               -> AvaloniaList.Clear -> Panel.ChildrenChanged -> SetVisualParent
+    //                 -> Visual.OnDetachedFromVisualTreeCore
+    //                   -> Trace.WriteLine -> OutputDebugString   (BLOCKING NATIVE CALL)
+    //
+    // Every detached child costs one OutputDebugString, which serialises on a global OS mutex and
+    // is brutally slow while a debugger or dotnet watch is attached. Hundreds of ticks per redraw,
+    // redrawing on every arrange, never converging: the window stops repainting and the app reads
+    // as hard-frozen. It also explains the "timeline keeps expanding" — the ruler is being rebuilt
+    // faster than the arrange pass can settle, so it never reaches a stable width.
+    //
+    // The fix is to leave the layout pass first: coalesce to ONE refresh and run it at Background
+    // priority, after arrange has completed. _inRefresh additionally makes re-entry impossible even
+    // if a future caller invokes Refresh() from inside a layout callback again.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private bool _refreshQueued;
+    private bool _inRefresh;
+
+    /// <summary>
+    /// LAYOUTLOOP_01 — coalesced, deferred redraw. Safe to call from a layout/size callback.
+    /// </summary>
+    private void QueueRefresh()
+    {
+        if (_refreshQueued) return;
+        _refreshQueued = true;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _refreshQueued = false;
+            Refresh();
+        }, Avalonia.Threading.DispatcherPriority.Background);
+    }
+
     /// <summary>Redraws ruler, gridlines, caret and clocks. Safe to call at any time.</summary>
     public void Refresh()
     {
-        DrawRuler();
-        UpdateCaret();
-        UpdateClocks();
+        // LAYOUTLOOP_01 — a redraw that re-enters itself would rebuild the ruler from inside its
+        // own child-collection mutation. One redraw at a time, always.
+        if (_inRefresh) return;
+        _inRefresh = true;
+        try
+        {
+            DrawRuler();
+            UpdateCaret();
+            UpdateClocks();
+        }
+        finally
+        {
+            _inRefresh = false;
+        }
     }
 
     /// <summary>
@@ -214,6 +271,7 @@ public partial class TimelineLanesControl : UserControl
         set
         {
             double z = Math.Clamp(value, 1.0, MaxZoomFactor);
+            _lastViewportW = 0;   // ZOOMSIZE_02 — the zoom changed, so re-size even at the same viewport
             if (z <= 1.0001) z = 1.0;
             if (Math.Abs(z - _zoomFactor) < 0.0001) return;
 
@@ -234,17 +292,57 @@ public partial class TimelineLanesControl : UserControl
     /// control's and the host windows' <c>SrcMsToX</c>/<c>XToSrcMs</c> pairs — therefore carries
     /// the factor exactly once, with no per-layer transform to drift out of agreement.
     /// </summary>
+    private bool _inZoomSizing;
+
+    /// <summary>ZOOMSIZE_02 — the width the content was last sized from; see ApplyZoomSizing.</summary>
+    private double _lastViewportW;
+
     private void ApplyZoomSizing()
     {
+        // LAYOUTLOOP_01 — ScrollChanged fires when this method changes lanes.Width, which would
+        // call it again. The 0.5px guard below usually breaks that, but only AFTER a full layout
+        // pass has run; the flag stops the re-entry outright.
+        if (_inZoomSizing) return;
+
         var scroll = this.FindControl<ScrollViewer>("LanesScroll");
         var lanes = this.FindControl<Grid>("LanesGrid");
         if (scroll == null || lanes == null) return;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // ZOOMSIZE_02 — MEASURE AGAINST Viewport. MEASURING AGAINST Bounds IS A RUNAWAY.
+        //
+        // LanesScroll lives in `ColumnDefinitions="Auto,*,Auto"`, column 1 — a STAR column, whose
+        // width follows its content when the container is not itself width-constrained. So:
+        //     contentW = Bounds.Width * zoom  ->  LanesGrid.Width = contentW
+        //         ->  the star column grows  ->  Bounds.Width grows  ->  contentW grows ...
+        // The ruler labels thin out to nothing, the film strip stretches without bound and the
+        // window itself is dragged wider. (An earlier attempt measured from Bounds to stop a scrollbar
+        // oscillation; it swapped a bounded wobble for an unbounded one. Reverted.)
+        //
+        // Viewport.Width cannot run away: it is what is actually VISIBLE, so it is capped by the
+        // window no matter how wide the content becomes. The scrollbar wobble that attempt was
+        // aimed at is handled instead by the two guards that survive from it, which are enough:
+        // ScrollChanged no longer resizes anything, and an unchanged measurement is a no-op.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         double vp = scroll.Viewport.Width > 0 ? scroll.Viewport.Width : scroll.Bounds.Width;
         if (vp <= 0) return;
 
-        double contentW = vp * _zoomFactor;
-        if (Math.Abs(lanes.Width - contentW) > 0.5) lanes.Width = contentW;
+        // ZOOMSIZE_02 — if the width we measure from has not moved, there is nothing to react to.
+        if (Math.Abs(vp - _lastViewportW) < 0.5 && _lastViewportW > 0) return;
+        _lastViewportW = vp;
+
+        // ZOOMSIZE_02 — a hard ceiling, independent of every calculation above. Nothing in this
+        // control has any use for a lane wider than the viewport times the maximum zoom, and no
+        // sequence of layout passes may ever produce one.
+        double contentW = Math.Min(vp * _zoomFactor, vp * MaxZoomFactor);
+        if (lanes.MaxWidth != contentW) lanes.MaxWidth = contentW;
+
+        if (Math.Abs(lanes.Width - contentW) > 0.5)
+        {
+            _inZoomSizing = true;
+            try { lanes.Width = contentW; }
+            finally { _inZoomSizing = false; }
+        }
     }
 
     /// <summary>

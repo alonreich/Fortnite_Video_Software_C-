@@ -15,8 +15,8 @@ namespace FortniteVideoSoftware.App.ViewModels;
 
 public sealed class ExportViewModel : ViewModelBase
 {
-    private int _qualitySliderValue = 7;
-    private string _qualityLabelText = "Standard";
+    private int _qualitySliderValue = QualityLadder.DefaultIndex;   // QUALITY_01
+    private string _qualityLabelText = "";
     private string _qualityLabelColor = "White";
     private double? _targetMbOverride;
     private string _hardwareMode = "Auto";
@@ -34,7 +34,10 @@ public sealed class ExportViewModel : ViewModelBase
     public int QualitySliderValue
     {
         get => _qualitySliderValue;
-        set => SetProperty(ref _qualitySliderValue, Math.Clamp(value, 0, 20));
+        // QUALITY_01 — the dial is a TIER index now, not a 0-20 megabyte step. An index restored
+        // from an older session is clamped rather than rejected; the top stop still means
+        // "no size limit", so the one setting anybody deliberately chose survives the change.
+        set => SetProperty(ref _qualitySliderValue, QualityLadder.ClampIndex(value));
     }
 
     public string QualityLabelText
@@ -121,26 +124,15 @@ public sealed class ExportViewModel : ViewModelBase
         set => SetProperty(ref _statusText, value);
     }
 
-    public void UpdateEstimatedQuality(double effectiveDurationMs, bool isPortraitMode)
+    /// <summary>
+    /// QUALITY_01 — the target size this tier needs for THIS clip, or null for `Original`
+    /// (constant quality, no cap). ONE source of truth: the readout under the dial and the number
+    /// handed to the export worker both come from here, so what the user was promised and what
+    /// gets encoded cannot drift apart.
+    /// </summary>
+    public double? ResolveTargetMb(double effectiveDurationMs, bool isPortraitMode, double freezeOutputMs = 0)
     {
-        if (effectiveDurationMs <= 0)
-        {
-            QualityLabelText = "";
-            return;
-        }
-
-        int idx = QualitySliderValue;
-        double targetMb = 5 + idx * 5;
-        if (idx >= 20)
-        {
-            QualityLabelText = "Max CQ";
-            QualityLabelColor = "#2ecc71";
-            return;
-        }
-
-        double durSec = Math.Max(0.1, effectiveDurationMs / 1000.0) + 0.1;
-        double audioKbps = 192;
-        if (targetMb * 1024 < durSec * 48) audioKbps = 64;
+        if (effectiveDurationMs <= 0) return null;
 
         int w = 1920;
         int h = 1080;
@@ -150,47 +142,40 @@ public sealed class ExportViewModel : ViewModelBase
             h = CoordinateConstants.ContentH;
         }
 
-        double videoKbps = ((targetMb * 8192.0) - (audioKbps * durSec)) / durSec;
-        if (videoKbps < 100) videoKbps = 100;
+        // Same duration basis the old forward calculation used, including the 0.1s pad.
+        double durSec = Math.Max(0.1, effectiveDurationMs / 1000.0) + 0.1;
 
-        double bpp = (videoKbps * 1000.0) / (w * h * 60.0);
-        if (!isPortraitMode)
+        double freezeSec = Math.Clamp(freezeOutputMs / 1000.0, 0, durSec);   // QUALITY_03
+        return QualityLadder.TargetMbFor(QualitySliderValue, durSec, w, h, isPortraitMode, freezeSec);
+    }
+
+    /// <summary>
+    /// QUALITY_01 — WAS: "here is the quality your megabytes bought". IS: "here is what your
+    /// quality will cost". The label under the dial is the consequence now, not the goal.
+    /// </summary>
+    public void UpdateEstimatedQuality(double effectiveDurationMs, bool isPortraitMode, double freezeOutputMs = 0)
+    {
+        if (effectiveDurationMs <= 0)
         {
-            bpp /= 1.5;
+            QualityLabelText = "";
+            return;
         }
 
-        string desc = "Standard";
-        string color = "White";
+        QualityLabelColor = QualityLadder.ColorFor(QualitySliderValue);
 
-        var spectrum = new (double th, string d, string c)[]
+        if (QualityLadder.IsOriginal(QualitySliderValue))
         {
-            (0.02, "Unwatchable", "#e74c3c"),
-            (0.04, "Pixelated", "#e74c3c"),
-            (0.06, "Blurry", "#e74c3c"),
-            (0.1, "Clear", "White"),
-            (0.15, "Sharp", "#2ecc71"),
-            (0.25, "Crisp-Clear", "#2ecc71"),
-            (99.0, "Lifelike", "#2ecc71")
-        };
-
-        for (int i = 0; i < spectrum.Length; i++)
-        {
-            if (bpp < spectrum[i].th)
-            {
-                desc = spectrum[i].d;
-                color = spectrum[i].c;
-                double prev = i > 0 ? spectrum[i - 1].th : 0.0;
-                double mid = (spectrum[i].th + prev) / 2.0;
-                if (spectrum[i].th < 90.0)
-                {
-                    desc += bpp < mid ? "-" : "+";
-                }
-                break;
-            }
+            // No target size exists to predict — the encoder holds a constant quality and the
+            // file lands where it lands. Saying "no size limit" is honest; inventing a number
+            // would not be.
+            QualityLabelText = "no size limit";
+            return;
         }
 
-        QualityLabelText = desc;
-        QualityLabelColor = color;
+        double? targetMb = ResolveTargetMb(effectiveDurationMs, isPortraitMode, freezeOutputMs);
+        // QUALITY_05 — no "≈". The number is an estimate and everyone reading it knows that; the
+        // symbol only made a short, glanceable figure look like an equation.
+        QualityLabelText = targetMb.HasValue ? QualityLadder.FormatSize(targetMb.Value) : "";
     }
 
     public string ResolveHardwareMode()

@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -199,8 +199,70 @@ public partial class MusicWizardWindow : Window
     /// FormattedText per track, run only when the list content or the list width changes, never
     /// per row and never per frame.
     /// </summary>
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // LIST_05 — THE TABLE IS NOW A CLOSED BOX.
+    //
+    // The list had a 1px rule under each row (LIST_01) and a 1px rule down the left of the length
+    // column, and nothing else: no top rule above the headings, and no left or right edge anywhere.
+    // So the hairlines started and stopped in mid-air and the whole thing read as a set of loose
+    // underlines rather than a table.
+    //
+    // Closing it needs a WIDTH, because the rows are deliberately left-packed (LIST_04) — a box
+    // stretched to the ListBox would put its right edge a hand-span past the last column. This is
+    // that width: the three measured column widths plus the separator furniture and the row
+    // padding, i.e. exactly where the last column ends. It is recomputed by the same pass that
+    // measures the columns, so the frame can never drift away from its own contents.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    public static readonly Avalonia.StyledProperty<double> TrackTableWidthProperty =
+        Avalonia.AvaloniaProperty.Register<MusicWizardWindow, double>(nameof(TrackTableWidth), 501.0);
+
+    /// <summary>LIST_05 — outer width of the closed table frame on step 1, in pixels. Includes the
+    /// LIST_07 scrollbar gutter, so the frame encloses the scrollbar instead of the scrollbar
+    /// overlapping the last column.</summary>
+    public double TrackTableWidth
+    {
+        get => GetValue(TrackTableWidthProperty);
+        set => SetValue(TrackTableWidthProperty, value);
+    }
+
+    /// <summary>
+    /// LIST_05 — the row's own geometry, kept in one place so the header strip, the row template
+    /// and the frame around them cannot disagree:
+    ///   row Border Padding="5,3"  ->  5 + 5
+    ///   separator Border          ->  Margin 10 + 1px rule + Margin 10
+    ///   ListBox Padding="2"       ->  2 + 2
+    /// </summary>
+    /// <summary>
+    /// LIST_07 — the gap between the last column and the vertical scrollbar, and the width
+    /// reserved for the scrollbar itself. The row template carries the gap as its right Margin;
+    /// this constant is what makes the FRAME wide enough to contain the gap, the scrollbar and
+    /// the columns, so the scrollbar ends up beside the table content rather than on top of it.
+    /// </summary>
+    private const double TrackScrollGutterPx = 14;
+    private const double TrackScrollBarWidthPx = 20;
+
+    private const double TrackRowFurnitureWidthPx =
+        5 + 5 + 10 + 1 + 10 + 2 + 2 + TrackScrollGutterPx + TrackScrollBarWidthPx;
+
+    private void RecalculateTrackTableWidth()
+    {
+        double resolved = Math.Round(
+            TrackPinColumnWidth + TrackNameColumnWidth + TrackLengthColumnWidth + TrackRowFurnitureWidthPx, 0);
+
+        // LIST_06 — same rule as the column widths: no write, no layout invalidation, no loop.
+        if (Math.Abs(TrackTableWidth - resolved) > 0.5) TrackTableWidth = resolved;
+    }
+
+    /// <summary>LIST_06 — guards against a measurement triggering its own re-entry.</summary>
+    private bool _recalculatingTrackColumns;
+
     private void RecalculateTrackNameColumnWidth()
     {
+        // LIST_06 — writing the column widths causes a layout pass, and a layout pass is what
+        // raises the size-changed events that call this. One level of re-entry is all it takes to
+        // turn that into an oscillation, so the whole method is non-reentrant.
+        if (_recalculatingTrackColumns) return;
+        _recalculatingTrackColumns = true;
         try
         {
             var listbox = this.FindControl<ListBox>("MusicListBox");
@@ -271,17 +333,45 @@ public partial class MusicWizardWindow : Window
             // the 1px rule, the 72px length cell, the row padding and a scrollbar. Reserved so the
             // length can never be pushed out of view.
             double RowFurniturePx = TrackPinColumnWidth + 10 + 1 + 10 + TrackLengthColumnWidth + 10 + 20;
-            double listWidth = listbox?.Bounds.Width ?? 0;
-            double ceiling = listWidth > RowFurniturePx + TrackNameMinWidthPx
-                ? listWidth - RowFurniturePx
+
+            // ══════════════════════════════════════════════════════════════════════════════
+            // LIST_06 — MEASURE AGAINST THE PANEL, NEVER AGAINST THE LIST.
+            //
+            // This read `listbox.Bounds.Width`. Once LIST_05 put the ListBox inside a frame whose
+            // width came from TrackTableWidth — which is computed FROM TrackNameColumnWidth, which
+            // is what this line produces — the measurement was reading back its own result one
+            // layout pass later. Symptoms: columns visibly pulsing, and a vertical scrollbar whose
+            // thumb was re-laid-out under the pointer every frame, so dragging it jumped the view
+            // back and forth and never scrolled.
+            //
+            // Step1Panel is the step's own Grid. Its width comes from the window and from nothing
+            // this method writes, so it is a fixed point: the loop cannot close through it.
+            // ⚠️ Do not "improve" this back to any control that lives inside the table frame.
+            // ══════════════════════════════════════════════════════════════════════════════
+            var step1Panel = this.FindControl<Avalonia.Controls.Grid>("Step1Panel");
+            double availableWidth = step1Panel?.Bounds.Width ?? 0;
+            double ceiling = availableWidth > RowFurniturePx + TrackNameMinWidthPx
+                ? availableWidth - RowFurniturePx
                 : double.MaxValue;
 
-            TrackNameColumnWidth = Math.Round(Math.Clamp(target, TrackNameMinWidthPx, ceiling), 0);
+            // LIST_06 — write only on a real change. An unconditional assignment invalidates
+            // layout even when the value is identical, which keeps the size-changed events (and
+            // therefore this method) firing forever on a list that is not changing at all.
+            double resolvedName = Math.Round(Math.Clamp(target, TrackNameMinWidthPx, ceiling), 0);
+            if (Math.Abs(TrackNameColumnWidth - resolvedName) > 0.5)
+            {
+                TrackNameColumnWidth = resolvedName;
+            }
+            RecalculateTrackTableWidth();   // LIST_05 — the frame follows the columns it encloses
         }
         catch (Exception ex)
         {
             // A measurement failure must not empty the list; the registered default still renders.
             RuntimeLog.Swallowed(ex);
+        }
+        finally
+        {
+            _recalculatingTrackColumns = false;   // LIST_06
         }
     }
 
@@ -364,7 +454,13 @@ public partial class MusicWizardWindow : Window
 
     {
         InitializeComponent();
-        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MusicWizardBounds");
+
+        // GRIP_01 — the bottom-right resize corner. These windows are borderless, so the OS
+        // draws no resize frame: without this there is nothing to grab and nothing telling the
+        // user the Add Music wizard can be resized at all. One shared implementation — see
+        // Controls/WindowResizeGrip.cs for why it is not per-window code.
+        Controls.WindowResizeGrip.Attach(this, "Drag to resize the Add Music wizard");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MusicWizardBounds", fitDisplayOnFirstRun: true);   // FIRSTFIT_01
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += PlayheadTimer_Tick;
         WirePreviewDetach();
@@ -800,7 +896,16 @@ public partial class MusicWizardWindow : Window
             listbox.ItemsSource = AvailableTracks;
 
             // LIST_02 — a resized window changes the ceiling the name column is clamped against.
-            listbox.SizeChanged += (_, _) => RecalculateTrackNameColumnWidth();
+            // LIST_06 — WAS listbox.SizeChanged, WHICH IS THE CONTROL THIS RESIZES.
+            // The list's width now follows TrackTableWidth (LIST_05), so asking it to re-measure
+            // whenever its own size changed was a self-sustaining loop that fought the scrollbar.
+            // Step1Panel only changes size when the WINDOW does, which is the event that genuinely
+            // warrants a re-measure.
+            var step1PanelForResize = this.FindControl<Avalonia.Controls.Grid>("Step1Panel");
+            if (step1PanelForResize != null)
+            {
+                step1PanelForResize.SizeChanged += (_, _) => RecalculateTrackNameColumnWidth();
+            }
 
             listbox.SelectionChanged += (s, e) => OnTrackSelected(listbox.SelectedItem as MusicTrackItem);
 
@@ -1180,7 +1285,10 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("VideoVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Video {videoVolSlider.Value:0}%";
+                    // SLIDER_06 — the channel name is the tray's own caption now, so the value
+                    // under the fader is just the number. Keeping "Video " here would put the word
+                    // back into the width budget this layout exists to reclaim.
+                    if (lbl != null) lbl.Text = $"{videoVolSlider.Value:0}%";
 
 
                     if (_currentStep == 3)
@@ -1221,7 +1329,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("MusicVolLabel");
 
-                    if (lbl != null) lbl.Text = $"Music {musicVolSlider.Value:0}%";
+                    if (lbl != null) lbl.Text = $"{musicVolSlider.Value:0}%";   // SLIDER_06
 
 
                     if (_audioIpcClient != null)
@@ -1432,6 +1540,7 @@ public partial class MusicWizardWindow : Window
         UpdateDuckingCompareButton();
         UpdateStepProgress();
         UpdatePreviewControlsState();
+        EnsureStep2WaveformPresent();   // RESUME_01
         
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
@@ -1444,8 +1553,28 @@ public partial class MusicWizardWindow : Window
     }
 
 
+    /// <summary>
+    /// RESUME_01 — raised while ApplyTrackFilterAndSort is churning the bound collection, so the
+    /// ListBox's own SelectionChanged cannot be mistaken for the user choosing a song.
+    /// </summary>
+    private bool _suppressTrackSelectionSideEffects;
+
     private void OnTrackSelected(MusicTrackItem? track)
     {
+        // RESUME_01 — a list rebuild is not a selection.
+        if (_suppressTrackSelectionSideEffects) return;
+
+        // RESUME_01 — re-selecting the SAME song is not a change either. Without this, a rebuild
+        // that happens to re-highlight the current track still bumps the render version and kills
+        // an in-flight waveform, and still discards the user's scrub position and their answer to
+        // the coverage question below.
+        if (track != null && _selectedTrack != null &&
+            string.Equals(track.FilePath, _selectedTrack.FilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedTrack = track;   // adopt the live list item, keep every other piece of state
+            return;
+        }
+
         _selectedTrack = track;
         System.Threading.Interlocked.Increment(ref _waveformRenderVersion);
         _phase1UserSeeked = false;              // PREVIEW1_01
@@ -1519,8 +1648,31 @@ public partial class MusicWizardWindow : Window
             }
             else if (!string.IsNullOrEmpty(selectedPath))
             {
-                listbox.SelectedItem = null;
-                OnTrackSelected(null);
+                // ══════════════════════════════════════════════════════════════════════════
+                // RESUME_01 — CLEAR THE LIST'S SELECTION, NEVER THE WIZARD'S TRACK.
+                //
+                // This used to call OnTrackSelected(null), and that is the whole "reopened with
+                // EDIT MUSIC, went Back to step 2, no waveform and nothing playable" fault.
+                //
+                // Reopening SYNTHESISES a MusicTrackItem when the folder scan has not found the
+                // file (deliberately — see ResumeFromInitialStateAsync). A synthesised track is by
+                // definition NOT in `visible`, so the moment the asynchronous folder scan finished
+                // and re-ran this method, this branch fired and threw the resumed selection away:
+                //   * `_selectedTrack` became null, so PlayBtn/Skip were disabled
+                //     (UpdatePreviewControlsState) and the start marker had nothing to draw;
+                //   * OnTrackSelected bumped `_waveformRenderVersion`, so the waveform render that
+                //     was still in flight failed its own staleness guard, DELETED the PNG it had
+                //     just produced and returned — a blank step 2 with no error anywhere.
+                //
+                // A list rebuild is not a user decision. It happens on a search keystroke, a sort
+                // change and every folder rescan. The ONLY thing it may do is drop the highlight
+                // in the list; what the wizard is configured to use is not its business.
+                // ⚠️ Do not "tidy" this back into a single assignment. Only a real user pick — the
+                // SelectionChanged handler on an actual click — may change `_selectedTrack`.
+                // ══════════════════════════════════════════════════════════════════════════
+                _suppressTrackSelectionSideEffects = true;
+                try { listbox.SelectedItem = null; }
+                finally { _suppressTrackSelectionSideEffects = false; }
             }
         }
 
@@ -3240,6 +3392,98 @@ public partial class MusicWizardWindow : Window
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // P3ASYNC_01 — THE TIMELINE IS LIVE BEFORE THE ARTWORK IS.
+            //
+            // This method used to be one sequential chain: load the player, `await Task.WhenAll`
+            // on every filmstrip, then await the waveform render, and ONLY THEN set _phase3Ready.
+            // _phase3Ready gates UpdatePreviewControlsState and UpdateNextButtonState, so the
+            // entire screen — play, scrub, NEXT — sat dead for as long as ffmpeg took to decode
+            // frames out of a long video. On a several-minute clip that is tens of seconds of a
+            // screen that looks broken, to produce two strips of decoration.
+            //
+            // Nothing below this point is needed to PLAY. The ruler comes from the OutputTimeline,
+            // the caret comes from the player clock, and both exist the moment mpv has the file.
+            // So the screen is declared ready HERE, and the two decoders are detached onto their
+            // own workers. ThumbnailStripGenerator.StreamAsync already publishes frames as they
+            // arrive (onReady/onFrame), so the filmstrip fills in left-to-right underneath a
+            // timeline the user is already scrubbing.
+            //
+            // ⚠️ EACH WORKER RE-CHECKS `loadVersion != _phase3LoadVersion` BEFORE TOUCHING THE UI.
+            // They now outlive this method, so leaving phase 3 (or re-entering it, which bumps the
+            // version) can land a strip from a previous selection into the current lanes. That
+            // check, and the shared cancellationToken, are the whole safety story — do not drop
+            // either when editing these workers.
+            //
+            // ⚠️ The two loading overlays are IsHitTestVisible="False" and are cleared by the
+            // worker that owns each one, NOT by this method's finally block.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
+
+            _phase3Ready = true;
+            SetPhase3Status("");
+            UpdateFinalPlacementSummary();
+            UpdateProblemFlags();
+            DrawPhase3TimelineScale();
+            UpdatePlayhead();
+            UpdateNextButtonState();
+            UpdatePreviewControlsState();
+
+            _phase3ThumbTask = RunPhase3ThumbnailLaneAsync(thumbLaneGrid, cancellationToken, loadVersion);
+            _phase3WaveTask = RunPhase3WaveformLaneAsync(waveLane, cancellationToken, loadVersion);
+        }
+        catch (OperationCanceledException)
+        {
+            SetPhase3Status("");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to load phase 3 preview: {ex.Message}");
+            SetPhase3Status("Final preview could not load. You can go back and try again.");
+            _phase3Ready = false;
+            UpdateNextButtonState();
+            UpdatePreviewControlsState();
+        }
+        finally
+        {
+            SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
+
+            // P3ASYNC_01 — the thumbnail and waveform overlays are NOT cleared here any more.
+            // Those two jobs now outlive this method, and clearing their spinners on the way out
+            // would advertise "done" while ffmpeg is still decoding. Each worker clears its own in
+            // its own finally. The one exception is an abandoned load: if this run is already
+            // stale, nothing is coming to clear them, so they are taken down here.
+            if (loadVersion != _phase3LoadVersion)
+            {
+                SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
+                SetLoadingOverlay("Phase3WaveLoadingOverlay", false);
+            }
+
+            if (loadVersion == _phase3LoadVersion)
+            {
+                DrawPhase3TimelineScale();
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // P3ASYNC_01 — the two detached lane decoders. Held only so the window can wait for them on
+    // teardown; nothing awaits them on the interface path.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private Task _phase3ThumbTask = Task.CompletedTask;
+    private Task _phase3WaveTask = Task.CompletedTask;
+
+    /// <summary>
+    /// P3ASYNC_01 — fills the film lane in the background. The body is unchanged from when it ran
+    /// inline; what changed is that nothing waits for it, so the timeline is scrubbable while it
+    /// runs and each strip appears as its own decode finishes.
+    /// </summary>
+    private async Task RunPhase3ThumbnailLaneAsync(
+        Avalonia.Controls.Grid? thumbLaneGrid, CancellationToken cancellationToken, int loadVersion)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             if (thumbLaneGrid != null)
             {
                 var ffmpeg = ResolveFfmpegPath();
@@ -3337,11 +3581,41 @@ public partial class MusicWizardWindow : Window
                 }
 
                 await Task.WhenAll(stripTasks);
+
+                // P3ASYNC_01 — _phase3ClipDurationsSec is filled above and is what
+                // DrawPhase3MergerOverlays uses to place the clip-boundary marks. The ruler was
+                // drawn before this worker started (that is the point), so in merger mode the
+                // boundaries have to be laid in once the durations are actually known.
+                if (loadVersion == _phase3LoadVersion && _currentStep == 3)
+                {
+                    DrawPhase3TimelineScale();
+                }
             }
-            SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("MUSIC_WIZARD", $"The film lane could not be generated: {ex.Message}");
+        }
+        finally
+        {
+            if (loadVersion == _phase3LoadVersion)
+            {
+                SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
+            }
+        }
+    }
 
+    /// <summary>
+    /// P3ASYNC_01 — renders the music waveform lane in the background. Same body as before, just
+    /// no longer standing between the user and the play button.
+    /// </summary>
+    private async Task RunPhase3WaveformLaneAsync(
+        Avalonia.Controls.Image? waveLane, CancellationToken cancellationToken, int loadVersion)
+    {
+        try
+        {
             cancellationToken.ThrowIfCancellationRequested();
-
             if (waveLane != null && _selectedTrack != null && !string.IsNullOrEmpty(_selectedTrack.FilePath))
             {
                 var previewSegments = BuildPhase3MusicPreviewSegments();
@@ -3376,39 +3650,17 @@ public partial class MusicWizardWindow : Window
                     }
                 }
             }
-            SetLoadingOverlay("Phase3WaveLoadingOverlay", false);
-
-            if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
-            _phase3Ready = true;
-            SetPhase3Status("");
-            UpdateFinalPlacementSummary();
-            UpdateProblemFlags();
-            DrawPhase3TimelineScale();
-            UpdatePlayhead();
-            UpdateNextButtonState();
-            UpdatePreviewControlsState();
         }
-        catch (OperationCanceledException)
-        {
-            SetPhase3Status("");
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to load phase 3 preview: {ex.Message}");
-            SetPhase3Status("Final preview could not load. You can go back and try again.");
-            _phase3Ready = false;
-            UpdateNextButtonState();
-            UpdatePreviewControlsState();
+            RuntimeLog.Fail("MUSIC_WIZARD", $"The music waveform lane could not be generated: {ex.Message}");
         }
         finally
         {
-            SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
-            SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
-            SetLoadingOverlay("Phase3WaveLoadingOverlay", false);
-
             if (loadVersion == _phase3LoadVersion)
             {
-                DrawPhase3TimelineScale();
+                SetLoadingOverlay("Phase3WaveLoadingOverlay", false);
             }
         }
     }
@@ -4470,11 +4722,44 @@ public partial class MusicWizardWindow : Window
     }
 
 
+    /// <summary>RESUME_01 — true while a step-2 waveform render is in flight.</summary>
+    private bool _waveformRenderInFlight;
+
+    /// <summary>
+    /// RESUME_01 — step 2 is reachable by going FORWARD from the song list and by going BACK from
+    /// step 3, and only the forward route ever rendered the waveform. Reopening with EDIT MUSIC
+    /// lands on step 3, so Back was the FIRST time that user saw step 2 — with nothing in it.
+    ///
+    /// Rather than add a second render call to the Back handler and wait for the third route to
+    /// appear, this asks the only question that matters wherever step 2 becomes current: is a song
+    /// configured, and is its waveform actually on screen? If not, draw it.
+    /// </summary>
+    private void EnsureStep2WaveformPresent()
+    {
+        if (_currentStep != 2 || _waveformRenderInFlight) return;
+        if (_selectedTrack == null || string.IsNullOrWhiteSpace(_selectedTrack.FilePath)) return;
+
+        var waveformImage = this.FindControl<Image>("WaveformImage");
+        if (waveformImage == null || waveformImage.Source != null) return;
+
+        RuntimeLog.Info("MUSIC_WIZARD",
+            $"Step 2 has no waveform for '{Path.GetFileName(_selectedTrack.FilePath)}' — rendering it now.");
+        _ = RenderWaveformAsync(_selectedTrack.FilePath);
+    }
+
     private async Task RenderWaveformAsync(string? filePath)
 
     {
 
         if (string.IsNullOrEmpty(filePath)) return;
+        _waveformRenderInFlight = true;
+        try { await RenderWaveformCoreAsync(filePath); }
+        finally { _waveformRenderInFlight = false; }
+    }
+
+    private async Task RenderWaveformCoreAsync(string filePath)
+
+    {
         int renderVersion = System.Threading.Interlocked.Increment(ref _waveformRenderVersion);
         string requestedPath = filePath;
 

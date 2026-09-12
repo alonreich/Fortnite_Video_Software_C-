@@ -281,9 +281,18 @@
 
                     <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel Name="QualityPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="0,0,20,8" VerticalAlignment="Center">
-                            <TextBlock Text="OUTPUT FILE SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-<controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
-                            <TextBlock Name="QualityLabel" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
+                            <!-- QUALITY_01: the heading names what the dial ASKS FOR. It said "OUTPUT FILE SIZE"
+                                 because the dial used to be a size; it is a quality choice now, and the
+                                 size appears in QualityLabel underneath as the consequence. -->
+                            <TextBlock Text="VIDEO QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap"
+                                       ToolTip.Tip="How good you want the finished video to look. Pick it once and leave it — the app works out the file size for you." />
+<controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Pick how good the finished video should look. The size it will come out at is shown underneath." />
+                            <!-- QUALITY_04: filled from code (PaintQualityEstimate), NOT bound. Leaving Text=""
+                                 here with nothing writing to it is what made the estimate invisible for
+                                 so long — if this ever reads blank on a loaded video, that method is the
+                                 first place to look. -->
+                            <TextBlock Name="QualityLabel" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="Roughly how big the finished file will be.&#x0a;&#x0a;It updates by itself whenever you change the video — trim it, speed it up, add a freeze or add music." />
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,20,8">

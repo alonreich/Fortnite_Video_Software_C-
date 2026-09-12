@@ -1,4 +1,4 @@
-# FORTNITE VIDEO SOFTWARE: ARCHITECTURAL SPECIFICATIONS
+﻿# FORTNITE VIDEO SOFTWARE: ARCHITECTURAL SPECIFICATIONS
 
 ## 1. Mission Architecture
 Fortnite Video Software is a specialized, hardware-accelerated desktop video editing suite built with C# and Avalonia UI on .NET 9 (Native AOT compatible). The system transforms raw 16:9 widescreen gameplay footage into master-quality 9:16 portrait montages, mobile highlights, and social video deliverables with zero manual keyframing.
@@ -14,23 +14,62 @@ All subsystems, controls, and rendering components across `src/` must strictly e
 4. **Leak-Free Render Pipelines:** The deprecated FFmpeg `zoompan` filter is banned suite-wide due to fatal native heap leaks. Dynamic zooms must be achieved via frame-evaluated padding, dynamic scaling, cropping, and contrast-adaptive sharpening (`cas=0.5`).
 5. **Zero Raw Hex Styling:** All Avalonia styles, controls, and dynamic templates must resolve colors exclusively through named `DynamicResource` tokens in `AvaloniaApp.axaml`. Hardcoded hex values in shared styling are strictly prohibited.
 6. **Thread-Bound Safety Contracts:** UI dispatchers must never block on native audio/video subsystem calls. WASAPI audio capture lifecycles run on an isolated serialized worker thread; SkiaSharp snapshot encoding and heavy image decodes execute off the UI thread.
-7. **Monotonic Progress Guarantee:** Render progress tracking must be cost-weighted and mathematically monotonic ($P_{n+1} \ge P_n$). Progress bars may never snap, stutter, or lerp backward across multi-pass operations.
+7. **Monotonic Progress Guarantee:** Render progress tracking must be cost-weighted and mathematically monotonic (P(n+1) >= P(n)). Progress bars may never snap, stutter, or lerp backward across multi-pass operations.
 
 ---
 
-## 3. Subsystem Domain Routing Matrix
+## 3. Domain Routing
 
-| Subsystem & Source Scope | Governing Specification Document | Core Functional Domain & Primary Coverage |
-| :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Media/CoordinateMath.cs`<br>`src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs`<br>`src/FortniteVideoSoftware.Core/Media/CanvasMath.cs`<br>`src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.*`<br>`src/FortniteVideoSoftware.App/Controls/PhoneFrameMockup.*`<br>`src/FortniteVideoSoftware.App/Controls/TimelineKnob.cs`<br>`src/FortniteVideoSoftware.App/Controls/KineticScrubController.cs`<br>`src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.*` | [`01_TIMELINE_COORDINATE_MATH.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/01_TIMELINE_COORDINATE_MATH.md) | 16:9 to 9:16 portrait geometry, center 720px active slice, 150px black voids, OutputTimeline 4-chunk engine, freeze insertions, cut reconciliation, speed segment barriers, live zoom geometry, meme anchor math, hitboxes, and thumbnail calculations. |
-| `src/FortniteVideoSoftware.Core/Media/AudioFilterChain.cs`<br>`src/FortniteVideoSoftware.Core/Media/AudioLoudnessProbe.cs`<br>`src/FortniteVideoSoftware.Core/Media/VoiceRecorder.cs`<br>`src/FortniteVideoSoftware.Core/Media/MicLevelMonitor.cs`<br>`src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs`<br>`src/FortniteVideoSoftware.App/Controls/VoiceOverPreviewPlayer.cs`<br>`src/FortniteVideoSoftware.App/VoiceOverWindow.*`<br>`src/FortniteVideoSoftware.App/MusicWizardWindow.*` | [`02_AUDIO_ENGINE_MASTERING.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/02_AUDIO_ENGINE_MASTERING.md) | Windows OS PID master preview volume isolation, -14 LUFS gameplay / -20 LUFS music targets, QuietBoost 0.70 factor, sidechain compressor with 250Hz crossover bypass, Voice Over Studio WASAPI threading, 3s preview safety timeout, multi-clip concat audio parity, and music wizard alignment. |
-| `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs`<br>`src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs`<br>`src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs`<br>`src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs`<br>`src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs`<br>`src/FortniteVideoSoftware.Core/Media/FilterGraphBuilder.cs`<br>`src/FortniteVideoSoftware.Core/Media/ZoomPreviewSimulator.cs`<br>`src/FortniteVideoSoftware.App/Infrastructure/MemePreviewDirector.cs`<br>`src/FortniteVideoSoftware.App/Models/ExportPayload.cs` | [`03_FFMPEG_EXPORT_PIPELINE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/03_FFMPEG_EXPORT_PIPELINE.md) | NVENC/AMF hardware encoder discovery, CPU fallback, RDP WDDM registry auto-fix, memory-safe pad/scale/crop/CAS filtergraph (banned `zoompan`), 60fps CFR normalization, meme cutaway preview director, 8ms audio edge fades, intro/outro tail fades, and monotonic progress tracking. |
-| `src/FortniteVideoSoftware.App/AvaloniaApp.axaml`<br>`src/FortniteVideoSoftware.App/Controls/CoachOverlay.cs`<br>`src/FortniteVideoSoftware.App/Controls/CoachTours.cs`<br>`src/FortniteVideoSoftware.App/Controls/FloatingNotice.cs`<br>`src/FortniteVideoSoftware.App/Controls/AmbientBubblesBackground.cs`<br>`src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs`<br>`src/FortniteVideoSoftware.App/Controls/Tactile.cs`<br>`src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.*`<br>`src/FortniteVideoSoftware.App/Controls/SpinningWheelSlider.cs`<br>`src/FortniteVideoSoftware.App/Infrastructure/ThemeManager.cs` | [`04_UI_UX_AVALONIA_SPEC.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/04_UI_UX_AVALONIA_SPEC.md) | DynamicResource design tokens, white text on accent buttons, single slider thumb style, high-DPI fluid scaling with hard window floors, 44px scrubber / 32px canvas rows, 14-year-old colloquial tooltips, CoachOverlay 30Hz vector tours, FloatingNotice semantic pills, 40-deep undo/redo stack, and detachable preview monitors. |
-| `src/FortniteVideoSoftware.App/DeploymentLifecycle.cs`<br>`src/FortniteVideoSoftware.App/RuntimeLog.cs`<br>`src/FortniteVideoSoftware.Core/Infrastructure/CoreLogger.cs`<br>`src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs`<br>`src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs`<br>`src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs`<br>`src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs`<br>`src/FortniteVideoSoftware.App/WindowBoundsHelper.cs`<br>`src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs`<br>`Build.cmd` | [`05_SYSTEM_LIFECYCLE_STORAGE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/05_SYSTEM_LIFECYCLE_STORAGE.md) | Global system mutexes for deployment and logging, bounded 10,000-line logging pipeline, 10MB rotation, 14-day retention, privacy gating, WindowBoundsHelper 700ms debounce, persistent directory memory, crash recovery serialization with atomic file rename, 5-tier `.bak` cascade, and mandatory Authenticode signing. |
+Route by FILE (below) or by SYMBOL (`INDEX.md`). Full paths live in each spec's Code Mini-Map — basenames here are unique across `src/`.
+`⚠` = CO-GOVERNED by more than one spec: read EVERY spec that lists it (`INDEX.md` §1 names them).
+
+**[`01_TIMELINE_COORDINATE_MATH.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/01_TIMELINE_COORDINATE_MATH.md)** — Timeline & coordinate math — 16:9->9:16 geometry, OutputTimeline chunk model, markers, freezes, cuts, zoom spans, meme anchors, hitboxes.
+
+```
+CanvasMath.cs  CoordinateMath.cs  ⚠GranularSpeedEditorWindow.axaml.cs  KineticScrubController.cs
+MainWindow.Canvas.cs  MainWindow.Shortcuts.cs  MainWindow.Wireup.cs  ⚠MainWindow.axaml.cs
+⚠MusicWizardWindow.axaml.cs  OutputTimeline.cs  ⚠PhoneFrameMockup.axaml.cs  TimelineKnob.cs
+TimelineLanesControl.axaml.cs  ⚠VoiceOverWindow.axaml.cs
+```
+
+**[`02_AUDIO_ENGINE_MASTERING.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/02_AUDIO_ENGINE_MASTERING.md)** — Audio engine & mastering — PID preview volume, LUFS targets, sidechain ducking, Voice Over Studio, WASAPI threading, music bed fades.
+
+```
+AudioFilterChain.cs  AudioLoudnessProbe.cs  ⚠FluidVolumeSlider.cs  ⚠MainWindow.axaml.cs
+MicLevelMonitor.cs  MpvIpcClient.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPreviewPlayer.cs
+⚠VoiceOverWindow.axaml.cs  VoiceRecorder.cs
+```
+
+**[`03_FFMPEG_EXPORT_PIPELINE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/03_FFMPEG_EXPORT_PIPELINE.md)** — FFmpeg export pipeline — encoder discovery, zoom filtergraph, concat/bitrate, meme concat & cutaway preview, fades, progress, binary paths, meme library.
+
+```
+ExportViewModel.cs  FfmpegDiagnosticCollector.cs  GpuCapabilityProbe.cs  GranularSpeedBuilder.cs
+HardwareScanner.cs  QualityLadder.cs
+MemePreviewDirector.cs  MergerWorker.cs  MobileFilterBuilder.cs  ProcessWorker.cs
+TextOverlayGenerator.cs  ZoomPreviewSimulator.cs
+```
+
+**[`04_UI_UX_AVALONIA_SPEC.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/04_UI_UX_AVALONIA_SPEC.md)** — UI/UX & Avalonia — design tokens, high-DPI layout, tooltips, confirmations, coach tours, granular editor layout, undo/redo, detachable previews, merger queue.
+
+```
+AmbientBubblesBackground.cs  AvaloniaApp.axaml  CoachOverlay.cs  ConfirmDialogWindow.axaml.cs
+WindowResizeGrip.cs
+FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.cs
+⚠MainWindow.axaml.cs  ⚠PhoneFrameMockup.axaml.cs  SpinningWheelSlider.cs  ⚠WindowBoundsHelper.cs
+```
+
+**[`05_SYSTEM_LIFECYCLE_STORAGE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/05_SYSTEM_LIFECYCLE_STORAGE.md)** — System lifecycle & storage — mutexes, logging pipeline, window bounds, deferred-close contract, crash recovery, atomic writes, dev build harness & fix sentinels, signing.
+
+```
+⚠ApplicationPaths.cs  AtomicJsonFile.cs  Build.cmd  DeploymentLifecycle.cs  dev.cmd
+⚠GranularSpeedEditorWindow.axaml.cs  MaskOverlayManager.cs  ProjectRecoveryService.cs
+⚠RecoveryManager.cs  RuntimeLog.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs
+```
 
 ---
-
 ## 4. Agent Navigation & Entry Protocol
 1. **Entry Rule:** Always read [`SPEC_GOVERNANCE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/SPEC_GOVERNANCE.md) before performing any code generation or inspection.
-2. **Context Routing:** Consult the Routing Matrix above to locate the exact domain specification before editing any subsystem file.
-3. **Multi-Domain Workflows:** When a task touches multiple domains, read every governing specification document and verify all cross-domain invariants.
+2. **Context Routing:** Know the FILE -> use §3 above. Know only a SYMBOL, CONSTANT or TAG (e.g. `SnapInsertionPoint`, `QuietBoostReductionFactor`, `ZOOMLIVE_07`) -> grep [`INDEX.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/INDEX.md). Read the ONE spec you land on; do not pre-load the others.
+3. **Co-Governed Files (⚠):** A file listed under more than one spec is bound by ALL of them. Reading one is NOT compliance — this is the exact leakage `SPEC_GOVERNANCE.md` §2 exists to prevent.
+4. **Cite Anchors, Not Numbers:** Quote the stable `{#ANCHOR}` id (e.g. `FFM-BINPATH`) in the Proof-of-Read header. Section numbers shift as specs grow.
+5. **Land The Sentinel With The Fix:** Any fix worth an engineering tag gets a `CHECK_TAG` line in `dev.cmd`'s `VERIFY_PATCHES` in the SAME change, so a revert halts the build instead of surviving to the next test cycle — `05_SYSTEM_LIFECYCLE_STORAGE.md` §4a (SYS-DEVBUILD). That section also states why a correct source file is not evidence that the running binary contains the fix.

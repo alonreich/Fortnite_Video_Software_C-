@@ -522,13 +522,16 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeValueBehaviorRow("Default Speed", _pendingDefaults.SpeedBehavior, v => _pendingDefaults.SpeedBehavior = v, speedNum));
 
         var qCombo = new ComboBox { Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
+        // QUALITY_01 — the list is the quality ladder, not a column of megabyte figures. The
+        // setting names the LOOK a new project starts with; the size it works out to depends on
+        // that project's length and is shown live under the dial on the main screen.
         var qItems = new List<string>();
-        for (int i = 0; i < 20; i++) qItems.Add($"{5 + i * 5}MB");
-        qItems.Add("ORIGINAL QUALITY");
+        foreach (var tier in FortniteVideoSoftware.App.ViewModels.QualityLadder.Tiers) qItems.Add(tier.Name);
         qCombo.ItemsSource = qItems;
-        qCombo.SelectedIndex = Math.Clamp(_pendingDefaults.QualityIndex, 0, 20);
-        qCombo.SelectionChanged += (_, _) => _pendingDefaults.QualityIndex = qCombo.SelectedIndex;
-        panel.Children.Add(MakeValueBehaviorRow("Default Output File Size", _pendingDefaults.QualityBehavior, v => _pendingDefaults.QualityBehavior = v, qCombo));
+        qCombo.SelectedIndex = FortniteVideoSoftware.App.ViewModels.QualityLadder.ClampIndex(_pendingDefaults.QualityIndex);
+        qCombo.SelectionChanged += (_, _) =>
+            _pendingDefaults.QualityIndex = FortniteVideoSoftware.App.ViewModels.QualityLadder.ClampIndex(qCombo.SelectedIndex);
+        panel.Children.Add(MakeValueBehaviorRow("Default Video Quality", _pendingDefaults.QualityBehavior, v => _pendingDefaults.QualityBehavior = v, qCombo));
 
         panel.Children.Add(MakeBehaviorCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitBehavior, v => _pendingDefaults.PortraitBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));

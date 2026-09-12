@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Avalonia;
@@ -94,6 +94,29 @@ public partial class MainWindow
                 return;
             }
 
+            // ══════════════════════════════════════════════════════════════════════════════
+            // THUMB_02 — THE FLAG ALONE IS NOT PROOF THAT A DRAG IS STILL HAPPENING.
+            //
+            // `_isDraggingThumbnailMarker` was raised on PointerPressed and lowered ONLY in
+            // PointerReleased. If the marker control was torn down mid-gesture — UpdateTimelineMarkers
+            // clears and rebuilds the whole canvas, and it is POSTED, so it can land between the
+            // press and the release — Avalonia raises PointerCaptureLost on the dead control
+            // instead of PointerReleased, and nothing ever lowered the flag again.
+            //
+            // From that moment this handler was live on the REBUILT marker with no button held, so
+            // merely moving the mouse near the camera icon re-ran MoveThumbnailMarkerToCanvasX,
+            // which PAUSES the player and seeks it (SeekMainPreviewToMarkerMs). That is the
+            // "touched the thumbnail icon and now play only advances one frame and pauses" trap.
+            //
+            // Two independent guards, because either one alone can be defeated: the button must
+            // still be down, and PointerCaptureLost below must clear the flag.
+            // ══════════════════════════════════════════════════════════════════════════════
+            if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed)
+            {
+                EndThumbnailMarkerDrag(marker, redraw: true);
+                return;
+            }
+
             // THUMB_01 — WAS `seekPreview: false`, WHICH IS WHY DRAGGING SHOWED NOTHING.
             // The marker slid along the timeline while the picture stayed frozen on whatever frame
             // was up before the drag began, so you were choosing a cover image blind and only saw
@@ -114,16 +137,38 @@ public partial class MainWindow
             }
 
             MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
-            _isDraggingThumbnailMarker = false;
-            _isThumbnailMarkerSelected = true;
             e.Pointer.Capture(null);
-            SetTimelineCameraHover(marker, false);
-            UpdateThumbnailButtonState();   // THUMB_01
-            UpdateTimelineMarkers();
-            UpdateEstimatedQuality();
-            SaveRecoveryState();
+            EndThumbnailMarkerDrag(marker, redraw: true);
             e.Handled = true;
         };
+
+        // THUMB_02 — the only event that is GUARANTEED to arrive when a captured control is
+        // removed from the tree, the window loses focus, or the pointer is stolen. Without it a
+        // rebuild mid-gesture left the drag flag raised for the rest of the session.
+        marker.PointerCaptureLost += (_, _) =>
+        {
+            if (!_isDraggingThumbnailMarker) return;
+            EndThumbnailMarkerDrag(marker, redraw: false);
+        };
+    }
+
+    /// <summary>
+    /// THUMB_02 — one exit for the thumbnail-marker drag, reached from PointerReleased, from a
+    /// move with no button held, and from PointerCaptureLost. The marker stays SELECTED (the arrow
+    /// keys still nudge it, per TL-HITBOX) — only the DRAG ends here.
+    ///
+    /// <paramref name="redraw"/> is false on capture-loss on purpose: that path is usually already
+    /// inside a rebuild, and asking for another one from within it re-enters the same teardown.
+    /// </summary>
+    private void EndThumbnailMarkerDrag(Control marker, bool redraw)
+    {
+        _isDraggingThumbnailMarker = false;
+        _isThumbnailMarkerSelected = true;
+        SetTimelineCameraHover(marker, false);
+        UpdateThumbnailButtonState();   // THUMB_01
+        if (redraw) UpdateTimelineMarkers();
+        UpdateEstimatedQuality();
+        SaveRecoveryState();
     }
 
     /// <summary>
@@ -266,6 +311,7 @@ public partial class MainWindow
         }
 
         _isCurrentlyFrozen = false;
+        TransportTrace("marker-seek", "pause");   // TRANSPORT_TRACE_01
         _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
         _ = SeekInternal(markerMs / 1000.0);
     }

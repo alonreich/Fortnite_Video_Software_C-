@@ -70,7 +70,12 @@ public partial class MainWindow
             var speedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
             if (speedSlider != null) speedSlider.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
 
-            int qualityVal = state["qualitySliderValue"]?.GetValue<int>() ?? 7;
+            // QUALITY_01 — the stored index means a TIER now. An index written by an older build
+            // meant megabytes; ClampIndex (in the setter) keeps it in range rather than failing,
+            // and the old top stop "ORIGINAL QUALITY" still lands on the new top stop "Original".
+            int qualityVal = state["qualitySliderValue"]?.GetValue<int>()
+                             ?? FortniteVideoSoftware.App.ViewModels.QualityLadder.DefaultIndex;
+            qualityVal = FortniteVideoSoftware.App.ViewModels.QualityLadder.ClampIndex(qualityVal);
             var qualitySliderRestore = this.FindControl<SpinningWheelSlider>("QualitySlider");
             if (qualitySliderRestore != null) qualitySliderRestore.Value = qualityVal;
 

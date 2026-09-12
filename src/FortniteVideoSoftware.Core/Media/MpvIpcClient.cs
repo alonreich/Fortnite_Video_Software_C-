@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -385,7 +385,14 @@ public class MpvIpcClient : IDisposable
         MpvWrapper.mpv_command_string(_mpvHandle, sb.ToString());
 
         if (args[0].ToString() == "seek")
+        {
+            // MPVEOF_01 — a seek moves the playhead, so the cached "we are sitting on the last
+            // frame" answer is stale from this instant. Same reasoning as SetPropertyAsync: the
+            // observer is asynchronous, and every caller that seeks and then immediately checks
+            // IsEof would otherwise act on the previous file position.
+            IsEof = false;
             SeekCompleted?.Invoke();
+        }
 
         return Task.CompletedTask;
     }
@@ -442,7 +449,36 @@ public class MpvIpcClient : IDisposable
             MpvWrapper.mpv_set_property_string(_mpvHandle, name, value);
 
             if (name == "pause")
+            {
                 IsPaused = value == "yes";
+
+                // ══════════════════════════════════════════════════════════════════════════
+                // MPVEOF_01 — CLEAR eof-reached LOCALLY WHEN WE ASK IT TO PLAY.
+                //
+                // THE TRAP: `IsEof` is written ONLY by the "eof-reached" property observer, which
+                // arrives asynchronously on mpv's event thread. `IsPaused`, one line above, has
+                // always been written locally and immediately — precisely so a caller that just
+                // issued a command is not told the opposite by a stale field. `IsEof` was left
+                // out of that rule, and MainWindow's playback tick ends with an UNCONDITIONAL
+                //
+                //     if (IpcClient.IsEof) SetPropertyAsync("pause", "yes");
+                //
+                // So at the end of a file: PLAY unpauses -> the 100 ms tick fires before mpv's
+                // eof-reached=no event has landed -> the tick pauses again. One frame, then
+                // paused, forever, with the play button appearing to do nothing. That is the
+                // "trapped, only moves one frame at a time" report, and it is reachable from any
+                // route that leaves the playhead at the end — playing to it, seeking to it, or
+                // dragging a marker there.
+                //
+                // Setting it false here mirrors the IsPaused rule exactly: we asked for playback,
+                // so we are no longer at a standstill on the last frame. mpv still owns the truth
+                // and the observer will set it back to true the moment the file really does end.
+                //
+                // ⚠️ The seek above must clear it too — it moves the playhead off the end, so
+                // leaving eof-reached latched would pause the very playback it just rewound for.
+                // ══════════════════════════════════════════════════════════════════════════
+                if (value == "no") IsEof = false;
+            }
         }
         return Task.CompletedTask;
     }

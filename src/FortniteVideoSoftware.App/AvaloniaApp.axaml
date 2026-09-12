@@ -1,4 +1,4 @@
-<Application xmlns="https://github.com/avaloniaui"
+﻿<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
              xmlns:sys="using:System"
              xmlns:collections="using:System.Collections"
@@ -290,6 +290,11 @@
                 <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CC1e293b" />
                 <SolidColorBrush x:Key="AppPanelBrush" Color="#334155" />
                 <SolidColorBrush x:Key="AppBorderBrush" Color="#475569" />
+                <!-- LIST_05 — INTERNAL TABLE HAIRLINES. Deliberately far lighter than
+                     AppBorderBrush: the outer frame states where the table is, these only guide
+                     the eye across a row. Replaces the raw #1AFFFFFF / #14FFFFFF literals that
+                     were inlined in the music list's row template (North Star invariant 5). -->
+                <SolidColorBrush x:Key="AppTableHairlineBrush" Color="#FFFFFF" Opacity="0.10" />
                 <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#ffffff" />
                 <SolidColorBrush x:Key="AppTextMutedBrush" Color="#b6c2d0" />
                 <SolidColorBrush x:Key="AppControlTrackBrush" Color="#222222" />
@@ -373,6 +378,9 @@
                 <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CCf8fafc" />
                 <SolidColorBrush x:Key="AppPanelBrush" Color="#e2e8f0" />
                 <SolidColorBrush x:Key="AppBorderBrush" Color="#cbd5e1" />
+                <!-- LIST_05 — see the dark-theme note. Dark ink on a light ground here, so the
+                     hairline is a low-alpha BLACK rather than a low-alpha white. -->
+                <SolidColorBrush x:Key="AppTableHairlineBrush" Color="#0f172a" Opacity="0.12" />
                 <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#0f172a" />
                 <SolidColorBrush x:Key="AppTextMutedBrush" Color="#475569" />
                 <SolidColorBrush x:Key="AppControlTrackBrush" Color="#e2e8f0" />
@@ -1095,6 +1103,31 @@
                 </RadialGradientBrush>
             </Setter>
         </Style>
+        <!-- ════════════════════════════════════════════════════════════════════════════════
+             SLIDER_07 — WHY A VERTICAL SLIDER CANNOT BE NARROWED BY SETTING ITS WIDTH.
+
+             An earlier `MixFader` class trimmed the Thumb's Width to 30 and gave the Slider
+             Width="30". It rendered WRONG: the rail hugged the tray's right edge and the knob was
+             sliced clean in half down its middle.
+
+             THE REASON IS THE STOCK TEMPLATE'S COLUMN LAYOUT. Fluent's vertical Slider is a Grid
+             whose TRACK column is `Auto` and whose neighbouring tick-bar column is `*`. The star
+             column absorbs EVERY pixel of width beyond the track's natural size, so the track does
+             NOT centre — it is pushed hard against one edge, and the Thumb, which centres on the
+             TRACK, ends up centred on that edge with half its dot outside the Slider's own bounds.
+             Whatever sits beside it then covers that half.
+
+             So the width of a vertical slider is not a free parameter: it IS the thumb's width.
+             Giving the control any more buys dead space on one side and a clipped knob, not a
+             wider grab area — and giving it less clips the knob outright. The only honest lever is
+             the THUMB, and the suite already has one: `CompactSlider` below, whose own note names
+             "vertical volume" as its case.
+
+             ⚠️ DO NOT set Width or MinWidth on a vertical Slider to make it narrower, and do not
+             re-add a thumb-width override without first replacing the template's column layout so
+             the track actually centres.
+             ════════════════════════════════════════════════════════════════════════════════ -->
+
         <!-- CompactSlider (timeline scrubber + vertical volume): resting dot 21px -->
         <!-- ISSUE_21: the global Slider:horizontal rail inset is 26 = half the 52px BASE thumb.
              This class overrides the thumb to 44 wide, so its rail must be inset 22 = half of 44,

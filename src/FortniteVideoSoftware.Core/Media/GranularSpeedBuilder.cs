@@ -103,10 +103,17 @@ public class GranularSpeedBuilder
     {
         if (chunkDurationSec <= SpliceFadeSec * 3) return string.Empty;
 
-        double outStart = Math.Max(0, chunkDurationSec - SpliceFadeSec);
-        return $",afade=t=in:st=0:d={SpliceFadeSec.ToString("F4", CultureInfo.InvariantCulture)}" +
+        // SPLICE_02 — the fade is now capped at 2% of the chunk at each end. 8ms was sized for
+        // joins about a second apart; with the neighbour gap lifted, blocks can touch and a run of
+        // short blocks put 16ms of ramp on a 200ms chunk (8% of it), which reads as a gargle rather
+        // than a de-click. Chunks of 400ms and up are unaffected and still get the full 8ms.
+        double fade = Math.Min(SpliceFadeSec, chunkDurationSec / 50.0);
+        string f = fade.ToString("F4", CultureInfo.InvariantCulture);
+
+        double outStart = Math.Max(0, chunkDurationSec - fade);
+        return $",afade=t=in:st=0:d={f}" +
                $",afade=t=out:st={outStart.ToString("F4", CultureInfo.InvariantCulture)}" +
-               $":d={SpliceFadeSec.ToString("F4", CultureInfo.InvariantCulture)}";
+               $":d={f}";
     }
 
     private const double MaxZoomWorkingPixels = 100_000_000.0;

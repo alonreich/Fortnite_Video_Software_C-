@@ -20,14 +20,53 @@ public static class WindowBoundsHelper
     /// are preserved as-is: bounds are only reset when the window would be COMPLETELY
     /// off every connected screen (e.g. a monitor was unplugged).
     /// </summary>
-    public static void Track(Window window, string key)
+    /// <param name="seedFromKey">
+    /// WINSEED_01 — optional. When this window has NO saved bounds of its own, borrow the geometry
+    /// stored under this other key for the first open (size and position only; WindowState is
+    /// deliberately NOT copied, so a maximized donor does not force a maximized window). Saving
+    /// always targets <paramref name="key"/>, so the borrow happens exactly once.
+    /// </param>
+    /// <param name="fitDisplayOnFirstRun">
+    /// FIRSTFIT_01 — opt in to the 16:9 display fit described on <see cref="ApplyFirstRunDisplayFit"/>
+    /// for the very first open of this window on this machine. Opt-IN on purpose: a window that is
+    /// meant to open small or over its parent (the detached preview console, per UI-DETACH; the
+    /// Settings dialog) must not be sized to most of the screen.
+    /// </param>
+    public static void Track(Window window, string key, string? seedFromKey = null, bool fitDisplayOnFirstRun = false)
     {
         PixelPoint? appliedPosition = null;
         try
         {
             var store = new Core.Ipc.StateTransferStore();
             var state = store.LoadSync();
-            ApplyBounds(window, state, key);
+            bool hasOwnBounds = state.TryGetPropertyValue(key, out var ownBounds) && ownBounds is JsonObject;
+
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // FIRSTFIT_01 — THE PRECEDENCE, AND WHY IT IS IN THIS ORDER.
+            //
+            //   1. This window's OWN saved bounds. Once the user has moved or resized a window,
+            //      that is the answer, forever. Nothing below may override it.
+            //   2. The seed window's bounds (WINSEED_01) — the Granular editor opening over the
+            //      geometry the Main App is already using is a better first impression than any
+            //      computed default, because it matches what the user is looking at.
+            //   3. The 16:9 display fit. Reached only when there is nothing to remember and
+            //      nothing to borrow, i.e. genuinely the first run on this machine.
+            //
+            // ⚠️ The fit is a FIRST-RUN DEFAULT, NOT A POLICY. The moment the user drags or
+            // resizes the window, the debounced save writes its own key and step 1 wins from then
+            // on — that is the whole contract. Never call the fit on a later open.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            bool applied;
+            if (!hasOwnBounds && seedFromKey != null)
+                applied = ApplyBounds(window, state, seedFromKey, sizeAndPositionOnly: true);
+            else
+                applied = ApplyBounds(window, state, key);
+
+            if (!applied && fitDisplayOnFirstRun)
+            {
+                ApplyFirstRunDisplayFit(window, key);
+            }
+
             if (window.WindowStartupLocation == WindowStartupLocation.Manual)
             {
                 appliedPosition = window.Position;
@@ -86,7 +125,12 @@ public static class WindowBoundsHelper
         };
     }
 
-    private static void ApplyBounds(Window window, JsonObject state, string key)
+    /// <returns>
+    /// FIRSTFIT_01 — true when saved geometry was found and applied. False means "nothing was
+    /// remembered for this key", which is the signal the caller needs to decide whether to compute
+    /// a first-run default instead.
+    /// </returns>
+    private static bool ApplyBounds(Window window, JsonObject state, string key, bool sizeAndPositionOnly = false)
     {
         if (state.TryGetPropertyValue(key, out var boundsNode) && boundsNode is JsonObject boundsObj)
         {
@@ -135,18 +179,110 @@ public static class WindowBoundsHelper
                 window.Position = new PixelPoint(px, py);
             }
 
-            if (boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
+            if (!sizeAndPositionOnly && boundsObj.TryGetPropertyValue("WindowState", out var stateNode) && stateNode != null)
             {
                 var savedState = (WindowState)(int)stateNode;
                 window.WindowState = savedState == WindowState.Maximized
                     ? WindowState.Maximized
                     : WindowState.Normal;
             }
+
+            return true;
         }
-        else
+
+        window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        return false;
+    }
+
+    /// <summary>FIRSTFIT_01 — how much of the display's usable area a first open should cover.</summary>
+    private const double FirstRunCoverage = 0.80;
+
+    /// <summary>FIRSTFIT_01 — the shape every editing window opens in: landscape 16:9.</summary>
+    private const double FirstRunAspect = 16.0 / 9.0;
+
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// FIRSTFIT_01 — THE FIRST-RUN SIZE IS DERIVED FROM THE DISPLAY, NOT GUESSED IN XAML.
+    ///
+    /// With nothing saved, a window opened at whatever its content and MinWidth/MinHeight happened
+    /// to add up to — a number chosen years ago against one developer's monitor. On a 1080p laptop
+    /// that can fill the screen; on a 4K display it opens as a small box in the middle of a very
+    /// large desktop, and every user's first impression of every window is that it is the wrong
+    /// size.
+    ///
+    /// THE RULE: cover ~80% of the display's WORKING AREA (its usable space, so the taskbar is
+    /// already excluded), in a landscape 16:9 rectangle, centred on that area.
+    ///
+    ///     bound  = (0.8 x usableW, 0.8 x usableH)
+    ///     w = bound.W ; h = w / (16/9)         -- start width-led
+    ///     if h > bound.H : h = bound.H ; w = h x (16/9)   -- otherwise height-led
+    ///
+    /// Fitting INSIDE the 80% box rather than scaling a full-screen 16:9 fit is what keeps the
+    /// promise on both shapes of monitor: on a 16:9 display the height binds and the window is
+    /// exactly 80% tall; on an ultrawide the width binds long before the height does, and the
+    /// window stays 16:9 instead of becoming a letterbox slot the user has to fix by hand.
+    ///
+    /// WORKING AREA, NOT BOUNDS. `Bounds` includes the taskbar, so 80% of it can still put a
+    /// window edge underneath the taskbar. `WorkingArea` is what the user can actually use.
+    ///
+    /// DIPs, NOT PIXELS. `Width`/`Height` are device-independent units and `WorkingArea` is
+    /// physical pixels, so the area is divided by the screen's scaling on the way in and the
+    /// result multiplied back on the way out to centre it. Skipping that step makes the window
+    /// come out 150% too large on a 150%-scaled display — the exact machines this fix is for.
+    ///
+    /// MinWidth/MinHeight still win. A window whose floor is larger than the computed rectangle
+    /// (the Music Wizard's 1300x730 on a small laptop) is clamped up and stops being 16:9. That is
+    /// correct: a usable window in the wrong ratio beats a correctly-shaped window that cannot lay
+    /// its own contents out.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private static void ApplyFirstRunDisplayFit(Window window, string key)
+    {
+        try
         {
-            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            var screen = window.Screens.Primary ?? window.Screens.All.FirstOrDefault();
+            if (screen == null) return;
+
+            double scaling = screen.Scaling > 0 ? screen.Scaling : 1.0;
+            var area = screen.WorkingArea;
+
+            double usableWidth = area.Width / scaling;
+            double usableHeight = area.Height / scaling;
+            if (usableWidth <= 0 || usableHeight <= 0) return;
+
+            double boundWidth = usableWidth * FirstRunCoverage;
+            double boundHeight = usableHeight * FirstRunCoverage;
+
+            double width = boundWidth;
+            double height = width / FirstRunAspect;
+            if (height > boundHeight)
+            {
+                height = boundHeight;
+                width = height * FirstRunAspect;
+            }
+
+            double minWidth = window.MinWidth > 0 ? window.MinWidth : 320;
+            double minHeight = window.MinHeight > 0 ? window.MinHeight : 240;
+            width = Math.Clamp(Math.Round(width), minWidth, Math.Max(minWidth, usableWidth));
+            height = Math.Clamp(Math.Round(height), minHeight, Math.Max(minHeight, usableHeight));
+
+            window.SizeToContent = SizeToContent.Manual;
+            window.Width = width;
+            window.Height = height;
+
+            int pixelWidth = Math.Max(1, (int)Math.Round(width * scaling));
+            int pixelHeight = Math.Max(1, (int)Math.Round(height * scaling));
+
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Position = new PixelPoint(
+                area.X + Math.Max(0, (area.Width - pixelWidth) / 2),
+                area.Y + Math.Max(0, (area.Height - pixelHeight) / 2));
+
+            RuntimeLog.Info("UI",
+                $"First run for '{key}': sized {width:0}x{height:0} DIP ({width / height:0.00}:1) to cover " +
+                $"{FirstRunCoverage:P0} of a {usableWidth:0}x{usableHeight:0} DIP working area at {scaling:0.##}x scaling.");
         }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     /// <summary>

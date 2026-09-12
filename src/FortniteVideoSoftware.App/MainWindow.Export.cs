@@ -77,9 +77,31 @@ public partial class MainWindow
         }
 
         
-        int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value ?? 7;
-        int resolvedQuality = qualityIdx;
-        double? resolvedTargetMb = qualityIdx >= 20 ? null : (double)(5 + qualityIdx * 5);
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // QUALITY_01 — THE WORKER'S CONTRACT DID NOT CHANGE. Only who computes the number did.
+        //
+        // `resolvedTargetMb` has always been "the size to aim for, or null for constant quality",
+        // and it still is. What changed is that it used to BE the dial's value (5 + idx * 5) and
+        // is now DERIVED from the quality tier the dial selects — through the same ExportViewModel
+        // method that produces the estimate shown under the dial, so the user is never promised
+        // one size and handed another.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value
+                         ?? FortniteVideoSoftware.App.ViewModels.QualityLadder.DefaultIndex;
+        // ⚠️ QUALITY_02 — THE WORKER IS NOT GIVEN THE TIER INDEX. It is given the quality LEVEL
+        // its own VideoConfig.GetQualitySettings understands, where ">= 20" is what unlocks
+        // keepHighestRes and the constant-quality path. Passing the raw tier here would strip
+        // `Original` of the one thing it promises. See QualityLadder.ToWorkerQualityLevel.
+        int resolvedQuality = FortniteVideoSoftware.App.ViewModels.QualityLadder.ToWorkerQualityLevel(qualityIdx);
+        double? resolvedTargetMb = _viewModel.Export.ResolveTargetMb(
+            _viewModel.Timeline.CalculateEffectiveDurationMs(),
+            IsPortraitMode,
+            _viewModel.Timeline.CalculateFreezeOutputMs());
+
+        RuntimeLog.Info("EXPORT",
+            $"Quality tier '{FortniteVideoSoftware.App.ViewModels.QualityLadder.NameOf(qualityIdx)}' -> " +
+            $"{(resolvedTargetMb.HasValue ? FortniteVideoSoftware.App.ViewModels.QualityLadder.FormatSize(resolvedTargetMb.Value) : "no size limit")} " +
+            $"(worker quality level {resolvedQuality}).");
 
         bool musicLeadIn = true;
         bool musicTailOut = true;

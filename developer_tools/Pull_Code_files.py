@@ -33,31 +33,60 @@ def is_binary(file_path: Path) -> bool:
 def get_group_name(file_path: Path, project_root: Path) -> str:
     ext = file_path.suffix.lower()
     rel_path = str(file_path.relative_to(project_root)).lower()
+    name = file_path.name.lower()
 
-    if ext in ['.axaml', '.xaml']:
-        return "01_UI_Markup"
-    
-    if ext == '.cs':
-        if "fortnitevideosoftware.core" in rel_path:
-            return "03_Core_Logic"
-        return "02_App_Code"
-        
-    if ext in ['.json', '.json5', '.xml', '.csproj', '.sln', '.config', '.props', '.targets', '.ini', '.toml', '.ruleset']:
+    # 00: Architecture, Specifications, and System Governance (Must be read first by AI)
+    if rel_path.startswith("docs\\") or rel_path.startswith("docs/") or name in [
+        'project_structure.txt', 'readme.md', 'spec_governance.md', 'index.md'
+    ]:
+        return "00_Specifications_and_Architecture"
+
+    # 01: Core Media Pipeline, Timeline Math & Domain Models
+    if "fortnitevideosoftware.core" in rel_path and "tests" not in rel_path:
+        if ext == '.cs':
+            return "01_Core_Logic"
+
+    # 02: Desktop Application Code (ViewModels, Window code-behind, Controllers)
+    if "fortnitevideosoftware.app" in rel_path and "tests" not in rel_path:
+        if ext == '.cs':
+            return "02_App_Code"
+
+    # 03: UI Markup & Design Tokens (Avalonia AXAML / XAML / CSS)
+    if ext in ['.axaml', '.xaml', '.css']:
+        return "03_UI_Markup"
+
+    # 04: Project & Build Configuration
+    if ext in [
+        '.json', '.json5', '.xml', '.csproj', '.sln', '.config', '.props',
+        '.targets', '.ini', '.toml', '.ruleset', '.editorconfig', '.manifest'
+    ] or name in [
+        '.gitignore', '.gitattributes', '.agignore', '.clineignore',
+        '.codexignore', '.geminiignore', '.editorconfig'
+    ]:
         return "04_Configuration"
-        
-    if ext in ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.dll', '.exe', '.traineddata']:
-        return "05_Assets_and_Binaries"
-        
-    if ext in ['.py', '.cmd', '.bat', '.ps1', '.md', '.txt', '.yaml', '.yml', '.editorconfig', '.gitignore', '.gitattributes']:
-        return "06_Scripts_and_Docs"
 
-    return "07_Misc"
+    # 05: Developer Tools, Automation & Build Harnesses
+    if "developer_tools" in rel_path or "build" in rel_path or name in ['build.cmd', 'dev.cmd', 'dev_build.cmd']:
+        return "05_Developer_Tools_and_Build"
 
-MAX_CODE_FILES = 9  # 9 code bundles + 1 tree file = 10 files max upload limit
+    # 06: Test Suites & Verification Checks
+    if "tests" in rel_path or "test" in rel_path:
+        return "06_Tests"
+
+    # 07: Assets & Binary Stubs (Metadata and file size tracking)
+    if ext in [
+        '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.dll', '.exe',
+        '.traineddata', '.mp3', '.mp4', '.wav', '.bmp', '.webp'
+    ]:
+        return "07_Assets_and_Binaries"
+
+    return "08_Misc"
+
+MAX_CODE_FILES = 8  # 8 code bundles + 1 manifest + 1 tree file = 10 files max upload limit
 MIN_PART_CHARS = 500_000  # Avoid splitting small projects into tiny fragments unnecessarily
 
 
-def pack_into_capped_parts(items, max_parts=9):
+def pack_into_capped_parts(items, max_parts=8):
     """Packs (rel_path, block) tuples across at most max_parts bundles."""
     if not items:
         return []
@@ -84,6 +113,50 @@ def pack_into_capped_parts(items, max_parts=9):
     return parts
 
 
+def generate_project_manifest(project_root: Path, groups: dict, total_files: int) -> str:
+    divider = "=" * 80
+    lines = [
+        divider,
+        "PROJECT ARCHITECTURAL MANIFEST & SYSTEM CONTEXT",
+        divider,
+        f"Project Root:        {project_root}",
+        "Target Framework:    .NET 9 (net9.0-windows)",
+        "Architecture Style:  Avalonia UI Desktop + Hardware-Accelerated Media Pipeline",
+        "Publish Profile:     Native AOT Compatible (Single Binary Mandate, Zero Loose Assets)",
+        "",
+        "PRIMARY ARCHITECTURAL INVARIANTS (From docs\\README.md):",
+        "  1. Single Binary Executable Mandate: Zero loose companion assets next to output exe.",
+        "  2. Absolute Authority for Time: OutputTimeline.cs is sole mathematical model for time.",
+        "  3. Strict A/V Process Isolation: Preview PID session decoupled from export filtergraphs.",
+        "  4. Leak-Free Render Pipelines: zoompan banned; dynamic CAS sharpening (cas=0.5).",
+        "  5. Zero Raw Hex Styling: Styles must resolve exclusively via DynamicResource tokens.",
+        "  6. Thread-Bound Safety Contracts: WASAPI and Skia decodes strictly off UI dispatcher.",
+        "  7. Monotonic Progress Guarantee: P(n+1) >= P(n) across multi-pass operations.",
+        "",
+        "SUBSYSTEM MAP & DIRECTORY HIERARCHY:",
+        "  - docs\\:                           Architectural specifications, coordinate math, and governance contracts.",
+        "  - src\\FortniteVideoSoftware.Core:  Domain models, OutputTimeline math, FFmpeg renderers, WASAPI audio.",
+        "  - src\\FortniteVideoSoftware.App:   Avalonia UI controls, timeline lanes, preview player, window controllers.",
+        "  - tests\\:                          Core unit test suite and native media pipeline smoke checks.",
+        "  - developer_tools\\:                Build orchestration, code quality analyzers, bytecode sentinels.",
+        "  - binaries\\:                       Bundled FFmpeg, FFprobe, and libmpv runtime binaries.",
+        "  - assets\\, mp3\\, mp4\\, jpeg\\:    Static design icons and test media cutaways (indexed in bundle 07).",
+        "",
+        "EXPORT GROUP METRICS (Ordered by AI ingestion priority):",
+    ]
+    for group_name in sorted(groups):
+        count = len(groups[group_name])
+        lines.append(f"  [{group_name}] -> {count:>3} file(s)")
+    lines.extend([
+        "",
+        f"Total Tracked Items: {total_files}",
+        "AI INSTRUCTION: Inspect groups in order (00 -> 01 -> 02 -> ...). Enforce invariants above during review.",
+        divider,
+        ""
+    ])
+    return "\n".join(lines)
+
+
 def run_aggregator():
     project_root = Path(__file__).resolve().parent.parent
     download_dir = get_downloads_directory() / "fortnite_video_software"
@@ -91,14 +164,20 @@ def run_aggregator():
     if not download_dir.exists():
         download_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean up previous text exports to avoid orphaned files
+    for old_file in download_dir.glob("*.txt"):
+        old_file.unlink(missing_ok=True)
+
+    # developer_tools is deliberately excluded from ignored_dirs so AI has visibility into automation & scripts
     ignored_dirs = {
-        '.git', 'bin', 'obj', '.vs', '.idea', 'node_modules', 'developer_tools',
+        '.git', 'bin', 'obj', '.vs', '.idea', 'node_modules',
         'compile', 'compiled', 'old_code', 'artifacts', 'packages', 'testresults',
         'venv', '.venv', 'env', '.pytest_cache', '__pycache__'
     }
 
     divider = "=" * 80
 
+    # 1. Generate annotated directory tree with file sizes
     tree_file = download_dir / "00_file_structure.txt"
     with open(tree_file, "w", encoding="utf-8") as tf:
         tf.write(f"Directory Tree of: {project_root}\n")
@@ -113,7 +192,13 @@ def run_aggregator():
                 tf.write(f"{indent}{folder_name}/\n")
                 subindent = ' ' * 4 * (level + 1)
                 for f in sorted(files, key=str.lower):
-                    tf.write(f"{subindent}{f}\n")
+                    fp = Path(root) / f
+                    try:
+                        sz = fp.stat().st_size
+                        sz_str = f"{sz / (1024 * 1024):.1f} MB" if sz >= 1024 * 1024 else f"{sz / 1024:.1f} KB"
+                        tf.write(f"{subindent}{f:<50} [{sz_str:>9}]\n")
+                    except Exception:
+                        tf.write(f"{subindent}{f}\n")
         except Exception as e:
             tf.write(f"[ERROR GENERATING DIRECTORY TREE: {e}]")
 
@@ -122,17 +207,19 @@ def run_aggregator():
         '.csproj', '.sln', '.txt', '.md', '.svg', '.manifest', '.config',
         '.props', '.targets', '.editorconfig', '.gitignore', '.gitattributes',
         '.yaml', '.yml', '.razor', '.resx', '.xaml', '.css', '.js', '.ts',
-        '.html', '.htm', '.ini', '.toml', '.ruleset'
+        '.html', '.htm', '.ini', '.toml', '.ruleset',
+        '.agignore', '.clineignore', '.codexignore', '.geminiignore'
+    }
+
+    binary_whitelist = {
+        '.ico', '.png', '.jpg', '.jpeg', '.gif', '.mp3', '.mp4', '.wav',
+        '.dll', '.exe', '.traineddata', '.bmp', '.webp'
     }
 
     print(f"Aggregating grouped code into {download_dir}...")
 
     processed_count = 0
     groups = {}
-
-    for old_file in download_dir.glob("*.txt"):
-        if old_file.name != "00_file_structure.txt":
-            old_file.unlink(missing_ok=True)
 
     for root, dirs, files in os.walk(project_root):
         dirs[:] = sorted((d for d in dirs if d.lower() not in ignored_dirs), key=str.lower)
@@ -141,12 +228,26 @@ def run_aggregator():
         for filename in sorted(files, key=str.lower):
             file_path = current_path / filename
             relative_path = file_path.relative_to(project_root)
+            ext = file_path.suffix.lower()
 
-            if file_path.suffix.lower() not in source_whitelist and file_path.name.lower() not in source_whitelist:
+            is_src = ext in source_whitelist or file_path.name.lower() in source_whitelist
+            is_bin = ext in binary_whitelist
+
+            if not is_src and not is_bin:
                 continue
 
-            if is_binary(file_path):
-                content_text = "[BINARY FILE OMITTED - filename is listed in 00_file_structure.txt]\n\n"
+            if is_bin or is_binary(file_path):
+                file_size = file_path.stat().st_size
+                sz_str = f"{file_size / (1024 * 1024):.2f} MB" if file_size >= 1024 * 1024 else f"{file_size / 1024:.1f} KB"
+                content_text = (
+                    f"[BINARY / MEDIA ASSET OMITTED FROM TEXT EXPORT]\n"
+                    f"Relative Path: {relative_path}\n"
+                    f"File Size:     {sz_str} ({file_size:,} bytes)\n"
+                    f"Type:          {ext.upper() if ext else 'Binary'} Asset\n"
+                    f"Note:          Full path indexed in 00_file_structure.txt. Kept on disk.\n\n"
+                )
+                line_count = 0
+                size_kb = file_size / 1024.0
             else:
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
@@ -156,14 +257,22 @@ def run_aggregator():
                     content_text += "\n"
                 except Exception as e:
                     content_text = f"[ERROR READING FILE: {e}]\n\n"
+                line_count = content_text.count("\n")
+                size_kb = len(content_text) / 1024.0
 
-            line_count = content_text.count("\n")
-            size_kb = len(content_text) / 1024.0
             header = f"{divider}\nFILE: {relative_path}  ({line_count:,} lines, {size_kb:,.1f} KB)\n{divider}\n"
             block = header + content_text
-            groups.setdefault(get_group_name(file_path, project_root), []).append((relative_path, block))
+            group_name = get_group_name(file_path, project_root)
+            groups.setdefault(group_name, []).append((relative_path, block))
             processed_count += 1
 
+    # 2. Generate and write high-level manifest
+    manifest_file = download_dir / "00_PROJECT_MANIFEST.txt"
+    manifest_content = generate_project_manifest(project_root, groups, processed_count)
+    with open(manifest_file, "w", encoding="utf-8") as mf:
+        mf.write(manifest_content)
+
+    # 3. Assemble all blocks following the strict group priority order (00 -> 01 -> 02 -> ...)
     all_blocks = []
     for group in sorted(groups):
         for item in groups[group]:
@@ -173,6 +282,8 @@ def run_aggregator():
     count = len(parts)
 
     report_rows = []
+    if manifest_file.exists():
+        report_rows.append((manifest_file.name, manifest_file.stat().st_size))
     if tree_file.exists():
         report_rows.append((tree_file.name, tree_file.stat().st_size))
 
@@ -182,7 +293,8 @@ def run_aggregator():
         banner = (
             f"{divider}\n"
             f"CODE EXPORT BUNDLE - PART {i} OF {count}\n"
-            f"Directory map: see 00_file_structure.txt\n"
+            f"Context Manifest: 00_PROJECT_MANIFEST.txt\n"
+            f"Directory Tree:   00_file_structure.txt\n"
             f"Files in this bundle ({len(part_items)}):\n"
             f"{toc}\n"
             f"{divider}\n\n"
@@ -194,7 +306,7 @@ def run_aggregator():
         report_rows.append((part_name, len(full_payload.encode('utf-8'))))
 
     print()
-    print("UPLOAD REPORT - upload 00_file_structure.txt and all bundle parts together")
+    print("UPLOAD REPORT - upload 00_PROJECT_MANIFEST.txt, 00_file_structure.txt, and bundle parts together")
     print("-" * 80)
     grand_total = 0
     for name, byte_size in report_rows:
@@ -203,7 +315,7 @@ def run_aggregator():
     print("-" * 80)
     print(f"  TOTAL: {len(report_rows)} files (<= 10 limit respected), {grand_total / 1024.0:,.1f} KB")
     print()
-    print(f"Done! Aggregated {processed_count} files into {len(parts)} bundle(s) + 1 structure file.")
+    print(f"Done! Aggregated {processed_count} files into {len(parts)} bundle(s) + 1 manifest + 1 structure file.")
 
 def purge_bytecode_cache():
     """

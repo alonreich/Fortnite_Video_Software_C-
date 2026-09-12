@@ -87,15 +87,68 @@
                                      edge and the heading cannot drift away from the column it names.
                                      The 2px left margin matches the ListBox's own Padding="2".
                                      ══════════════════════════════════════════════════════════════ -->
-                                <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,Auto" HorizontalAlignment="Left" Margin="7,0,0,4">
-                                    <TextBlock Grid.Column="0" Text="" Width="{Binding $parent[local:MusicWizardWindow].TrackPinColumnWidth}"/>
-                                    <TextBlock Grid.Column="1" Text="Song Name" Width="{Binding $parent[local:MusicWizardWindow].TrackNameColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" VerticalAlignment="Center"/>
-                                    <Border Grid.Column="2" Width="1" Background="Transparent" Margin="10,0,10,0"/>
-                                    <TextBlock Grid.Column="3" Text="Length" Width="{Binding $parent[local:MusicWizardWindow].TrackLengthColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" TextAlignment="Center" VerticalAlignment="Center"/>
-                                </Grid>
+                                <!-- ══════════════════════════════════════════════════════════════
+                                     LIST_05 — THE CLOSED TABLE FRAME.
 
-                                <Grid Grid.Row="3" Grid.Column="0">
-                                    <ListBox Name="MusicListBox" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+                                     Rows 2 and 3 used to be two unrelated controls with hairlines
+                                     only UNDER each row and DOWN one column, so the table had no
+                                     top rule over its own headings and no left or right edge at
+                                     all — every line started and stopped in mid-air.
+
+                                     They now live inside ONE 1px-bordered Border. Its width is
+                                     TrackTableWidth (measured in RecalculateTrackTableWidth from
+                                     the same three column widths the header and rows bind to), so
+                                     the right edge lands exactly where the Length column ends
+                                     instead of a hand-span past it — which is the reason LIST_04
+                                     left-packs the rows in the first place.
+
+                                     ⚠️ The frame is HorizontalAlignment="Left" and the ListBox
+                                     inside it stretches. Do not move the border onto the ListBox
+                                     alone: the headings would fall outside the box again.
+                                     ══════════════════════════════════════════════════════════════ -->
+                                <!-- LIST_06: MaxWidth, NOT Width.
+                                     Width made the frame's size a FUNCTION of TrackNameColumnWidth,
+                                     while RecalculateTrackNameColumnWidth measured the ListBox INSIDE
+                                     that frame to decide TrackNameColumnWidth. A closed loop: every
+                                     layout pass fed its own output back in, the columns pulsed, and the
+                                     scrollbar thumb was re-laid-out under the pointer on every frame,
+                                     which is why dragging it jumped instead of scrolling.
+
+                                     MaxWidth breaks it. The frame still refuses to run past the end of
+                                     its last column (the whole point of LIST_05), but its width is now a
+                                     CONSTRAINT satisfied during layout rather than an input the
+                                     measurement reads back. The measurement itself now clamps against
+                                     Step1Panel, which is sized by the window and never by these
+                                     columns — see RecalculateTrackNameColumnWidth. -->
+                                <Border Grid.Row="2" Grid.RowSpan="2" HorizontalAlignment="Left"
+                                        MaxWidth="{Binding $parent[local:MusicWizardWindow].TrackTableWidth}"
+                                        BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1"
+                                        CornerRadius="4"
+                                        Background="{DynamicResource AppSurfaceBrush}">
+                                    <Grid RowDefinitions="Auto,*">
+
+                                        <!-- The heading strip. Its own bottom hairline is what closes
+                                             the table UNDER the titles; the 7px left inset keeps the
+                                             headings over their columns (row Border Padding 5 +
+                                             ListBox Padding 2). -->
+                                        <Border Grid.Row="0" BorderBrush="{DynamicResource AppBorderBrush}"
+                                                BorderThickness="0,0,0,1" Padding="7,4,0,4">
+                                            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto" HorizontalAlignment="Left">
+                                                <TextBlock Grid.Column="0" Text="" Width="{Binding $parent[local:MusicWizardWindow].TrackPinColumnWidth}"/>
+                                                <TextBlock Grid.Column="1" Text="Song Name" Width="{Binding $parent[local:MusicWizardWindow].TrackNameColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                <Border Grid.Column="2" Width="1" Background="{DynamicResource AppBorderBrush}" Margin="10,0,10,0"/>
+                                                <TextBlock Grid.Column="3" Text="Length" Width="{Binding $parent[local:MusicWizardWindow].TrackLengthColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" TextAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+
+                                <Grid Grid.Row="1" Grid.Column="0">
+                                    <!-- LIST_06: BACK TO "Visible", AND IT MUST STAY THERE. On "Auto" the scrollbar
+                                             appears and disappears as the content height crosses the viewport,
+                                             and each toggle changes the list's usable width, which re-entered
+                                             RecalculateTrackNameColumnWidth and re-sized every column. That is
+                                             the stutter. A permanently reserved scrollbar gutter is one fewer
+                                             thing that can change width underneath a width measurement. -->
+                                    <ListBox Name="MusicListBox" Background="Transparent" BorderThickness="0" CornerRadius="0" Padding="2" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
                                         <ListBox.Styles>
                                             <Style Selector="ListBoxItem">
                                                 <Setter Property="Padding" Value="0"/>
@@ -134,9 +187,28 @@
                                                      after the length. Selection and hover still cover the full
                                                      row: those come from the ListBoxItem behind this Border, not
                                                      from the Border itself. -->
-                                                <Border Padding="5,3" CornerRadius="4" Cursor="Hand" HorizontalAlignment="Left"
+                                                <!-- LIST_05: was HorizontalAlignment="Left", which ended the
+                                                     row's hairline just after the length and left the table's
+                                                     right side open. The frame added in LIST_05 is itself only
+                                                     as wide as the columns, so the row can now stretch to it
+                                                     and every rule meets the box on both sides. LIST_04's
+                                                     concern — a rule running hundreds of pixels past the last
+                                                     column — is handled by the frame's width, not by the row. -->
+                                                <!-- LIST_07: the 14px right margin is the SCROLLBAR GUTTER.
+                                                     Rows stretch to the full list width, so the length column
+                                                     and the row's own hairline ran straight into the vertical
+                                                     scrollbar — the thumb sat ON the table content instead of
+                                                     beside it, and the last column had nowhere to breathe.
+                                                     This margin ends the table content (and every rule in it)
+                                                     BEFORE the gutter; the scrollbar then occupies that gutter
+                                                     alone, between the last column and the frame's border.
+                                                     ⚠️ Keep in step with TrackRowFurnitureWidthPx, which
+                                                     reserves this gap PLUS the scrollbar width so the frame is
+                                                     wide enough to hold both. -->
+                                                <Border Padding="5,3" CornerRadius="0" Cursor="Hand" HorizontalAlignment="Stretch"
+                                                        Margin="0,0,14,0"
                                                         ToolTip.Tip="Click to select this track — it starts playing straight away"
-                                                        BorderThickness="0,0,0,1" BorderBrush="#1AFFFFFF">
+                                                        BorderThickness="0,0,0,1" BorderBrush="{DynamicResource AppTableHairlineBrush}">
                                                     <!-- LIST_02: every column is Auto and the NAME cell carries an explicit
                                                          width, so the row packs to the left instead of stretching the name
                                                          across the whole list and flinging the length at the far edge. The
@@ -152,7 +224,7 @@
                                                              LOOKED aligned because most rows happened to be empty here. -->
                                                         <TextBlock Grid.Column="0" Text="{CompiledBinding PinText}" Width="{Binding $parent[local:MusicWizardWindow].TrackPinColumnWidth}" Foreground="{DynamicResource AppAccentBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" VerticalAlignment="Center"/>
                                                         <TextBlock Grid.Column="1" Text="{CompiledBinding Name}" Width="{Binding $parent[local:MusicWizardWindow].TrackNameColumnWidth}" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" HorizontalAlignment="Left" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                                        <Border Grid.Column="2" Width="1" Background="#14FFFFFF" VerticalAlignment="Stretch" Margin="10,1,10,1"/>
+                                                        <Border Grid.Column="2" Width="1" Background="{DynamicResource AppTableHairlineBrush}" VerticalAlignment="Stretch" Margin="10,1,10,1"/>
                                                         <TextBlock Grid.Column="3" Text="{CompiledBinding DurationText}" Width="{Binding $parent[local:MusicWizardWindow].TrackLengthColumnWidth}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center"/>
                                                     </Grid>
                                                 </Border>
@@ -161,6 +233,8 @@
                                     </ListBox>
                                     <TextBlock Name="EmptyMusicListText" Text="No music files found. Change folder or drop an audio file here." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" IsHitTestVisible="False" IsVisible="False"/>
                                 </Grid>
+                                    </Grid>
+                                </Border>
                             </Grid>
 
                             <!-- STEP 2: Waveform + Song Start -->
@@ -296,7 +370,7 @@
                                      ⚠️ Phase3StatusLabel and ProblemFlagsPanel are still here and still found by
                                      name — only their arrangement changed. Do not remove them.
                                      ═══════════════════════════════════════════════════════════════════════ -->
-                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Spacing="3">
+                                <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,6" Spacing="3">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <TextBlock Text="CONFIRM MUSIC" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Center"/>
                                         <TextBlock Name="FinalPlacementLabel" Text="ⓘ" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Cursor="Help"
@@ -359,7 +433,17 @@
                                      shared control at construction. That keeps every existing FindControl in the
                                      code-behind working untouched - recreating 13 named controls in code would have
                                      been far more churn for no benefit. -->
-                                <Grid Grid.Row="2" Grid.Column="0" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False">
+                                <!-- ══════════════════════════════════════════════════════════════
+                                     LAYOUT_03 — THE LANES REACH THE RIGHT EDGE OF THE WINDOW.
+
+                                     The MIX slider column (Grid.Column="1") used to carry
+                                     Grid.RowSpan="4", so it occupied this row as well and the ruler
+                                     plus both 60px lanes stopped ~90px short of the window edge,
+                                     jammed against a panel that has nothing to do with the
+                                     timeline. The sliders are now confined to the video row
+                                     (see the note on that Border) and this row spans both columns.
+                                     ══════════════════════════════════════════════════════════════ -->
+                                <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" ZIndex="10" Margin="0,0,0,15" ClipToBounds="False">
                                     <controls:TimelineLanesControl Name="Phase3Lanes" ClipToBounds="False"/>
 
                                     <Panel Name="Phase3LaneContentHolder" IsVisible="False">
@@ -436,37 +520,175 @@
                                      ⚠️ The ducking toggle that used to sit beside these is now in Settings —
                                      see AUDIO_09.
                                      ═══════════════════════════════════════════════════════════════════════ -->
-                                <Border Grid.Row="0" Grid.RowSpan="4" Grid.Column="1" ZIndex="20"
+                                <!-- ══════════════════════════════════════════════════════════════
+                                     LAYOUT_03 — ANCHORED TO THE VIDEO BOX, TOP AND BOTTOM.
+
+                                     This was Grid.Row="0" Grid.RowSpan="4": it started level with
+                                     the CONFIRM MUSIC heading (visibly taller than the picture it
+                                     sits beside) and ran down through the lanes row, pushing the
+                                     timeline off the right-hand side of the window.
+
+                                     It is now Grid.Row="1" ONLY — the video preview's own row — so
+                                     VerticalAlignment="Stretch" makes its top and bottom edges land
+                                     exactly on the top and bottom of VideoHostBorder. The bottom
+                                     margin matches that row's own Margin="0,0,0,10" so the two
+                                     boxes end on the same line rather than the slider frame hanging
+                                     10px lower.
+
+                                     ⚠️ Do NOT restore a RowSpan here. The lanes row now spans both
+                                     columns (LAYOUT_03) and would render underneath this panel.
+                                     ══════════════════════════════════════════════════════════════ -->
+                                <!-- ══════════════════════════════════════════════════════════════
+                                     SLIDER_06 — TWO TRAYS IN ONE RACK, AND NARROW.
+
+                                     The two faders shared a single open panel with 14px of air
+                                     between them and nothing to say where one channel ended and the
+                                     next began. Each now sits in its OWN inset compartment — a
+                                     darker AppSurfaceBrush well inside the lighter AppPanelBrush
+                                     rack — so the pair still reads as one MIX control while each
+                                     channel is unmistakably its own slot.
+
+                                     WIDTH. This column is pure overhead: every pixel it takes comes
+                                     off the video preview beside it (LAYOUT_02). The old width was
+                                     driven by the LABELS, not the sliders — "Video 100%" measures
+                                     wider than the 44px fader it sat under, so the text set the
+                                     column width and the fader wasted the rest. Split in two, the
+                                     channel name moves to a caption ABOVE the fader and the value
+                                     below is just the number, so nothing in the tray is wider than
+                                     the fader itself. With the gap at 5px and the rack padding at
+                                     5px the whole rack is roughly a quarter narrower than before.
+
+                                     ⚠️ ClipToBounds="False" IS STILL LOAD-BEARING, on the trays as
+                                     well as the rack (SLIDER_02/04). The thumb grows to scale(2.0)
+                                     while held and paints outside its own track; a clipping tray
+                                     would shear the knob off at the sides. Do not "tidy" it away,
+                                     and do not give the trays ClipToBounds="True" to stop the
+                                     overflow — the overflow is the press feedback.
+                                     ══════════════════════════════════════════════════════════════ -->
+                                <Border Grid.Row="1" Grid.Column="1" ZIndex="20"
                                         HorizontalAlignment="Right" VerticalAlignment="Stretch"
-                                        Margin="12,0,0,0" Padding="10,8,10,8"
+                                        Margin="6,0,0,10" Padding="3,5,3,5"
                                         Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
-                                        BorderThickness="1" CornerRadius="8" ClipToBounds="False">
-                                    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="Auto,14,Auto" ClipToBounds="False">
+                                        BorderThickness="1" CornerRadius="7" ClipToBounds="False">
+                                    <!-- SLIDER_08: the spacer column is gone — the two trays now SHARE an
+                                         edge. Their own 1px borders are what separates them, which is a
+                                         cleaner read than a border, a gap and another border, and it is the
+                                         last horizontal pixel available without touching the faders. -->
+                                    <Grid RowDefinitions="Auto,*" ColumnDefinitions="Auto,Auto" ClipToBounds="False">
 
-                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="MIX" HorizontalAlignment="Center"
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="MIX" HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource AppTextMutedBrush}"
-                                                   FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Margin="0,0,0,6"/>
+                                                   FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" Margin="0,0,0,5"/>
 
-                                        <Slider Grid.Row="1" Grid.Column="0" Name="VideoVolSlider" Orientation="Vertical"
-                                                Minimum="0" Maximum="100" Value="100"
-                                                VerticalAlignment="Stretch" MinHeight="120" MinWidth="44"
-                                                ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
-                                                ToolTip.Tip="Volume of the original video audio"/>
+                                        <!-- VIDEO tray -->
+                                        <Border Grid.Row="1" Grid.Column="0" VerticalAlignment="Stretch"
+                                                Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                                BorderThickness="1" CornerRadius="4" Padding="0,4,0,4" ClipToBounds="False" ZIndex="10"
+                                                ToolTip.Tip="Volume of the original video audio">
+                                            <Grid RowDefinitions="Auto,*,Auto" ClipToBounds="False">
+                                                <!-- SLIDER_08: the caption is spelled out again. It was abbreviated
+                                                     under SLIDER_07 to keep it narrower than a 30px fader; the
+                                                     fader is a CompactSlider now (~44px), so "VIDEO" fits inside
+                                                     the width the slider already costs and abbreviating it buys
+                                                     nothing. It is NOT clipped — it never was; it was short on
+                                                     purpose, which read as clipping, which is its own kind of bug. -->
+                                                <TextBlock Grid.Row="0" Text="VIDEO" HorizontalAlignment="Center"
+                                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                                           FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"
+                                                           Margin="0,0,0,2" ClipToBounds="False" IsHitTestVisible="False"/>
+                                                <TextBlock Grid.Row="2" Name="VideoVolLabel" Text="100%"
+                                                           HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0"
+                                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                           FontSize="{DynamicResource AppFontSize9}" IsHitTestVisible="False"/>
 
-                                        <Slider Grid.Row="1" Grid.Column="2" Name="MusicVolSlider" Orientation="Vertical"
-                                                Minimum="0" Maximum="100" Value="100"
-                                                VerticalAlignment="Stretch" MinHeight="120" MinWidth="44"
-                                                ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
-                                                ToolTip.Tip="Volume of the background music"/>
+                                                <!-- ══════════════════════════════════════════════════════
+                                                     SLIDER_09 — PAINT ORDER IS DECLARATION ORDER. ZIndex WAS
+                                                     THE WRONG LEVER.
+                                                     The knob grows past the ends of its own track at 0% and
+                                                     100%, into the rows the caption and the value occupy. A
+                                                     high ZIndex on the Slider did NOT lift it above them: it
+                                                     stayed declared BETWEEN the two TextBlocks, and the one
+                                                     after it kept painting over the overflow.
+                                                     The reliable rule among siblings of one panel is the
+                                                     order they are WRITTEN, so the Slider is now the LAST
+                                                     child of this Grid while keeping Grid.Row="1" — its
+                                                     LAYOUT slot is unchanged, only its place in the paint
+                                                     sequence moved. ZIndex stays as agreement, not as the
+                                                     mechanism.
+                                                     The labels are also IsHitTestVisible="False": their
+                                                     layout slots are real rectangles that would otherwise
+                                                     swallow a press aimed at the knob where it overlaps them.
+                                                     ⚠️ KEEP THE SLIDER LAST. Moving it back above either
+                                                     TextBlock re-breaks this, silently and invisibly in code.
+                                                     ══════════════════════════════════════════════════════ -->
+                                                <!-- SLIDER_07: NO Width, NO MinWidth. A vertical Slider must be
+                                                     left to size itself to its own track — anything wider puts
+                                                     the rail against one edge and slices the knob in half (the
+                                                     fault this replaced). CompactSlider is the suite's narrow
+                                                     thumb and its own note names vertical volume as its case. -->
+                                                <Slider Grid.Row="1" Name="VideoVolSlider" Classes="CompactSlider" Orientation="Vertical"
+                                                        Minimum="0" Maximum="100" Value="100"
+                                                        VerticalAlignment="Stretch" HorizontalAlignment="Center"
+                                                        MinHeight="110" ZIndex="9999"
+                                                        ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                        ToolTip.Tip="Volume of the original video audio"/>
+                                            </Grid>
+                                        </Border>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Name="VideoVolLabel" Text="Video 100%"
-                                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
-                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                                   FontSize="{DynamicResource AppFontSize9}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="2" Name="MusicVolLabel" Text="Music 100%"
-                                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
-                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                                   FontSize="{DynamicResource AppFontSize9}"/>
+                                        <!-- MUSIC tray -->
+                                        <Border Grid.Row="1" Grid.Column="1" VerticalAlignment="Stretch"
+                                                Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                                BorderThickness="1" CornerRadius="4" Padding="0,4,0,4" ClipToBounds="False" ZIndex="10"
+                                                ToolTip.Tip="Volume of the background music">
+                                            <Grid RowDefinitions="Auto,*,Auto" ClipToBounds="False">
+                                                <!-- SLIDER_08: the caption is spelled out again. It was abbreviated
+                                                     under SLIDER_07 to keep it narrower than a 30px fader; the
+                                                     fader is a CompactSlider now (~44px), so "MUSIC" fits inside
+                                                     the width the slider already costs and abbreviating it buys
+                                                     nothing. It is NOT clipped — it never was; it was short on
+                                                     purpose, which read as clipping, which is its own kind of bug. -->
+                                                <TextBlock Grid.Row="0" Text="MUSIC" HorizontalAlignment="Center"
+                                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                                           FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold"
+                                                           Margin="0,0,0,2" ClipToBounds="False" IsHitTestVisible="False"/>
+                                                <TextBlock Grid.Row="2" Name="MusicVolLabel" Text="100%"
+                                                           HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0"
+                                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                           FontSize="{DynamicResource AppFontSize9}" IsHitTestVisible="False"/>
+
+                                                <!-- ══════════════════════════════════════════════════════
+                                                     SLIDER_09 — PAINT ORDER IS DECLARATION ORDER. ZIndex WAS
+                                                     THE WRONG LEVER.
+                                                     The knob grows past the ends of its own track at 0% and
+                                                     100%, into the rows the caption and the value occupy. A
+                                                     high ZIndex on the Slider did NOT lift it above them: it
+                                                     stayed declared BETWEEN the two TextBlocks, and the one
+                                                     after it kept painting over the overflow.
+                                                     The reliable rule among siblings of one panel is the
+                                                     order they are WRITTEN, so the Slider is now the LAST
+                                                     child of this Grid while keeping Grid.Row="1" — its
+                                                     LAYOUT slot is unchanged, only its place in the paint
+                                                     sequence moved. ZIndex stays as agreement, not as the
+                                                     mechanism.
+                                                     The labels are also IsHitTestVisible="False": their
+                                                     layout slots are real rectangles that would otherwise
+                                                     swallow a press aimed at the knob where it overlaps them.
+                                                     ⚠️ KEEP THE SLIDER LAST. Moving it back above either
+                                                     TextBlock re-breaks this, silently and invisibly in code.
+                                                     ══════════════════════════════════════════════════════ -->
+                                                <!-- SLIDER_07: NO Width, NO MinWidth. A vertical Slider must be
+                                                     left to size itself to its own track — anything wider puts
+                                                     the rail against one edge and slices the knob in half (the
+                                                     fault this replaced). CompactSlider is the suite's narrow
+                                                     thumb and its own note names vertical volume as its case. -->
+                                                <Slider Grid.Row="1" Name="MusicVolSlider" Classes="CompactSlider" Orientation="Vertical"
+                                                        Minimum="0" Maximum="100" Value="100"
+                                                        VerticalAlignment="Stretch" HorizontalAlignment="Center"
+                                                        MinHeight="110" ZIndex="9999"
+                                                        ClipToBounds="False" IsSnapToTickEnabled="False" TickFrequency="1"
+                                                        ToolTip.Tip="Volume of the background music"/>
+                                            </Grid>
+                                        </Border>
                                     </Grid>
                                 </Border>
                             </Grid>

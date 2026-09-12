@@ -632,6 +632,11 @@
                 <TextBlock Text="Your video is being re-timed so the preview matches the finished file exactly. This only takes a moment - the timeline will be ready to scrub as soon as it disappears." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
             </StackPanel>
         </Border>
+        <!-- WINSEED_01 — same grip as the Voice Over Studio. Last child of the root Grid so it sits
+             above MainBorder's 5px chrome; 24x24 transparent hit area with a drawn corner chevron. -->
+        <Border Name="ResizeGrip" MinWidth="24" MinHeight="24" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="Transparent" Cursor="BottomRightCorner" ToolTip.Tip="Drag to resize the Granular Speed Editor" AutomationProperties.Name="Resize Granular Speed Editor">
+            <Path Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="1.5" StrokeLineCap="Round" Data="M 8,20 L 20,8 M 13,20 L 20,13 M 18,20 L 20,18" />
+        </Border>
     </Grid>
 
 </Window>

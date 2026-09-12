@@ -271,14 +271,33 @@ static async Task<int> RunUiAsync(string[] args)
         .UsePlatformDetect()
         .WithInterFont();
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TRACEFLOOD_01 — VERBOSE AVALONIA LOGGING FREEZES THE DEV BUILD. DO NOT RESTORE IT BLINDLY.
+    //
+    // LogToTrace routes through System.Diagnostics.Trace, whose DefaultTraceListener calls the
+    // native OutputDebugString. That call is synchronous and serialises every process on the
+    // machine through a single global OS mutex (DBWinMutex); with a debugger or `dotnet watch`
+    // attached it costs on the order of a millisecond EACH.
+    //
+    // At Verbose, Avalonia emits a trace line for ordinary property writes. Any redraw that
+    // touches many visuals therefore pays milliseconds per property. Captured from a frozen
+    // process (dotnet-dump, 2026-09-12), the UI thread was here:
+    //     GranularSpeedEditorWindow.RedrawTimeline -> RelayoutFrameLane
+    //       -> Avalonia.Visual.set_ClipToBounds
+    //         -> Trace.WriteLine -> OutputDebugString   (BLOCKED)
+    // The window stops repainting and the app reads as hard-frozen, in dev mode only.
+    //
+    // Warning level keeps every genuine Avalonia complaint (binding errors, layout warnings) and
+    // drops the per-property spam. To debug a specific Avalonia subsystem, opt IN narrowly and
+    // temporarily, e.g.:
+    //     builder.LogToTrace(LogEventLevel.Verbose, Avalonia.Logging.LogArea.Binding)
+    // and never with a timeline-heavy window open.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Warning);
     if (RuntimeLog.IsDevMode)
     {
-        builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Verbose);
-        RuntimeLog.Info("RUN UI", "Dev mode: Avalonia verbose logging enabled.");
-    }
-    else
-    {
-        builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Warning);
+        RuntimeLog.Info("RUN UI",
+            "Dev mode: Avalonia logging at Warning (TRACEFLOOD_01 - Verbose calls OutputDebugString per property and freezes the UI thread).");
     }
 
     return builder.StartWithClassicDesktopLifetime(args);

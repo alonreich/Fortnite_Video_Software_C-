@@ -50,3 +50,7 @@ developer_tools/redundant_code_report.html_to_delete/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# dev.cmd trace mode (SYS-DEVBUILD): in-repo diagnostic logs, never committed.
+.devlogs/
+.Old_Fortnite_Video_Software/

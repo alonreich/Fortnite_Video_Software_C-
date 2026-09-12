@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -234,9 +234,42 @@ public partial class MainWindow
     /// Unified play/pause behaviour. Returns true when the key was consumed, mirroring
     /// KeyBinding.TryHandle (Handled only when the command actually ran).
     /// </summary>
+    /// <summary>DOUBLEFIRE_01 — when the transport toggle last actually ran.</summary>
+    private DateTime _lastTransportToggleUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// DOUBLEFIRE_01 — the shortest gap between two DELIBERATE play/pause presses. A person
+    /// cannot press a button twice in 60 ms; two activations that close together are one physical
+    /// press arriving down two wirings.
+    /// </summary>
+    private const int TransportToggleCoalesceMs = 60;
+
     private bool TryExecutePlayPause()
     {
         if (Controls.PhaseOverlayControl.FightInputActive) return false;
+
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // DOUBLEFIRE_01 — ONE PHYSICAL PRESS MUST PRODUCE ONE TOGGLE.
+        //
+        // A toggle is the one control shape where a duplicate activation is INVISIBLE: it undoes
+        // itself, so the button simply "does nothing" and the fault looks like a playback bug
+        // rather than a wiring bug. That cost several rounds of diagnosis (see DOUBLEFIRE_01 in
+        // MainWindow.Wireup.cs), so the duplicate wiring is removed AND this guard makes any
+        // future recurrence say so in the log instead of silently cancelling the user's press.
+        //
+        // ⚠️ This is a safety net, NOT a licence to wire a second activation path. If this line
+        // ever appears in a log, find the duplicate and delete it — do not rely on the guard.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        var now = DateTime.UtcNow;
+        if ((now - _lastTransportToggleUtc).TotalMilliseconds < TransportToggleCoalesceMs)
+        {
+            RuntimeLog.Fail("UI",
+                $"Play/Pause was activated twice within {TransportToggleCoalesceMs}ms — the second " +
+                "activation was ignored. A transport control has more than one activation path " +
+                "wired to it (Command AND Click?); find it and remove one. See DOUBLEFIRE_01.");
+            return true;
+        }
+        _lastTransportToggleUtc = now;
 
         var btn = this.FindControl<Button>("PlayPauseButton");
         if (btn == null || !btn.IsEnabled) return false;
@@ -249,15 +282,10 @@ public partial class MainWindow
 
         if (ActiveVideoHost?.IpcClient != null)
         {
-            if (_isCurrentlyFrozen)
-            {
-                _isCurrentlyFrozen = false;
-                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
-            }
-            else
-            {
-                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", ActiveVideoHost.IpcClient.IsPaused ? "no" : "yes");
-            }
+            // MAINEND_01 — one transport for the button, the KeyBinding and the global shortcut,
+            // so no route can get trapped on the last frame while another does not.
+            RuntimeLog.Info("UI", "User toggled Play/Pause state.");
+            TogglePlayPauseTransport();
             return true;
         }
         return false;

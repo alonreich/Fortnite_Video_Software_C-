@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -174,7 +174,7 @@ public partial class MainWindow
         UpdateTooltips();
         RefreshTransportKeyBindings();   // KEYFOCUS_01 — attach transport Commands + KeyBindings (post-settings-load)
 
-        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MainWindowBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "MainWindowBounds", fitDisplayOnFirstRun: true);   // FIRSTFIT_01
 
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
 
@@ -194,8 +194,13 @@ public partial class MainWindow
 
         this.AddHandler(InputElement.PointerPressedEvent, (s, e) =>
         {
+            // THUMB_02 — the thumbnail marker was MISSING from this list. Every other marker drag
+            // suppresses the canvas rebuild while it is in flight, for exactly the reason the
+            // thumbnail one needed it most: UpdateTimelineMarkers clears and recreates the marker
+            // controls, so a rebuild during a gesture destroys the control holding pointer capture.
             bool markerDragActive = _draggingStartMarker || _draggingEndMarker ||
-                                    _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock;
+                                    _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock ||
+                                    _isDraggingThumbnailMarker;
 
             if (_isMusicBlockFocused)
             {
@@ -479,24 +484,30 @@ public partial class MainWindow
             };
         }
 
-        var playPauseButton = this.FindControl<Button>("PlayPauseButton");
-        if (playPauseButton != null)
-        {
-            playPauseButton.Click += (s, e) =>
-            {
-                RuntimeLog.Info("UI", "User toggled Play/Pause state.");
-                if (ActiveVideoHost?.IpcClient != null) 
-                {
-                    if (_isCurrentlyFrozen)
-                    {
-                        _isCurrentlyFrozen = false;
-                        _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
-                        return;
-                    }
-                    _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", ActiveVideoHost.IpcClient.IsPaused ? "no" : "yes");
-                }
-            };
-        }
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // DOUBLEFIRE_01 — THE PLAY BUTTON'S Click HANDLER IS GONE. THIS WAS THE WHOLE BUG.
+        //
+        // KEYFOCUS_01 moved Play/Pause onto `PlayPauseButton.Command` (RefreshTransportKeyBindings
+        // assigns `btn.Command = _playPauseCommand`) but LEFT the old `Click` handler attached here.
+        // Avalonia raises BOTH on a single press, so every click ran the toggle TWICE:
+        //
+        //     click -> Command -> TogglePlayPauseTransport()  : paused  -> PLAY
+        //           -> Click   -> TogglePlayPauseTransport()  : playing -> PAUSE
+        //
+        // Net effect of pressing PLAY: the player runs for the few milliseconds between the two
+        // calls — one frame — and stops. Pressing it again does exactly the same thing. That is
+        // the "play advances one frame at a time and pauses itself, trapped" fault, and it is why
+        // MARK START released it: ExecuteMarkStart issues an unconditional `pause=no` rather than a
+        // TOGGLE, so running it twice is idempotent and playback survives.
+        //
+        // It is invisible to reading because the two wirings live in different files and neither
+        // is wrong on its own — only their sum is. TRANSPORT_TRACE_01 is what exposed it: two
+        // `user-transport` lines, PLAY then PAUSE, in the same second, from one click.
+        //
+        // ⚠️ A TOGGLE MUST HAVE EXACTLY ONE ACTIVATION PATH. Do not re-add a Click handler to any
+        // control that already carries a Command. See TryExecutePlayPause for the guard that now
+        // makes a recurrence loud instead of silent.
+        // ══════════════════════════════════════════════════════════════════════════════════════
 
         var setThumbnailButton = this.FindControl<Button>("SetThumbnailButton");
         if (setThumbnailButton != null)
@@ -747,23 +758,33 @@ public partial class MainWindow
         var qualitySlider = this.FindControl<SpinningWheelSlider>("QualitySlider");
         if (qualitySlider != null)
         {
-            qualitySlider.SetRange(0, 20);
+            // QUALITY_01 — the dial's stops ARE the quality words. It used to read "5MB", "10MB"
+            // ... "100MB", "ORIGINAL QUALITY", which asked the user to solve for the thing they
+            // wanted instead of picking it.
+            qualitySlider.SetRange(0, FortniteVideoSoftware.App.ViewModels.QualityLadder.MaxIndex);
             var labels = new System.Collections.Generic.List<string>();
-            for (int i = 0; i < 20; i++) labels.Add($"{5 + i * 5}MB");
-            labels.Add("ORIGINAL QUALITY");
+            foreach (var tier in FortniteVideoSoftware.App.ViewModels.QualityLadder.Tiers)
+                labels.Add(tier.Name.ToUpperInvariant());
             qualitySlider.SetLabels(labels);
-            qualitySlider.Value = 7;
+            qualitySlider.Value = FortniteVideoSoftware.App.ViewModels.QualityLadder.DefaultIndex;
+            // QUALITY_04 — the tooltip is NOT set here any more. UpdateEstimatedQuality ->
+            // PaintQualityEstimate owns both the size readout and the tooltip, so the two are
+            // produced by one pass over one state and cannot drift apart. Setting it in two
+            // places is how they would.
             qualitySlider.ValueChanged += (s, v) =>
             {
-                var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
-                if (qs != null) Avalonia.Controls.ToolTip.SetTip(qs, $"Target Size: {labels[v]}");
                 UpdateEstimatedQuality();
                 SaveRecoveryState();
             };
             qualitySlider.ValueChangeCompleted += (s, v) =>
             {
-                RuntimeLog.Info("UI", $"Quality slider final resting value: {(v < 20 ? $"{5 + v * 5}MB" : "ORIGINAL QUALITY")}");
+                RuntimeLog.Info("UI", $"Quality dial resting on '{FortniteVideoSoftware.App.ViewModels.QualityLadder.NameOf(v)}' (tier {v}).");
             };
+
+            // QUALITY_04 — prime the readout and the tooltip once at startup. Without this the
+            // strip under the dial stays blank and the tooltip stays generic until the user
+            // happens to TOUCH the dial — which is precisely the user who never touches it.
+            UpdateEstimatedQuality();
         }
 
 

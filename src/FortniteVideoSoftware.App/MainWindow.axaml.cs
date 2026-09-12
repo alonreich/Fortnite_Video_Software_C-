@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -964,7 +964,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
         if (qs != null && !_qualitySliderInitialized) 
         {
-            qs.Value = d.QualityIndex;
+            // QUALITY_01 — a NEW video starts on the Settings default tier, never on whatever the
+            // last project happened to use. Clamped because a QualityIndex saved by an older build
+            // meant a megabyte step on a 0-20 dial, not a tier on an 0-17 one.
+            qs.Value = FortniteVideoSoftware.App.ViewModels.QualityLadder.ClampIndex(d.QualityIndex);
             _qualitySliderInitialized = true;
         }
 
@@ -1312,7 +1315,20 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void UpdateEstimatedQuality()
     {
         _viewModel.Timeline.LoadedVideoDurationMs = _loadedVideoDurationMs;
-        _viewModel.Export.UpdateEstimatedQuality(_viewModel.Timeline.CalculateEffectiveDurationMs(), IsPortraitMode);
+        // QUALITY_03 — freezes are handed over separately so the estimate does not bill motion
+        // rates for a held still frame. Recalculated here, on the SAME tick as the duration, so
+        // the two can never describe different versions of the timeline.
+        // QUALITY_05 — with a video loaded but no marks set, the estimate covers the WHOLE clip
+        // (TimelineViewModel resolves that). With no video at all there is nothing to estimate, so
+        // zero is passed deliberately and the strip stays blank rather than showing a floor value.
+        double effectiveMs = _loadedVideoDurationMs > 0
+            ? _viewModel.Timeline.CalculateEffectiveDurationMs()
+            : 0.0;
+
+        _viewModel.Export.UpdateEstimatedQuality(
+            effectiveMs,
+            IsPortraitMode,
+            _viewModel.Timeline.CalculateFreezeOutputMs());
     }
 
     private List<SpeedSegment> BuildExportSpeedSegments() => _viewModel.Timeline.BuildExportSpeedSegments();
@@ -1677,14 +1693,55 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         double currentAbsMs = time * 1000.0;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // FREEZE_01 — A FREEZE FIRES ONCE PER PASS. THIS IS THE "ONE FRAME, THEN PAUSED" TRAP.
+        //
+        // The trigger is a 150 ms WINDOW around the anchor, and there was no record of having
+        // already fired inside it. The hold PAUSES the player, so while it runs the clock does not
+        // advance at all; when it releases, playback resumes for exactly one tick before this test
+        // runs again — and one tick of real playback moves the position by a single frame, ~16-33 ms.
+        // The window is 150 ms wide. So every release re-entered the same window and re-froze:
+        //
+        //     freeze -> hold _freezeDurationS -> play ONE FRAME -> still inside the window -> freeze
+        //
+        // Five to nine round trips to crawl 150 ms, each costing a full hold. To the user the play
+        // button advances a single frame and pauses itself, over and over, with no way out — which
+        // is exactly how it was reported, and why it shows up after touching a marker: parking the
+        // playhead on or just before the freeze anchor is what puts you inside the window to begin
+        // with.
+        //
+        // `_lastFreezeTriggerMs` is the same guard the Voice Over studio has carried all along
+        // (VoiceOverWindow._lastFreezeTriggerMs); the main screen simply never got it. It records
+        // WHICH anchor was consumed, so moving the freeze to a new time re-arms it for free.
+        //
+        // RE-ARMING has to be deliberate, not automatic:
+        //   * leaving the window (with real clearance, so a frame of jitter cannot re-arm it) — the
+        //     user has played past the freeze and a later pass should hold again;
+        //   * any explicit seek (SeekInternal) — a scrub is a new pass over the timeline.
+        // ⚠️ Do NOT re-arm merely because playback resumed. That is the loop this removes.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !ActiveVideoHost.IpcClient.IsPaused)
         {
-            if (currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150)
+            bool insideFreezeWindow = currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150;
+            bool alreadyHeldThisAnchor = Math.Abs(_lastFreezeTriggerMs - _freezeTimeMs) < 0.5;
+
+            if (insideFreezeWindow && !alreadyHeldThisAnchor)
             {
+                _lastFreezeTriggerMs = _freezeTimeMs;
                 _isCurrentlyFrozen = true;
                 _freezeStartTime = DateTime.UtcNow;
+                RuntimeLog.Info("UI",
+                    $"Freeze hold started at {currentAbsMs:F0}ms (anchor {_freezeTimeMs:F0}ms, {_freezeDurationS:0.0}s).");
+                TransportTrace("freeze-hold-start", "pause");
                 _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
                 return;
+            }
+
+            // Clear of the window by a real margin: the next approach is a new pass.
+            if (!insideFreezeWindow &&
+                (currentAbsMs < _freezeTimeMs - 250 || currentAbsMs > _freezeTimeMs + 400))
+            {
+                _lastFreezeTriggerMs = -1;
             }
         }
         else if (_isCurrentlyFrozen)
@@ -1692,6 +1749,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if ((DateTime.UtcNow - _freezeStartTime).TotalSeconds >= _freezeDurationS)
             {
                 _isCurrentlyFrozen = false;
+                TransportTrace("freeze-hold-release", "play");
                 _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "no");
             }
             else
@@ -1730,9 +1788,21 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (timeRemaining != null) timeRemaining.Text = "-" + FormatTime(TimeSpan.FromSeconds(Math.Max(0, dur - displayTime)));
         }
 
+        // MAINEND_01 — park ONCE at the end, then leave the player alone.
+        // Re-issuing this every tick is what let an end-of-file stop outlive the condition that
+        // caused it and override the user's next PLAY (see TogglePlayPauseTransport).
         if (ActiveVideoHost.IpcClient.IsEof)
         {
-            _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            if (!_mainEndParkIssued)
+            {
+                _mainEndParkIssued = true;
+                TransportTrace("tick-eof-park", "pause");
+                _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
+            }
+        }
+        else
+        {
+            _mainEndParkIssued = false;
         }
     }
 
@@ -1864,6 +1934,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         try
         {
+            TransportTrace("return-to-trim-start", "pause");
             _ = ipc.SetPropertyAsync("pause", "yes");
             _ = SeekInternal(_trimStartMs / 1000.0);
             ClearLiveZoomCrop();
@@ -1872,6 +1943,126 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             RuntimeLog.Fail("UI", $"Could not park the preview at the trim start: {ex.Message}");
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // MAINEND_01 — THE END OF THE CLIP IS A STOP, AND THE NEXT PRESS IS A RESTART.
+    //
+    // Both play routes (the PlayPauseButton handler and the keyboard toggle) used to do the same
+    // bare thing: SetPropertyAsync("pause", IsPaused ? "no" : "yes"). Parked on the last frame that
+    // unpauses a player with nothing left to play, and the tick's end-of-file guard stops it again
+    // on the next pass — one frame forward, then paused, indefinitely.
+    //
+    // MPVEOF_01 fixes the stale flag that made the guard fire when it should not have. This is the
+    // other half: even with a correct flag, "play" at the end has to MEAN something, and what it
+    // means is "watch it again from MARK START" — the same rule the Voice Over studio follows
+    // (VOEND_01) and the same place RETURN_01 parks the playhead when a sub-editor closes.
+    //
+    // ⚠️ BOTH CALLERS MUST ROUTE THROUGH HERE. A second bare SetPropertyAsync("pause","no") on a
+    // play path reintroduces the trap on whichever control skipped it.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>MAINEND_01 — the last playable second: MARK END when trimmed, else the duration.</summary>
+    private double MainTimelineEndSeconds()
+    {
+        double duration = ActiveVideoHost?.IpcClient?.Duration ?? 0;
+        double markEnd = _trimEndMs / 1000.0;
+        if (markEnd > _trimStartMs / 1000.0 && (duration <= 0 || markEnd <= duration)) return markEnd;
+        return duration;
+    }
+
+    /// <summary>MAINEND_01 — is the playhead sitting on (or past) that last second?</summary>
+    private bool IsMainPreviewAtEnd()
+    {
+        var ipc = ActiveVideoHost?.IpcClient;
+        if (ipc == null) return false;
+        if (ipc.IsEof) return true;
+
+        double end = MainTimelineEndSeconds();
+        if (end <= 0) return false;
+        return ipc.CurrentTime >= end - 0.05;
+    }
+
+    /// <summary>
+    /// MAINEND_01 — the one transport both PLAY controls call. Pausing is unchanged. Playing from
+    /// the end rewinds to MARK START first; playing from anywhere else just resumes.
+    /// </summary>
+    private void TogglePlayPauseTransport()
+    {
+        var ipc = ActiveVideoHost?.IpcClient;
+        if (ipc == null) return;
+
+        // A freeze hold is its own state and is cleared, not played through. Unchanged behaviour.
+        if (_isCurrentlyFrozen)
+        {
+            _isCurrentlyFrozen = false;
+            TransportTrace("user-transport (cancel freeze)", "pause");
+            _ = ipc.SetPropertyAsync("pause", "yes");
+            return;
+        }
+
+        if (!ipc.IsPaused)
+        {
+            TransportTrace("user-transport", "pause");
+            _ = ipc.SetPropertyAsync("pause", "yes");
+            return;
+        }
+
+        if (IsMainPreviewAtEnd())
+        {
+            double restartAt = Math.Max(0, _trimStartMs / 1000.0);
+            RuntimeLog.Info("UI",
+                $"PLAY pressed at the end of the clip ({ipc.CurrentTime:0.###}s) — restarting from MARK START ({restartAt:0.###}s).");
+            _isCurrentlyFrozen = false;
+            _mainEndParkIssued = false;
+            _ = SeekInternal(restartAt);
+        }
+
+        TransportTrace("user-transport", "play");
+        _ = ipc.SetPropertyAsync("pause", "no");
+    }
+
+    /// <summary>
+    /// MAINEND_01 — true once the tick has issued its end-of-file pause for the current stop.
+    ///
+    /// The tick used to call SetPropertyAsync("pause","yes") on EVERY pass while eof-reached was
+    /// set — ten redundant IPC writes a second, each one able to land on top of a play the user
+    /// had just asked for. It is a one-shot now, re-armed by any seek or any play.
+    /// </summary>
+    private bool _mainEndParkIssued;
+
+    /// <summary>
+    /// FREEZE_01 — the freeze anchor whose hold has already been served, or -1 when armed.
+    /// Compared against <see cref="_freezeTimeMs"/>, so moving the freeze re-arms it automatically.
+    /// </summary>
+    private double _lastFreezeTriggerMs = -1;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TRANSPORT_TRACE_01 — EVERY PLAY/PAUSE THE MAIN WINDOW ISSUES, NAMED, WITH THE STATE THAT
+    // CAUSED IT.
+    //
+    // The "play advances one frame and pauses itself" trap has now survived three separate
+    // fixes, each aimed at a mechanism that static reading said was sufficient. It is not
+    // reproducible from source alone, so it stops being diagnosed from source: every pause and
+    // every play the main window issues now writes one line saying WHO issued it and what the
+    // player state was at that instant. One reproduction names the culprit exactly.
+    //
+    // Cost is a formatted string per transport change — not per tick — so this is cheap enough
+    // to leave in permanently, and valuable enough to be worth it: this is the log a user can
+    // send that turns "it feels stuck" into a line number.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private void TransportTrace(string who, string action)
+    {
+        try
+        {
+            var ipc = ActiveVideoHost?.IpcClient;
+            RuntimeLog.Info("TRANSPORT",
+                $"{action.ToUpperInvariant(),-5} by {who} | t={ipc?.CurrentTime ?? -1:0.###}s " +
+                $"dur={ipc?.Duration ?? -1:0.###}s eof={ipc?.IsEof} pausedBefore={ipc?.IsPaused} " +
+                $"frozen={_isCurrentlyFrozen} freezeAt={_freezeTimeMs:F0}ms freezeArmed={_lastFreezeTriggerMs < 0} " +
+                $"endParked={_mainEndParkIssued} seeking={_isSeeking} nextSeek={_nextSeekTarget?.ToString("0.###") ?? "-"}");
+        }
+        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
     private async Task SeekInternal(double time) {
@@ -1885,6 +2076,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             _nextSeekTarget = null;
             return;
         }
+
+        // FREEZE_01 — a seek is a new pass over the timeline, so the freeze is armed again.
+        // This is what makes "drag the playhead back before the freeze and play" hold a second
+        // time, while a freeze the playback has just served does not re-fire on the spot.
+        _lastFreezeTriggerMs = -1;
+        _mainEndParkIssued = false;   // MAINEND_01 — and it is no longer parked at the end
 
         _isSeeking = true;
         try {

@@ -235,9 +235,27 @@ public sealed class TimelineViewModel : ViewModelBase
         return segments;
     }
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// QUALITY_05 — NO MARKS SET MEANS THE WHOLE VIDEO, NOT NOTHING.
+    ///
+    /// Before MARK START or MARK END is pressed, `TrimEndMs` is 0, so this returned the floor of
+    /// 1ms and the size estimate read as good as nothing on a freshly loaded clip — the one moment
+    /// a user most wants to know what they are in for.
+    ///
+    /// The fallback is the same rule `EnsureTrimPointsSet` applies (start = 0, end = the whole
+    /// video), but READ-ONLY. EnsureTrimPointsSet MUTATES: it stamps IsTrimStartSet / IsTrimEndSet
+    /// true, which changes what the marker buttons and the export do next. A passive calculation
+    /// that silently marked the clip as trimmed would be a far worse bug than the blank label it
+    /// was fixing — so this resolves the same two numbers locally and writes nothing.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     public double CalculateEffectiveDurationMs()
     {
-        return CalculateEffectiveDurationMs(TrimStartMs, TrimEndMs, BaseSpeed, BuildExportSpeedSegments(), Cuts);
+        double startMs = IsTrimStartSet ? TrimStartMs : 0.0;
+        double endMs = (IsTrimEndSet && TrimEndMs > startMs) ? TrimEndMs : LoadedVideoDurationMs;
+
+        return CalculateEffectiveDurationMs(startMs, endMs, BaseSpeed, BuildExportSpeedSegments(), Cuts);
     }
 
     public static double CalculateEffectiveDurationMs(
@@ -293,6 +311,47 @@ public sealed class TimelineViewModel : ViewModelBase
             totalMs += (trimEndMs - cursor) / Math.Max(0.001, baseSpeed);
         }
         return Math.Max(1.0, totalMs);
+    }
+
+    /// <summary>
+    /// QUALITY_03 — of the finished video's milliseconds, how many are a HELD STILL FRAME.
+    ///
+    /// Deliberately mirrors CalculateEffectiveDurationMs's own loop, clamp for clamp, including
+    /// its `Math.Abs(seg.Speed) &lt; 0.001` test for a freeze and its overlap handling. The two
+    /// numbers are only meaningful together — a freeze total measured by different rules than the
+    /// duration it is subtracted from would drift, and the export would aim at a size derived from
+    /// two disagreeing timelines.
+    /// ⚠️ If CalculateEffectiveDurationMs's segment walk ever changes, this must change with it.
+    /// </summary>
+    public double CalculateFreezeOutputMs()
+    {
+        var speedSegments = BuildExportSpeedSegments();
+        if (speedSegments == null || speedSegments.Count == 0) return 0.0;
+
+        // QUALITY_05 — same untrimmed fallback as CalculateEffectiveDurationMs, for the same
+        // reason: these two numbers are subtracted from each other and must describe one timeline.
+        double trimStartMs = IsTrimStartSet ? TrimStartMs : 0.0;
+        double trimEndMs = (IsTrimEndSet && TrimEndMs > trimStartMs) ? TrimEndMs : LoadedVideoDurationMs;
+        double frozenMs = 0.0;
+        double cursor = trimStartMs;
+
+        var sorted = new List<SpeedSegment>(speedSegments);
+        sorted.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+
+        foreach (var seg in sorted)
+        {
+            double segStart = Math.Max(trimStartMs, Math.Max(seg.StartMs, cursor));
+            double segEnd = Math.Min(trimEndMs, seg.EndMs);
+            if (segEnd <= segStart) continue;
+
+            if (Math.Abs(seg.Speed) < 0.001)
+            {
+                frozenMs += (segEnd - segStart);
+            }
+            cursor = Math.Max(cursor, segEnd);
+        }
+
+        return Math.Max(0.0, frozenMs);
     }
 
     public double SourceMsToOutputSeconds(double sourceMs, IReadOnlyList<SpeedSegment>? segments = null)

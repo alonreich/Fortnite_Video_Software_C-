@@ -18,7 +18,13 @@
             Background="{DynamicResource AppSurfaceBrush}"
             BorderBrush="{DynamicResource WindowTitleBorder}"
             BorderThickness="5">
-        <Grid RowDefinitions="30,*">
+        <!-- GATE_01 (F3): the row list grew from "30,*" to "30,Auto,*". The Active Profile picker
+             used to be row 0 of the RIGHT-HAND panel, which made it look like one more composer
+             widget when it is in fact the context for the entire screen — and, more practically,
+             made it impossible to cover the working area with a single "choose a profile first"
+             gate without also covering the picker the user has to reach. It is now a full-width
+             bar directly under the title bar, and everything below it is gated as one block. -->
+        <Grid RowDefinitions="30,Auto,*">
             <Border Name="TitleBarBorder"
                     Grid.Row="0"
                     Background="{DynamicResource TitleBarBackground}">
@@ -27,57 +33,139 @@
                            Foreground="{DynamicResource TitleBarForeground}" />
             </Border>
 
-            <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
-                <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
-                                     The walkthrough auto-plays only on the first few opens; this button is
-                                     how a returning user gets it again. Every screen in the suite has one. -->
-                <Button Grid.Column="1" Name="CropToolHelpButton" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,12,0" ZIndex="500" AutomationProperties.Name="Show me around the crop tools" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
-                <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto" Background="{DynamicResource AppSurfaceBrush}">
-                    <Border Grid.Row="0"
-                            Background="{DynamicResource AppPanelBrush}"
-                            BorderBrush="{DynamicResource AppPanelBrush}"
-                            BorderThickness="0,0,0,1"
-                            Padding="16,10">
-                        <!-- ISSUE_05: Auto rows (were fixed 20/20/8px) so scaled fonts never clip the wizard labels -->
-                        <Grid RowDefinitions="Auto,Auto,Auto">
-                            <Grid Grid.Row="0" Margin="0,0,0,10" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto">
-                                <!-- ISSUE_03: connectors are AppBorderBrush, NOT AppPanelBrush — the
-                                     header Border they sit on is AppPanelBrush, so the old value gave
-                                     literally zero contrast in both Dark and Light. -->
-                                <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" Margin="40,0,40,0" Height="2" Background="{DynamicResource AppBorderBrush}"/>
-                                <!-- ISSUE_14 (audit round 5): the suite has TWO three-step wizards that share the
-                                     WizDot*/WizIcon*/WizLabel* classes but shipped different geometry — these dots
-                                     were 24px/CornerRadius 100/FontSize12 while MusicWizardWindow's are
-                                     32px/CornerRadius 16/FontSize14. Aligned to the MusicWizard values so the
-                                     "where am I in this flow" signal is identical in both tools. -->
-                                <Border Grid.Row="0" Grid.Column="0" Name="Step1Dot" Classes="WizDotActive" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Name="Step1Label" Classes="WizLabelActive" Text="Upload" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="1" Name="Step2Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="1" Name="Step2Label" Classes="WizLabelPending" Text="Crop" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                <Border Grid.Row="0" Grid.Column="2" Name="Step3Dot" Classes="WizDotPending" MinWidth="32" MinHeight="32" CornerRadius="16" HorizontalAlignment="Center" ZIndex="1">
-                                    <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <TextBlock Grid.Row="1" Grid.Column="2" Name="Step3Label" Classes="WizLabelPending" Text="Save" FontSize="{DynamicResource AppFontSize9}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                            </Grid>
-                            <TextBlock Name="GoalLabel"
-                                       Grid.Row="1"
-                                       Text="Goal: Upload Video"
-                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                       FontSize="{DynamicResource AppFontSize12}"
-                                       FontWeight="Bold" />
-                            <TextBlock Name="StatusLabel"
-                                       Grid.Row="2"
-                                       Text=""
-                                       Foreground="{DynamicResource AppTextMutedBrush}"
-                                       FontSize="{DynamicResource AppFontSize10}" />
-                        </Grid>
-                    </Border>
+            <Border Grid.Row="1"
+                    Background="{DynamicResource AppSurfaceBrush}"
+                    BorderBrush="{DynamicResource AppBorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="16,8">
+                <!-- HEADERMERGE_01 - this bar carries the wizard too now. It had spare width, the
+                     steps belong next to the profile they apply to, and merging them removed a whole
+                     strip from the left column. Columns: label, picker, steps, goal/status, profile
+                     state, new-name, SAVE AS NEW, help. -->
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+                    <TextBlock Text="Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}"/>
+                    <!-- GATE_01: PlaceholderText, and a SelectedItem left deliberately null at
+                         startup. Do NOT re-add `combo.SelectedItem = SettingsManager.ActiveMaskOverlay`
+                         in BuildMaskOverlayUi — that line is what made this window open live on a
+                         preset it could then overwrite. -->
+                    <ComboBox Name="CropToolMaskOverlayCombo"
+                              Grid.Column="1"
+                              Margin="8,0,14,0"
+                              MinWidth="170"
+                              MaxWidth="260"
+                              HorizontalAlignment="Left"
+                              PlaceholderText="Choose a profile to edit…"
+                              ToolTip.Tip="Pick the game profile whose HUD layout you want to edit."/>
+                    <!-- HEADERMERGE_01 - the step dots. WIZCOLLAPSE_01 still hides the strip once
+                         cropping starts, which now costs the bar nothing because the column is Auto. -->
+                    <StackPanel Name="StepStrip" Grid.Column="2" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <!-- ISSUE_14: geometry aligned to MusicWizardWindow so the "where am I" signal
+                             is identical in both wizards. Captions under each dot went with
+                             WIZCOMPACT_01 - GoalLabel says the step in words right beside them. -->
+                        <Border Name="Step1Dot" Classes="WizDotActive" MinWidth="24" MinHeight="24" CornerRadius="12" VerticalAlignment="Center">
+                            <TextBlock Name="Step1Icon" Classes="WizIconOn" Text="1" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Width="10" Height="2" Background="{DynamicResource AppBorderBrush}" VerticalAlignment="Center"/>
+                        <Border Name="Step2Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="12" VerticalAlignment="Center">
+                            <TextBlock Name="Step2Icon" Classes="WizIconPending" Text="2" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Width="10" Height="2" Background="{DynamicResource AppBorderBrush}" VerticalAlignment="Center"/>
+                        <Border Name="Step3Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="12" VerticalAlignment="Center">
+                            <TextBlock Name="Step3Icon" Classes="WizIconPending" Text="3" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border Width="10" Height="2" Background="{DynamicResource AppBorderBrush}" VerticalAlignment="Center"/>
+                        <Border Name="Step4Dot" Classes="WizDotPending" MinWidth="24" MinHeight="24" CornerRadius="12" VerticalAlignment="Center">
+                            <TextBlock Name="Step4Icon" Classes="WizIconPending" Text="4" FontWeight="Bold" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
 
-                    <Grid Name="VideoPanel" Grid.Row="1" Background="{DynamicResource AppVideoSurfaceBrush}">
+                    <!-- UpdateStepDots still writes Step1Label..Step4Label. Kept as collapsed carriers
+                         so that method needs no special-casing and stays identical to MusicWizard's. -->
+                    <StackPanel Grid.Column="2" IsVisible="False">
+                        <TextBlock Name="Step1Label" Classes="WizLabelActive" Text="Profile"/>
+                        <TextBlock Name="Step2Label" Classes="WizLabelPending" Text="Upload"/>
+                        <TextBlock Name="Step3Label" Classes="WizLabelPending" Text="Crop"/>
+                        <TextBlock Name="Step4Label" Classes="WizLabelPending" Text="Save"/>
+                    </StackPanel>
+
+                    <!-- HEADERMERGE_01 - the goal and status lines. Star column, so they take whatever
+                         width is left and trim rather than pushing the buttons off the bar. -->
+                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <TextBlock Name="GoalLabel"
+                                   Text="Goal: Upload Video"
+                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                   FontSize="{DynamicResource AppFontSize11}"
+                                   FontWeight="Bold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Name="StatusLabel"
+                                   Text=""
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize9}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="4"
+                               Name="ProfileStateLabel"
+                               Text="No profile selected"
+                               Foreground="{DynamicResource AppTextMutedBrush}"
+                               FontSize="{DynamicResource AppFontSize10}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0"
+                               IsHitTestVisible="False" />
+                    <StackPanel Grid.Column="5" VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="140">
+                        <!-- ISSUE_04: dropped `x:CompileBindings="False" Text="{Binding
+                             NewMaskOverlayName, Mode=TwoWay}"` — same phantom-property/null-DataContext
+                             defect as RoleTextBox. Read via FindControl("NewMaskOverlayTextBox"). -->
+                        <DataValidationErrors>
+                            <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." Text="{Binding $parent[local:CropToolWindow].NewMaskOverlayName, Mode=TwoWay}" HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Type a name here to save a copy of the selected profile under that name." />
+                        </DataValidationErrors>
+                    </StackPanel>
+                    <Button Name="CropToolHelpButton" Grid.Column="7" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" VerticalAlignment="Center" Margin="8,0,0,0" AutomationProperties.Name="Show me around the crop tools" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
+                    <Button Name="CreateMaskOverlayBtn" Grid.Column="6" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Copy the profile you have selected into a new profile with this name. The original is left alone." FontSize="{DynamicResource AppFontSize10}" IsEnabled="False" />
+                </Grid>
+            </Border>
+
+            <!-- LAYOUT_01 (F1) — was ColumnDefinitions="*,Auto". The right column hosts a Viewbox
+                 wrapping a fixed <Grid Width="1920" Height="1280"> composer. A Viewbox measures its
+                 child with INFINITE available size, so under an Auto column it reported a desired
+                 width of 1920px; together with the LAYERS panel (MinWidth 180) and the undo/redo
+                 column the right side demanded ~2200px before the star column got a single pixel.
+                 On any normal display the left column — video, frozen frame, timeline and every
+                 primary button — collapsed to zero width, which is why this screen showed nothing.
+                 Star sizing gives each side a real share and lets the Viewbox scale down to
+                 whatever it is given. Do not restore Auto here.
+
+                 SPLIT_01 — 65/35, not 50/50. The landscape frame is where the pixel-accurate work
+                 happens: the user is placing a box around a HUD element a few dozen pixels across,
+                 on a 1920- or 3840-wide capture. The portrait composer only has to be big enough to
+                 judge a layout. The old Python tool made the same call and used exactly this ratio
+                 (ui_setup.py: main_layout.addWidget(left_pane, 1176) / addWidget(right_pane, 624)).
+                 Now 58/42: the landscape gave some back once its zoom controls became a vertical
+                 strip and its wizard header moved into the profile bar, and the composer is the half
+                 that has to show a 9:16 shape - it is height-limited, so every point of width it
+                 gains is width it can actually use. -->
+            <Grid Grid.Row="2" ColumnDefinitions="58*,42*">
+                <!-- LAYOUT_01 (F1): the "?" button used to sit in this grid's column 1 with
+                     HorizontalAlignment="Right". That column is now a real half of the window and
+                     carries the profile row, so a floating button there covered SAVE AS NEW. It now
+                     lives inside the wizard header below, which is the left column's own top strip. -->
+                <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto" Background="{DynamicResource AppSurfaceBrush}">
+                    <!-- HEADERMERGE_01 - the wizard header Border that used to live here is gone.
+                         Even compacted to one line it was a full-width strip with its own padding and
+                         bottom rule: roughly 60px of permanent chrome restating things that fit
+                         perfectly well beside the profile picker. StepStrip, GoalLabel and StatusLabel
+                         now sit in the Active Profile bar at the top of the window, which had spare
+                         width and no second row. See that bar for the controls themselves. -->
+
+                    <!-- ZOOMBAR_01 - the landscape area is now a two-column cell: the picture, and a
+                         narrow vertical strip on its right edge holding the zoom controls and the
+                         selection readout. Those used to be a full-width horizontal toolbar plus a
+                         second full-width info bar STACKED ABOVE AND BELOW the picture, costing ~88px
+                         of height on the one screen where height is what lets you see the HUD you are
+                         cropping. Vertical, they cost ~52px of WIDTH, which this pane has to spare
+                         since the landscape column is the 65 in the 65/35 split. -->
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                    <Grid Name="VideoPanel" Grid.Column="0" Background="{DynamicResource AppVideoSurfaceBrush}">
                         <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                         <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="6" ToolTip.Tip="Live preview could not initialize on this graphics session.">
                             <TextBlock Text="⚠️" FontSize="{DynamicResource AppFontSize16}" Foreground="{DynamicResource AppWarningBrush}" />
@@ -100,59 +188,130 @@
                     <!-- ISSUE_07 (audit round 4): toolbar row is Auto (was fixed 44) per the suite Font-Scale
                          Sizing Rule, so the element-name box and ADD SELECTION never clip at large font scale -->
                     <Grid Name="SnapshotPanel"
-                          Grid.Row="1"
+                          Grid.Column="0"
                           Background="{DynamicResource AppSurfaceBrush}"
                           IsVisible="False"
-                          RowDefinitions="*,Auto">
+                          RowDefinitions="*">
+                        <!-- ZOOM_01 - the frozen frame is a FIXED-PIXEL surface. LoadSnapshotAsync
+                             writes the real capture size (1920x1080, 2560x1440, ...) onto
+                             SnapshotImage and SourceCanvas, so GetPosition(SourceCanvas) returns true
+                             SOURCE pixels and the rubber band needs no scaling maths of its own.
+                             The zoom is a LayoutTransformControl, NOT a Viewbox and NOT a resize of
+                             the canvas: a LayoutTransform scales the rendered surface while Avalonia
+                             keeps transforming pointer positions back into the canvas's own 1:1
+                             space, so every existing coordinate call site keeps working untouched.
+                             A Viewbox would always fit and could never allow 100% or zoom-in.
+                             The controls that drive it live in ZoomStrip (ZOOMBAR_01). -->
                         <ScrollViewer Grid.Row="0"
+                                      Name="SnapshotScroll"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       Background="{DynamicResource AppSurfaceBrush}">
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource AppVideoSurfaceBrush}">
-                                <Image Name="SnapshotImage" Stretch="Uniform" />
-                                <Canvas Name="SourceCanvas"
-                                        HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Stretch"
-                                        Background="Transparent"
-                                        Cursor="Cross"
-                                        Focusable="True" KeyboardNavigation.IsTabStop="True"
-                                        AutomationProperties.Name="Source snapshot selection canvas" />
-                            </Grid>
+                            <LayoutTransformControl Name="SnapshotZoomHost"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center">
+                                <LayoutTransformControl.LayoutTransform>
+                                    <ScaleTransform ScaleX="1" ScaleY="1" />
+                                </LayoutTransformControl.LayoutTransform>
+                                <Grid Background="{DynamicResource AppVideoSurfaceBrush}">
+                                    <!-- Stretch="Fill": SnapshotImage is given its exact capture size in
+                                         code, so Fill is an identity draw. Uniform would silently
+                                         letterbox a non-16:9 capture and break the 1:1 mapping the
+                                         selection maths depends on. -->
+                                    <Image Name="SnapshotImage" Stretch="Fill" />
+                                    <Canvas Name="SourceCanvas"
+                                            Background="Transparent"
+                                            Cursor="Cross"
+                                            Focusable="True" KeyboardNavigation.IsTabStop="True"
+                                            AutomationProperties.Name="Source snapshot selection canvas" />
+                                </Grid>
+                            </LayoutTransformControl>
                         </ScrollViewer>
-                        <Border Grid.Row="1"
-                                Background="{DynamicResource AppPanelBrush}"
-                                BorderBrush="{DynamicResource AppPanelBrush}"
-                                BorderThickness="0,1,0,0"
-                                Padding="12,12">
-                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                <StackPanel Grid.Column="0" MinWidth="220">
-                                    <TextBox Name="RoleTextBox"
-                                             Watermark="Element Name (e.g. Ammo)"
-                                             Text="{Binding $parent[local:CropToolWindow].RoleName, Mode=TwoWay}"
-                                             HorizontalAlignment="Stretch"
-                                             Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                             Background="{DynamicResource AppPanelBrush}" ToolTip.Tip="Enter a name for the cropped HUD element." />
+
+                        <!-- ROLEPOPUP_01 - the HUD element chooser.
+                             A sibling of the ScrollViewer IN THE SAME GRID CELL, declared AFTER it so
+                             it paints on top (declaration order is the mechanism among siblings -
+                             04_UI_UX_AVALONIA_SPEC.md#UI-THEME, SLIDER_09). It is deliberately NOT an
+                             Avalonia Popup or Flyout: those are separate OS windows, which is how the
+                             old Python RoleToolbar earned its multi-monitor bug and its
+                             "_get_ideal_popup_rect" screen-clamping code. An in-panel Border cannot
+                             leave the window, so none of that is needed.
+                             Alignment is Left/Top with the Margin written from code, because the
+                             position has to track a selection that lives on a zoomed, scrolled canvas
+                             (see PositionRolePopup). -->
+                        <Border Name="RolePopup"
+                                Grid.Row="0"
+                                IsVisible="False"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Top"
+                                ZIndex="900"
+                                MinWidth="210"
+                                MaxWidth="320"
+                                Background="{DynamicResource AppSurfaceBrush}"
+                                BorderBrush="{DynamicResource AppAccentBrush}"
+                                BorderThickness="2"
+                                CornerRadius="8"
+                                Padding="6"
+                                BoxShadow="0 4 18 0 #66000000">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="WHAT IS THIS?"
+                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                           FontSize="{DynamicResource AppFontSize9}"
+                                           FontWeight="Bold"
+                                           Margin="4,2,4,4"
+                                           IsHitTestVisible="False" />
+                                <!-- Filled from code: one button per element in the ACTIVE PROFILE,
+                                     most likely first, already-used ones dimmed, then "+ New element". -->
+                                <StackPanel Name="RolePopupList" Spacing="3" />
+                                <StackPanel Name="RolePopupNewRow" Orientation="Horizontal" Spacing="4" IsVisible="False">
+                                    <TextBox Name="RolePopupNewName"
+                                             Watermark="Name it..."
+                                             MinWidth="140"
+                                             FontSize="{DynamicResource AppFontSize11}"
+                                             ToolTip.Tip="Type a name for this new HUD element and press Enter." />
+                                    <Button Name="RolePopupNewOk" Classes="Primary" Content="ADD" MinWidth="54" FontSize="{DynamicResource AppFontSize10}" />
                                 </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+
+                        <!-- PLAYROW_01 - the transport is NOT floated over the picture any more. It was
+                             vertically centred on the preview, where it sat on top of the gameplay,
+                             fought the frozen frame for attention and was easy to lose against a
+                             bright frame. It is back in the button row, in the star column, so it
+                             lands on the horizontal centre of the landscape panel directly under the
+                             timeline and on the same line as OPEN VIDEO. See the button row below. -->
+
+                        <!-- ZOOMBAR_01 - the vertical tool strip. Only meaningful on a frozen frame,
+                             so ApplyWizardChrome shows it with the SnapshotPanel. -->
+                        <Border Name="ZoomStrip"
+                                Grid.Column="1"
+                                IsVisible="False"
+                                Background="{DynamicResource AppPanelBrush}"
+                                BorderBrush="{DynamicResource AppBorderBrush}"
+                                BorderThickness="1,0,0,0"
+                                Padding="6,8">
+                            <StackPanel Spacing="6" VerticalAlignment="Top" HorizontalAlignment="Center">
+                                <TextBlock Text="ZOOM" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" IsHitTestVisible="False" />
+                                <Button Name="ZoomInButton" Classes="Secondary" Content="+" MinWidth="40" MinHeight="34" FontWeight="Bold" Padding="0" ToolTip.Tip="Zoom in a little." Cursor="Hand" />
+                                <Button Name="ZoomOutButton" Classes="Secondary" Content="&#x2212;" MinWidth="40" MinHeight="34" FontWeight="Bold" Padding="0" ToolTip.Tip="Zoom out a little." Cursor="Hand" />
+                                <Button Name="ZoomFitButton" Classes="Secondary" Content="FIT" MinWidth="40" MinHeight="30" FontSize="{DynamicResource AppFontSize9}" Padding="0" ToolTip.Tip="Shrink the picture so the whole game screen fits." Cursor="Hand" />
+                                <Button Name="ZoomActualButton" Classes="Secondary" Content="1:1" MinWidth="40" MinHeight="30" FontSize="{DynamicResource AppFontSize9}" Padding="0" ToolTip.Tip="Show the picture at its real size, pixel for pixel." Cursor="Hand" />
+                                <!-- ZOOMLABEL_01: one writer, ApplySnapshotZoom. -->
+                                <TextBlock Name="ZoomLabel" Text="Fit" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="46" IsHitTestVisible="False" />
+                                <Border Height="1" Background="{DynamicResource AppBorderBrush}" Margin="0,4" />
+                                <!-- ZOOMBAR_01 - the selection readout, which used to own a whole
+                                     full-width bar under the picture. Wrapped, because vertical. -->
                                 <TextBlock Name="SelectionInfo"
-                                           Grid.Column="1"
-                                           Text="Draw a box around a HUD element, then assign its role."
-                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                           VerticalAlignment="Center"
-                                           FontSize="{DynamicResource AppFontSize11}"
-                                           Margin="12,0,12,0" />
-                                <!-- ISSUE_08 (audit round 5): was Classes="Success". Green Success is the
-                                     suite's TERMINAL-COMMIT colour, and this window already spends it on
-                                     "FINISH & SAVE" (SaveButton). Two identical greens meant nothing told
-                                     the user which click ends the session. ADD SELECTION is the repeatable,
-                                     undoable step action of the current sub-task, so it is Primary (blue);
-                                     Success is now reserved for the single button that writes the config. -->
-                                <Button Name="AddSelectionButton"
-                                        Grid.Column="2"
-                                        Classes="Primary"
-                                        Content="ADD SELECTION"
-                                        ToolTip.Tip="Add the drawn bounding box as a new HUD crop layer."
-                                        IsEnabled="False" />
-                            </Grid>
+                                           Text="Drag a box"
+                                           Foreground="{DynamicResource AppTextMutedBrush}"
+                                           FontSize="{DynamicResource AppFontSize9}"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           MaxWidth="46"
+                                           IsHitTestVisible="False" />
+                            </StackPanel>
                         </Border>
                     </Grid>
 
@@ -161,8 +320,7 @@
                             Background="{DynamicResource AppSurfaceBrush}"
                             BorderBrush="{DynamicResource AppPanelBrush}"
                             BorderThickness="0,1,0,0"
-                            Padding="16,16"
-                            Margin="0,8,0,0"
+                            Padding="16,0"
                             IsVisible="False">
                         <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                             <TextBlock Name="CurrentTimeLabel"
@@ -173,11 +331,37 @@
                                        MinWidth="64"
                                        FontSize="{DynamicResource AppFontSize10}"
                                        Margin="0,0,8,0" />
-                            <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
-                                <Canvas Grid.Row="0" Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" />
-                                <!-- ISSUE_06: row is 44 (was 32) so the 44px CompactSlider fits without bleeding into the tick ruler -->
-                                <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Crop tool video timeline scrub slider" ToolTip.Tip="Drag to scrub through the video" />
-                                <Canvas Grid.Row="1" Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32">
+                            <!-- TIMELINESLIM_02 - ONE row, not two.
+                                 The 44px floor here is not mine to remove: it is the shared
+                                 `Slider.CompactSlider /template/ Thumb` style in AvaloniaApp.axaml
+                                 (Height 44 / MinHeight 44), and 04_UI_UX_AVALONIA_SPEC.md#UI-THEME says
+                                 "Exactly one Slider /template/ Thumb style block is permitted
+                                 suite-wide". Adding a narrower class for this one timeline would be a
+                                 second block, so MinHeight on the Slider does nothing and the honest
+                                 saving is to delete everything AROUND the thumb instead.
+                                 So the tick ruler moved from its own 12px row INTO this one, drawn at
+                                 the top of the 44px band where the rail leaves the space empty
+                                 anyway. Border padding is 0 vertically. ~106px originally, ~46px now,
+                                 with the 44px grab target untouched. -->
+                            <Grid Grid.Column="1" VerticalAlignment="Center" ClipToBounds="False">
+                                <!-- TIMELINESLIM_01 - this block was ~106px of chrome for a scrub bar:
+                                     Padding="16,16" plus Margin="0,8,0,0" plus a 44px slider row, a 32px
+                                     seek canvas and a 14px ruler. Trimmed to roughly half that.
+                                     The 44px figure came from ISSUE_06 and is about the SLIDER THUMB
+                                     fitting without bleeding into the ruler. What the user actually
+                                     clicks is CropTimelineMarkersCanvas, which sits on top of the
+                                     slider and takes every pointer event (see TimelineKnob's note on
+                                     why), so the comfortable hit target is the canvas, not the slider -
+                                     and that is kept at 28. Do not read these numbers as a licence to
+                                     shrink a real button below the suite's 44px rule. -->
+                                <!-- TIMELINESLIM_02 - same cell as the slider, top-aligned, so the tick
+                                     labels sit in the empty band above the rail instead of owning a
+                                     row. Declared FIRST so the seek canvas still paints over it. -->
+                                <Canvas Name="CropTimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" VerticalAlignment="Top" Height="11" />
+                                <Slider Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="30" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Crop tool video timeline scrub slider" ToolTip.Tip="Drag to scrub through the video" />
+                                <Canvas Name="CropTimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" Cursor="Hand" AutomationProperties.Name="Crop timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="40">
+                                    <!-- TIMELINESLIM_02 - the ruler labels are drawn into this canvas,
+                                         top-aligned, by DrawTimelineRuler. -->
                                     <Border Name="PlayheadBadge" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="4,2" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" Canvas.Bottom="32">
                                         <Border.Transitions>
                                             <Transitions>
@@ -210,62 +394,76 @@
                                 <Button Name="OpenVideoButton" Classes="Secondary" Content="OPEN VIDEO" MinWidth="120" ToolTip.Tip="Click here to pick a video from your computer." Cursor="Hand" />
                                 <Button Name="SnapshotButton" Classes="Primary" Content="START CROPPING" MinWidth="130" ToolTip.Tip="Take a picture of this frame so you can start drawing boxes." IsEnabled="False" Cursor="Hand" />
                                 <Button Name="MagicWandButton" Classes="Secondary" Content="MAGIC WAND" MinWidth="120" ToolTip.Tip="Let the computer try to find the HUD items for you automatically." IsVisible="False" Cursor="Hand" />
-                                <Button Name="BackToVideoButton" Classes="Secondary" Content="BACK TO VIDEO" MinWidth="130" ToolTip.Tip="Stop drawing and go back to the video seeker." IsVisible="False" Cursor="Hand" />
+                                <!-- BACKTOVIDEO_01 - the BACK TO VIDEO button was here and is deleted.
+                                     It did one thing, ShowVideoPanel, and PLAY now does that: pressing
+                                     play while a frame is frozen returns to the moving video and
+                                     resumes. One button, one meaning - play means the video is
+                                     playing - instead of two controls for one idea sitting next to
+                                     each other. START CROPPING hides while a frame is frozen and comes
+                                     back with the video, so the pair reads as a single toggle. -->
                             </StackPanel>
                             
+                            <!-- PLAYROW_01 - star column, centre-aligned: this row spans the landscape
+                                 panel, so the transport lands on its horizontal midpoint, directly
+                                 under the timeline and level with OPEN VIDEO. -->
+                            <Button Name="PlayPauseButton"
+                                    Grid.Column="1"
+                                    Classes="Primary"
+                                    Padding="18,8"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    HorizontalContentAlignment="Center"
+                                    VerticalContentAlignment="Center"
+                                    IsEnabled="False"
+                                    AutomationProperties.Name="Play or Pause"
+                                    ToolTip.Tip="Play or pause the video. While a frame is frozen this takes you back to the moving video.">
+                                <!-- PLAYICON_01 - the Main App's glyph pair. Two Paths with one visible
+                                     at a time, never a Content swap: swapping Content re-measures the
+                                     button, so it visibly changed width as it toggled. -->
+                                <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                    <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" />
+                                    <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" />
+                                </Panel>
+                            </Button>
+
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                <Button Name="PlayPauseButton" Classes="Primary" Content="PLAY" MinWidth="110" ToolTip.Tip="Play or pause video playback" IsEnabled="False" />
+                                <!-- PLAYOVERLAY_01 - the transport button moved out of this row and
+                                     onto the picture itself. See its new home in the content grid. -->
                                 <Button Name="ReturnButton" Classes="Secondary" Content="RETURN" MinWidth="110" ToolTip.Tip="Close this tool and go back to the main menu." />
-                                <Border Width="1" Height="20" Background="{DynamicResource AppBorderBrush}" Margin="8,0" />
-                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <Button Name="ResetMenuButton" Classes="Danger" Content="RESET" MinWidth="90" ToolTip.Tip="Wipe everything clean and start over from scratch." />
-                                    <StackPanel Name="ResetConfirmPanel" Orientation="Horizontal" Spacing="8" IsVisible="False" VerticalAlignment="Center">
-                                        <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                        <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" ToolTip.Tip="Permanently wipe everything clean and reset the canvas." />
-                                        <Button Name="CancelResetButton" Classes="Secondary" Content="CANCEL" ToolTip.Tip="Keep the current layout and close this menu. Nothing is reset." />
-                                    </StackPanel>
-                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Border>
                 </Grid>
 
+                <!-- SPLIT_01: a floor on the right pane so the composer, the layer list and the
+                     undo/redo column never get crushed at small window sizes. Deliberately 380 and
+                     not the old Python tool's 600: this window's own MinWidth is 800, and a 600
+                     floor here would leave the landscape frame 200px wide at the minimum size,
+                     which is the exact failure LAYOUT_01 above was fixing. -->
                 <Border Grid.Column="1"
+                        MinWidth="380"
                         Background="{DynamicResource AppPanelBrush}"
                         BorderBrush="{DynamicResource AppBorderBrush}"
                         BorderThickness="1,0,0,0">
-                    <!-- ISSUE_02: Auto rows (were fixed 42/46) so scaled fonts never clip the toolbar controls -->
-                    <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <!-- ISSUE_02: Auto rows (were fixed 42/46) so scaled fonts never clip the toolbar controls.
+                         GATE_01 (F3): this used to be "Auto,Auto,*,Auto" with the Active Profile picker in
+                         row 0. That picker is now the full-width bar under the title bar, so every row
+                         below has moved up one. -->
+                    <Grid RowDefinitions="Auto,*,Auto">
                     <Border Grid.Row="0"
-                            Background="{DynamicResource AppSurfaceBrush}"
-                            BorderBrush="{DynamicResource AppBorderBrush}"
-                            BorderThickness="0,0,0,1"
-                            Padding="12,6">
-                        <Grid ColumnDefinitions="Auto, *, Auto, Auto">
-                            <TextBlock Text="Active Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize11}"/>
-                            <ComboBox Name="CropToolMaskOverlayCombo" Grid.Column="1" Margin="10,0,10,0" HorizontalAlignment="Stretch" ToolTip.Tip="Select an existing mask overlay profile."/>
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0" HorizontalAlignment="Stretch" MinWidth="130">
-                                <!-- ISSUE_04: dropped `x:CompileBindings="False" Text="{Binding
-                                     NewMaskOverlayName, Mode=TwoWay}"` — same phantom-property/null-DataContext
-                                     defect as RoleTextBox above. Read via FindControl("NewMaskOverlayTextBox"). -->
-                                <DataValidationErrors>
-                                    <TextBox Name="NewMaskOverlayTextBox" Watermark="New profile name..." Text="{Binding $parent[local:CropToolWindow].NewMaskOverlayName, Mode=TwoWay}" HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" ToolTip.Tip="Enter a name to save the current mask overlay layout as a new profile." />
-                                </DataValidationErrors>
-                            </StackPanel>
-                            <Button Name="CreateMaskOverlayBtn" Grid.Column="3" Classes="Secondary" Content="SAVE AS NEW" ToolTip.Tip="Create a new custom mask overlay from current layout" FontSize="{DynamicResource AppFontSize10}" />
-                        </Grid>
-                    </Border>
-                    <Border Grid.Row="1"
                             Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,0,0,1"
                             Padding="12,6">
                         <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+                            <!-- GHOSTKILL_01 - starts CHECKED. The saved elements of the profile you
+                                 chose are the point of opening it; hiding them by default made a full
+                                 profile look empty. -->
                             <CheckBox Name="ShowPlaceholders"
                                       Grid.Column="0"
-                                      Content="Show Existing Crops"
+                                      Content="Show Saved Crops"
                                       Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                      IsChecked="False"
+                                      IsChecked="True"
                                       MinHeight="44"
                                       ToolTip.Tip="Toggle the visibility of previously saved crops on the canvas."
                                       VerticalAlignment="Center" />
@@ -275,7 +473,7 @@
                                     Minimum="20"
                                     Maximum="255"
                                     Value="95"
-                                    IsVisible="False"
+                                    IsVisible="True"
                                     Margin="10,0,0,0"
                                     ToolTip.Tip="Make old saved crops look see-through or solid." />
                             <CheckBox Name="SnapToggle"
@@ -296,9 +494,18 @@
                         </Grid>
                     </Border>
 
-                    <!-- ISSUE_02: middle column Auto (was fixed 90) so the Undo/Redo buttons never clip at larger font scale -->
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto">
-                        <Border Grid.Column="0"
+                    <!-- LAYERSPANE_01 - the composer now owns this whole row.
+                         It used to be ColumnDefinitions="*,Auto,Auto": composer, a vertical
+                         undo/redo strip, and a LAYERS ListBox with MinWidth="180". Those two
+                         columns took ~216px out of a ~516px pane, which is why the 9:16 preview
+                         came out as a stamp. The list was also redundant - every layer it named
+                         is visible, selectable and draggable on the phone preview itself, which
+                         is the thing the user is actually looking at. Undo/Redo moved into the
+                         footer below; ordering and delete are on the footer AND on a right-click
+                         menu on the item (ITEMMENU_01), which is what the old Python tool did
+                         (portrait_view.py contextMenuEvent + the portrait_footer row). -->
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                    <Border Grid.Column="0"
                                 Background="{DynamicResource AppVideoRailBrush}"
                                 ClipToBounds="True">
                             <!-- ISSUE_5: the composer works in absolute portrait pixels (1080x1920).
@@ -307,138 +514,136 @@
                                  exact 1:1 alignment at any window size or DPI. Pointer positions
                                  obtained via GetPosition(PortraitCanvas) are automatically
                                  transformed back into 1080x1920 space by Avalonia. -->
-                            <!-- IDEA_4: real device chrome around the composer.
-                                 The bezel is a SIBLING wrapper placed OUTSIDE the 1080x1920 grid, so the
-                                 composer keeps its exact coordinate space and GetPosition(PortraitCanvas)
-                                 still returns true 1080x1920 pixels — the Viewbox simply scales a slightly
-                                 larger box. Everything drawn on top of the canvas is IsHitTestVisible="False"
-                                 so it can never swallow a drag. Colours reuse the PhoneFrameMockup device
-                                 tokens (AppPhoneBezel*/AppPhoneChrome*), which are deliberately
-                                 theme-agnostic: a phone bezel is black in Light and Dark alike. -->
-                            <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Grid Width="1920" Height="1280">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="600" />
-                                        <ColumnDefinition Width="720" />
-                                        <ColumnDefinition Width="600" />
-                                    </Grid.ColumnDefinitions>
+                            <!-- BEZEL_01 — the decorative phone frame is GONE from this screen, and
+                                 must not come back. It was IDEA_4: a PhoneFrameMockup wrapped around the
+                                 composer inside <Grid Width="1920" Height="1280"> whose columns were
+                                 600 / 720 / 600. The 1080x1920 canvas lived in the 720-wide middle
+                                 column, so the portrait picture could never occupy more than 37.5% of
+                                 the composer's width — in a side-by-side panel that is roughly 340px,
+                                 and the user cannot judge a HUD layout at that size. The bezel was
+                                 costing 62% of the width to say something the 9:16 shape already says.
+                                 The old Python tool (portrait_view.py) has no bezel either: a plain
+                                 QGraphicsView on a 1080x1920 scene, fitted to the panel.
+                                 PhoneFrameMockup is untouched and still used elsewhere in the suite.
 
-                                    <!-- Central column scales the 1080x1920 canvas to exactly fit the 720x1280 screen opening -->
-                                    <Viewbox Stretch="Uniform" Grid.Column="1" Width="720" Height="1280" VerticalAlignment="Center">
-                                        <Grid Width="1080" Height="1920">
-                                            <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
-                                            <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.22" />
+                                 ISSUE_5 still holds and is why this is a Viewbox over a FIXED-SIZE grid:
+                                 the composer works in absolute portrait pixels, so item coordinates, the
+                                 background reference and the letterbox stay in exact 1:1 alignment at any
+                                 window size or DPI, and GetPosition(PortraitCanvas) returns true
+                                 1080x1920 pixels because Avalonia inverts the Viewbox transform for us. -->
+                            <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="6">
+                                <Grid Width="1080" Height="1920">
+                                    <Rectangle Fill="{DynamicResource AppSurfaceBrush}" />
+                                    <!-- COMPOSERDIM_01 - was Opacity 0.22, which left the gameplay a barely-readable smudge.
+                                         It is the reference you are positioning HUD elements against, so
+                                         you have to be able to see it. 0.22 also stacked with the red
+                                         letterbox tint that CreateComposerBackgroundPreview used to
+                                         paint, and that tint is gone now, so this is not double-dimmed
+                                         any more. Still under 1.0 so a placed element reads as being IN
+                                         FRONT of the frame rather than part of it. -->
+                                    <Image Name="ComposerBackgroundImage" Stretch="UniformToFill" Opacity="0.62" />
 
-                                            <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
+                                    <Canvas Name="PortraitCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" Cursor="Cross" Focusable="True" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Portrait crop layout canvas" ToolTip.Tip="Click and drag to position crop regions. Use the handles to resize." />
 
-                                            <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
-                                                <Grid.Transitions>
-                                                    <Transitions>
-                                                        <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
-                                                    </Transitions>
-                                                </Grid.Transitions>
-                                                <Grid.RowDefinitions>
-                                                    <RowDefinition Height="*" />
-                                                    <RowDefinition Height="*" />
-                                                    <RowDefinition Height="*" />
-                                                </Grid.RowDefinitions>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <Border Grid.RowSpan="3" Grid.Column="1" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2,0,2,0" />
-                                                <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,2,0,2" />
-                                            </Grid>
+                                    <Grid Name="RuleOfThirdsGrid" Opacity="0" IsHitTestVisible="False">
+                                        <Grid.Transitions>
+                                            <Transitions>
+                                                <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
+                                            </Transitions>
+                                        </Grid.Transitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.RowSpan="3" Grid.Column="1" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2,0,2,0" />
+                                        <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,2,0,2" />
+                                    </Grid>
 
-                                            <Grid IsHitTestVisible="False">
-                                                <Grid.RowDefinitions>
-                                                    <RowDefinition Height="15*" />
-                                                    <RowDefinition Height="162*" />
-                                                    <RowDefinition Height="15*" />
-                                                </Grid.RowDefinitions>
-                                                <Rectangle Grid.Row="0" Fill="{DynamicResource AppVideoSurfaceBrush}" />
-                                                <Rectangle Grid.Row="2" Fill="{DynamicResource AppVideoSurfaceBrush}" />
-                                            </Grid>
-                                        </Grid>
-                                    </Viewbox>
-
-                                    <!-- The centralized PhoneFrameMockup overlay -->
-                                    <controls:PhoneFrameMockup Grid.ColumnSpan="3" IsHitTestVisible="False" />
+                                    <Grid IsHitTestVisible="False">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="15*" />
+                                            <RowDefinition Height="162*" />
+                                            <RowDefinition Height="15*" />
+                                        </Grid.RowDefinitions>
+                                        <Rectangle Grid.Row="0" Fill="{DynamicResource AppVideoSurfaceBrush}" />
+                                        <Rectangle Grid.Row="2" Fill="{DynamicResource AppVideoSurfaceBrush}" />
+                                    </Grid>
                                 </Grid>
                             </Viewbox>
                         </Border>
 
-                        <StackPanel Grid.Column="1"
-                                    Background="{DynamicResource AppPanelBrush}"
-                                    HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center"
-                                    Spacing="30"
-                                    Margin="8,0">
-                            <Button Name="UndoButton"
-                                    Classes="Secondary"
-                                    Content="⮪ UNDO"
-                                    MinWidth="90"
-                                    ToolTip.Tip="Undo your last mistake."
-                                    IsEnabled="False" />
-                            <Button Name="RedoButton"
-                                    Classes="Secondary"
-                                    Content="REDO ⮫"
-                                    MinWidth="90"
-                                    ToolTip.Tip="Redo what you just undid."
-                                    IsEnabled="False" />
-                        </StackPanel>
-
-                        <Border Grid.Column="2"
-                                Background="{DynamicResource AppSurfaceBrush}"
+                        <!-- ORDERICONS_01 - layer ordering as two icon buttons on the composer's right
+                             edge, replacing the "MOVE UP" / "MOVE DOWN" word buttons that sat in the
+                             footer. Two words and 220px of footer to say "up" and "down"; an arrow says
+                             it in 40px and in any language.
+                             Vector Paths, not glyphs or images: the Single Binary Executable Mandate
+                             (docs/README.md invariant 1) forbids loose asset files, and a text arrow
+                             would depend on whatever font the machine happens to have. -->
+                        <Border Grid.Column="1"
+                                Background="{DynamicResource AppPanelBrush}"
                                 BorderBrush="{DynamicResource AppBorderBrush}"
                                 BorderThickness="1,0,0,0"
-                                MinWidth="180" MaxWidth="300"
-                                Padding="8">
-                            <!-- ISSUE_02: Auto header row (was fixed 20) so the LAYERS label never clips at larger font scale -->
-                            <Grid RowDefinitions="Auto,*">
-                                <TextBlock Grid.Row="0"
-                                           Text="LAYERS"
-                                           Foreground="{DynamicResource AppTextMutedBrush}"
-                                           FontSize="{DynamicResource AppFontSize10}"
-                                           FontWeight="Bold" />
-                                <ListBox Name="LayerList" Cursor="Hand"
-                                         Grid.Row="1"
-                                         Background="Transparent"
-                                         Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                         FontSize="{DynamicResource AppFontSize11}" />
-                                <TextBlock Name="EmptyLayersText"
-                                           Grid.Row="1"
-                                           Text="Draw a box on the canvas to create a layer."
-                                           Foreground="{DynamicResource AppTextMutedBrush}"
-                                           FontSize="{DynamicResource AppFontSize11}"
-                                           FontStyle="Italic"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="Wrap"
-                                           TextTrimming="CharacterEllipsis"
-                                           IsHitTestVisible="False" />
-                            </Grid>
+                                Padding="6,8">
+                            <StackPanel Spacing="6" VerticalAlignment="Top" HorizontalAlignment="Center">
+                                <TextBlock Text="LAYER" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" IsHitTestVisible="False" />
+                                <Button Name="RaiseButton"
+                                        Classes="Secondary"
+                                        MinWidth="40" MinHeight="36" Padding="0"
+                                        IsEnabled="False"
+                                        AutomationProperties.Name="Bring layer forward"
+                                        ToolTip.Tip="Bring this piece in front of the others.">
+                                    <Path Data="M8,2 L14,9 L10,9 L10,15 L6,15 L6,9 L2,9 Z" Fill="{DynamicResource AppTextPrimaryBrush}" Width="15" Height="15" Stretch="Uniform" />
+                                </Button>
+                                <Button Name="LowerButton"
+                                        Classes="Secondary"
+                                        MinWidth="40" MinHeight="36" Padding="0"
+                                        IsEnabled="False"
+                                        AutomationProperties.Name="Send layer backward"
+                                        ToolTip.Tip="Push this piece behind the others.">
+                                    <Path Data="M8,15 L2,8 L6,8 L6,2 L10,2 L10,8 L14,8 Z" Fill="{DynamicResource AppTextPrimaryBrush}" Width="15" Height="15" Stretch="Uniform" />
+                                </Button>
+                            </StackPanel>
                         </Border>
                     </Grid>
 
-                    <Border Grid.Row="3"
+                    <Border Grid.Row="2"
                             Background="{DynamicResource AppPanelBrush}"
                             BorderBrush="{DynamicResource AppBorderBrush}"
                             BorderThickness="0,1,0,0"
                             Padding="16,7">
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Center"
-                                    Spacing="22">
-                            <Button Name="LowerButton"
+                        <!-- LAYERSPANE_01 - undo/redo joined this row when the vertical strip beside
+                             the composer was removed. WrapPanel, not StackPanel: five buttons in a
+                             ~516px pane will not fit on one line at a large font scale, and a
+                             StackPanel would clip them rather than wrap. -->
+                        <WrapPanel Orientation="Horizontal"
+                                   HorizontalAlignment="Center"
+                                   ItemWidth="NaN">
+                            <Button Name="UndoButton"
                                     Classes="Secondary"
-                                    Content="MOVE DOWN"
-                                    MinWidth="110"
-                                    ToolTip.Tip="Move selected layer down"
+                                    Content="&#x2BAA; UNDO"
+                                    MinWidth="90"
+                                    Margin="4,3"
+                                    ToolTip.Tip="Undo your last mistake."
                                     IsEnabled="False" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Name="RedoButton"
+                                    Classes="Secondary"
+                                    Content="REDO &#x2BAB;"
+                                    MinWidth="90"
+                                    Margin="4,3"
+                                    ToolTip.Tip="Redo what you just undid."
+                                    IsEnabled="False" />
+                            <Border Width="1" Height="20" Background="{DynamicResource AppBorderBrush}" Margin="8,0" VerticalAlignment="Center" />
+                            <!-- ORDERICONS_01 - MOVE DOWN / MOVE UP left this row for the arrow strip
+                                 on the composer's right edge. -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <Button Name="DeleteMenuButton" Classes="Danger" Content="DELETE" MinWidth="90" ToolTip.Tip="Throw this piece into the trash." IsEnabled="False" />
+                                    <Button Name="DeleteMenuButton" Classes="Danger" Content="DELETE" MinWidth="90" Margin="4,3" ToolTip.Tip="Throw this piece into the trash." IsEnabled="False" />
                                     <StackPanel Name="DeleteConfirmPanel" Orientation="Horizontal" Spacing="8" IsVisible="False" VerticalAlignment="Center">
                                         <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
                                         <Button Name="ConfirmDeleteButton" Classes="Danger" Content="CONFIRM DELETE" ToolTip.Tip="Permanently delete the selected layer." />
@@ -446,20 +651,77 @@
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>
-                            <Button Name="RaiseButton"
-                                    Classes="Secondary"
-                                    Content="MOVE UP"
-                                    MinWidth="110"
-                                    ToolTip.Tip="Move selected layer up"
-                                    IsEnabled="False" />
-                        </StackPanel>
+                            <Border Width="1" Height="20" Background="{DynamicResource AppBorderBrush}" Margin="8,0" VerticalAlignment="Center" />
+                            <!-- RESETMOVE_01 - RESET belongs with the thing it resets. It sat in the
+                                 landscape row next to OPEN VIDEO and RETURN, where it read as "reset the
+                                 video"; what it actually does is throw away every placed HUD element,
+                                 which is this side's content. Moving it also buys the landscape row the
+                                 width it needed. -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="4,3">
+                                <Button Name="ResetMenuButton" Classes="Danger" Content="RESET" MinWidth="90" ToolTip.Tip="Wipe everything clean and start over from scratch." />
+                                <StackPanel Name="ResetConfirmPanel" Orientation="Horizontal" Spacing="8" IsVisible="False" VerticalAlignment="Center">
+                                    <TextBlock Text="&#x26A0; Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <Button Name="ConfirmResetButton" Classes="Danger" Content="CONFIRM RESET" ToolTip.Tip="Permanently wipe everything clean and reset the canvas." />
+                                    <Button Name="CancelResetButton" Classes="Secondary" Content="CANCEL" ToolTip.Tip="Keep the current layout and close this menu. Nothing is reset." />
+                                </StackPanel>
+                            </StackPanel>
+                        </WrapPanel>
                     </Border>
                     </Grid>
                 </Border>
             </Grid>
 
+            <!-- GATE_01 (F3) — the blank, non-destructive start.
+                 This window used to open with combo.SelectedItem already set to
+                 SettingsManager.ActiveMaskOverlay, i.e. LIVE on a real preset, with FINISH & SAVE
+                 wired through MaskOverlayManager.SyncActiveProfileFromCurrentConfig() — which
+                 overwrites that preset's file with no confirmation. A user who opened the tool to
+                 look around could destroy "Fortnite" in two clicks.
+                 Nothing may be edited until a profile has been deliberately chosen. The overlay
+                 covers row 2 only — the title bar stays draggable and the full-width Active Profile
+                 bar in row 1 stays reachable, which is the whole reason that bar was moved out of
+                 the right-hand panel. SetProfileGate hides it the moment a profile is selected.
+                 It is placed AFTER the working grid so it paints over it — declaration order, not
+                 ZIndex, is the mechanism among siblings (04_UI_UX_AVALONIA_SPEC.md#UI-THEME,
+                 SLIDER_09). -->
+            <Border Name="ProfileGateOverlay"
+                    Grid.Row="2"
+                    Background="{DynamicResource AppOverlayBrush}"
+                    ZIndex="9000"
+                    IsVisible="True"
+                    IsHitTestVisible="True">
+                <Border Background="{DynamicResource AppSurfaceBrush}"
+                        BorderBrush="{DynamicResource AppAccentBrush}"
+                        BorderThickness="2"
+                        CornerRadius="12"
+                        Padding="40,30"
+                        MaxWidth="620"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="12" HorizontalAlignment="Center">
+                        <TextBlock Text="CHOOSE A PROFILE"
+                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                   FontSize="{DynamicResource AppFontSize28}"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Pick the game profile you want to edit from the Active Profile box at the top right, or type a name and press SAVE AS NEW to copy one."
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize12}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Nothing can be changed or saved until you do."
+                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                   FontSize="{DynamicResource AppFontSize11}"
+                                   FontStyle="Italic"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Border>
+
             <!-- Overlays -->
-            <Grid Name="ThinkingOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2" IsHitTestVisible="True" KeyboardNavigation.TabNavigation="Cycle" Focusable="True">
+            <Grid Name="ThinkingOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="3" IsHitTestVisible="True" KeyboardNavigation.TabNavigation="Cycle" Focusable="True">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
                     <Path Data="M12 2v2a8 8 0 1 0 8 8h2a10 10 0 1 1-10-10z" Fill="{DynamicResource AppInfoBrush}" Width="60" Height="60" Stretch="Uniform" HorizontalAlignment="Center" />
                     <Border Background="{DynamicResource AppOverlayBrush}" CornerRadius="10" Padding="20">
@@ -468,7 +730,7 @@
                 </StackPanel>
             </Grid>
 
-            <Grid Name="SummaryOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="2" IsHitTestVisible="True" KeyboardNavigation.TabNavigation="Cycle" Focusable="True">
+            <Grid Name="SummaryOverlay" Background="{DynamicResource AppOverlayBrush}" ZIndex="9999" IsVisible="False" Grid.RowSpan="3" IsHitTestVisible="True" KeyboardNavigation.TabNavigation="Cycle" Focusable="True">
                 <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" BorderThickness="3" CornerRadius="20" MinWidth="400" MaxWidth="800" MinHeight="300" MaxHeight="800" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40">
                     <StackPanel Spacing="20">
                         <StackPanel Orientation="Horizontal" Spacing="20">
@@ -495,16 +757,17 @@
                     </StackPanel>
                 </Border>
             </Grid>
-            <!-- ISSUE_10: both overlays are children of the outer RowDefinitions="30,*" grid and
-                 carried no Grid.Row/Grid.RowSpan, so they defaulted to row 0 — the 30px title-bar
-                 strip — while their ThinkingOverlay/SummaryOverlay siblings correctly declare
-                 Grid.RowSpan="2". RadialMenuControl is itself 300x300, so it was being crushed into
-                 a 30px band. Now spanning the full window like every other overlay in the suite. -->
+            <!-- ISSUE_10: both overlays are children of the outer row grid and carried no
+                 Grid.Row/Grid.RowSpan, so they defaulted to row 0 — the 30px title-bar strip —
+                 while their ThinkingOverlay/SummaryOverlay siblings correctly span the window.
+                 RadialMenuControl is itself 300x300, so it was being crushed into a 30px band.
+                 GATE_01 (F3) added a row, so every span here went from 2 to 3. If a row is ever
+                 added or removed again, these spans move with it. -->
             <!-- Contextual Radial Menu (IDEA 2) -->
-            <controls:RadialMenuControl x:Name="RadialMenu" Grid.Row="0" Grid.RowSpan="2" ZIndex="999"/>
+            <controls:RadialMenuControl x:Name="RadialMenu" Grid.Row="0" Grid.RowSpan="3" ZIndex="999"/>
 
             <!-- Ambient Pulsing Dropzone (IDEA 4) -->
-            <controls:AmbientDropzoneControl x:Name="AmbientDropzone" Grid.Row="0" Grid.RowSpan="2" ZIndex="998"/>
+            <controls:AmbientDropzoneControl x:Name="AmbientDropzone" Grid.Row="0" Grid.RowSpan="3" ZIndex="998"/>
         </Grid>
     </Border>
 </Window>

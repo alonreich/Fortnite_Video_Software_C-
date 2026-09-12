@@ -347,7 +347,13 @@ public class DefaultValues
     public bool EnableFade { get; set; } = true;
     public CheckboxDefaultBehavior EnableFadeBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOn;
 
-    public int QualityIndex { get; set; } = 7;
+    /// <summary>
+    /// QUALITY_01 — the quality TIER a new project starts on (index into QualityLadder.Tiers),
+    /// not a megabyte step. 8 = "Sharp". A size default produced a different quality for every
+    /// clip length, which is the defect the tier ladder exists to remove.
+    /// An index written by an older build is clamped on the way in, not rejected.
+    /// </summary>
+    public int QualityIndex { get; set; } = 8;
     public ValueDefaultBehavior QualityBehavior { get; set; } = ValueDefaultBehavior.FixedValue;
 
     public bool AutoVoiceNormalization { get; set; } = true;

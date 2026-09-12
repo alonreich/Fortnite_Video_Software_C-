@@ -28,6 +28,20 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _isSeeking = false;
     private long _lastSeekTimestamp = 0;
     private double? _nextSeekTarget = null;
+
+    /// <summary>
+    /// SEEKSTORM_01 — minimum wall-clock gap between two REAL seeks sent to mpv. Anything faster is
+    /// coalesced into <see cref="_nextSeekTarget"/> and flushed by <see cref="_seekFlushTimer"/>.
+    /// 60ms caps the preview at ~16 seeks/sec, which still reads as a live drag-follow while giving
+    /// mpv time to finish a playback restart between them.
+    /// </summary>
+    private const int SeekCoalesceMs = 60;
+
+    /// <summary>
+    /// SEEKSTORM_01 — guarantees the LAST target of a drag lands even when no further seek arrives.
+    /// Without it a time-based gate silently drops the final pointer position.
+    /// </summary>
+    private DispatcherTimer? _seekFlushTimer;
     private readonly string _videoPath;
     private readonly double _trimStartMs;
     private readonly double _trimEndMs;
@@ -316,6 +330,70 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _isCanvasScrubbing;
     private const int SegMinWidthMs = 200;
     private const int SegGapMs = 0;
+
+    /// <summary>
+    /// SEAM_01 — two block edges this close (ms) are treated as ONE seam. SegGapMs is 0, so
+    /// `A.EndMs == B.StartMs` is a normal state and the two edges land on the same pixel.
+    /// </summary>
+    private const double SeamEpsilonMs = 1.0;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // FREEZEDIAG_01 — the editor freezes mid-drag and the app log ends at window-open, because
+    // nothing in the drag path logs anything until PointerReleased (which is never reached). The
+    // breadcrumb below is written on every step of a drag; the watchdog runs on a THREAD-POOL
+    // timer, so when the UI thread stops answering it still gets written — RuntimeLog's consumer
+    // is a background task and survives a frozen interface.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private volatile string _uiCrumb = "idle";
+
+    /// <summary>FREEZEDIAG_05 — how often the watchdog checks, and how long a gap counts as stalled.</summary>
+    private const int WatchdogTickMs = 1000;
+    private const int StallReportAfterMs = 2000;
+    private const int MaxStallReports = 6;
+    private int _stallReportsWritten;
+    private long _uiHeartbeatTicks;
+    private System.Threading.Timer? _uiWatchdog;
+
+    private void Crumb(string what) => _uiCrumb = what;
+
+    private void StartUiWatchdog()
+    {
+        System.Threading.Interlocked.Exchange(ref _uiHeartbeatTicks, Environment.TickCount64);
+        _uiWatchdog = new System.Threading.Timer(_ =>
+        {
+            long since = Environment.TickCount64 - System.Threading.Interlocked.Read(ref _uiHeartbeatTicks);
+
+            if (since > StallReportAfterMs)
+            {
+                // FREEZEDIAG_05 — EmergencyWrite, not Fail. Fail enqueues onto the bounded log
+                // queue and a BACKGROUND task drains it to disk; if the process is killed while
+                // frozen, that line is still in the queue and never lands. EmergencyWrite takes the
+                // cross-process log mutex and writes synchronously on this timer thread, so the one
+                // line that explains the freeze survives being killed mid-stall.
+                //
+                // It also reports REPEATEDLY (capped) rather than once: a single report is lost
+                // entirely if the stall starts and the app dies before the next tick.
+                if (_stallReportsWritten < MaxStallReports)
+                {
+                    _stallReportsWritten++;
+                    RuntimeLog.EmergencyWrite("Granular",
+                        $"UI THREAD STALLED for {since}ms (report {_stallReportsWritten}/{MaxStallReports}). " +
+                        $"Last editor step: {_uiCrumb} | " +
+                        $"preview UI step: {MpvVideoView.LastUiStep} | " +
+                        $"preview render step: {MpvVideoView.LastRenderStep} | " +
+                        $"render lock: {MpvVideoView.LastLockStep}");
+                }
+            }
+            else
+            {
+                _stallReportsWritten = 0;
+            }
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () => System.Threading.Interlocked.Exchange(ref _uiHeartbeatTicks, Environment.TickCount64),
+                Avalonia.Threading.DispatcherPriority.Background);
+        }, null, WatchdogTickMs, WatchdogTickMs);
+    }
 
     /// <summary>
     /// IDEA_3 — default length of the block auto-created to hold a zoom when the user presses
@@ -623,6 +701,12 @@ public partial class GranularSpeedEditorWindow : Window
 
         InitializeComponent();
 
+        // GRIP_01 — the bottom-right resize corner. These windows are borderless, so the OS
+        // draws no resize frame: without this there is nothing to grab and nothing telling the
+        // user the Granular Speed Editor can be resized at all. One shared implementation — see
+        // Controls/WindowResizeGrip.cs for why it is not per-window code.
+        Controls.WindowResizeGrip.Attach(this, "Drag to resize the Granular Speed Editor");
+
         var zoomContainer = this.FindControl<Avalonia.Controls.Grid>("ZoomContainerGrid");
         if (zoomContainer != null)
         {
@@ -709,6 +793,7 @@ public partial class GranularSpeedEditorWindow : Window
 
             if (_draggingSegmentIndex != -1)
             {
+                Crumb($"seg-drag RELEASE idx={_draggingSegmentIndex} mode={_segDragMode}");
                 var finishedMode = _segDragMode;
                 int finishedIdx = _draggingSegmentIndex;
                 if (_segDragMode != SegDragMode.None && _draggingSegmentIndex < _segments.Count)
@@ -728,7 +813,12 @@ public partial class GranularSpeedEditorWindow : Window
                 e.Pointer.Capture(null);
                 HideDragReadout();
                 RefreshSegmentList();
+
+                // DRAGCOST_01 — the drag is over (_segDragMode/_draggingSegmentIndex were cleared
+                // above), so these now run for real, once, instead of on every pointer move.
+                _redrawDeferredByDrag = false;
                 RedrawTimeline();
+                QueueRelayoutFrameLane();
 
                 if (finishedMode != SegDragMode.None && finishedIdx >= 0 && finishedIdx < _segments.Count
                     && _videoHost?.IpcClient?.IsPaused == true)
@@ -744,7 +834,15 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble);
 
-        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "GranularBounds");
+        // WINSEED_01 — on the FIRST ever open this window has no bounds of its own, and the OS
+        // default is both small and unrelated to where the user is working. It now opens at the
+        // Main App's current size and position (size + position only — a maximized Main App does
+        // not force a maximized editor). Every later open restores "GranularBounds", which Track
+        // continues to write on the usual 700ms debounce, so the moment the user resizes or moves
+        // this window their own geometry wins for good.
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "GranularBounds", seedFromKey: "MainWindowBounds", fitDisplayOnFirstRun: true);   // FIRSTFIT_01 — the seed still wins when it exists
+        AttachResizeGrip();
+        StartUiWatchdog();   // FREEZEDIAG_01
         FortniteVideoSoftware.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged += OnGlobalMasterVolumeChanged;
         
         _pendingSpeed = _baseSpeed;       // RECOVERY_03 — _baseSpeed may come from a restored snapshot
@@ -1177,10 +1275,31 @@ public partial class GranularSpeedEditorWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// SEEKSTORM_01 — THE GATE BELOW IS TIME-BASED ON PURPOSE. DO NOT RE-COUPLE IT TO _isSeeking.
+    ///
+    /// It used to read `if (_isSeeking && (now - _lastSeekTimestamp < 350))`. On a GPU/cuda path mpv
+    /// raises SeekCompleted 1–3ms after each seek, and that handler clears _isSeeking — so the first
+    /// half of the condition was false again before the next pointer-move arrived and the 350ms
+    /// window was NEVER consulted. The coalescer looked present and did nothing: every single
+    /// PointerMoved during a segment-edge drag issued a real absolute seek.
+    ///
+    /// MEASURED (dev log 2026-09-11, mpv_debug_27808): one drag produced 310 seeks in 1.74s, 271 of
+    /// them ≤3ms apart, 78 in the final 200ms. Each seek forces a FULL mpv playback restart —
+    /// lavf seek, decoder re-init, WASAPI `Thread Reset`/`Thread Pause`. The render thread stops
+    /// draining, the UI thread blocks behind it, and the app freezes with mpv still spinning (the
+    /// app log dies while mpv_debug keeps growing — that asymmetry is the signature).
+    ///
+    /// This is the same rule §42 Edge Case J already states for the zoom prime and DRAG_FIX already
+    /// enforced for the meme block: NOTHING that talks to mpv may run per pointer-move.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     private async Task SeekInternal(double time) {
         long now = Environment.TickCount64;
-        if (_isSeeking && (now - _lastSeekTimestamp < 350)) {
+        if (_isSeeking || (now - _lastSeekTimestamp < SeekCoalesceMs)) {
             _nextSeekTarget = time;
+            EnsureSeekFlushTimer();
             return;
         }
         _isSeeking = true;
@@ -1199,6 +1318,31 @@ public partial class GranularSpeedEditorWindow : Window
             RuntimeLog.Swallowed(ex);
             _isSeeking = false;
         }
+    }
+
+    /// <summary>
+    /// SEEKSTORM_01 — drains <see cref="_nextSeekTarget"/> once the coalescing window has elapsed.
+    /// SeekCompleted also drains it, but only while a seek is genuinely in flight; the tail of a
+    /// drag (pointer stops, no further move, no seek outstanding) has no other way home. The timer
+    /// stops itself the moment there is nothing pending, so it never runs during idle playback.
+    /// </summary>
+    private void EnsureSeekFlushTimer()
+    {
+        if (_seekFlushTimer != null) { if (!_seekFlushTimer.IsEnabled) _seekFlushTimer.Start(); return; }
+
+        _seekFlushTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SeekCoalesceMs) };
+        _seekFlushTimer.Tick += (_, _) =>
+        {
+            if (!_nextSeekTarget.HasValue) { _seekFlushTimer?.Stop(); return; }
+            if (_isSeeking) return;                                   // a real seek is still running
+            if (Environment.TickCount64 - _lastSeekTimestamp < SeekCoalesceMs) return;
+
+            double target = _nextSeekTarget.Value;
+            _nextSeekTarget = null;
+            _seekFlushTimer?.Stop();
+            _ = SeekInternal(target);
+        };
+        _seekFlushTimer.Start();
     }
 
     private async Task LoadVideoAsync()
@@ -1275,8 +1419,16 @@ public partial class GranularSpeedEditorWindow : Window
                     double effEdgeMs = Math.Min(edgeMs, Math.Max(0.0, sg.EndMs - sg.StartMs) / 3.0);
                     double dStart = Math.Abs(pointerMs - sg.StartMs);
                     double dEnd = Math.Abs(pointerMs - sg.EndMs);
-                    if (dStart <= effEdgeMs && (dStart < bestEdgeDist || (dStart == bestEdgeDist && i == _selectedSegmentIndex))) { bestEdgeDist = dStart; hitIdx = i; mode = SegDragMode.ResizeStart; }
-                    if (dEnd <= effEdgeMs && (dEnd < bestEdgeDist || (dEnd == bestEdgeDist && i == _selectedSegmentIndex))) { bestEdgeDist = dEnd; hitIdx = i; mode = SegDragMode.ResizeEnd; }
+                    // SEAM_01 — THE TIE IS BROKEN BY WHICH SIDE OF THE SEAM THE POINTER IS ON.
+                    // With SegGapMs = 0, A.EndMs == B.StartMs is normal, so dEnd(A) and dStart(B)
+                    // tie EXACTLY. The old tie-break (`i == _selectedSegmentIndex`) assumed ties
+                    // were impossible: A is visited first and won every time, and the click itself
+                    // selected A, which entrenched it — B's START edge became unreachable.
+                    // Pointer left of the seam takes A's END; pointer right of it takes B's START.
+                    bool startWinsTie = pointerMs >= sg.StartMs;
+                    bool endWinsTie = pointerMs <= sg.EndMs;
+                    if (dStart <= effEdgeMs && (dStart < bestEdgeDist || (dStart == bestEdgeDist && startWinsTie))) { bestEdgeDist = dStart; hitIdx = i; mode = SegDragMode.ResizeStart; }
+                    if (dEnd <= effEdgeMs && (dEnd < bestEdgeDist || (dEnd == bestEdgeDist && endWinsTie))) { bestEdgeDist = dEnd; hitIdx = i; mode = SegDragMode.ResizeEnd; }
                 }
                 if (hitIdx < 0)
                 {
@@ -1301,6 +1453,8 @@ public partial class GranularSpeedEditorWindow : Window
                         return;
                     }
 
+                    Crumb($"seg-drag PRESS idx={hitIdx} mode={mode} pointerMs={pointerMs:0}");
+                    RuntimeLog.Info("Granular", $"Segment drag started: #{hitIdx + 1} mode={mode}.");
                     _draggingSegmentIndex = hitIdx;
                     _segDragMode = mode;
                     _dragOrigStartMs = seg.StartMs;
@@ -1504,7 +1658,14 @@ public partial class GranularSpeedEditorWindow : Window
                 double newStart = _dragOrigStartMs;
                 double newEnd = _dragOrigEndMs;
 
-                upperBound = Math.Max(upperBound, lowerBound + SegMinWidthMs);
+                // EDGEGUARD_01 — THE RIGHT EDGE OF THE CLIP IS A HARD WALL.
+                // This line exists so a sandwiched block always has room for its 200ms minimum, but
+                // it raised upperBound with NO ceiling: a previous block ending within 200ms of the
+                // clip end pushed upperBound PAST totalMs, and the resize clamp then happily let
+                // the segment end beyond the footage. A segment past the clip end feeds source time
+                // that does not exist into OutputTimeline, and the output ruler grows to cover it —
+                // which is the timeline "ever expanding" under the drag.
+                upperBound = Math.Min(totalMs, Math.Max(upperBound, lowerBound + SegMinWidthMs));
 
                 bool hitLeftWall = false;
                 bool hitRightWall = false;
@@ -1576,11 +1737,34 @@ public partial class GranularSpeedEditorWindow : Window
                 double? newZoomEnd = (_segDragMode == SegDragMode.Move && _dragOrigZoomEndMs.HasValue)
                     ? _dragOrigZoomEndMs.Value + actualDelta
                     : _segments[idx].ZoomEndMs;
+                // EDGEGUARD_01 — last line of defence. Whatever the bounds, the snapping and the
+                // wall logic decided, a block may NEVER leave [0, totalMs] and may never be shorter
+                // than SegMinWidthMs. Nothing downstream (OutputTimeline, the ruler, the exporter)
+                // is defined for a segment outside the clip, so this is clamped at the one place
+                // the value is actually written rather than at each of the paths that compute it.
+                if (totalMs > SegMinWidthMs)
+                {
+                    newStart = Math.Clamp(newStart, 0, totalMs - SegMinWidthMs);
+                    newEnd = Math.Clamp(newEnd, newStart + SegMinWidthMs, totalMs);
+                }
+                else
+                {
+                    newStart = 0;
+                    newEnd = Math.Max(0, totalMs);
+                }
+
+                LogDragSample(idx, pointerMs, newStart, newEnd, totalMs, lowerBound, upperBound);
+
+                Crumb($"seg-drag MOVE idx={idx} mode={_segDragMode} -> {newStart:0}..{newEnd:0} : commit");
                 _segments[idx] = _segments[idx] with { StartMs = newStart, EndMs = newEnd, ZoomStartMs = newZoomStart, ZoomEndMs = newZoomEnd };
+                Crumb($"seg-drag MOVE idx={idx} : readout");
                 UpdateDragReadout(newStart, newEnd);
+                Crumb($"seg-drag MOVE idx={idx} : visuals");
                 UpdateDraggingVisuals(idx, newStart, newEnd);
                 double followRelSec = (_segDragMode == SegDragMode.ResizeEnd ? newEnd : newStart) / 1000.0;
+                Crumb($"seg-drag MOVE idx={idx} : seek {followRelSec:0.000}");
                 _ = SeekInternal(followRelSec);
+                Crumb($"seg-drag MOVE idx={idx} : done");
                 e.Handled = true;
             };
         }
@@ -1994,7 +2178,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// LANES_02 — commits a segment swept out by dragging across the upper lane.
     ///
     /// Routes through the SAME validation the MARK START / MARK END buttons use rather than
-    /// inserting directly: the 1000ms neighbour gap, the overlap ban and the minimum length are
+    /// inserting directly: the neighbour clamp, the overlap ban and the minimum length are
     /// export-correctness rules, not UI politeness, and a second creation path that skipped them
     /// would produce filter graphs the buttons could never produce.
     /// </summary>
@@ -2060,9 +2244,13 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
         
-        if (end - start < 10)
+        // MINLEN_01 — the create path used to accept anything over 10ms while drag-resize enforced
+        // SegMinWidthMs and cut reconciliation DROPS remnants under 200ms as non-viable. That let
+        // MARK START/END mint blocks the rest of the editor considered too small to exist. One
+        // minimum now governs every path that can produce a block.
+        if (end - start < SegMinWidthMs)
         {
-            NotifyError("That segment would be too small to create.");
+            NotifyError($"That segment would be too small to create — segments must be at least {SegMinWidthMs}ms.");
             return;
         }
 
@@ -2619,10 +2807,37 @@ public partial class GranularSpeedEditorWindow : Window
     private Avalonia.Controls.Grid? _thumbLaneGrid;
     private Border? _thumbLoadingOverlay;
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // DRAGCOST_01 — A FULL REBUILD MUST NOT RUN WHILE A BLOCK IS BEING DRAGGED.
+    //
+    // RedrawTimeline clears the segment canvas and rebuilds every block, marker, popsicle and
+    // handle; RelayoutFrameLane rebuilds the film strip on top of that. Each rebuild attaches
+    // styles to every new control (StyledElement.ApplyStyles, ~12 frames deep per control), so the
+    // cost is not small and it is paid on EVERY pointer move.
+    //
+    // Measured on a 4-segment project (dev log 2026-09-12 01:59-02:01): the interface stopped
+    // servicing work for 3-8 SECONDS at a time and the watchdog fired 14 times, yet a dump taken
+    // moments later showed every thread idle and healthy. Nothing was deadlocked — the UI thread
+    // was simply saturated rebuilding the timeline faster than it could finish, and it caught up
+    // only once the drag stopped.
+    //
+    // UpdateDraggingVisuals already moves the dragged block live and costs nothing: it repositions
+    // existing children instead of recreating them. So during a drag that is the ONLY thing that
+    // needs to run. The full rebuild is deferred to PointerReleased, where it happens exactly once.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private bool _redrawDeferredByDrag;
+
     private void RedrawTimeline()
     {
         var canvas = _segmentCanvas;
         if (canvas == null) return;
+
+        // DRAGCOST_01 — a drag is in flight; remember that a rebuild is owed and do nothing now.
+        if (_draggingSegmentIndex >= 0 && _segDragMode != SegDragMode.None)
+        {
+            _redrawDeferredByDrag = true;
+            return;
+        }
 
         if (_redrawQueued) return;
         _redrawQueued = true;
@@ -3744,11 +3959,20 @@ public partial class GranularSpeedEditorWindow : Window
                 return;
             }
 
-            var seg = _segments[segIndex];
+            // SEAM_01 — the edge sticks are two SEPARATE controls, so at a shared seam the winner
+            // was decided by draw order. Re-point to the same edge the canvas hit test would pick.
+            double seamPointerMs = canvasWidth > 0
+                ? Math.Clamp(XToSrcMs(e.GetPosition(canvas).X, canvasWidth), 0, durationSeconds * 1000.0)
+                : 0;
+            int edgeIdx = segIndex;
+            bool edgeIsStart = isStart;
+            ResolveSeamEdge(ref edgeIdx, ref edgeIsStart, seamPointerMs);
 
-            _selectedSegmentIndex = segIndex;
-            _draggingSegmentIndex = segIndex;
-            _segDragMode = isStart ? SegDragMode.ResizeStart : SegDragMode.ResizeEnd;
+            var seg = _segments[edgeIdx];
+
+            _selectedSegmentIndex = edgeIdx;
+            _draggingSegmentIndex = edgeIdx;
+            _segDragMode = edgeIsStart ? SegDragMode.ResizeStart : SegDragMode.ResizeEnd;
             _dragOrigStartMs = seg.StartMs;
             _dragOrigEndMs = seg.EndMs;
             _dragOrigZoomStartMs = seg.ZoomStartMs;
@@ -5658,7 +5882,7 @@ public partial class GranularSpeedEditorWindow : Window
                 _frameLaneHost = new Avalonia.Controls.Canvas { ClipToBounds = true };
                 laneGrid.Children.Clear();
                 laneGrid.Children.Add(_frameLaneHost);
-                _frameLaneHost.SizeChanged += (_, _) => RelayoutFrameLane();
+                _frameLaneHost.SizeChanged += (_, _) => QueueRelayoutFrameLane();   // LAYOUTLOOP_02
                 if (loading != null) loading.IsVisible = false;
                 RelayoutFrameLane();
             }
@@ -5724,7 +5948,59 @@ public partial class GranularSpeedEditorWindow : Window
     /// mis-drawn background must never block editing.
     /// </para>
     /// </summary>
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // LAYOUTLOOP_02 — SAME DEFECT AS LAYOUTLOOP_01 IN TimelineLanesControl, SECOND LOCATION.
+    //
+    // `_frameLaneHost.SizeChanged` called RelayoutFrameLane() DIRECTLY. SizeChanged is raised from
+    // inside Avalonia's arrange pass, and RelayoutFrameLane does `host.Children.Clear()` and then
+    // adds a Canvas + a stretched Image per chunk — mutating the visual tree while that tree is
+    // being arranged. The new children change the host's layout, which raises SizeChanged again,
+    // which rebuilds the lane again. The loop never converges.
+    //
+    // Captured from a frozen process (dotnet-dump, 2026-09-12); the UI thread was not blocked on
+    // any lock, it was allocating controls without end:
+    //     Dispatcher.ExecuteJob -> <RedrawTimeline>b__0 -> RelayoutFrameLane
+    //       -> Avalonia.Controls.Panel..ctor -> Avalonia.Visual..ctor  [allocation helper frame]
+    //
+    // It surfaces when the segment's END is dragged to the far right because that is when the lane
+    // is rebuilt on every pointer move, so the loop is entered continuously instead of once.
+    //
+    // Fix is the same shape: coalesce to ONE relayout and run it AFTER the arrange pass, and make
+    // re-entry impossible even if a future caller invokes it from a layout callback.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private bool _frameLaneQueued;
+    private bool _inFrameLaneRelayout;
+
+    /// <summary>LAYOUTLOOP_02 — coalesced, deferred. Safe to call from a layout/size callback.</summary>
+    private void QueueRelayoutFrameLane()
+    {
+        if (_frameLaneQueued) return;
+        _frameLaneQueued = true;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _frameLaneQueued = false;
+            RelayoutFrameLane();
+        }, Avalonia.Threading.DispatcherPriority.Background);
+    }
+
     private void RelayoutFrameLane()
+    {
+        // DRAGCOST_01 — the film strip is the most expensive thing on this window. It has no live
+        // role during a drag, so it is rebuilt once when the drag ends.
+        if (_draggingSegmentIndex >= 0 && _segDragMode != SegDragMode.None)
+        {
+            _redrawDeferredByDrag = true;
+            return;
+        }
+
+        if (_inFrameLaneRelayout) return;   // LAYOUTLOOP_02
+        _inFrameLaneRelayout = true;
+        try { RelayoutFrameLaneCore(); }
+        finally { _inFrameLaneRelayout = false; }
+    }
+
+    private void RelayoutFrameLaneCore()
     {
         var host = _frameLaneHost;
         var bmp = _thumbBitmap;
@@ -5763,18 +6039,40 @@ public partial class GranularSpeedEditorWindow : Window
                 else { s1 = ch.SourceStartSec; s2 = ch.SourceEndSec; }
 
                 double srcSpan = Math.Max(0.001, s2 - s1);
-                double scaledFullW = Math.Min(slotW * (srcDur / srcSpan), 32768.0);
+                // LAYOUTLOOP_02 — a freeze chunk holds ONE frame for its whole output length, so
+                // srcSpan is a single frame while slotW is the full hold: the ratio explodes and the
+                // old 32768px ceiling was reached routinely. Rasterising a 32768px-wide Image every
+                // redraw is seconds of GPU work for a strip a few hundred pixels wide. Eight times
+                // the slot is already far more source detail than the slot can display.
+                double scaledFullW = Math.Min(slotW * (srcDur / srcSpan), Math.Max(64.0, slotW * 8.0));
 
                 var slot = new Avalonia.Controls.Canvas { Width = slotW, Height = h, ClipToBounds = true };
                 Avalonia.Controls.Canvas.SetLeft(slot, x);
                 Avalonia.Controls.Canvas.SetTop(slot, 0);
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // STRIPCOST_01 — SCALE WITH A TRANSFORM, NEVER WITH Width.
+                //
+                // Setting Width = scaledFullW asks the layout system for a box that is routinely
+                // tens of thousands of pixels wide (the zoomed lane width times srcDur/srcSpan),
+                // and asks Skia to produce a bitmap that size. The slot clips it to a few hundred
+                // visible pixels, so nearly all of that work is thrown away. With the segment
+                // dragged to the clip end the ratio is at its worst, which is why the rebuild that
+                // runs on RELEASE cost 3-4+ seconds (dev log 2026-09-12 02:20).
+                //
+                // The layout box is now the strip's own natural pixel width and the horizontal
+                // scale is a RenderTransform, applied at composite time by the GPU from a bitmap
+                // that was uploaded once. Origin is TopLeft so the existing offset math below is
+                // unchanged: the visual left edge still coincides with the layout left edge.
+                // ══════════════════════════════════════════════════════════════════════════
                 var img = new Avalonia.Controls.Image
                 {
                     Source = bmp,
                     Stretch = Avalonia.Media.Stretch.Fill,
-                    Width = scaledFullW,
-                    Height = h
+                    Width = stripPxW,
+                    Height = h,
+                    RenderTransformOrigin = Avalonia.RelativePoint.TopLeft,
+                    RenderTransform = new Avalonia.Media.ScaleTransform(scaledFullW / stripPxW, 1.0)
                 };
                 Avalonia.Controls.Canvas.SetLeft(img, -(s1 / srcDur) * scaledFullW);
                 Avalonia.Controls.Canvas.SetTop(img, 0);
@@ -7522,6 +7820,9 @@ public partial class GranularSpeedEditorWindow : Window
     {
         _isSeeking = false;
         _nextSeekTarget = null;
+        try { _seekFlushTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        try { _uiWatchdog?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        _uiWatchdog = null;
         try { _marchingAntsTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         try { _playbackTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         try { _freezePulseTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
@@ -7574,6 +7875,8 @@ public partial class GranularSpeedEditorWindow : Window
 
         _isSeeking = false;
         _nextSeekTarget = null;
+        _seekFlushTimer?.Stop();
+        _seekFlushTimer = null;
         _playbackTimer?.Stop();
         _marchingAntsTimer?.Stop();
         _freezePulseTimer?.Stop();
@@ -7593,6 +7896,72 @@ public partial class GranularSpeedEditorWindow : Window
         {
             _ = _videoHost.IpcClient.SetPreviewVolumeAsync(masterVolumePercentage);
         }
+    }
+
+    /// <summary>
+    /// WINSEED_01 — visible bottom-right resize affordance, identical to the Voice Over Studio's.
+    /// ExtendClientAreaToDecorationsHint leaves only the thin OS border to grab, which is hard to
+    /// hit and invisible; this gives the corner a 24x24 target and a real cursor.
+    /// </summary>
+    /// <summary>
+    /// SEAM_01 — when the grabbed edge sits on a seam shared with a neighbouring block, hand the
+    /// drag to whichever of the two edges is on the pointer's side. Identical rule to the canvas
+    /// hit test, so both routes to a block edge behave the same way.
+    /// </summary>
+    /// <summary>
+    /// FREEZEDIAG_02 — four samples a second of what the drag is actually computing, so an
+    /// "expanding timeline" report can be read off the log instead of reproduced. Rate-limited by
+    /// wall clock, so a 60fps drag costs four lines a second, not sixty.
+    /// </summary>
+    private long _lastDragSampleTicks;
+    private void LogDragSample(int idx, double pointerMs, double newStart, double newEnd,
+                               double totalMs, double lowerBound, double upperBound)
+    {
+        long now = Environment.TickCount64;
+        if (now - _lastDragSampleTicks < 250) return;
+        _lastDragSampleTicks = now;
+
+        RuntimeLog.Debug("Granular",
+            $"DRAG idx={idx} mode={_segDragMode} ptr={pointerMs:0} -> [{newStart:0}..{newEnd:0}] " +
+            $"bounds=[{lowerBound:0}..{upperBound:0}] totalMs={totalMs:0} " +
+            $"outDurSec={OutDurationSec():0.000} segs={_segments.Count}");
+    }
+
+    private void ResolveSeamEdge(ref int idx, ref bool isStart, double pointerMs)
+    {
+        if (idx < 0 || idx >= _segments.Count) return;
+        double edgePos = isStart ? _segments[idx].StartMs : _segments[idx].EndMs;
+
+        for (int j = 0; j < _segments.Count; j++)
+        {
+            if (j == idx) continue;
+
+            if (isStart && pointerMs < edgePos && Math.Abs(_segments[j].EndMs - edgePos) <= SeamEpsilonMs)
+            { idx = j; isStart = false; return; }
+
+            if (!isStart && pointerMs > edgePos && Math.Abs(_segments[j].StartMs - edgePos) <= SeamEpsilonMs)
+            { idx = j; isStart = true; return; }
+        }
+    }
+
+    private void AttachResizeGrip()
+    {
+        var resizeGrip = this.FindControl<Border>("ResizeGrip");
+        if (resizeGrip == null) return;
+
+        resizeGrip.Cursor = new Cursor(StandardCursorType.BottomRightCorner);
+        resizeGrip.PointerPressed += (s, e) =>
+        {
+            if (WindowState == WindowState.Maximized) return;
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+            try
+            {
+                BeginResizeDrag(WindowEdge.SouthEast, e);
+                e.Handled = true;
+            }
+            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        };
     }
 
     private void AttachTitleBarDrag()

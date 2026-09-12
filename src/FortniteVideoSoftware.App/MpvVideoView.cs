@@ -63,6 +63,25 @@ public sealed class MpvVideoView : Control, IDisposable
     private readonly nint[] _sharedTextureHandles = new nint[SwapChainSize];
     private readonly nint[] _dxInteropObjects = new nint[SwapChainSize];
     private readonly ICompositionImportedGpuImage?[] _importedImages = new ICompositionImportedGpuImage?[SwapChainSize];
+
+    /// <summary>FREEZEDIAG_03 — INERT diagnostic. Last coarse step seen on the UI thread.</summary>
+    public static volatile string LastUiStep = "idle";
+
+    /// <summary>FREEZEDIAG_03 — INERT diagnostic. Last coarse step seen on the render thread.</summary>
+    public static volatile string LastRenderStep = "idle";
+
+    /// <summary>
+    /// FREEZEDIAG_04 — INERT diagnostic. _renderLock is the only lock both threads take, so a
+    /// 6-second UI stall is either inside it or behind it. This records every acquisition that
+    /// took longer than a frame, with the thread that was waiting and the site that asked.
+    /// Semantics are unchanged: it is still the same `lock`, only measured.
+    /// </summary>
+    public static volatile string LastLockStep = "idle";
+
+    private const int LockWaitReportMs = 250;
+
+    private static string ThreadTag()
+        => Dispatcher.UIThread.CheckAccess() ? "UI" : $"bg#{Environment.CurrentManagedThreadId}";
     private readonly nint[] _lockedInteropObjects = new nint[1];
 
     private nint _openglLibrary;
@@ -351,8 +370,16 @@ public sealed class MpvVideoView : Control, IDisposable
         _renderThreadRunning = false;
         try { _renderSignal.Set(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
 
+        LastLockStep = $"ReleaseHardwareInteropResources: awaiting _renderLock on {ThreadTag()}";
+        long __relT0 = Environment.TickCount64;
         lock (_renderLock)
         {
+            long __relWaited = Environment.TickCount64 - __relT0;
+            LastLockStep = $"ReleaseHardwareInteropResources: holding _renderLock (waited {__relWaited}ms on {ThreadTag()})";
+            if (__relWaited > LockWaitReportMs)
+                RuntimeLog.Fail(InteropLogStep,
+                    $"LOCK WAIT: ReleaseHardwareInteropResources waited {__relWaited}ms for _renderLock on the {ThreadTag()} thread.");
+
             ReleaseRenderTexture();
 
             if (_renderContext != nint.Zero)
@@ -735,8 +762,15 @@ public sealed class MpvVideoView : Control, IDisposable
 
     private void UpdateSurface()
     {
+        LastRenderStep = $"UpdateSurface: awaiting _renderLock on {ThreadTag()}";
+        long __usT0 = Environment.TickCount64;
         lock (_renderLock)
         {
+            long __usWaited = Environment.TickCount64 - __usT0;
+            LastRenderStep = $"UpdateSurface: holding _renderLock (waited {__usWaited}ms on {ThreadTag()})";
+            if (__usWaited > LockWaitReportMs)
+                RuntimeLog.Fail(InteropLogStep,
+                    $"LOCK WAIT: UpdateSurface waited {__usWaited}ms for _renderLock on the {ThreadTag()} thread.");
             Interlocked.Exchange(ref _isUpdateQueued, 0);
             bool glContextCurrent = false;
             try
@@ -1155,13 +1189,17 @@ public sealed class MpvVideoView : Control, IDisposable
         var importCompletion = new System.Threading.Tasks.TaskCompletionSource<ICompositionImportedGpuImage?>();
         Dispatcher.UIThread.Post(() =>
         {
+            LastUiStep = $"import[{index}]: calling gpu.ImportImage";
             try { importCompletion.TrySetResult(gpu.ImportImage(platformHandle, props)); }
             catch (Exception ex)
             {
+                LastUiStep = $"import[{index}]: threw {ex.GetType().Name}";
                 RuntimeLog.SwallowedThrottled(ex);
                 importCompletion.TrySetResult(null);
             }
+            LastUiStep = $"import[{index}]: ImportImage returned";
         });
+        LastRenderStep = $"import[{index}]: render thread waiting on UI import";
 
         if (!importCompletion.Task.Wait(UiImportTimeoutMs))
         {

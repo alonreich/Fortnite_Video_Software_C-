@@ -95,8 +95,14 @@ public partial class VideoMergerWindow : Window
     public VideoMergerWindow()
     {
         InitializeComponent();
+
+        // GRIP_01 — the bottom-right resize corner. These windows are borderless, so the OS
+        // draws no resize frame: without this there is nothing to grab and nothing telling the
+        // user the Video Merger can be resized at all. One shared implementation — see
+        // Controls/WindowResizeGrip.cs for why it is not per-window code.
+        Controls.WindowResizeGrip.Attach(this, "Drag to resize the Video Merger");
         _recovery.AcquireLock();
-        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "VideoMergerBounds");
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "VideoMergerBounds", fitDisplayOnFirstRun: true);   // FIRSTFIT_01
 
         _ffprobePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "backend", "ffprobe.exe");
         if (!System.IO.File.Exists(_ffprobePath))

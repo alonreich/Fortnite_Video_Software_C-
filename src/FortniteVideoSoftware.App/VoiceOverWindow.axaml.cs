@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -487,7 +487,7 @@ public partial class VoiceOverWindow : Window
     {
         InitializeComponent();
         CacheControls();
-        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, BoundsKey);
+        FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, BoundsKey, fitDisplayOnFirstRun: true);   // FIRSTFIT_01
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         MpvIpcClient.GlobalMasterVolumeChanged += OnMasterVolumeChanged;
         Closing += OnWindowClosing;
@@ -905,6 +905,7 @@ public partial class VoiceOverWindow : Window
         EnforceCutSkip();       // CUTS_02 — never sit inside footage that was deleted
         UpdateLiveZoomCrop();   // ZOOMLIVE_06 — show the zoom the export will apply
         PumpRecordArming();
+        UpdateReadyLamp();      // VOMON_02 — the monitor opens asynchronously; re-read its verdict
         UpdatePlayPauseIconUI();
         UpdatePlayheadUI();
         UpdatePreviewPlayers();
@@ -1096,6 +1097,13 @@ public partial class VoiceOverWindow : Window
     private void StartMicMonitor()
     {
         if (_isRecording || _recordArming || _isClosing) return;
+
+        // VOMON_02 — every (re)open is a fresh verdict on a possibly different device.
+        _micSignalSeen = false;
+        _micOpenFailureReported = false;
+        _micSilenceReported = false;
+        _micMonitorOpenUtc = DateTime.MaxValue;
+
         if (!FortniteVideoSoftware.Core.Media.VoiceRecorder.HasInputDevice)
         {
             UpdateReadyLamp();
@@ -1134,6 +1142,7 @@ public partial class VoiceOverWindow : Window
     {
         if (_isRecording) return;   // the recorder is driving the meter; don't double-feed it
         _peakVolume = Math.Max(_peakVolume, level);
+        if (level > 0.002f) _micSignalSeen = true;   // VOMON_02
     }
 
     /// <summary>
@@ -1146,8 +1155,24 @@ public partial class VoiceOverWindow : Window
         if (_readyLamp == null) return;
 
         bool hasDevice = FortniteVideoSoftware.Core.Media.VoiceRecorder.HasInputDevice;
-        bool ready = hasDevice && _isMpvReady;
+        bool monitorOpen = _micMonitor?.IsRunning == true;
+
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // VOMON_02 — THE LAMP NOW MEANS "THIS STUDIO CAN RECORD", NOT "WINDOWS LISTED A MIC".
+        //
+        // It used to be `hasDevice && _isMpvReady`, i.e. purely enumeration. An endpoint that
+        // ENUMERATES but will not OPEN — held exclusively by another app, or blocked by Windows
+        // microphone privacy — showed a green lamp, a dead meter, and produced silent takes.
+        // That is the single failure this lamp exists to catch, and it was the one case it lied
+        // about. Once capture is live the recorder owns the device, so the lamp follows the take.
+        //
+        // ⚠️ IT MUST BE RE-EVALUATED ON THE TICK. StartMicMonitor QUEUES the device open on the
+        // audio chain (VOASYNC_02) and returned here immediately, so IsRunning was ALWAYS false
+        // at that call and nothing ever asked again. Timer_Tick now calls this.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        bool ready = hasDevice && _isMpvReady && (_isRecording || monitorOpen);
         _readyLamp.Opacity = ready ? 1.0 : 0.18;
+        ReportMicHealth(hasDevice, monitorOpen);
 
         // The tooltip separates "a device exists" from "we can actually open it". A device that
         // enumerates but will not open — held by another app, or blocked by Windows microphone
@@ -1157,9 +1182,62 @@ public partial class VoiceOverWindow : Window
         if (!hasDevice) tip = "No microphone input device detected";
         else if (!_isMpvReady) tip = "Waiting for the video preview to start";
         else if (_isRecording) tip = "Recording — the meter is being fed by the take in progress";
-        else if (_micMonitor?.IsRunning == true) tip = "A microphone is connected and listening. Speak and the meter should move.";
-        else tip = "A microphone is listed, but this app could not open it. Check that no other app is using it, and that microphone access is allowed in Windows privacy settings.";
+        else if (!monitorOpen) tip = "A microphone is listed, but this app could not open it. Check that no other app is using it, and that microphone access is allowed in Windows privacy settings (both \u0022Microphone access\u0022 and \u0022Let desktop apps access your microphone\u0022).";
+        else if (_micSignalSeen) tip = "A microphone is connected and listening. Speak and the meter should move.";
+        else tip = "The microphone is open but has sent nothing but silence so far. If the meter never moves, the input is muted in Windows, the wrong device is selected above, or microphone access is blocked for desktop apps.";
         ToolTip.SetTip(_readyLamp, tip);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // VOMON_02 — SAY IT ONCE, IN WORDS, INSTEAD OF SWALLOWING IT.
+    //
+    // MicLevelMonitor logs a failed open at Debug level and returns quietly, so the only visible
+    // evidence was a meter that never moved — indistinguishable from a quiet room. These two
+    // one-shot notices name the two distinct failures the moment they are provable, and the
+    // runtime log records them so a silent take can be explained after the fact.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>VOMON_02 — true once any buffer with real signal has arrived on this device.</summary>
+    private bool _micSignalSeen;
+
+    /// <summary>VOMON_02 — when the idle monitor was last confirmed open, for the silence timer.</summary>
+    private DateTime _micMonitorOpenUtc = DateTime.MaxValue;
+
+    private bool _micOpenFailureReported;
+    private bool _micSilenceReported;
+
+    private void ReportMicHealth(bool hasDevice, bool monitorOpen)
+    {
+        if (_isClosing || _isRecording || !hasDevice) return;
+
+        if (!monitorOpen)
+        {
+            _micMonitorOpenUtc = DateTime.MaxValue;
+            // Only complain once the open has actually had its turn on the audio chain; before
+            // that "not running" just means "not yet".
+            if (!_micOpenFailureReported && _audioDeviceChain.IsCompleted)
+            {
+                _micOpenFailureReported = true;
+                RuntimeLog.Fail("VoiceOver",
+                    "The selected microphone is listed by Windows but could not be opened for monitoring. Takes recorded now will be silent.");
+                Controls.FloatingNotice.Error(this,
+                    "Windows lists this microphone but will not let the app open it. Check microphone privacy settings, or pick a different input above.");
+            }
+            return;
+        }
+
+        if (_micMonitorOpenUtc == DateTime.MaxValue) _micMonitorOpenUtc = DateTime.UtcNow;
+
+        if (!_micSignalSeen &&
+            !_micSilenceReported &&
+            (DateTime.UtcNow - _micMonitorOpenUtc).TotalSeconds >= 6.0)
+        {
+            _micSilenceReported = true;
+            RuntimeLog.Fail("VoiceOver",
+                "The microphone opened but has delivered pure digital silence for 6 seconds. On Windows this is almost always microphone access blocked in Settings > Privacy & security > Microphone, the input muted at the device, or the wrong input selected.");
+            Controls.FloatingNotice.Warn(this,
+                "The microphone is open but completely silent. Check it is not muted and that microphone access is allowed for desktop apps.");
+        }
     }
 
     private int GetSelectedMicrophoneDeviceIndex()
@@ -1194,25 +1272,15 @@ public partial class VoiceOverWindow : Window
         return fallback;
     }
 
+    /// <summary>
+    /// GRIP_01 — folded into the shared implementation. This window's private copy was the ONLY
+    /// working one in the suite; the Granular editor had the same Border in its XAML with no code
+    /// behind it at all, and five other windows had neither. Two copies of the same twenty lines
+    /// had already drifted into "one works, one is a dead decoration", so there is now exactly
+    /// one. The Border declared in this window's XAML is adopted, not duplicated.
+    /// </summary>
     private void AttachResizeGrip()
-    {
-        var resizeGrip = this.FindControl<Border>("ResizeGrip");
-        if (resizeGrip == null) return;
-
-        resizeGrip.Cursor = new Cursor(StandardCursorType.BottomRightCorner);
-        resizeGrip.PointerPressed += (s, e) =>
-        {
-            if (WindowState == WindowState.Maximized) return;
-            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-
-            try
-            {
-                BeginResizeDrag(WindowEdge.SouthEast, e);
-                e.Handled = true;
-            }
-            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        };
-    }
+        => Controls.WindowResizeGrip.Attach(this, "Drag to resize the Voice Over Studio");
 
     private void WireTimelineSeekSurface(Control surface)
     {
@@ -1352,6 +1420,51 @@ public partial class VoiceOverWindow : Window
         return seconds;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // VOEND_01 — THE END OF THE TIMELINE IS A STOP, AND THE NEXT PRESS IS A RESTART.
+    //
+    // EnforceTrimEndStop pauses at MARK END, which is right. What was missing is what happens
+    // NEXT. NormalizePreviewPlaybackPosition clamps any position at or past the end back to
+    // `end - 0.05` — still inside the stop window — so PLAY unpaused and the very next 50 ms
+    // tick stopped it again (one frame, then paused), and RECORD was killed by that same tick
+    // before the microphone had even been opened. That is the "trapped at the end" symptom and
+    // the second half of "recording does not record anything".
+    //
+    // Parked at the end, both transports now rewind to MARK START first. `_previewParkedAtEnd`
+    // is the sticky flag for the state; the positional test is the belt to its braces, because
+    // the user can also scrub to the end by hand without the stop ever having fired.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>VOEND_01 — true while playback is parked on MARK END with nothing left to play.</summary>
+    private bool _previewParkedAtEnd;
+
+    /// <summary>VOEND_01 — is this position at (or past) the end of the trimmed range?</summary>
+    private bool IsPreviewAtTimelineEnd(double seconds)
+    {
+        double end = GetEffectiveTimelineEnd();
+        if (end <= _trimStartSec) return false;
+        return seconds >= end - 0.05;
+    }
+
+    /// <summary>
+    /// VOEND_01 — returns the position the next PLAY or RECORD should begin from. At the end of
+    /// the timeline that is MARK START; anywhere else it is where the playhead already is.
+    /// Clears the parked flag, so the caret comes back on the next UI pass.
+    /// </summary>
+    private double RewindFromTimelineEnd(double currentSeconds)
+    {
+        if (_previewParkedAtEnd || IsPreviewAtTimelineEnd(currentSeconds))
+        {
+            _previewParkedAtEnd = false;
+            RuntimeLog.Info("VoiceOver",
+                $"Transport pressed at the end of the timeline ({currentSeconds:0.###}s) — restarting from MARK START ({_trimStartSec:0.###}s).");
+            return _trimStartSec;
+        }
+
+        _previewParkedAtEnd = false;
+        return currentSeconds;
+    }
+
     /// <summary>
     /// VOFIX_01 — stops at the trim end instead of looping back to the trim start.
     ///
@@ -1374,12 +1487,18 @@ public partial class VoiceOverWindow : Window
 
             if (_isRecording && !_recordPaused)
             {
+                _previewParkedAtEnd = true;   // VOEND_01
                 RuntimeLog.Info("VoiceOver",
                     $"Reached the end of the clip at {now:F2}s while recording — finalising the take and stopping.");
                 StopRecordingAndPlayback();
                 return;
             }
 
+            // VOEND_01 — parked at the very end of the timeline.
+            // The caret is hidden while parked here (UpdatePlayheadUI) and the next PLAY or
+            // RECORD restarts from MARK START rather than trying to roll on from a position
+            // that has nothing left to play. See RewindFromTimelineEnd.
+            _previewParkedAtEnd = true;
             RuntimeLog.Info("VoiceOver", $"Reached the end of the clip at {now:F2}s — pausing (no loop).");
             _ = ipc.SetPropertyAsync("pause", "yes");
             UpdatePlayPauseIconUI();
@@ -1945,6 +2064,22 @@ public partial class VoiceOverWindow : Window
     private void UpdatePlayheadUI()
     {
         if (_videoHost?.IpcClient == null) return;
+
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // VOEND_01 — KEEP THE PARKED FLAG HONEST IN BOTH DIRECTIONS.
+        //
+        // EnforceTrimEndStop raises it when IT stops playback, but that only runs when a MARK END
+        // actually exists (`_trimEndSec > _trimStartSec`). With no trim set, mpv's keep-open=yes
+        // simply leaves the picture sitting on the last frame and nothing would ever raise it. So
+        // the state is also derived positionally here: stopped, on the last frame, not recording.
+        // And any move away from the end lowers it again, so scrubbing back restores the caret.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        bool atEndNow = !_isRecording
+                        && _videoHost.IpcClient.IsPaused
+                        && _dragSeekTimeSec == null
+                        && IsPreviewAtTimelineEnd(_videoHost.IpcClient.CurrentTime);
+        if (_previewParkedAtEnd != atEndNow) _previewParkedAtEnd = atEndNow;
+
         double currentTime = _videoHost.IpcClient.CurrentTime;
         double videoDuration = _videoHost.IpcClient.Duration;
         if (videoDuration <= 0) return;
@@ -1978,6 +2113,14 @@ public partial class VoiceOverWindow : Window
             EnsureRulerDynamicVisuals(_timelineRulerCanvas, height);
 
             double caretX = Math.Clamp(fraction * width, 0, width);
+
+            // VOEND_01 — nothing is playing and there is nothing left to play, so the caret is
+            // not describing a frame any more. It comes back the moment a transport rewinds
+            // (RewindFromTimelineEnd clears the flag) or the user seeks anywhere.
+            bool caretVisible = !_previewParkedAtEnd;
+            if (_playheadCaret != null) _playheadCaret.IsVisible = caretVisible;
+            if (_rulerPlayheadLine != null) _rulerPlayheadLine.IsVisible = caretVisible;
+
             if (_playheadCaret != null)
             {
                 Canvas.SetLeft(_playheadCaret, caretX);
@@ -2676,7 +2819,8 @@ public partial class VoiceOverWindow : Window
             bool shouldPlay = _videoHost.IpcClient.IsPaused;
             if (shouldPlay)
             {
-                double current = _videoHost.IpcClient.CurrentTime;
+                // VOEND_01 — parked on MARK END, PLAY means "play it again from the start".
+                double current = RewindFromTimelineEnd(_videoHost.IpcClient.CurrentTime);
                 double safeStart = NormalizePreviewPlaybackPosition(current);
                 if (Math.Abs(safeStart - current) > 0.01)
                 {
@@ -2728,7 +2872,9 @@ public partial class VoiceOverWindow : Window
             return;
         }
 
-        double currentPreviewTime = _videoHost?.IpcClient?.CurrentTime ?? _trimStartSec;
+        // VOEND_01 — pressing RECORD parked on MARK END used to arm a take that EnforceTrimEndStop
+        // killed on the very next tick, so the take was always empty. Rewind first.
+        double currentPreviewTime = RewindFromTimelineEnd(_videoHost?.IpcClient?.CurrentTime ?? _trimStartSec);
         double recordingStart = NormalizePreviewPlaybackPosition(currentPreviewTime);
         RuntimeLog.Info("VoiceOver",
             $"Starting recording. previewTime={currentPreviewTime:0.###}s, normalisedStart={recordingStart:0.###}s, trim={_trimStartSec:0.###}s..{_trimEndSec:0.###}s, mpvPaused={_videoHost?.IpcClient?.IsPaused}, micIndex={GetSelectedMicrophoneDeviceIndex()}.");
