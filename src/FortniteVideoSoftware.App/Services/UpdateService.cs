@@ -82,33 +82,45 @@ internal static class UpdateService
     /// </summary>
     public static async Task RunStartupCheckAsync(Window owner)
     {
-        if (Interlocked.CompareExchange(ref _checkInProgress, 1, 0) != 0) return;
+        // The master switch. OFF means: no network call, no prompt, no nag — ever.
+        if (!SettingsManager.Instance.AutoUpdateChecks)
+        {
+            RuntimeLog.Info("UPDATE", "Update checks are disabled in Settings; staying silent.");
+            return;
+        }
+
+        // dev.cmd runs with FVS_DEV_LOG_DIR set; a developer's machine must never be offered
+        // a release probe against its own un-versioned local build.
+        if (RuntimeLog.IsDevMode)
+        {
+            RuntimeLog.Info("UPDATE", "Dev mode detected; update check skipped.");
+            return;
+        }
+
+        // Let the window settle first — the suggestor must never compete with startup work
+        // or recovery prompts for the user's attention.
         try
         {
-            // The master switch. OFF means: no network call, no prompt, no nag — ever.
-            if (!SettingsManager.Instance.AutoUpdateChecks)
-            {
-                RuntimeLog.Info("UPDATE", "Update checks are disabled in Settings; staying silent.");
-                return;
-            }
-
-            // dev.cmd runs with FVS_DEV_LOG_DIR set; a developer's machine must never be offered
-            // a release probe against its own un-versioned local build.
-            if (RuntimeLog.IsDevMode)
-            {
-                RuntimeLog.Info("UPDATE", "Dev mode detected; update check skipped.");
-                return;
-            }
-
-            // Let the window settle first — the suggestor must never compete with startup work
-            // or recovery prompts for the user's attention.
             await Task.Delay(StartupGracePeriod).ConfigureAwait(false);
+        }
+        catch
+        {
+            return;
+        }
 
-            bool ownerStillVisible = await Dispatcher.UIThread.InvokeAsync(() => owner.IsVisible);
-            if (!ownerStillVisible) return;
+        bool ownerStillVisible = await Dispatcher.UIThread.InvokeAsync(() => owner.IsVisible);
+        if (!ownerStillVisible) return;
 
-            if (!ThrottlePermitsCheck()) return;
+        if (!ThrottlePermitsCheck()) return;
 
+        if (Interlocked.CompareExchange(ref _checkInProgress, 1, 0) != 0)
+        {
+            RuntimeLog.Info("UPDATE", "Another update check is already in progress; skipping startup check.");
+            return;
+        }
+
+        try
+        {
             RuntimeLog.Info("UPDATE", "Running startup update probe against GitHub releases...");
             UpdateRelease? release = await QueryLatestReleaseAsync().ConfigureAwait(false);
             if (release is null) return;
@@ -185,12 +197,15 @@ internal static class UpdateService
     {
         if (Interlocked.CompareExchange(ref _checkInProgress, 1, 0) != 0)
         {
+            RuntimeLog.Info("UPDATE", "Manual update check requested while an update check is already in progress.");
+            FloatingNotice.Warn(owner, "An update check is already in progress...");
             statusCallback?.Invoke("An update check is already in progress...");
             return;
         }
 
         try
         {
+            FloatingNotice.Info(owner, "Checking GitHub for updates...");
             statusCallback?.Invoke("Checking GitHub for updates...");
             RuntimeLog.Info("UPDATE", "Manual update check initiated by user.");
 
@@ -266,6 +281,10 @@ internal static class UpdateService
         {
             RuntimeLog.Fail("UPDATE", $"Manual update check failed: {ex.Message}");
             statusCallback?.Invoke($"Check failed: {ex.Message}");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                NativeDialog.ShowError($"Update check failed: {ex.Message}", "Update Check Failed");
+            });
         }
         finally
         {
@@ -405,14 +424,18 @@ internal static class UpdateService
         Directory.CreateDirectory(folder);
 
         using var cts = new CancellationTokenSource();
-        var progressWindow = new UpdateDownloadWindow();
-        progressWindow.CancelRequested += () => cts.Cancel();
-
+        UpdateDownloadWindow? progressWindow = null;
         Task dialogTask = Task.CompletedTask;
         var dialogShown = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         Dispatcher.UIThread.Post(() =>
         {
-            try { dialogTask = progressWindow.ShowDialog(owner); dialogShown.SetResult(null); }
+            try
+            {
+                progressWindow = new UpdateDownloadWindow();
+                progressWindow.CancelRequested += () => cts.Cancel();
+                dialogTask = progressWindow.ShowDialog(owner);
+                dialogShown.SetResult(null);
+            }
             catch (Exception ex) { dialogShown.SetException(ex); }
         });
         await dialogShown.Task.ConfigureAwait(false);
@@ -470,7 +493,7 @@ internal static class UpdateService
             // Honour a Cancel clicked during verification/handoff — never install past a cancel.
             cts.Token.ThrowIfCancellationRequested();
 
-            Dispatcher.UIThread.Post(() => progressWindow.MarkHandoffToInstaller());
+            Dispatcher.UIThread.Post(() => progressWindow?.MarkHandoffToInstaller());
             RuntimeLog.Info("UPDATE", $"Download of {release.Tag} verified (sha256 {actualHash[..12]}…). Handing off to installer with --auto-update.");
 
             // --auto-update makes DeploymentLifecycle force the preserve-settings answer to YES
@@ -491,22 +514,26 @@ internal static class UpdateService
         {
             RuntimeLog.Fail("UPDATE", $"Update download/verify failed: {ex.Message}");
             TryDeleteFile(partPath);
-            NativeDialog.ShowError(
-                "The update could not be downloaded." + Environment.NewLine + Environment.NewLine +
-                $"Reason: {ex.Message}" + Environment.NewLine + Environment.NewLine +
-                "Your current version was not changed. The app will offer the update again on a later start.",
-                "Update Failed");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                NativeDialog.ShowError(
+                    "The update could not be downloaded." + Environment.NewLine + Environment.NewLine +
+                    $"Reason: {ex.Message}" + Environment.NewLine + Environment.NewLine +
+                    "Your current version was not changed. The app will offer the update again on a later start.",
+                    "Update Failed");
+            });
         }
         finally
         {
-            Dispatcher.UIThread.Post(() => { try { progressWindow.Close(); } catch { /* already closed */ } });
+            Dispatcher.UIThread.Post(() => { try { progressWindow?.Close(); } catch { /* already closed */ } });
         }
 
         await dialogTask.ConfigureAwait(false);
     }
 
-    private static void ReportDownloadProgress(UpdateDownloadWindow window, long copied, long total)
+    private static void ReportDownloadProgress(UpdateDownloadWindow? window, long copied, long total)
     {
+        if (window == null) return;
         double fraction = total > 0 ? Math.Clamp((double)copied / total, 0, 1) : 0;
         string text = total > 0
             ? $"{fraction:P0}  —  {copied / (1024 * 1024)} MB of {total / (1024 * 1024)} MB"
