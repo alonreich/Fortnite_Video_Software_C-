@@ -41,15 +41,46 @@
 
                     <!-- Scrollable release notes fetched from GitHub release notes / body -->
                     <Expander Name="ReleaseNotesExpander" Header="What's New in this Release"
-                              IsExpanded="False" MaxHeight="220" Margin="0,5,0,0"
-                              Foreground="{DynamicResource AppTextPrimaryBrush}">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="160">
-                            <TextBlock Name="ReleaseNotesText"
-                                       TextWrapping="Wrap"
-                                       FontSize="{DynamicResource AppFontSize12}"
-                                       Foreground="{DynamicResource AppTextSecondaryBrush}"
-                                       Margin="5"/>
-                        </ScrollViewer>
+                              IsExpanded="False" MaxHeight="240" Margin="0,5,0,0"
+                              Background="{DynamicResource AppPanelBrush}"
+                              Foreground="{DynamicResource AppTextPrimaryBrush}"
+                              BorderBrush="{DynamicResource AppBorderBrush}"
+                              BorderThickness="1" CornerRadius="6">
+                        <Expander.Styles>
+                            <Style Selector="Expander">
+                                <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+                                <Setter Property="BorderThickness" Value="1"/>
+                            </Style>
+                            <Style Selector="Expander /template/ ToggleButton#ExpanderHeader">
+                                <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Padding" Value="12,8"/>
+                            </Style>
+                            <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:pointerover">
+                                <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Style>
+                            <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:checked">
+                                <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Style>
+                        </Expander.Styles>
+                        <Border Background="{DynamicResource AppSurfaceBrush}"
+                                BorderBrush="{DynamicResource AppBorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="12,10"
+                                Margin="4,2,4,4">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="160">
+                                <TextBlock Name="ReleaseNotesText"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource AppFontSize12}"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                           LineHeight="18"/>
+                            </ScrollViewer>
+                        </Border>
                     </Expander>
                 </StackPanel>
 
@@ -59,14 +90,6 @@
                             AutomationProperties.Name="Download and install the new version now"
                             ToolTip.Tip="Downloads the new version, keeps every setting exactly as it is, installs it and reopens the app. Windows will still ask once for Administrator permission.">
                         <TextBlock Text="Yes. Please download and upgrade to the latest released version now."
-                                   TextWrapping="Wrap" TextAlignment="Center"/>
-                    </Button>
-
-                    <Button Name="NotNowBtn" Classes="Secondary" Cursor="Hand" IsCancel="True"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                            AutomationProperties.Name="Not now, remind me later"
-                            ToolTip.Tip="Not now. You may be reminded again on a later start.">
-                        <TextBlock Text="Not Now (Remind me later)"
                                    TextWrapping="Wrap" TextAlignment="Center"/>
                     </Button>
 

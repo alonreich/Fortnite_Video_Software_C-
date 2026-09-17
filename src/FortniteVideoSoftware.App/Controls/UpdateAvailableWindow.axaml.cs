@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 
@@ -33,9 +34,17 @@ public partial class UpdateAvailableWindow : Window
         InitializeComponent();
 
         Wire("UpdateNowBtn", UpdateChoice.UpdateNow);
-        Wire("NotNowBtn", UpdateChoice.NotNow);
         Wire("SkipBtn", UpdateChoice.SkipThisVersion);
         Wire("NeverBtn", UpdateChoice.NeverTellMeAgain);
+
+        AddHandler(InputElement.KeyDownEvent, (s, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                Choice = UpdateChoice.Dismissed;
+                Close();
+            }
+        }, RoutingStrategies.Tunnel);
     }
 
     private void Wire(string buttonName, UpdateChoice choice)
