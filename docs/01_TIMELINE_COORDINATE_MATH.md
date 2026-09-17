@@ -38,7 +38,8 @@
 * **HUD Overlay Math Parity:** Live preview and FFmpeg export derive HUD dimensions from an identical basis:
   $$\text{ItemSize} = \text{contentH} \times \text{scale} \times \text{backendScale}$$
   Quantized via `CoordinateMath.QuantizeItemSize` (preview) and `MobileFilterBuilder.Build` (export). Heavy SkiaSharp image decodes and crop operations run off the UI thread.
-* **No Mask Profile:** Read-only profile exporting 1080 x 1920 with zero HUD overlays. Injects explicit zero-size rectangles for all 6 HUD keys to prevent default restoration by the sanitizer. In-game overlay controls are hidden and forced off. Portrait source footage is cover-scaled and center-cropped to the 2:3 content area.
+  `RATIOLOCK_01`: backend HUD sizes use even pixels with a 2px minimum. Width follows the requested scale; height follows the source aspect ratio within 1 backend pixel. Preview rounds the backend dimensions to the nearest content pixel. Overlay positions are clamped and rounded to individual content pixels, never forced onto a 27px grid.
+* **No Mask Profile:** Read-only profile exporting 1080 x 1920 with zero HUD overlays. Injects explicit zero-size rectangles for all 5 HUD keys to prevent default restoration by the sanitizer. In-game overlay controls are hidden and forced off. Portrait source footage is cover-scaled and center-cropped to the 2:3 content area.
 
 ---
 

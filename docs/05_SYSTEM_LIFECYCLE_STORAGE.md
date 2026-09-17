@@ -1,4 +1,4 @@
-﻿# SPECIFICATION 05: SYSTEM LIFECYCLE & STORAGE
+# SPECIFICATION 05: SYSTEM LIFECYCLE & STORAGE
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -15,6 +15,9 @@
 | `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs` | `GranularSpeedEditorWindow` | `OnClosing`, `OnClosed`, `_isSafeToClose`, `ResultSegments` | Deferred-close dispatcher contract governing dialog resolution and edit hand-off. **⚠ CO-GOVERNED BY: 01, 04**|
 | `src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs` | `MaskOverlayManager` | `ApplyProfile`, `EnsureDefaults`, `RotateBackups`, `CascadeBak` | 5-tier `.bak` rotation cascade and HUD profile configuration. |
 | `src/FortniteVideoSoftware.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService` | `SerializeState`, `SaveState`, `HasUnsavedWork`, `RestoreRecoveryState` | Main App state serialization bridge for project recovery. |
+| `src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs` | `LatestEstimateWorker` | `Request`, `RunAsync`, `Dispose`, `Completion` | Bounded background estimates, cancellation and stale UI result rejection. |
+| `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `RunStartupCheckAsync`, `CheckManualAsync`, `GetSkippedVersion`, `ClearSkippedVersion` | Background GitHub release query, 24h throttle, SHA-256 verification, and quiet updater. |
+| `build/FvsBuild/Program.cs` | `FvsBuild` | `SynchronizeVersionFiles`, `RunPipeline`, `Publish` | Unified build pipeline synchronizing version.txt, Directory.Build.props, and project files. |
 | `Build.cmd` | Build Script | `FVS_SIGN_PFX`, `FVS_SIGN_PASS`, `AuthenticodeSign` | Release compilation orchestration and mandatory Authenticode digital signing. |
 | `dev.cmd` | Developer Harness | `VERIFY_PATCHES`, `CHECK_TAG`, `NUKE_BUILD`, `KILL_STALE`, `TRACE`, `FVS_DEV_LOG_DIR`, `FVS_PROGRAMDATA_ROOT` | Sandboxed dev launch, stale-process purge, cache nuke, pre-build fix verification, and in-repo trace logging. |
 
@@ -92,6 +95,9 @@
   Eliminates half-baked, partial, or corrupted states during power outages or system crashes.
 * **Config Backup Cascade:** `crops_coordinations.conf` enforces a 5-tier `.bak` cascade prior to writes:
   $$\text{.bak4} \to \text{.bak5}, \quad \text{.bak3} \to \text{.bak4}, \quad \text{.bak2} \to \text{.bak3}, \quad \text{.bak1} \to \text{.bak2}, \quad \text{current} \to \text{.bak1}$$
+* **Crop defaults and recovery (FORTNITEDEFAULT_02 / CROPFALLBACK_02):** The shipped Fortnite layout is the dev sandbox's saved Apex Legends layout from 2026-09-13, including exact rational scales and source rectangles, excluding Boss HP. `CropConfigDefaults.Create()` is the shared factory and final recovery fallback. A damaged live document first tries `.bak1` through `.bak5` without rotating backups. Malformed layer rectangles, scales, positions, or z orders are rejected along with malformed JSON; a rejected save leaves the live file and backups intact. Valid schema v3 profiles and explicitly disabled layers remain supported. Missing Fortnite profiles are seeded from the shipped defaults, never the shared active config; malformed Fortnite profile files are backed up before replacement, while valid user edits are preserved.
+
+* **First-run crop initialization (CROPFIRSTBOOT_01):** `EnsureDefaults` seeds a missing live configuration directly under the config mutex from a valid active profile or the shipped fallback. It must not call `ApplyProfile`, which calls `EnsureDefaults` itself. A profile save failure must be reported to Crop Tools so unsaved edits remain open.
 
 ---
 
@@ -110,9 +116,34 @@
 
 ---
 
+## 4b. Output Estimate Worker Lifetime {#SYS-SIZEESTIMATE}
+* `SIZEESTIMATE_01`: each editing window owns one worker and one pending immutable snapshot. An 80ms throttle coalesces pointer/slider events while still updating during continuous dragging.
+* Filesystem access, ffprobe and estimate calculations run off the UI thread. Metadata caches hold at most 128 entries, keyed by path, size and modification time. A changed file is re-probed; failures are not cached. UI-owned queues and duration dictionaries are never mutated from a worker.
+* Both quick and refined results carry a request version. The version and disposal state are checked again INSIDE the UI callback; stale callbacks cannot overwrite newer state or touch a closed window.
+* Closing cancels the worker, completes its queue, and asynchronously allows up to one second for shutdown before continuing window teardown. ffprobe uses `AsyncProcessRunner` with a 15-second timeout and lifetime cancellation, which terminates the process and drains both pipes. The worker disposes its own cancellation source only after completion; no synchronous waits on the UI thread.
+
 ## 5. Binary Metadata & Authenticode Signing Mandate  {#SYS-SIGNING}
 * **Win32 Executable Metadata:** The compiled `.exe` embeds complete production metadata (Product Name, Publisher, Assembly Version, File Version, Legal Copyright).
 * **Authenticode Integrity Enforcement:**
   `Build.cmd` executes Authenticode signing when `FVS_SIGN_PFX` and `FVS_SIGN_PASS` environment variables are detected.
 * **Mandatory Signing Failure Abort:**
   If certificate signing environment variables are present but the signing tool (`signtool.exe`) fails or returns a non-zero exit code, the build script MUST FAIL IMMEDIATELY. Silently producing or packaging an unsigned binary when signing was explicitly requested is classified as a severe security failure.
+
+---
+
+## 6. Auto-Update Lifecycle & Universal Build Versioning  {#SYS-AUTOUPDATE}
+* **Universal Build Version Synchronization:** Every execution of `Build.cmd` via `FvsBuild` generates a uniform four-part timestamp version (`yyyy.MM.dd.HHmm`). `SynchronizeVersionFiles` synchronizes this exact version across:
+  1. `version.txt` in the repository root.
+  2. `Directory.Build.props` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>`, `<ProductVersion>`).
+  3. `src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj`.
+  4. `src/FortniteVideoSoftware.Core/FortniteVideoSoftware.Core.csproj`.
+  5. NativeAOT compilation and publish flags (`-p:Version=`, `-p:AssemblyVersion=`, `-p:FileVersion=`, `-p:InformationalVersion=`).
+* **Title Bar Version Invariant:** The running executable extracts its stamped version via `DeploymentLifecycle.GetCurrentVersion()` (reading Win32 `ProductVersion` and `FileVersion`, assembly metadata, and root `version.txt` fallbacks). Custom window title bars format `Fortnite Video Software v{version}` and `Fortnite Video Software - Merger v{version}` directly, ensuring zero discrepancies.
+* **Version Parsing Robustness:** `DeploymentLifecycle.TryParseVersion` trims leading `'v'`/`'V'` prefixes before filtering numeric dot segments. Tags such as `v2026.09.12.0159` parse accurately into .NET `Version` objects (`2026.9.12.159`) with strict numerical comparison. Invalid or non-numeric inputs return `false` and guarantee a safe non-null `0.0` fallback.
+* **Schema v7 Migration Invariant:** When upgrading from older application installations lacking update checking (or whenever `settings.json` lacks an explicit `AutoUpdateChecks` configuration), `SettingsManager` automatically initializes and persists `AutoUpdateChecks = true`. On fresh installs without an existing config file, default settings with `AutoUpdateChecks = true` are saved immediately to disk, ensuring new releases are never silently missed.
+* **Network Stall Guard:** `UpdateService.DownloadVerifyLaunchAsync` wraps chunk stream reads in a 45-second stall cancellation timeout (`CancellationTokenSource.CreateLinkedTokenSource`). A frozen HTTP pipe cancels cleanly rather than leaving the download modal hanging indefinitely.
+* **Release Notes Preview:** GitHub release `body` markdown content is extracted during probe and rendered in a scrollable expander within `UpdateAvailableWindow.axaml`.
+* **State Persistence Protocol:**
+  * Last startup probe timestamp is recorded in `update_last_check_utc.txt` under `UiStateStore` enforcing a 24-hour rate limit.
+  * Explicit version skips write the release tag to `update_skipped_tag.txt`. Users can inspect or clear this filter at any time via the About tab in Settings.
+

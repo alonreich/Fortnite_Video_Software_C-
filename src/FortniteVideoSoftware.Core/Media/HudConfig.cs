@@ -1,4 +1,7 @@
-﻿
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
 using FortniteVideoSoftware.Core.Ipc;
@@ -8,7 +11,11 @@ namespace FortniteVideoSoftware.Core.Media;
 public static class HudConfig
 {
     public static readonly string[] RequiredSections = ["crops_1080p", "scales", "overlays", "z_orders"];
-    public static readonly string[] HudKeys = ["loot", "stats", "normal_hp", "boss_hp", "team", "spectating"];
+    public static readonly string[] HudKeys = ["loot", "stats", "normal_hp", "team", "spectating"];
+
+    // NO_BOSS_HP_01 — old documents may contain this key, but it must never become a custom layer.
+    public static bool IsRetiredRole(string key)
+        => string.Equals(key, "boss_hp", StringComparison.OrdinalIgnoreCase);
 
     public const string HudCoordinateSpace = "content_1080x1620";
     public const int HudSchemaVersion = CropConfigDefaults.SchemaVersion;
@@ -25,7 +32,6 @@ public static class HudConfig
     {
         ["loot"] = 10,
         ["normal_hp"] = 20,
-        ["boss_hp"] = 20,
         ["stats"] = 30,
         ["team"] = 40,
         ["spectating"] = 100,
@@ -52,7 +58,7 @@ public static class HudConfig
     public static string? CropDriftType(string key)
     {
         if (string.IsNullOrWhiteSpace(key)) return null;
-        if (key is "stats" or "normal_hp" or "boss_hp" or "team" or "spectating" or "map" or "minimap")
+        if (key is "stats" or "normal_hp" or "team" or "spectating" or "map" or "minimap")
             return "left";
         if (key == "loot")
             return "right";
@@ -73,19 +79,38 @@ public static class HudConfig
         catch { return defaultValue; }
     }
 
+    /// <summary>
+    /// ZEROSCALE_01 — a scale that is not strictly positive is corruption, never intent.
+    ///
+    /// The fallback was declared but only ever returned for a THROWN parse. A value that parsed
+    /// cleanly to zero or to a negative — "0", "0/1", "-1/2", a JSON 0, or anything Frac.FromString
+    /// resolves to zero rather than rejecting — was returned as-is. Sanitize then fed it to
+    /// QuantizeBackendSize, whose Math.Max(factor, ...) floor turned the element into a 32x32
+    /// backend sliver (27x27 in content space), and wrote that back to the file. The element did
+    /// not disappear, which would at least have been legible: it became a permanent postage stamp
+    /// that no amount of resizing in the editor could explain.
+    ///
+    /// "Switched off" is expressed by a zero CROP RECT, never by a zero scale — see NOMASK_01 in
+    /// Validate below — so nothing is lost by refusing one here.
+    /// </summary>
     private static Frac ToScale(JsonNode? value)
     {
         var fallback = Frac.One;
         if (value is null) return fallback;
+
+        Frac parsed;
         try
         {
             if (value.AsValue().TryGetValue(out string? s) && !string.IsNullOrWhiteSpace(s))
-                return Frac.FromString(s);
-            if (value.AsValue().TryGetValue(out double d))
-                return Frac.FromDouble(d);
-            return Frac.FromString(value.ToString());
+                parsed = Frac.FromString(s);
+            else if (value.AsValue().TryGetValue(out double d))
+                parsed = Frac.FromDouble(d);
+            else
+                parsed = Frac.FromString(value.ToString());
         }
         catch { return fallback; }
+
+        return parsed > Frac.Zero ? parsed : fallback;
     }
 
     private static int ReadArrayInt(JsonArray arr, int index, int defaultValue = 0)
@@ -163,6 +188,13 @@ public static class HudConfig
         config ??= new JsonObject();
         JsonObject clean = config.DeepClone().AsObject();
         bool currentSpace = IsContentSpace(clean);
+
+        foreach (string section in RequiredSections.Append(SourceCropsSection))
+        {
+            if (clean[section] is not JsonObject entries) continue;
+            foreach (string key in entries.Select(kvp => kvp.Key).Where(IsRetiredRole).ToList())
+                entries.Remove(key);
+        }
 
         foreach (string section in RequiredSections)
         {
@@ -334,6 +366,196 @@ public static class HudConfig
                 issues.Add($"Invalid crop dimensions for '{kvp.Key}'");
         }
 
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        // CONFIGVAL_01 — the four sections are ONE document, and only one of them was checked.
+        //
+        // Everything above inspects crops_1080p and nothing else. A file could name a layer in
+        // "scales" that "crops_1080p" has never heard of, carry a scale of "0" or "-1/2", hold an
+        // overlay with no x, or list the same element twice under two capitalisations — and
+        // Validate reported the document clean. The fault then surfaced as a wrongly placed or
+        // postage-stamp-sized layer in the finished video, with nothing in the log pointing at the
+        // config file.
+        //
+        // These checks read the RAW document, not `sanitized`. Sanitize exists precisely to paper
+        // over this class of damage — it unions the key sets across all four sections, coerces
+        // every scale to a usable Frac and every overlay to an {x,y} pair — so validating its
+        // output would report every file as clean by construction. Validate's job is to tell the
+        // user what is wrong with the file they have; Sanitize's job is to keep the export running
+        // anyway. They must not be asked the same question.
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        var rawCrops = config["crops_1080p"] as JsonObject;
+        var rawScales = config["scales"] as JsonObject;
+        var rawOverlays = config["overlays"] as JsonObject;
+        var rawZOrders = config["z_orders"] as JsonObject;
+
+        var cropKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (rawCrops != null)
+        {
+            foreach (var kvp in rawCrops) cropKeys.Add(kvp.Key);
+        }
+
+        if (rawScales != null)
+        {
+            foreach (var kvp in rawScales)
+            {
+                if (rawCrops != null && !cropKeys.Contains(kvp.Key))
+                    issues.Add($"Scale for '{kvp.Key}' has no matching crop entry");
+
+                JsonNode? scaleNode = kvp.Value;
+                if (scaleNode is null)
+                {
+                    issues.Add($"Missing scale for '{kvp.Key}'");
+                    continue;
+                }
+
+                // ZEROSCALE_01 — a non-positive scale does not remove the layer, it collapses it to
+                // a 32x32 backend sliver (the Math.Max floor in QuantizeBackendSize), which reads as
+                // a rendering bug rather than as bad data. "Switched off" is a zero CROP RECT.
+                Frac parsedScale;
+                try { parsedScale = ParseScaleStrict(scaleNode); }
+                catch { issues.Add($"Unreadable scale for '{kvp.Key}'"); continue; }
+
+                if (parsedScale <= Frac.Zero)
+                    issues.Add($"Invalid scale for '{kvp.Key}' (must be greater than zero)");
+            }
+        }
+
+        if (rawOverlays != null)
+        {
+            foreach (var kvp in rawOverlays)
+            {
+                if (rawCrops != null && !cropKeys.Contains(kvp.Key))
+                    issues.Add($"Overlay position for '{kvp.Key}' has no matching crop entry");
+
+                if (kvp.Value is not JsonObject ovObj)
+                {
+                    issues.Add($"Invalid overlay position for '{kvp.Key}'");
+                    continue;
+                }
+
+                if (ovObj["x"] is null || ovObj["y"] is null)
+                    issues.Add($"Overlay position for '{kvp.Key}' is missing x or y");
+            }
+        }
+
+        if (rawZOrders != null)
+        {
+            foreach (var kvp in rawZOrders)
+            {
+                if (rawCrops != null && !cropKeys.Contains(kvp.Key))
+                    issues.Add($"Z order for '{kvp.Key}' has no matching crop entry");
+
+                JsonNode? zNode = kvp.Value;
+                if (zNode is null)
+                {
+                    issues.Add($"Missing z order for '{kvp.Key}'");
+                    continue;
+                }
+
+                if (!int.TryParse(zNode.ToString(), System.Globalization.NumberStyles.Integer,
+                                  System.Globalization.CultureInfo.InvariantCulture, out _))
+                {
+                    issues.Add($"Z order for '{kvp.Key}' is not a whole number");
+                }
+            }
+        }
+
+        // The same fault seen from the other side: a layer in crops_1080p with no companion entry
+        // is exported with a default scale, position or z that the user never chose.
+        foreach (string key in cropKeys)
+        {
+            if (rawScales != null && !HasKeyIgnoreCase(rawScales, key))
+                issues.Add($"Missing scale for '{key}'");
+
+            if (rawOverlays != null && !HasKeyIgnoreCase(rawOverlays, key))
+                issues.Add($"Missing overlay position for '{key}'");
+
+            if (rawZOrders != null && !HasKeyIgnoreCase(rawZOrders, key))
+                issues.Add($"Missing z order for '{key}'");
+        }
+
+        // KEYCASE_01 — JsonObject indexes ordinally while every element-key comparison in the Crop
+        // Tool editor is OrdinalIgnoreCase, so "Loot" and "loot" are two entries to the file and one
+        // element to the user. Whichever the reader reaches first wins, and the other is edited
+        // forever without effect.
+        foreach (string section in RequiredSections)
+        {
+            if (config[section] is not JsonObject sectionObj) continue;
+
+            var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in sectionObj)
+            {
+                if (seen.TryGetValue(kvp.Key, out string? first))
+                    issues.Add($"Duplicate key in '{section}': '{first}' and '{kvp.Key}' are the same element");
+                else
+                    seen[kvp.Key] = kvp.Key;
+            }
+        }
+
+        // IDEA_1 — crops_source is optional, but a malformed entry is still a fault: the Crop Tool
+        // reads it in preference to crops_1080p when rehydrating an element for editing, so a bad
+        // rect here is what the user is handed to edit.
+        if (config[SourceCropsSection] is JsonObject sourceSection)
+        {
+            foreach (var kvp in sourceSection)
+            {
+                if (rawCrops != null && !cropKeys.Contains(kvp.Key))
+                {
+                    issues.Add($"Source crop for '{kvp.Key}' has no matching crop entry");
+                    continue;
+                }
+
+                if (kvp.Value is not JsonArray srcRect || srcRect.Count < 4)
+                {
+                    issues.Add($"Invalid source crop data for '{kvp.Key}'");
+                    continue;
+                }
+
+                int sw = ReadArrayInt(srcRect, 0);
+                int sh = ReadArrayInt(srcRect, 1);
+                int sx = ReadArrayInt(srcRect, 2);
+                int sy = ReadArrayInt(srcRect, 3);
+
+                // A zero rect here mirrors the "layer switched off" crop and is not a fault.
+                if (sw == 0 && sh == 0 && sx == 0 && sy == 0) continue;
+
+                if (sw <= 0 || sh <= 0)
+                    issues.Add($"Invalid source crop dimensions for '{kvp.Key}'");
+
+                if (sx < 0 || sy < 0)
+                    issues.Add($"Negative source crop origin for '{kvp.Key}'");
+            }
+        }
+
         return issues;
+    }
+
+    /// <summary>
+    /// CONFIGVAL_01 — parses a scale WITHOUT ToScale's fallback, so Validate can tell "this value is
+    /// bad" from "this value is fine". ToScale deliberately swallows both cases into 1/1 because its
+    /// caller (Sanitize) has to produce something renderable; Validate has to produce the truth.
+    /// </summary>
+    private static Frac ParseScaleStrict(JsonNode value)
+    {
+        if (value.AsValue().TryGetValue(out string? text) && !string.IsNullOrWhiteSpace(text))
+            return Frac.FromString(text);
+
+        if (value.AsValue().TryGetValue(out double d))
+            return Frac.FromDouble(d);
+
+        return Frac.FromString(value.ToString());
+    }
+
+    /// <summary>CONFIGVAL_01 — JsonObject.ContainsKey is ordinal; element keys are not.</summary>
+    private static bool HasKeyIgnoreCase(JsonObject section, string key)
+    {
+        if (section.ContainsKey(key)) return true;
+
+        foreach (var kvp in section)
+        {
+            if (string.Equals(kvp.Key, key, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
     }
 }

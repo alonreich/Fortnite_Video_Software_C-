@@ -4,6 +4,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.LogicalTree;  // QUEUEMENU_01 - GetLogicalDescendants, for wiring the flyout's buttons
+using Avalonia.VisualTree;   // QUEUEMENU_01 - FindAncestorOfType, for aiming the right-click menu
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Ipc;
 using FortniteVideoSoftware.Core.Media;
@@ -76,14 +78,14 @@ public partial class VideoMergerWindow : Window
     private string _ffprobePath = "";
 
     private double _cachedTotalDurationSec = 0;
-    private double _cachedTotalSourceSizeMB = 0;
-    private double _cachedLowestBitrate = 5000;
+    private Services.OutputSizeEstimator? _mergerSizeEstimator;
+    private Services.LatestEstimateWorker<Services.MergerSizeRequest>? _mergerSizeWorker;
+    private Services.MergerSizeRequest? _lastMergerSizeRequest;
+    private Services.EstimateMedia[]? _knownSizeSources;
 
     private bool _musicIsStale = false;
     private string _musicQueueSignature = "";
 
-    private int _probeVersion = 0;
-    private System.Threading.CancellationTokenSource? _probeCts;
 
     private readonly object _videoFingerprintLock = new();
     private readonly Dictionary<string, Task<VideoFileFingerprint?>> _videoFingerprintTasks = new(StringComparer.OrdinalIgnoreCase);
@@ -95,6 +97,7 @@ public partial class VideoMergerWindow : Window
     public VideoMergerWindow()
     {
         InitializeComponent();
+        Title = $"Fortnite Video Software - Merger v{DeploymentLifecycle.GetCurrentVersion()}";
 
         // GRIP_01 — the bottom-right resize corner. These windows are borderless, so the OS
         // draws no resize frame: without this there is nothing to grab and nothing telling the
@@ -139,16 +142,13 @@ public partial class VideoMergerWindow : Window
             videoList.ItemsSource = VideoQueue;
             videoList.SelectionChanged += (s, e) =>
             {
+                // AUTOPREVIEW_01 — highlighting a clip IS the preview gesture. See StartAutoPreview.
                 if (videoList.SelectedItem is string path && _videoHost?.IpcClient != null)
                 {
-                    _ = _videoHost?.IpcClient?.LoadFileAsync(path);
-                    _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "no");
-                    _isTimelineDrawn = false;
-                    this.FindControl<Avalonia.Controls.Canvas>("TimelineScaleCanvas")?.Children.Clear();
+                    StartAutoPreview(path);
                 }
                 UpdateQueueState();
                 UpdatePreviewAvailable();
-                UpdateTrimStatus();
             };
             videoList.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, VideoList_DragOver);
             videoList.AddHandler(Avalonia.Input.DragDrop.DragLeaveEvent, VideoList_DragLeave);
@@ -245,6 +245,7 @@ public partial class VideoMergerWindow : Window
         {
             playPauseBtn.Click += (s, e) =>
             {
+                TakeManualControl();   // AUTOPREVIEW_01
                 if (_videoHost?.IpcClient != null)
                     _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
             };
@@ -255,6 +256,7 @@ public partial class VideoMergerWindow : Window
         {
             fastBackwardBtn.Click += (s, e) =>
             {
+                TakeManualControl();   // AUTOPREVIEW_01
                 if (_videoHost?.IpcClient != null)
                 {
                     double target = Math.Max(0, _videoHost.IpcClient.CurrentTime - 10);
@@ -268,6 +270,7 @@ public partial class VideoMergerWindow : Window
         {
             fastForwardBtn.Click += (s, e) =>
             {
+                TakeManualControl();   // AUTOPREVIEW_01
                 if (_videoHost?.IpcClient != null)
                 {
                     double dur = _videoHost.IpcClient.Duration;
@@ -308,6 +311,15 @@ public partial class VideoMergerWindow : Window
             {
                 var settingsWin = new FortniteVideoSoftware.App.Controls.SettingsWindow();
                 await settingsWin.ShowDialog<bool>(this);
+            };
+        }
+
+        var menuAbout = this.FindControl<MenuItem>("MenuAbout");
+        if (menuAbout != null)
+        {
+            menuAbout.Click += async (s, e) =>
+            {
+                await FortniteVideoSoftware.App.Controls.SettingsWindow.ShowAboutAsync(this);
             };
         }
 
@@ -385,14 +397,36 @@ public partial class VideoMergerWindow : Window
             };
         }
 
+        var flyoutScrim = this.FindControl<Border>("FlyoutScrim");
         var removeBtn = this.FindControl<Button>("RemoveVideoButton");
         if (removeBtn != null)
         {
+            if (removeBtn.Flyout != null)
+            {
+                removeBtn.Flyout.Opened += (s, e) =>
+                {
+                    if (flyoutScrim != null) flyoutScrim.IsVisible = true;
+                };
+                removeBtn.Flyout.Closed += (s, e) =>
+                {
+                    if (flyoutScrim != null) flyoutScrim.IsVisible = false;
+                };
+            }
+
+            if (flyoutScrim != null)
+            {
+                flyoutScrim.PointerPressed += (s, e) =>
+                {
+                    removeBtn.Flyout?.Hide();
+                };
+            }
+
             removeBtn.Click += (s, e) =>
             {
                 if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmVideoMergerRemove)
                 {
                     removeBtn.Flyout?.Hide();
+                    if (flyoutScrim != null) flyoutScrim.IsVisible = false;
                     ExecuteRemoveSelected();
                 }
             };
@@ -404,6 +438,7 @@ public partial class VideoMergerWindow : Window
             confirmRemoveBtn.Click += (s, e) =>
             {
                 removeBtn?.Flyout?.Hide();
+                if (flyoutScrim != null) flyoutScrim.IsVisible = false;
                 ExecuteRemoveSelected();
             };
         }
@@ -417,12 +452,11 @@ public partial class VideoMergerWindow : Window
         var mergeBtn = this.FindControl<Button>("MergeButton");
         if (mergeBtn != null) mergeBtn.Click += async (s, e) => await OnMergeClicked(mergeBtn);
 
-        var setInBtn = this.FindControl<Button>("SetClipInButton");
-        if (setInBtn != null) setInBtn.Click += (s, e) => SetClipIn();
-        var setOutBtn = this.FindControl<Button>("SetClipOutButton");
-        if (setOutBtn != null) setOutBtn.Click += (s, e) => SetClipOut();
-        var clearTrimBtn = this.FindControl<Button>("ClearClipTrimButton");
-        if (clearTrimBtn != null) clearTrimBtn.Click += (s, e) => ClearClipTrim();
+        // MERGERBOTTOM_01 — the SET IN / SET OUT / FULL CLIP wiring is gone with the buttons.
+        // Per-clip trimming has left this screen; BuildClipTrimList still hands MergerWorker one
+        // entry per clip so nothing downstream changed shape, but every entry is now full-length.
+
+        WireQueueContextMenu();
 
         WireUpVolumeSlider();
         AttachTitleBarDrag();
@@ -536,29 +570,9 @@ public partial class VideoMergerWindow : Window
     }
 
     /// <summary>
-    /// ISSUE_010: Debounces quality/size probes to prevent probe storms during rapid changes.
-    /// Cancels any in-flight probe and waits 300ms before launching a new one.
+    /// ISSUE_010: shared worker coalesces rapid edits and reuses cached media details.
     /// </summary>
-    private async void DebouncedQualityProbe()
-    {
-        int version = ++_probeVersion;
-        try { _probeCts?.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _probeCts?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        _probeCts = new System.Threading.CancellationTokenSource();
-        var token = _probeCts.Token;
-
-        try
-        {
-            await Task.Delay(300, token);
-            if (version != _probeVersion || token.IsCancellationRequested) return;
-            await UpdateQualityProbeAsync(token, version);
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            CoreLogger.Fail("VideoMerger", $"Quality probe debounce failed: {ex.Message}");
-        }
-    }
+    private void DebouncedQualityProbe() => UpdateEstimatedSize();
 
     /// <summary>
     /// ISSUE_001: Called when the video queue changes. If music was already set up for
@@ -630,11 +644,8 @@ public partial class VideoMergerWindow : Window
         if (ffBtn != null) ffBtn.IsEnabled = hasVideo;
         if (fbBtn != null) fbBtn.IsEnabled = hasVideo;
 
-        foreach (string name in new[] { "SetClipInButton", "SetClipOutButton", "ClearClipTrimButton" })
-        {
-            var btn = this.FindControl<Button>(name);
-            if (btn != null) btn.IsEnabled = hasVideo;
-        }
+        // MERGERBOTTOM_01 — the SET IN / SET OUT / FULL CLIP enable loop that used to close this
+        // method is gone with the buttons themselves.
     }
 
 
@@ -649,262 +660,74 @@ public partial class VideoMergerWindow : Window
         UpdateEstimatedSize();
     }
 
-    private void UpdateQualityProbe()
-    {
-        int version = ++_probeVersion;
-        _ = UpdateQualityProbeAsync(System.Threading.CancellationToken.None, version);
-    }
+    private void UpdateQualityProbe() => UpdateEstimatedSize();
 
-    /// <summary>
-    /// Captures an immutable copy of VideoQueue on the UI thread. Async probing methods
-    /// iterate over this snapshot instead of the live ObservableCollection so that a
-    /// concurrent drag & drop can't mutate the collection mid-enumeration.
-    /// </summary>
     private List<string> SnapshotVideoQueue() => new(VideoQueue);
 
-    private async Task UpdateQualityProbeAsync(System.Threading.CancellationToken cancellationToken, int probeVersion)
-    {
-        var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
-        var label = this.FindControl<TextBlock>("QualityLabel");
-        if (qs == null || label == null) return;
-
-        int qualityPercent = (qs.Value + 1) * 5;
-
-        var queueSnapshot = SnapshotVideoQueue();
-
-        if (queueSnapshot.Count == 0)
-        {
-            label.Text = qualityPercent >= 100 ? "100% — Lossless" : $"{qualityPercent}%";
-            label.Foreground = Avalonia.Media.Brush.Parse("#c5dcf2");
-            return;
-        }
-
-        if (qualityPercent >= 100)
-        {
-            label.Text = "100% — Lossless";
-            label.Foreground = Avalonia.Media.Brush.Parse("#2ecc71");
-            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion, queueSnapshot);
-            return;
-        }
-
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await ProbeAndUpdateSizeAsync(qualityPercent, cancellationToken, probeVersion, queueSnapshot);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (probeVersion != _probeVersion) return;
-
-            int lowestW = 1920, lowestH = 1080;
-            double lowestBitrate = _cachedLowestBitrate;
-
-            foreach (var path in queueSnapshot)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (probeVersion != _probeVersion) return;
-                if (!System.IO.File.Exists(path)) continue;
-                var prober = new MediaProber(_ffprobePath, path);
-                var (w, h) = await prober.GetResolutionAsync();
-                cancellationToken.ThrowIfCancellationRequested();
-                var data = await prober.ProbeAsync();
-                cancellationToken.ThrowIfCancellationRequested();
-
-                double vbitrate = 0;
-                var streams = data["streams"]?.AsArray();
-                if (streams != null)
-                {
-                    foreach (var stream in streams)
-                    {
-                        if (stream?["codec_type"]?.ToString() == "video")
-                        {
-                            var brNode = stream["bit_rate"];
-                            if (brNode != null && double.TryParse(brNode.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double br))
-                                vbitrate = br / 1000.0;
-                        }
-                    }
-                }
-                if (vbitrate <= 0)
-                {
-                    var fmtBr = data["format"]?["bit_rate"];
-                    if (fmtBr != null && double.TryParse(fmtBr.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double br))
-                        vbitrate = br / 1000.0 * 0.9;
-                }
-
-                if (w * h < lowestW * lowestH || (w * h == lowestW * lowestH && vbitrate < lowestBitrate))
-                {
-                    lowestW = w; lowestH = h; lowestBitrate = vbitrate > 0 ? vbitrate : 5000;
-                }
-            }
-
-            if (lowestBitrate <= 0) lowestBitrate = 5000;
-
-            double effectiveBitrate = lowestBitrate * (qualityPercent / 100.0);
-            double bpp = (effectiveBitrate * 1000.0) / (lowestW * lowestH * 60.0);
-            bpp /= 1.5;
-
-            string desc = "Standard";
-            string color = "White";
-
-            var spectrum = new (double th, string d, string c)[] {
-                (0.02, "Unwatchable", "#e74c3c"),
-                (0.04, "Pixelated", "#e74c3c"),
-                (0.06, "Blurry", "#e74c3c"),
-                (0.1, "Clear", "White"),
-                (0.15, "Sharp", "#2ecc71"),
-                (0.25, "Crisp-Clear", "#2ecc71"),
-                (99.0, "Lifelike", "#2ecc71")
-            };
-
-            for (int i = 0; i < spectrum.Length; i++)
-            {
-                if (bpp < spectrum[i].th)
-                {
-                    desc = spectrum[i].d;
-                    color = spectrum[i].c;
-                    double prev = i > 0 ? spectrum[i - 1].th : 0.0;
-                    double mid = (spectrum[i].th + prev) / 2.0;
-                    if (spectrum[i].th < 90.0)
-                        desc += bpp < mid ? "-" : "+";
-                    break;
-                }
-            }
-
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                if (probeVersion != _probeVersion) return;
-                var lbl = this.FindControl<TextBlock>("QualityLabel");
-                if (lbl != null)
-                {
-                    lbl.Text = $"{qualityPercent}% — {desc}";
-                    lbl.Foreground = Avalonia.Media.Brush.Parse(color);
-                }
-            });
-        }
-        catch (OperationCanceledException) { }
-        catch
-        {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                if (probeVersion != _probeVersion) return;
-                var lbl = this.FindControl<TextBlock>("QualityLabel");
-                if (lbl != null)
-                {
-                    lbl.Text = $"{qualityPercent}%";
-                    lbl.Foreground = Avalonia.Media.Brush.Parse("#c5dcf2");
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Probes all videos for duration, file size, and bitrate.
-    /// Caches results for quality and size estimation.
-    /// <paramref name="queueSnapshot"/> is an immutable snapshot of VideoQueue captured
-    /// on the UI thread to avoid concurrent-modification exceptions during async probing.
-    /// </summary>
-    private async Task ProbeAndUpdateSizeAsync(int qualityPercent, System.Threading.CancellationToken cancellationToken, int probeVersion, List<string> queueSnapshot)
-    {
-        double totalDurationSec = 0;
-        double totalSourceSizeBytes = 0;
-        double lowestBitrate = double.MaxValue;
-
-        foreach (var path in queueSnapshot)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (probeVersion != _probeVersion) return;
-            if (!System.IO.File.Exists(path)) continue;
-            try
-            {
-                var fi = new FileInfo(path);
-                totalSourceSizeBytes += fi.Length;
-
-                var prober = new MediaProber(_ffprobePath, path);
-                double dur = await prober.GetDurationAsync();
-                cancellationToken.ThrowIfCancellationRequested();
-                totalDurationSec += dur;
-
-                var data = await prober.ProbeAsync();
-                cancellationToken.ThrowIfCancellationRequested();
-                double vbitrate = 0;
-                var streams = data["streams"]?.AsArray();
-                if (streams != null)
-                {
-                    foreach (var stream in streams)
-                    {
-                        if (stream?["codec_type"]?.ToString() == "video")
-                        {
-                            var brNode = stream["bit_rate"];
-                            if (brNode != null && double.TryParse(brNode.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double br))
-                                vbitrate = br / 1000.0;
-                        }
-                    }
-                }
-                if (vbitrate > 0 && vbitrate < lowestBitrate) lowestBitrate = vbitrate;
-            }
-            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        }
-
-        if (lowestBitrate == double.MaxValue || lowestBitrate <= 0) lowestBitrate = 5000;
-        if (probeVersion != _probeVersion) return;
-
-        _cachedTotalDurationSec = totalDurationSec;
-        _cachedTotalSourceSizeMB = totalSourceSizeBytes / (1024.0 * 1024.0);
-        _cachedLowestBitrate = lowestBitrate;
-
-        UpdateEstimatedSize();
-    }
-
-    /// <summary>
-    /// Updates the estimated output size text based on quality, speed, and source files.
-    /// Called on every video add/remove, quality change, speed change, or music add.
-    /// </summary>
+    // SIZEESTIMATE_01 / MERGERESTIMATE_01 — one shared background estimator, with a bounded
+    // metadata cache. Quality and speed changes reuse the probes instead of launching new ones.
     private void UpdateEstimatedSize()
     {
-        var sizeLabel = this.FindControl<TextBlock>("EstimatedSizeText");
-        if (sizeLabel == null) return;
-
-        if (VideoQueue.Count == 0 || _cachedTotalSourceSizeMB <= 0)
+        _mergerSizeEstimator ??= new Services.OutputSizeEstimator(() => _ffprobePath);
+        _mergerSizeWorker ??= new Services.LatestEstimateWorker<Services.MergerSizeRequest>(
+            _mergerSizeEstimator.EstimateMergerAsync, PaintSizeEstimate,
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action), Services.OutputSizeEstimator.QuickMergerEstimate);
+        int quality = (this.FindControl<Controls.SpinningWheelSlider>("QualitySlider")?.Value + 1) * 5 ?? 100;
+        var request = new Services.MergerSizeRequest(VideoQueue.ToArray(), _baseSpeed, quality, _knownSizeSources);
+        if (_lastMergerSizeRequest is { } previous && previous.Speed == request.Speed &&
+            previous.Quality == request.Quality && previous.Paths.SequenceEqual(request.Paths)) return;
+        bool queueChanged = _lastMergerSizeRequest == null || !_lastMergerSizeRequest.Paths.SequenceEqual(request.Paths);
+        _lastMergerSizeRequest = request;
+        if (queueChanged)
         {
-            sizeLabel.Text = "";
-            return;
+            var size = this.FindControl<TextBlock>("EstimatedSizeText");
+            if (size != null) size.Text = request.Paths.Length == 0 ? "—" : "Calculating…";
+            var length = this.FindControl<TextBlock>("EstimatedLengthText");
+            if (length != null) length.Text = "—";
+            _cachedTotalDurationSec = 0;
         }
+        _mergerSizeWorker.Request(request);
+    }
 
-        var qs = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider");
-        int qualityPercent = qs != null ? (qs.Value + 1) * 5 : 100;
-
-        double estimatedMB = _cachedTotalSourceSizeMB * (qualityPercent / 100.0);
-
-        if (_baseSpeed > 0.01 && _cachedTotalDurationSec > 0)
+    private void PaintSizeEstimate(Services.OutputSizeEstimate estimate)
+    {
+        var size = this.FindControl<TextBlock>("EstimatedSizeText");
+        if (size != null)
         {
-            double outputDurationSec = _cachedTotalDurationSec / _baseSpeed;
-            double durationRatio = outputDurationSec / _cachedTotalDurationSec;
-            estimatedMB *= durationRatio;
+            size.Text = estimate.Text;
+            ToolTip.SetTip(size, "Estimated size of the finished video, including sound. The actual file size may differ.");
         }
+        var length = this.FindControl<TextBlock>("EstimatedLengthText");
+        if (length != null) length.Text = estimate.DurationSeconds > 0 ? FormatDuration(estimate.DurationSeconds) : "—";
+        _cachedTotalDurationSec = estimate.Sources?.Sum(s => s.Duration) ?? 0;
+        _knownSizeSources = estimate.Sources?.ToArray();
+        _clipDurations.Clear();
+        if (estimate.Sources != null)
+            foreach (var media in estimate.Sources) _clipDurations[media.Path] = media.Duration;
 
-        if (_musicResult != null)
+        int quality = _lastMergerSizeRequest?.Quality ?? 100;
+        var label = this.FindControl<TextBlock>("QualityLabel");
+        if (label == null) return;
+        if (quality >= 100) { label.Text = "100% — Lossless"; return; }
+        if (!estimate.Megabytes.HasValue) { label.Text = $"{quality}%"; return; }
+        double bpp = estimate.VideoKbps * 1000 / (1920.0 * 1080 * 60 * 1.5);
+        string description = bpp switch
         {
-            var musicPaths = _musicResult.MusicFilePaths.Count > 0
-                ? _musicResult.MusicFilePaths
-                : new List<string> { _musicResult.MusicFilePath };
+            < 0.02 => "Unwatchable", < 0.04 => "Pixelated", < 0.06 => "Blurry",
+            < 0.1 => "Clear", < 0.15 => "Sharp", < 0.25 => "Crisp-Clear", _ => "Lifelike"
+        };
+        label.Text = $"{quality}% — {description}";
+    }
 
-            foreach (var musicPath in musicPaths)
-            {
-                if (string.IsNullOrWhiteSpace(musicPath) || !File.Exists(musicPath))
-                    continue;
+    /// <summary>MERGERESTIMATE_01 — total duration in h:mm:ss, or m:ss below one hour.</summary>
+    private static string FormatDuration(double seconds)
+    {
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds <= 0) return "\u2014";
 
-                try
-                {
-                    var musicFi = new FileInfo(musicPath);
-                    estimatedMB += musicFi.Length / (1024.0 * 1024.0);
-                }
-                catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-            }
-        }
-
-        string sizeText = estimatedMB >= 1024
-            ? $"Est. Output: ~{estimatedMB / 1024.0:F1} GB"
-            : $"Est. Output: ~{estimatedMB:F0} MB";
-
-        sizeLabel.Text = sizeText;
+        var ts = TimeSpan.FromSeconds(seconds);
+        return ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
+            : $"{ts.Minutes}:{ts.Seconds:00}";
     }
 
     private void UpdateSpeedLabel()
@@ -958,7 +781,13 @@ public partial class VideoMergerWindow : Window
             };
 
             var speakerHitBox = this.FindControl<Button>("SpeakerHitBox");
-            if (speakerHitBox != null) speakerHitBox.Click += (s, e) => ToggleMute();
+            if (speakerHitBox != null) speakerHitBox.Click += (s, e) => { TakeManualControl(); ToggleMute(); };   // AUTOPREVIEW_01
+
+            // AUTOPREVIEW_01 — reaching for the volume IS asking for sound. Hooked on
+            // PointerPressed rather than on the value change, because the value also moves when the
+            // slider is seeded at startup and when the Main App broadcasts a volume change from
+            // another window; neither of those is this user, in this window, wanting audio now.
+            volumeSlider.PointerPressed += (s, e) => TakeManualControl();
 
             volumeSlider.PointerReleased += (s, e) =>
             {
@@ -1669,22 +1498,218 @@ public partial class VideoMergerWindow : Window
         var fEl = Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
         if (fEl is Avalonia.Controls.Button sb && sb.Name == "SpeakerHitBox" && e.Key == Avalonia.Input.Key.Space) return;
 
+        // AUTOPREVIEW_01 — the keyboard transport is the same gesture as the buttons, so it takes
+        // manual control the same way. Up/Down below do NOT: they reorder the queue, which is
+        // browsing the list rather than watching the video.
         if (e.Key == Avalonia.Input.Key.Space)
         {
+            TakeManualControl();
             if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
             e.Handled = true;
         }
-        else if (e.Key == Avalonia.Input.Key.Left) { _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5); e.Handled = true; }
-        else if (e.Key == Avalonia.Input.Key.Right) { _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5); e.Handled = true; }
+        else if (e.Key == Avalonia.Input.Key.Left) { TakeManualControl(); _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5); e.Handled = true; }
+        else if (e.Key == Avalonia.Input.Key.Right) { TakeManualControl(); _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5); e.Handled = true; }
         else if (e.Key == Avalonia.Input.Key.Up) { MoveVideo(-1); e.Handled = true; }
         else if (e.Key == Avalonia.Input.Key.Down) { MoveVideo(1); e.Handled = true; }
     }
 
     private void InitializeComponent() { AvaloniaXamlLoader.Load(this); }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // AUTOPREVIEW_01 — BROWSING THE QUEUE PLAYS IT, SILENTLY, FROM THE MIDDLE, AND KEEPS GOING.
+    //
+    // THE PROBLEM. Selecting a clip loaded it and pressed play — at full volume, from frame zero,
+    // and it stopped dead at the end of that one clip. Frame zero of a gameplay capture is a
+    // loading screen or a black fade, so the one frame the preview showed was the one frame that
+    // says nothing about the clip. And clicking down a queue of twelve meant twelve bursts of
+    // full-volume game audio, each one starting over the top of the last.
+    //
+    // THE BEHAVIOUR NOW, and the reasoning for each half of it:
+    //
+    //   SILENT WHILE BROWSING. Highlighting a clip plays it muted. Browsing is a LOOKING gesture —
+    //   the user is answering "is this the right clip", which is a question about the picture. The
+    //   moment they touch a transport control they have stopped browsing and started WATCHING, so
+    //   the sound comes on and stays on for the rest of the session (_previewMuted is sticky; see
+    //   TakeManualControl). The audio controls count as the same intent: someone reaching for the
+    //   volume slider or the speaker while muted is asking for sound, and leaving them muted after
+    //   they drag it is a bug, not a feature.
+    //
+    //   FROM THE MIDDLE. The midpoint of a clip is the part that is actually representative of it:
+    //   no intro, no fade, no end card. Where the duration is already known the seek is handed to
+    //   mpv as loadfile's start position, so playback OPENS at the middle with no visible jump;
+    //   where it is not known yet the tick below performs it as soon as mpv reports a duration, and
+    //   caches that duration so the same clip opens instantly the next time.
+    //
+    //   THROUGH TO THE END OF THE LIST. On EOF the selection advances one row, which re-enters this
+    //   same path, so the queue plays itself down to the last clip in the order shown and then
+    //   stops. That order is the merge order, so this doubles as a rehearsal of the finished video.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Sticky. Starts muted; the first deliberate transport or audio action clears it for good.
+    /// </summary>
+    private bool _previewMuted = true;
+
+    /// <summary>
+    /// The clip whose midpoint seek has not landed yet, or null. Doubles as the "a load is still in
+    /// flight" flag that stops <see cref="PlaybackTimer_Tick"/> mistaking a stale EOF for the end of
+    /// the new clip.
+    /// </summary>
+    private string? _pendingMiddleSeekPath;
+
+    /// <summary>
+    /// Tick budget for the midpoint seek. mpv reports Duration within a tick or two of opening a
+    /// local file; if it has not after this many, the clip is unusual (a stream, a broken index)
+    /// and playing it from the start is a better outcome than never playing it.
+    /// </summary>
+    private int _middleSeekTicksLeft;
+
+    private const int MiddleSeekTickBudget = 40;   // 40 x 100ms = 4s
+
+    /// <summary>True while an auto-preview is running and EOF should advance to the next clip.</summary>
+    private bool _autoAdvanceArmed;
+
+    /// <summary>
+    /// Ticks to ignore EOF for after a load. mpv's IsEof belongs to whatever file it last finished,
+    /// and it stays true across the gap between loadfile being sent and the new file actually being
+    /// open — so without this, selecting a clip while the previous one had ended would read that
+    /// stale EOF on the very next tick and skip straight past the clip the user just clicked.
+    /// Covers both load paths: the cached-duration one clears the pending-seek flag immediately and
+    /// would otherwise have no guard at all.
+    /// </summary>
+    private int _autoAdvanceGraceTicks;
+
+    private const int AutoAdvanceGraceTickCount = 8;   // 8 x 100ms = 0.8s
+
+    /// <summary>
+    /// Per-clip durations in seconds, filled by <see cref="PaintSizeEstimate"/> (which already
+    /// measures every clip for the size estimate) and topped up from mpv whenever a clip plays. It
+    /// exists so the midpoint seek can usually be handed to loadfile directly instead of being
+    /// performed after the fact — that is the difference between opening at the middle and visibly
+    /// jumping there half a second in.
+    /// </summary>
+    private readonly Dictionary<string, double> _clipDurations = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// AUTOPREVIEW_01 — loads a clip and starts it playing, muted (unless the user has taken
+    /// control) and from its midpoint.
+    /// </summary>
+    private void StartAutoPreview(string path)
+    {
+        var ipc = _videoHost?.IpcClient;
+        if (ipc == null || string.IsNullOrWhiteSpace(path)) return;
+
+        _isTimelineDrawn = false;
+        this.FindControl<Avalonia.Controls.Canvas>("TimelineScaleCanvas")?.Children.Clear();
+
+        // mute is a PLAYER property, not a per-file one, so it survives loadfile. Set anyway on
+        // every load: it is idempotent, and it is the one line that must never be missed.
+        _ = ipc.SetPropertyAsync("mute", _previewMuted ? "yes" : "no");
+
+        double? startAt = null;
+        if (_clipDurations.TryGetValue(path, out double known) && known > 1.0)
+        {
+            startAt = known / 2.0;
+            _pendingMiddleSeekPath = null;          // handled by loadfile; nothing left to do
+            _middleSeekTicksLeft = 0;
+        }
+        else
+        {
+            // Duration unknown. Let it open at the start and have the tick move it as soon as mpv
+            // knows how long the file is — see the midpoint block in PlaybackTimer_Tick.
+            _pendingMiddleSeekPath = path;
+            _middleSeekTicksLeft = MiddleSeekTickBudget;
+        }
+
+        _autoAdvanceArmed = true;
+        _autoAdvanceGraceTicks = AutoAdvanceGraceTickCount;
+        _ = ipc.LoadFileAsync(path, startAt);
+        _ = ipc.SetPropertyAsync("pause", "no");
+    }
+
+    /// <summary>
+    /// AUTOPREVIEW_01 — the user has stopped browsing and started watching, so the sound comes on.
+    ///
+    /// Called from every transport control and every audio control. NOT called from the list
+    /// selection, which is the browsing gesture this whole mode exists to serve, and not from a
+    /// timeline scrub either — hunting for a frame is still looking, not watching.
+    ///
+    /// Sticky by design: having asked for sound once, the user should not have to ask again on the
+    /// next clip they click.
+    /// </summary>
+    private void TakeManualControl()
+    {
+        if (!_previewMuted) return;
+
+        _previewMuted = false;
+        _ = _videoHost?.IpcClient?.SetPropertyAsync("mute", "no");
+        RuntimeLog.Info("MERGER", "User took manual control of the preview — sound on for the rest of the session.");
+        Controls.FloatingNotice.Show(this, "Sound on.", Controls.NoticeKind.Info);
+    }
+
+    /// <summary>
+    /// AUTOPREVIEW_01 — moves the highlight to the next clip in the list when the current one ends.
+    ///
+    /// Moves the SELECTION rather than loading the next path directly, for two reasons: the list
+    /// then shows what is playing (otherwise the highlight and the picture disagree, which is worse
+    /// than not advancing at all), and the selection handler is already the one road into
+    /// <see cref="StartAutoPreview"/>, so there is no second copy of the open-a-clip logic to drift.
+    ///
+    /// Stops at the end of the list. It does not wrap: a queue that loops forever is a queue the
+    /// user has to actively stop, and there is no obvious control here for stopping it.
+    /// </summary>
+    private void AdvanceToNextClip()
+    {
+        _autoAdvanceArmed = false;   // re-armed by StartAutoPreview if there is a next clip
+
+        var list = this.FindControl<ListBox>("VideoList");
+        if (list == null) return;
+
+        int index = list.SelectedIndex;
+        if (index < 0 || index >= VideoQueue.Count - 1)
+        {
+            RuntimeLog.Info("MERGER", "Auto-preview reached the last clip in the queue.");
+            return;
+        }
+
+        RuntimeLog.Debug("MERGER", $"Auto-preview advancing to clip {index + 2} of {VideoQueue.Count}.");
+        list.SelectedIndex = index + 1;   // fires SelectionChanged -> StartAutoPreview
+    }
+
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
+
+        // ── AUTOPREVIEW_01, part 1: the midpoint seek for a clip whose length was not known when
+        //    it was opened. Runs once, as soon as mpv reports a duration, then caches it so this
+        //    clip is opened at its middle directly next time.
+        if (_pendingMiddleSeekPath != null)
+        {
+            double knownDuration = _videoHost.IpcClient.Duration;
+            if (knownDuration > 1.0)
+            {
+                _clipDurations[_pendingMiddleSeekPath] = knownDuration;
+                _pendingMiddleSeekPath = null;
+                _middleSeekTicksLeft = 0;
+                _ = SeekInternal(knownDuration / 2.0);
+            }
+            else if (--_middleSeekTicksLeft <= 0)
+            {
+                RuntimeLog.Debug("MERGER", $"No duration from mpv for '{System.IO.Path.GetFileName(_pendingMiddleSeekPath)}'; leaving the preview at the start.");
+                _pendingMiddleSeekPath = null;
+            }
+        }
+
+        // ── AUTOPREVIEW_01, part 2: end of clip -> next clip.
+        //    Gated on the midpoint seek having finished, because mpv can still be reporting the
+        //    PREVIOUS file's EOF while the new one is opening, and acting on that would skip a clip
+        //    the instant it was selected.
+        if (_autoAdvanceGraceTicks > 0) _autoAdvanceGraceTicks--;
+
+        if (_autoAdvanceArmed && _autoAdvanceGraceTicks == 0 && _pendingMiddleSeekPath == null && _videoHost.IpcClient.IsEof)
+        {
+            AdvanceToNextClip();
+        }
 
         var playIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PlayIcon");
         var pauseIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("PauseIcon");
@@ -1850,9 +1875,12 @@ public partial class VideoMergerWindow : Window
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        _mergerSizeWorker?.Dispose();
         try { _playbackTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         if (_isSafeToClose) { base.OnClosing(e); return; }
         e.Cancel = true;
+        if (_mergerSizeWorker != null)
+            await Task.WhenAny(_mergerSizeWorker.Completion, Task.Delay(1000));
         try { await WindowBoundsHelper.SaveBoundsAsync(this, "VideoMergerBounds"); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         this.Hide();
         try
@@ -1870,98 +1898,98 @@ public partial class VideoMergerWindow : Window
     }
 
 
-    private readonly Dictionary<string, FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim> _clipTrims =
-        new(StringComparer.OrdinalIgnoreCase);
-
+    /// <summary>
+    /// MERGERBOTTOM_01 — one trim entry per clip, all of them full-length.
+    ///
+    /// WHAT WAS HERE. A <c>_clipTrims</c> dictionary plus SetClipIn / SetClipOut / ClearClipTrim /
+    /// UpdateTrimStatus / SetTrimStatus / SelectedQueuePath, driven by the SET IN, SET OUT and FULL
+    /// CLIP buttons and reported in a ClipTrimStatusText line. All of that UI is gone from this
+    /// screen, so the dictionary could only ever have been empty and every one of those methods was
+    /// unreachable code writing to a TextBlock that no longer exists.
+    ///
+    /// <see cref="MergerWorker"/> still takes a trim list and still expects exactly one entry per
+    /// queued clip — its indexing is positional — so the list itself stays. A
+    /// <c>ClipTrim(0, 0)</c> means "use the whole clip", which is what every clip now does.
+    /// If per-clip trimming ever returns, it returns as a real editor on the preview, not as three
+    /// buttons that silently mutate a dictionary the user cannot see.
+    /// </summary>
     private List<FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim> BuildClipTrimList()
     {
         var list = new List<FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim>(VideoQueue.Count);
-        foreach (string path in VideoQueue)
+        for (int i = 0; i < VideoQueue.Count; i++)
         {
-            list.Add(_clipTrims.TryGetValue(path, out var t)
-                ? t
-                : new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(0, 0));
+            list.Add(new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(0, 0));
         }
         return list;
     }
 
-    private string? SelectedQueuePath()
-        => this.FindControl<ListBox>("VideoList")?.SelectedItem as string;
-
-    private void SetClipIn()
+    /// <summary>
+    /// QUEUEMENU_01 — wires the three buttons inside the right-click menu.
+    ///
+    /// NOT via <c>this.FindControl</c>, and that is the whole point of this method existing. A
+    /// Flyout's content is constructed when the AXAML loads but is never attached to the window's
+    /// VISUAL tree until the flyout is first opened, and whether its names reach the window's
+    /// NameScope is an implementation detail of the XAML loader rather than a contract. A
+    /// FindControl that silently returns null gives three menu items that look perfectly normal and
+    /// do nothing at all — the exact failure mode this codebase has been bitten by before (see
+    /// ISSUE_09's dead `TextBox.error` class in AvaloniaApp.axaml).
+    ///
+    /// Walking the flyout content's own LOGICAL tree needs no name scope and cannot be defeated by
+    /// virtualisation: the Border, its StackPanel and the Buttons are real objects from the moment
+    /// the AXAML is parsed. Matching on Button.Name keeps the AXAML the single place the names are
+    /// written down.
+    /// </summary>
+    private void WireQueueContextMenu()
     {
-        string? path = SelectedQueuePath();
-        var ipc = _videoHost?.IpcClient;
-        if (path == null || ipc == null) return;
+        var list = this.FindControl<ListBox>("VideoList");
+        if (list?.ContextFlyout is not Flyout flyout || flyout.Content is not Control content) return;
 
-        double at = Math.Max(0, ipc.CurrentTime);
-        _clipTrims.TryGetValue(path, out var existing);
-        double end = existing.EndSec;
-
-        if (end > 0 && at >= end) end = 0;
-
-        _clipTrims[path] = new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(at, end);
-        RuntimeLog.Info("Merger", $"Clip IN set to {at:F2}s for {System.IO.Path.GetFileName(path)}.");
-        UpdateTrimStatus();
-    }
-
-    private void SetClipOut()
-    {
-        string? path = SelectedQueuePath();
-        var ipc = _videoHost?.IpcClient;
-        if (path == null || ipc == null) return;
-
-        double at = Math.Max(0, ipc.CurrentTime);
-        _clipTrims.TryGetValue(path, out var existing);
-        double start = existing.StartSec;
-
-        if (at <= start)
+        int wired = 0;
+        foreach (Button button in content.GetLogicalDescendants().OfType<Button>())
         {
-            SetTrimStatus("END must come after START.");
-            return;
+            switch (button.Name)
+            {
+                case "CtxMoveUpButton":
+                    button.Click += (s, e) => { CloseQueueContextFlyout(); MoveVideo(-1); };
+                    wired++;
+                    break;
+                case "CtxMoveDownButton":
+                    button.Click += (s, e) => { CloseQueueContextFlyout(); MoveVideo(1); };
+                    wired++;
+                    break;
+                case "CtxRemoveButton":
+                    button.Click += (s, e) => { CloseQueueContextFlyout(); ExecuteRemoveSelected(); };
+                    wired++;
+                    break;
+            }
         }
 
-        _clipTrims[path] = new FortniteVideoSoftware.Core.Media.MergerWorker.ClipTrim(start, at);
-        RuntimeLog.Info("Merger", $"Clip OUT set to {at:F2}s for {System.IO.Path.GetFileName(path)}.");
-        UpdateTrimStatus();
-    }
-
-    private void ClearClipTrim()
-    {
-        string? path = SelectedQueuePath();
-        if (path == null) return;
-
-        if (_clipTrims.Remove(path))
-            RuntimeLog.Info("Merger", $"Clip trim cleared for {System.IO.Path.GetFileName(path)}.");
-
-        UpdateTrimStatus();
-    }
-
-    /// <summary>Refreshes the "IN 0:03 → OUT 0:12" readout for the selected clip.</summary>
-    private void UpdateTrimStatus()
-    {
-        string? path = SelectedQueuePath();
-        if (path == null) { SetTrimStatus(string.Empty); return; }
-
-        if (!_clipTrims.TryGetValue(path, out var t) || (t.StartSec <= 0 && t.EndSec <= 0))
+        if (wired != 3)
         {
-            SetTrimStatus("Full clip");
-            return;
+            // Loud, because a half-wired context menu is invisible until a user right-clicks and
+            // nothing happens. If this ever fires, the AXAML and this switch have drifted apart.
+            RuntimeLog.Fail("Merger", $"Queue context menu wired {wired}/3 actions — check the button names in VideoMergerWindow.axaml.");
         }
-
-        string inLabel = TimeSpan.FromSeconds(t.StartSec).ToString(@"m\:ss");
-        string outLabel = t.EndSec > 0 ? TimeSpan.FromSeconds(t.EndSec).ToString(@"m\:ss") : "end";
-        SetTrimStatus($"IN {inLabel}  →  OUT {outLabel}");
     }
 
-    private void SetTrimStatus(string text)
+    /// <summary>
+    /// QUEUEMENU_01 — closes the right-click menu after one of its buttons has been pressed.
+    ///
+    /// A <see cref="Flyout"/> hosting hand-built content (rather than a MenuFlyout hosting
+    /// MenuItems) has no idea that a click on one of its buttons means "the user is finished", so
+    /// without this the menu stays open over the list it has just reordered — which looks exactly
+    /// like the click did nothing. Walks up from the button to the flyout's popup host rather than
+    /// holding a field, because the flyout is created by the AXAML and belongs to the ListBox.
+    /// </summary>
+    private void CloseQueueContextFlyout()
     {
-        var tb = this.FindControl<TextBlock>("ClipTrimStatusText");
-        if (tb != null) tb.Text = text;
+        var list = this.FindControl<ListBox>("VideoList");
+        list?.ContextFlyout?.Hide();
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        _mergerSizeWorker?.Dispose();
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         base.OnClosed(e);
@@ -1973,7 +2001,34 @@ public partial class VideoMergerWindow : Window
     private void VideoList_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
         var point = e.GetCurrentPoint(sender as Avalonia.Controls.Control);
-        if (point.Properties.IsLeftButtonPressed) _videoDragStartPoint = point.Position;
+        if (point.Properties.IsLeftButtonPressed) { _videoDragStartPoint = point.Position; return; }
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // QUEUEMENU_01 — A RIGHT-CLICK HAS TO AIM AT SOMETHING.
+        //
+        // Avalonia does NOT move the selection on a right-press: ContextFlyout opens on the
+        // ContextRequested event, which fires on RELEASE, and by then the selection is still
+        // whatever the user last left-clicked. Without this, right-clicking clip 5 would open a
+        // menu whose "Remove from list" removed clip 2 — the classic context-menu-aimed-at-the-
+        // wrong-row bug, and a destructive one here.
+        //
+        // PointerPressed runs BEFORE ContextRequested, so setting the selection here means the menu
+        // is already pointing at the right row by the time it appears. A right-press INSIDE an
+        // existing multi-selection leaves that selection alone, because "remove these five" is a
+        // real intent and stamping it down to one row would quietly destroy it.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        if (!point.Properties.IsRightButtonPressed) return;
+
+        var list = this.FindControl<ListBox>("VideoList");
+        if (list == null) return;
+
+        var item = (e.Source as Avalonia.Controls.Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
+        if (item?.DataContext is not string clicked) return;
+
+        if (list.SelectedItems != null && list.SelectedItems.Contains(clicked)) return;
+
+        list.SelectedItems?.Clear();
+        list.SelectedItem = clicked;
     }
 
     private async void VideoList_PointerMoved(object? sender, Avalonia.Input.PointerEventArgs e)

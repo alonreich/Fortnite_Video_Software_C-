@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -60,16 +60,18 @@
                                     <Button Grid.Column="2" Name="DownloadSongsBtn" Content="⬇ Download More Songs" Classes="Success" VerticalAlignment="Center" Margin="0,0,8,0" Cursor="Hand" ToolTip.Tip="Download background music tracks from the official library into the current folder" AutomationProperties.Name="Download more songs"/>
                                     <Button Grid.Column="3" Name="ChangeFolderBtn" Content="Change Folder" Classes="Primary" VerticalAlignment="Center" Cursor="Hand" ToolTip.Tip="Choose a different folder to browse for music files"/>
                                 </Grid>
-                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,10">
-                                    <TextBox Grid.Column="0" Name="MusicSearchBox" Watermark="Search songs" Text="{Binding $parent[local:MusicWizardWindow].MusicSearchText, Mode=TwoWay}" MinHeight="32" FontSize="{DynamicResource AppFontSize11}" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Name="ClearSearchBtn" Content="X" Classes="Secondary" MinWidth="36" Margin="8,0,0,0" HorizontalContentAlignment="Center" ToolTip.Tip="Clear search" AutomationProperties.Name="Clear Search"/>
-                                    <ComboBox Grid.Column="2" Name="MusicSortComboBox" MinWidth="150" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center" ToolTip.Tip="Change how the music files are sorted.">
+                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                                    <Grid Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBox Name="MusicSearchBox" Watermark="Search songs" Text="{Binding $parent[local:MusicWizardWindow].MusicSearchText, Mode=TwoWay}" MinHeight="{DynamicResource AppButtonMinHeight}" FontSize="{DynamicResource AppFontSize12}" VerticalContentAlignment="Center" Padding="10,0,38,0"/>
+                                        <Button Name="ClearSearchBtn" Content="✕" Classes="Secondary" Width="30" Height="30" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Clear search and show all songs" AutomationProperties.Name="Clear search" Cursor="Hand" IsVisible="False" Focusable="False"/>
+                                    </Grid>
+                                    <ComboBox Grid.Column="1" Name="MusicSortComboBox" MinWidth="150" MinHeight="{DynamicResource AppButtonMinHeight}" Margin="8,0,0,0" SelectedIndex="0" VerticalAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Change how the music files are sorted.">
                                         <ComboBoxItem Content="Name"/>
                                         <ComboBoxItem Content="Newest"/>
                                         <ComboBoxItem Content="Shortest"/>
                                         <ComboBoxItem Content="Longest"/>
                                     </ComboBox>
-                                    <TextBlock Grid.Column="3" Name="MusicResultCountText" Text="0 songs" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    <TextBlock Grid.Column="2" Name="MusicResultCountText" Text="0 songs" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </Grid>
                                 <!-- ══════════════════════════════════════════════════════════════
                                      LIST_03 — COLUMN HEADINGS.
@@ -730,7 +732,7 @@
                             </Button.Flyout>
                         </Button>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
-                            <Button Name="SkipBackBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds">
+                            <Button Name="SkipBackBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip back 30 seconds" AutomationProperties.Name="Skip back 30 seconds">
                                 <TextBlock Text="-30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />
                             </Button>
                             <!-- ISSUE_08: transport Play is Primary (blue) so it reads distinctly from the
@@ -741,7 +743,7 @@
                                     <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
                                 </Panel>
                             </Button>
-                            <Button Name="SkipForwardBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds">
+                            <Button Name="SkipForwardBtn" Classes="Secondary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 30 seconds" AutomationProperties.Name="Skip forward 30 seconds">
                                 <TextBlock Text="+30s" FontWeight="Bold" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}" />
                             </Button>
                         </StackPanel>

@@ -1,4 +1,4 @@
-
+﻿
 using System.Numerics;
 using System.Text.RegularExpressions;
 
@@ -399,26 +399,32 @@ public static class CoordinateMath
         var maxY = Max(minY, new Frac(CoordinateConstants.PortraitH - paddingBottomUi, 1) - fh);
         var maxX = Max(Frac.Zero, new Frac(CoordinateConstants.PortraitW, 1) - fw);
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // RATIOLOCK_01 — THE 27-PIXEL POSITION GRID IS GONE.
+        //
+        // This used to snap X and Y onto a grid of BackendScale.Den (= 27) content pixels, for the
+        // same reason the size quantizer used 32: a content coordinate that is a multiple of 27
+        // converts to backend space (x * 32/27) as an exact integer.
+        //
+        // It is the single largest contributor to the composer feeling broken. Dragging an element
+        // moved it in 27-pixel lurches, and it applied whether or not the SNAP checkbox was ticked
+        // — so the control that was supposed to turn snapping off could not, because this snap was
+        // underneath it and invisible. Every resize went through here too (the anchor is clamped),
+        // so it staircased the resize as well.
+        //
+        // And it was never needed: MobileFilterBuilder already rounds the backend position it
+        // computes from these values (ScaleRound on lxRaw/lyRaw), so a non-multiple costs at most
+        // half a backend pixel. What is left here is the clamp that actually matters — the element
+        // must stay inside the 1080-wide frame and inside the content band between the two 150px
+        // text strips.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         int rawX = ScaleRound(Max(Frac.Zero, Min(fx, maxX)));
         int rawY = ScaleRound(Max(minY, Min(fy, maxY)));
 
-        long den = CoordinateConstants.BackendScale.Den;
-        int snappedX = ScaleRound(new Frac(rawX, den)) * (int)den;
-        int snappedY = ScaleRound(new Frac(rawY - paddingTopUi, den)) * (int)den + paddingTopUi;
+        int limitX = Math.Max(0, CoordinateConstants.PortraitW - ScaleRound(fw));
+        int limitY = Math.Max(paddingTopUi, CoordinateConstants.PortraitH - paddingBottomUi - ScaleRound(fh));
 
-        int clampedX = snappedX;
-        while (clampedX > CoordinateConstants.PortraitW - ScaleRound(fw) && clampedX >= den)
-        {
-            clampedX -= (int)den;
-        }
-
-        int clampedY = snappedY;
-        while (clampedY > CoordinateConstants.PortraitH - paddingBottomUi - ScaleRound(fh) && clampedY >= paddingTopUi + den)
-        {
-            clampedY -= (int)den;
-        }
-
-        return (clampedX, clampedY);
+        return (Math.Clamp(rawX, 0, limitX), Math.Clamp(rawY, paddingTopUi, limitY));
     }
 
 
@@ -451,31 +457,69 @@ public static class CoordinateMath
     }
 
     /// <summary>
+    /// RATIOLOCK_01 — the smallest step a HUD layer's backend size may move in.
+    ///
+    /// TWO, not thirty-two. See <see cref="QuantizeBackendSizeInternal"/> for why the 32 went and
+    /// what replaced the property it was protecting. Two rather than one because ffmpeg's scale
+    /// filter feeds a yuv420p chain, whose chroma planes are half-resolution: an odd layer size is
+    /// legal but makes the encoder round it anyway, in a place this code cannot see.
+    /// </summary>
+    public const int BackendSizeStep = 2;
+
+    /// <summary>
     /// ISSUE_4 — THE single quantizer for HUD layer size, in BACKEND (1280x1920 internal) pixels.
     ///
-    /// Sizes are snapped to a multiple of <c>BackendScale.Num</c> (= 32, since 1280/1080 reduces
-    /// to 32/27). That is what makes the whole chain land on exact integers: a backend size that
-    /// is a multiple of 32 becomes <c>(rw / 32) * 27</c> in the final 1080-wide content area,
-    /// which is always a whole number. No other multiple has that property, so do not "simplify"
-    /// the 32 away.
+    /// ══════════════════════════════════════════════════════════════════════════════════════
+    /// RATIOLOCK_01 — WHAT CHANGED AND WHY THE OLD 32-PIXEL GRID HAD TO GO.
     ///
-    /// Rounding is exact rational half-up via <see cref="ScaleRound"/>, NOT
-    /// <c>Math.Round(double)</c>. The old implementation multiplied through
-    /// <c>backendScale.ToDouble()</c> (32/27 has no exact binary representation) and then used
-    /// banker's rounding, and MobileFilterBuilder carried a second, separately-maintained copy of
-    /// that same expression. Both sides now call this method, so preview and export agree by
-    /// construction rather than by coincidence.
+    /// This method used to round WIDTH and HEIGHT INDEPENDENTLY to multiples of 32 backend pixels
+    /// (= <c>BackendScale.Num</c>, since 1280/1080 reduces to 32/27). Two faults came out of that,
+    /// and both were reported from the composer as feel problems rather than as maths problems:
+    ///
+    ///   * THE RATIO WAS DESTROYED. Two axes rounded separately do not keep their proportion. A
+    ///     300x60 element became 297x54 — a 10% vertical squash — and a 100x40 element became
+    ///     81x27, a 33% squash. The user drew a box around a health bar on the frozen frame and
+    ///     the composer showed them a different shape. No amount of care with the mouse could fix
+    ///     it, because the distortion was applied AFTER the mouse.
+    ///   * THE RESIZE STAIRCASED. 32 backend pixels is 27 content pixels, so dragging a corner
+    ///     moved the edge in 27-pixel jumps. That is the "jumpy, stuttery, unstable" feel: the box
+    ///     does not follow the pointer, it lurches after it.
+    ///
+    /// The 32 existed for one reason, stated in the old comment: a backend size that is a multiple
+    /// of 32 converts to <c>(rw / 32) * 27</c> content pixels EXACTLY, with no rounding. That is a
+    /// nicety, not a requirement — <see cref="QuantizeBackendSize"/> has always passed that
+    /// conversion through <see cref="ScaleRound"/>, and MobileFilterBuilder never converts a layer
+    /// size back to content space at all: it hands <c>rw</c> and <c>rh</c> straight to ffmpeg's
+    /// scale filter in backend pixels. Giving up exactness costs at most half a content pixel of
+    /// display rounding. Keeping it cost the user the shape of every element they cropped.
+    ///
+    /// SO: the WIDTH is rounded to <see cref="BackendSizeStep"/>, and the HEIGHT is then derived
+    /// from the width by the EXACT source ratio (contentH : contentW) rather than being rounded on
+    /// its own. The ratio is therefore locked by construction, to within one backend pixel, at
+    /// every size — which is the property the composer, the preview and the export all needed and
+    /// none of them had.
+    ///
+    /// Rounding stays exact rational half-up via <see cref="ScaleRound"/>, NOT
+    /// <c>Math.Round(double)</c>: 32/27 has no exact binary representation and banker's rounding
+    /// would put preview and export half a pixel apart at random sizes.
+    /// ══════════════════════════════════════════════════════════════════════════════════════
     /// </summary>
     public static (int backendW, int backendH) QuantizeBackendSizeInternal(int contentW, int contentH, Frac scaleFrac)
     {
         Frac backendScale = CoordinateConstants.BackendScale;
-        int factor = (int)backendScale.Num;
+        int step = BackendSizeStep;
 
-        Frac rawW = new Frac(contentW, 1) * scaleFrac * backendScale;
-        Frac rawH = new Frac(contentH, 1) * scaleFrac * backendScale;
+        int safeW = Math.Max(1, contentW);
+        int safeH = Math.Max(1, contentH);
 
-        int rw = Math.Max(factor, ScaleRound(rawW / new Frac(factor, 1)) * factor);
-        int rh = Math.Max(factor, ScaleRound(rawH / new Frac(factor, 1)) * factor);
+        Frac rawW = new Frac(safeW, 1) * scaleFrac * backendScale;
+
+        int rw = Math.Max(step, ScaleRound(rawW / new Frac(step, 1)) * step);
+
+        // The height is NOT quantized on its own — that is the whole point. It is the width put
+        // through the source rectangle's exact ratio, then snapped to the same even step.
+        Frac exactH = new Frac(rw, 1) * new Frac(safeH, safeW);
+        int rh = Math.Max(step, ScaleRound(exactH / new Frac(step, 1)) * step);
 
         return (rw, rh);
     }

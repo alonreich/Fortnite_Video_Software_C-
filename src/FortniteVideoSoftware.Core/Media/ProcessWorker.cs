@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 
 using System.Diagnostics;
 using System.Globalization;
@@ -62,9 +65,8 @@ public class ProcessWorker : IDisposable
     public string OriginalResolution { get; set; } = "1920x1080";
     public bool IsMobileFormat { get; set; } = true;
     public double SpeedFactor { get; set; } = 1.0;
-    public bool IsBossHp { get; set; }
     public bool ShowTeammates { get; set; }
-    public bool ShowSpectating { get; set; }
+    public bool ShowSpectating { get; set; } = true;
     public int QualityLevel { get; set; } = 2;
     public bool EnableFades { get; set; } = true;
     public string? MemeFile { get; set; }
@@ -1131,7 +1133,7 @@ public class ProcessWorker : IDisposable
                         finalHudPad = "[v_mob_hud]";
                     }
                     var (mobileChain, mobileOut) = MobileFilterBuilder.Build(
-                        finalMainPad, finalHudPad, mobileCoords, IsBossHp, ShowTeammates, ShowSpectating,
+                        finalMainPad, finalHudPad, mobileCoords, ShowTeammates, ShowSpectating,
                         textInputLabel, false, OriginalResolution);
                     coreFilters.Add(mobileChain);
                     vOutputPad = mobileOut;

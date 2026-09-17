@@ -1,4 +1,7 @@
-﻿using System;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -163,6 +166,52 @@ public partial class MainWindow
 
         var menuShowHelp = this.FindControl<MenuItem>("MenuShowHelp");
         if (menuShowHelp != null) menuShowHelp.Click += (s, e) => CoachOverlay.Replay(this);
+
+        var menuAboutBtn = this.FindControl<MenuItem>("MenuAboutBtn");
+        if (menuAboutBtn != null)
+        {
+            menuAboutBtn.Click += async (s, e) =>
+            {
+                RuntimeLog.Info("UI", "User clicked File -> About.");
+                await FortniteVideoSoftware.App.Controls.SettingsWindow.ShowAboutAsync(this);
+            };
+        }
+
+        var menuHelpAbout = this.FindControl<MenuItem>("MenuHelpAbout");
+        if (menuHelpAbout != null)
+        {
+            menuHelpAbout.Click += async (s, e) =>
+            {
+                RuntimeLog.Info("UI", "User clicked Help -> About.");
+                await FortniteVideoSoftware.App.Controls.SettingsWindow.ShowAboutAsync(this);
+            };
+        }
+
+        var menuCheckUpdates = this.FindControl<MenuItem>("MenuCheckUpdates");
+        if (menuCheckUpdates != null)
+        {
+            menuCheckUpdates.Click += async (s, e) =>
+            {
+                RuntimeLog.Info("UI", "User clicked Help -> Check for Updates.");
+                await FortniteVideoSoftware.App.Services.UpdateService.CheckManualAsync(this);
+            };
+        }
+
+        var menuHelpShortcuts = this.FindControl<MenuItem>("MenuHelpShortcuts");
+        if (menuHelpShortcuts != null)
+        {
+            menuHelpShortcuts.Click += (s, e) =>
+            {
+                var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+                if (sheet == null) return;
+                if (!sheet.IsVisible) BuildShortcutSheetRows();
+                sheet.IsVisible = !sheet.IsVisible;
+                RuntimeLog.Info("UI", $"Keyboard shortcut sheet {(sheet.IsVisible ? "opened" : "closed")} from the Help menu.");
+            };
+        }
+
+        var menuHelpTour = this.FindControl<MenuItem>("MenuHelpTour");
+        if (menuHelpTour != null) menuHelpTour.Click += (s, e) => CoachOverlay.Replay(this);
 
         var shortcutSheetClose = this.FindControl<Button>("ShortcutSheetCloseButton");
         if (shortcutSheetClose != null) shortcutSheetClose.Click += (s, e) =>
@@ -767,10 +816,8 @@ public partial class MainWindow
                 labels.Add(tier.Name.ToUpperInvariant());
             qualitySlider.SetLabels(labels);
             qualitySlider.Value = FortniteVideoSoftware.App.ViewModels.QualityLadder.DefaultIndex;
-            // QUALITY_04 — the tooltip is NOT set here any more. UpdateEstimatedQuality ->
-            // PaintQualityEstimate owns both the size readout and the tooltip, so the two are
-            // produced by one pass over one state and cannot drift apart. Setting it in two
-            // places is how they would.
+            // QUALITY_04 / SIZEESTIMATE_01 — the estimate and tooltip bind to ExportViewModel.
+            // The shared background estimator publishes both from the same snapshot.
             qualitySlider.ValueChanged += (s, v) =>
             {
                 UpdateEstimatedQuality();
@@ -906,9 +953,6 @@ public partial class MainWindow
                 SaveRecoveryState();
             };
         }
-
-        var bossHpCb = this.FindControl<ToggleSwitch>("BossHpCheckbox");
-        if (bossHpCb != null) bossHpCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
         var teammatesCb = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState();

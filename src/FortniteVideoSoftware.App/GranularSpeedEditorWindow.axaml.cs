@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/04_UI_UX_AVALONIA_SPEC.md, docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -44,7 +47,8 @@ public partial class GranularSpeedEditorWindow : Window
     private DispatcherTimer? _seekFlushTimer;
     private readonly string _videoPath;
     private readonly double _trimStartMs;
-    private readonly double _trimEndMs;
+    private double _trimEndMs;
+    private double _probedDurationSec;
 
     private readonly List<SpeedSegment> _segments = new();
 
@@ -682,6 +686,22 @@ public partial class GranularSpeedEditorWindow : Window
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
+        if (_trimEndMs <= 0 && !string.IsNullOrWhiteSpace(_videoPath) && File.Exists(_videoPath))
+        {
+            try
+            {
+                string ffprobe = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve(
+                    "ffprobe.exe", "backend", "binaries");
+                var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobe, _videoPath);
+                var task = prober.GetDurationAsync();
+                if (task.Wait(TimeSpan.FromMilliseconds(500)) && task.Result > 0)
+                {
+                    _probedDurationSec = task.Result;
+                    if (_trimEndMs <= 0) _trimEndMs = _probedDurationSec * 1000.0;
+                }
+            }
+            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+        }
         _baseSpeed = baseSpeed;
         _freezeTimeMs = freezeTimeMs;
         _freezeDurationS = freezeDurationS;
@@ -864,7 +884,6 @@ public partial class GranularSpeedEditorWindow : Window
                     relStart = Math.Max(0, relStart);
                     int maxEnd = _trimEndMs > 0 ? (int)(_trimEndMs - _trimStartMs) : int.MaxValue;
                     relEnd = Math.Min(relEnd, maxEnd);
-                    PushUndo("add segment", "seg-drag-create");   // UNDO_02
                     _segments.Add(new SpeedSegment(relStart, relEnd, seg.Speed,
                         seg.ZoomX, seg.ZoomY, seg.ZoomW, seg.ZoomH, seg.ZoomOrigRes, seg.ZoomSlow,
                         seg.ZoomStartMs.HasValue ? seg.ZoomStartMs.Value - _trimStartMs : (double?)null,
@@ -881,8 +900,10 @@ public partial class GranularSpeedEditorWindow : Window
 
         this.Loaded += (s, e) =>
         {
-            InitializeMpv();
+            _ = InitializeMpv();
             _ = BuildFrameLaneAsync();
+            UpdateCaret();
+            RedrawTimeline();
         };
         WireUpControls();
         WireZoomControls();
@@ -930,8 +951,10 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    private async void InitializeMpv()
+    private async Task InitializeMpv()
     {
+        try
+        {
         WirePreviewDetach();
 
         _videoHost = this.FindControl<MpvVideoView>("GranularVideoHost");
@@ -951,24 +974,40 @@ public partial class GranularSpeedEditorWindow : Window
                 RuntimeLog.Info("Granular", $"Using MPV: {System.IO.Path.GetFileName(mpvPath)}");
                 RuntimeLog.Debug("Granular", $"Using MPV path: {mpvPath}");
             }
-            await _videoHost.StartMpvProcessAsync(mpvPath);
+            var host = _videoHost;
+            await host.StartMpvProcessAsync(mpvPath);
+            if (_editorClosing || !ReferenceEquals(_videoHost, host)) return;
 
             if (_videoHost.IpcClient != null)
             {
                 RuntimeLog.Info("Granular", "MPV IPC client connected. Attaching seek handler.");
                 _videoHost.IpcClient.SeekCompleted += () => {
                     Avalonia.Threading.Dispatcher.UIThread.Post(async () => {
+                        if (_editorClosing) return;
                         _isSeeking = false;
                         if (_nextSeekTarget.HasValue) {
                             double target = _nextSeekTarget.Value;
                             _nextSeekTarget = null;
                             await SeekInternal(target);
                         }
+                        UpdateLiveZoomCrop();
+                        UpdateZoomPlayheadOverlay();
                     });
                 };
 
                 await LoadVideoAsync();
                 BuildMemePreviewDirector();   // MEME_07
+
+                if (_trimEndMs <= 0 && _videoHost.IpcClient.Duration > 0)
+                {
+                    _trimEndMs = _videoHost.IpcClient.Duration * 1000.0;
+                }
+                UpdateCaret();
+                RedrawTimeline();
+                if (_thumbBitmap == null)
+                {
+                    _ = BuildFrameLaneAsync();
+                }
             }
             else
             {
@@ -978,6 +1017,12 @@ public partial class GranularSpeedEditorWindow : Window
         else
         {
             RuntimeLog.Fail("Granular", "Could not find GranularVideoHost control in XAML.");
+        }
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Granular", $"Preview startup failed: {ex.Message}");
+            if (!_editorClosing) SetStatus("The video preview could not start. Close this editor and try again.");
         }
     }
 
@@ -1038,6 +1083,16 @@ public partial class GranularSpeedEditorWindow : Window
     private void TogglePlayPause()
     {
         RuntimeLog.Info("UI", "User toggled Play/Pause in Granular Speed Editor.");
+        bool willPlay = _isCurrentlyFrozen || (_videoHost?.IpcClient?.IsPaused == true);
+        if (willPlay && _zoomModeActive)
+        {
+            if (_hasZoomBox && !_zoomBoxTouched && _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count && !_segments[_selectedSegmentIndex].ZoomW.HasValue)
+            {
+                CommitZoomToSegment("PlayStarted");
+            }
+            ExitZoomMode();
+        }
+
         if (_isCurrentlyFrozen)
         {
             _isCurrentlyFrozen = false;
@@ -1841,6 +1896,10 @@ public partial class GranularSpeedEditorWindow : Window
         var acceptBtn = this.FindControl<Button>("AcceptGranularBtn");
         if (acceptBtn != null) acceptBtn.Click += (s, e) => {
             RuntimeLog.Info("UI", "User clicked Accept in Granular Speed Editor.");
+            if (_zoomModeActive && _hasZoomBox && _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count && !_segments[_selectedSegmentIndex].ZoomW.HasValue)
+            {
+                CommitZoomToSegment("AcceptedDefault");
+            }
             Accepted = true;
             // UNDO_01 — the project has been handed to the Main App. Undoing into a state that was
             // never applied would show the user history that no longer matches their project.
@@ -2740,14 +2799,36 @@ public partial class GranularSpeedEditorWindow : Window
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
             Focusable = true,
             ClipToBounds = false,
-            MinHeight = LaneHeight
+            MinHeight = LaneHeight,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
         };
         segCanvas.Classes.Add("TimelineSeekSurface");
         _segmentCanvas = segCanvas;
         lanes.LaneAHost.Children.Add(segCanvas);
 
-        var thumbGrid = new Avalonia.Controls.Grid { Name = "GranularThumbnailLaneGrid", ClipToBounds = true };
+        var thumbGrid = new Avalonia.Controls.Grid
+        {
+            Name = "GranularThumbnailLaneGrid",
+            ClipToBounds = true,
+            MinHeight = LaneHeight,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+        };
         _thumbLaneGrid = thumbGrid;
+
+        var frameHost = new Avalonia.Controls.Canvas
+        {
+            Name = "GranularFrameLaneCanvas",
+            ClipToBounds = true,
+            MinHeight = LaneHeight,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+        };
+        _frameLaneHost = frameHost;
+        _frameLaneHost.SizeChanged += (_, _) => QueueRelayoutFrameLane();
+        thumbGrid.Children.Add(frameHost);
+
         lanes.LaneBHost.Children.Add(thumbGrid);
 
         var thumbLoading = new Border
@@ -2798,7 +2879,25 @@ public partial class GranularSpeedEditorWindow : Window
 
             _playheadMs = srcSec * 1000.0;
             UpdateCaret();
+
+            if (_zoomModeActive && _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+            {
+                var activeSeg = _segments[_selectedSegmentIndex];
+                double zStart = activeSeg.ZoomStartMs ?? activeSeg.StartMs;
+                double zEnd = activeSeg.ZoomEndMs ?? activeSeg.EndMs;
+                if (_playheadMs < zStart - 50 || _playheadMs > zEnd + 50)
+                {
+                    if (_hasZoomBox && !_zoomBoxTouched && !activeSeg.ZoomW.HasValue)
+                    {
+                        CommitZoomToSegment("AutoCommitSeekExit");
+                    }
+                    ExitZoomMode();
+                }
+            }
+
             _ = SeekInternal(srcSec);
+            UpdateLiveZoomCrop();
+            UpdateZoomPlayheadOverlay();
         };
     }
 
@@ -2845,6 +2944,13 @@ public partial class GranularSpeedEditorWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             _redrawQueued = false;
+            if (_editorClosing) return;
+            // A queued draw may have been posted before a new drag acquired capture.
+            if (_draggingSegmentIndex >= 0 && _segDragMode != SegDragMode.None)
+            {
+                _redrawDeferredByDrag = true;
+                return;
+            }
             canvas.Children.Clear();
 
             var emptyLabel = _emptyLaneLabel;
@@ -2855,7 +2961,14 @@ public partial class GranularSpeedEditorWindow : Window
             UpdateCaret();
             RelayoutFrameLane();
             double dur = GetDuration();
+            var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes");
             double w = canvas.Bounds.Width;
+            if (w <= 0 && lanes?.LaneAHost != null && lanes.LaneAHost.Bounds.Width > 0)
+                w = lanes.LaneAHost.Bounds.Width;
+            if (w <= 0 && lanes != null && lanes.Bounds.Width > 0)
+                w = lanes.Bounds.Width;
+            if (w > 0 && Math.Abs(canvas.Width - w) > 0.5)
+                canvas.Width = w;
             double h = Math.Max(canvas.Bounds.Height, LaneBlockHeight);
             if (dur <= 0 || w <= 0) return;
 
@@ -4429,7 +4542,14 @@ public partial class GranularSpeedEditorWindow : Window
         if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
         {
             var seg = _segments[_selectedSegmentIndex];
-            if (seg.ZoomW.HasValue && seg.ZoomSlow != slow)
+            if (!seg.ZoomW.HasValue && _hasZoomBox && _zoomModeActive)
+            {
+                _zoomBoxTouched = true;
+                _zoomSessionCreatedSegment = false;
+                CommitZoomToSegment("StyleSelected");
+                RenderZoomBox();
+            }
+            else if (seg.ZoomW.HasValue && seg.ZoomSlow != slow)
             {
                 // ═════════════════════════════════════════════════════════════════════
                 // ZOOMLIVE_05 — INSTANT -> SLOW IS NOT ALWAYS LEGAL, AND IT NEVER WAS.
@@ -4817,10 +4937,20 @@ public partial class GranularSpeedEditorWindow : Window
         if (!_gpuLiveZoomPreview || _videoHost?.IpcClient == null) return;
         if (_zoomModeActive) { ClearLiveZoomCrop(); return; }
 
-        double tSec = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs) / 1000.0;
+        double curMs = _videoHost.IpcClient.IsPaused ? _playheadMs : Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
+        double tSec = curMs / 1000.0;
         double durSec = Math.Max(0.1, ((_trimEndMs > 0 ? _trimEndMs : _videoHost.IpcClient.Duration * 1000.0) - _trimStartMs) / 1000.0);
 
         var (psw, psh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
+        if (psw <= 0 || psh <= 0)
+        {
+            if (_videoHost.IpcClient.VideoWidth > 0 && _videoHost.IpcClient.VideoHeight > 0)
+            {
+                psw = _videoHost.IpcClient.VideoWidth;
+                psh = _videoHost.IpcClient.VideoHeight;
+            }
+        }
+
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
             _segments, tSec, durSec, _isMobileFormat, psw, psh);
 
@@ -5321,7 +5451,6 @@ public partial class GranularSpeedEditorWindow : Window
             _zoomUiRect = new Avalonia.Rect(nx, ny, _zoomStartRect.Width, _zoomStartRect.Height);
         }
 
-        if (!_zoomDragMoved) HideZoomStylePanel();
         _zoomDragMoved = true;
         RenderZoomBox();
         e.Handled = true;
@@ -5659,7 +5788,7 @@ public partial class GranularSpeedEditorWindow : Window
             return;
         }
 
-        double tRelMs = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
+        double tRelMs = _videoHost.IpcClient.IsPaused ? _playheadMs : Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
         SpeedSegment? active = null;
         foreach (var s in _segments)
             if (s.ZoomW.HasValue && tRelMs >= s.StartMs && tRelMs <= s.EndMs) { active = s; break; }
@@ -5682,7 +5811,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
-        if (_videoHost?.IpcClient == null) return;
+        if (_editorClosing || _videoHost?.IpcClient == null) return;
 
         // ══════════════════════════════════════════════════════════════════════════════════
         // MEME_07 — BEFORE EVERYTHING, INCLUDING THE CUT SKIP.
@@ -5710,6 +5839,22 @@ public partial class GranularSpeedEditorWindow : Window
             string liveRes = $"{_videoHost.IpcClient.VideoWidth}x{_videoHost.IpcClient.VideoHeight}";
             if (liveRes != _originalResolution) _originalResolution = liveRes;
         }
+        double curPlaybackRelMs = Math.Max(0, (_videoHost.IpcClient.CurrentTime * 1000.0) - _trimStartMs);
+        if (_zoomModeActive && _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+        {
+            var activeSeg = _segments[_selectedSegmentIndex];
+            double zStart = activeSeg.ZoomStartMs ?? activeSeg.StartMs;
+            double zEnd = activeSeg.ZoomEndMs ?? activeSeg.EndMs;
+            if (curPlaybackRelMs < zStart - 50 || curPlaybackRelMs > zEnd + 50)
+            {
+                if (_hasZoomBox && !_zoomBoxTouched && !activeSeg.ZoomW.HasValue)
+                {
+                    CommitZoomToSegment("AutoCommitPlaybackExit");
+                }
+                ExitZoomMode();
+            }
+        }
+
         UpdateZoomPlayheadOverlay();
         UpdateLiveZoomCrop();
 
@@ -5818,7 +5963,16 @@ public partial class GranularSpeedEditorWindow : Window
             }
         }
 
-        var timeMapper = FortniteVideoSoftware.Core.Media.GranularSpeedBuilder.CreateTimeMapper(_trimEndMs - _trimStartMs, _segments, _baseSpeed, _trimStartMs);
+        if (_voiceOverPlayer.Result == null) return;
+        var voiceTimeline = _voiceTimelineCache.Get(Math.Max(0.001, GetDuration()) * 1000,
+            _segments, _cuts, [], _baseSpeed,
+            _freezeTimeMs >= 0 ? _freezeTimeMs - _trimStartMs : -1, _freezeDurationS);
+        if (!ReferenceEquals(_voiceTimeline, voiceTimeline))
+        {
+            _voiceTimeline = voiceTimeline;
+            _voiceTimeMapper = absoluteSeconds => voiceTimeline.SourceToOutput(absoluteSeconds - _trimStartMs / 1000.0);
+        }
+        var timeMapper = _voiceTimeMapper!;
         double editedTimeSec = timeMapper(t);
         if (_isCurrentlyFrozen)
         {
@@ -5843,8 +5997,25 @@ public partial class GranularSpeedEditorWindow : Window
         _playheadMs = Math.Clamp(msFromTrimStart, 0, dur * 1000.0);
         UpdateCaret();
 
+        if (_zoomModeActive && _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
+        {
+            var activeSeg = _segments[_selectedSegmentIndex];
+            double zStart = activeSeg.ZoomStartMs ?? activeSeg.StartMs;
+            double zEnd = activeSeg.ZoomEndMs ?? activeSeg.EndMs;
+            if (_playheadMs < zStart - 50 || _playheadMs > zEnd + 50)
+            {
+                if (_hasZoomBox && !_zoomBoxTouched && !activeSeg.ZoomW.HasValue)
+                {
+                    CommitZoomToSegment("AutoCommitScrubExit");
+                }
+                ExitZoomMode();
+            }
+        }
+
         if (_videoHost?.IpcClient != null) _ = SeekInternal(_playheadMs / 1000.0);
         _memePreview?.NotifySeek();
+        UpdateLiveZoomCrop();
+        UpdateZoomPlayheadOverlay();
     }
 
 
@@ -5852,6 +6023,10 @@ public partial class GranularSpeedEditorWindow : Window
     private CancellationTokenSource? _thumbCts;
     private Avalonia.Media.Imaging.Bitmap? _thumbBitmap;
     private Avalonia.Controls.Canvas? _frameLaneHost;
+    private Controls.TimelineFilmstrip? _filmstrip;
+    private OutputTimeline? _frameLaneTimeline;
+    private Avalonia.Size _frameLaneSize;
+    private bool _editorClosing;
 
     private async Task BuildFrameLaneAsync()
     {
@@ -5877,12 +6052,23 @@ public partial class GranularSpeedEditorWindow : Window
 
             void MountLane(Avalonia.Media.Imaging.Bitmap bmp)
             {
+                if (_editorClosing || token.IsCancellationRequested) { bmp.Dispose(); return; }
                 DeleteThumbStrip();
                 _thumbBitmap = bmp;
-                _frameLaneHost = new Avalonia.Controls.Canvas { ClipToBounds = true };
-                laneGrid.Children.Clear();
-                laneGrid.Children.Add(_frameLaneHost);
-                _frameLaneHost.SizeChanged += (_, _) => QueueRelayoutFrameLane();   // LAYOUTLOOP_02
+                if (_frameLaneHost == null)
+                {
+                    _frameLaneHost = new Avalonia.Controls.Canvas
+                    {
+                        Name = "GranularFrameLaneCanvas",
+                        ClipToBounds = true,
+                        MinHeight = LaneHeight,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+                    };
+                    _frameLaneHost.SizeChanged += (_, _) => QueueRelayoutFrameLane();   // LAYOUTLOOP_02
+                    laneGrid.Children.Clear();
+                    laneGrid.Children.Add(_frameLaneHost);
+                }
                 if (loading != null) loading.IsVisible = false;
                 RelayoutFrameLane();
             }
@@ -5899,7 +6085,7 @@ public partial class GranularSpeedEditorWindow : Window
             bool streamed = await ThumbnailStripGenerator.StreamAsync(
                 ffmpeg, _videoPath, _trimStartMs / 1000.0, dur, token,
                 onReady: wb => MountLane(wb),
-                onFrame: RelayoutFrameLane,
+                onFrame: () => { if (!_editorClosing) _filmstrip?.InvalidateVisual(); },
                 logTag: "Granular");
 
             if (token.IsCancellationRequested) return;
@@ -5911,7 +6097,14 @@ public partial class GranularSpeedEditorWindow : Window
 
             if (token.IsCancellationRequested || strip == null) return;
 
-            MountLane(new Avalonia.Media.Imaging.Bitmap(strip));
+            var fallbackBitmap = await Task.Run(() => new Avalonia.Media.Imaging.Bitmap(strip));
+            if (_editorClosing || token.IsCancellationRequested)
+            {
+                fallbackBitmap.Dispose();
+                try { File.Delete(strip); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+                return;
+            }
+            MountLane(fallbackBitmap);
             _thumbStripFile = strip;
         }
         catch (OperationCanceledException) { }
@@ -6004,100 +6197,51 @@ public partial class GranularSpeedEditorWindow : Window
     {
         var host = _frameLaneHost;
         var bmp = _thumbBitmap;
-        if (host == null || bmp == null) return;
+        if (_editorClosing || host == null || bmp == null) return;
+        double w = host.Bounds.Width > 0
+            ? host.Bounds.Width
+            : (_segmentCanvas?.Bounds.Width > 0
+                ? _segmentCanvas.Bounds.Width
+                : (_thumbLaneGrid?.Bounds.Width > 0 ? _thumbLaneGrid.Bounds.Width : 0));
+        double h = host.Bounds.Height > 0
+            ? host.Bounds.Height
+            : (_thumbLaneGrid?.Bounds.Height > 0 ? _thumbLaneGrid.Bounds.Height : LaneHeight);
+        if (w <= 0 || h <= 0) return;
 
-        try
+        if (Math.Abs(host.Width - w) > 0.5) host.Width = w;
+        if (Math.Abs(host.Height - h) > 0.5) host.Height = h;
+
+        var timeline = OutTimeline();
+        var size = new Avalonia.Size(w, h);
+        if (ReferenceEquals(_frameLaneTimeline, timeline) && _frameLaneSize == size && _filmstrip != null && host.Children.Contains(_filmstrip))
         {
-            host.Children.Clear();
-            double w = host.Bounds.Width, h = host.Bounds.Height;
-            if (w <= 0 || h <= 0) return;
-
-            double srcDur = Math.Max(0.001, GetDuration());
-            double outDur = OutDurationSec();
-            var chunks = OutTimeline().Chunks;
-            if (chunks.Count == 0) return;
-
-            double stripPxW = Math.Max(1, bmp.PixelSize.Width);
-            double stripPxH = Math.Max(1, bmp.PixelSize.Height);
-            double frameSec = Math.Max(0.02, srcDur * (stripPxH * 16.0 / 9.0) / stripPxW);
-
-            double accOut = 0;
-            foreach (var ch in chunks)
+            if (_filmstrip.Bitmap != bmp)
             {
-                double outLen = ch.OutputLengthSec;
-                double x = (accOut / outDur) * w;
-                double slotW = (outLen / outDur) * w;
-                accOut += outLen;
-                if (slotW <= 0.5) continue;
-
-                double s1, s2;
-                if (ch.IsFreeze)
-                {
-                    s1 = Math.Clamp(ch.SourceStartSec, 0, Math.Max(0, srcDur - frameSec));
-                    s2 = Math.Min(srcDur, s1 + frameSec);
-                }
-                else { s1 = ch.SourceStartSec; s2 = ch.SourceEndSec; }
-
-                double srcSpan = Math.Max(0.001, s2 - s1);
-                // LAYOUTLOOP_02 — a freeze chunk holds ONE frame for its whole output length, so
-                // srcSpan is a single frame while slotW is the full hold: the ratio explodes and the
-                // old 32768px ceiling was reached routinely. Rasterising a 32768px-wide Image every
-                // redraw is seconds of GPU work for a strip a few hundred pixels wide. Eight times
-                // the slot is already far more source detail than the slot can display.
-                double scaledFullW = Math.Min(slotW * (srcDur / srcSpan), Math.Max(64.0, slotW * 8.0));
-
-                var slot = new Avalonia.Controls.Canvas { Width = slotW, Height = h, ClipToBounds = true };
-                Avalonia.Controls.Canvas.SetLeft(slot, x);
-                Avalonia.Controls.Canvas.SetTop(slot, 0);
-
-                // ══════════════════════════════════════════════════════════════════════════
-                // STRIPCOST_01 — SCALE WITH A TRANSFORM, NEVER WITH Width.
-                //
-                // Setting Width = scaledFullW asks the layout system for a box that is routinely
-                // tens of thousands of pixels wide (the zoomed lane width times srcDur/srcSpan),
-                // and asks Skia to produce a bitmap that size. The slot clips it to a few hundred
-                // visible pixels, so nearly all of that work is thrown away. With the segment
-                // dragged to the clip end the ratio is at its worst, which is why the rebuild that
-                // runs on RELEASE cost 3-4+ seconds (dev log 2026-09-12 02:20).
-                //
-                // The layout box is now the strip's own natural pixel width and the horizontal
-                // scale is a RenderTransform, applied at composite time by the GPU from a bitmap
-                // that was uploaded once. Origin is TopLeft so the existing offset math below is
-                // unchanged: the visual left edge still coincides with the layout left edge.
-                // ══════════════════════════════════════════════════════════════════════════
-                var img = new Avalonia.Controls.Image
-                {
-                    Source = bmp,
-                    Stretch = Avalonia.Media.Stretch.Fill,
-                    Width = stripPxW,
-                    Height = h,
-                    RenderTransformOrigin = Avalonia.RelativePoint.TopLeft,
-                    RenderTransform = new Avalonia.Media.ScaleTransform(scaledFullW / stripPxW, 1.0)
-                };
-                Avalonia.Controls.Canvas.SetLeft(img, -(s1 / srcDur) * scaledFullW);
-                Avalonia.Controls.Canvas.SetTop(img, 0);
-
-                slot.Children.Add(img);
-                host.Children.Add(slot);
-
-                if (ch.IsFreeze) DecorateFrozenSpan(host, x, slotW, h, withLabel: true);
+                _filmstrip.Bitmap = bmp;
+                _filmstrip.InvalidateVisual();
             }
+            return;
         }
-        catch (System.Exception ex)
+
+        _frameLaneTimeline = timeline;
+        _frameLaneSize = size;
+        // GRANULARPERF_01 — bitmap updates repaint this one control; only geometry changes rebuild decorations.
+        host.Children.Clear();
+        _filmstrip = new Controls.TimelineFilmstrip
         {
-            RuntimeLog.Fail("Granular", $"Frame lane re-layout failed, falling back to a linear strip: {ex.Message}");
-            try
-            {
-                host.Children.Clear();
-                host.Children.Add(new Avalonia.Controls.Image
-                {
-                    Source = bmp,
-                    Stretch = Avalonia.Media.Stretch.Fill,
-                    Width = host.Bounds.Width,
-                    Height = host.Bounds.Height
-                });
-            }
-            catch (System.Exception inner) { RuntimeLog.Swallowed(inner); }
+            Bitmap = bmp, Timeline = timeline, SourceDurationSeconds = GetDuration(),
+            Width = w, Height = h, IsHitTestVisible = false
+        };
+        Avalonia.Controls.Canvas.SetLeft(_filmstrip, 0);
+        Avalonia.Controls.Canvas.SetTop(_filmstrip, 0);
+        host.Children.Add(_filmstrip);
+        double output = 0;
+        foreach (var chunk in timeline.Chunks)
+        {
+            double x = output / Math.Max(0.001, timeline.TotalOutputSeconds) * w;
+            double width = chunk.OutputLengthSec / Math.Max(0.001, timeline.TotalOutputSeconds) * w;
+            output += chunk.OutputLengthSec;
+            if (chunk.IsFreeze) DecorateFrozenSpan(host, x, width, h, withLabel: true);
         }
     }
 
@@ -6105,7 +6249,10 @@ public partial class GranularSpeedEditorWindow : Window
     {
         try { _thumbBitmap?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
         _thumbBitmap = null;
-        _frameLaneHost = null;
+        _filmstrip = null;
+        _frameLaneTimeline = null;
+        _frameLaneSize = default;
+        if (_frameLaneHost != null) _frameLaneHost.Children.Clear();
 
         if (string.IsNullOrEmpty(_thumbStripFile)) return;
         try { if (File.Exists(_thumbStripFile)) File.Delete(_thumbStripFile); }
@@ -6194,8 +6341,10 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
 
-    private FortniteVideoSoftware.Core.Media.OutputTimeline? _outTimeline;
-    private string _outTimelineSig = "";
+    private readonly Services.EditorTimelineCache _outputTimelineCache = new();
+    private readonly Services.EditorTimelineCache _voiceTimelineCache = new();
+    private OutputTimeline? _voiceTimeline;
+    private Func<double, double>? _voiceTimeMapper;
 
 
     // ══════════════════════════════════════════════════════════════════════════════════════
@@ -6449,7 +6598,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void InvalidateMemeTimelines()
     {
-        _outTimeline = null; _outTimelineSig = "";
+        _outputTimelineCache.Clear();
     }
 
     /// <summary>MEME_06 — REMOVE MEME appears only while a meme is selected, mirroring REMOVE ZOOM.</summary>
@@ -6460,40 +6609,9 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     private FortniteVideoSoftware.Core.Media.OutputTimeline OutTimeline()
-    {
-        double durSec = Math.Max(0.001, GetDuration());
-        var segs = new System.Collections.Generic.List<FortniteVideoSoftware.Core.Media.SpeedSegment>(_segments);
-        if (_freezeTimeMs >= 0 && _freezeDurationS > 0)
-        {
-            double relStart = _freezeTimeMs - _trimStartMs;
-            segs.Add(new FortniteVideoSoftware.Core.Media.SpeedSegment(
-                relStart, relStart + _freezeDurationS * 1000.0, 0.0));
-        }
-
-        var sb = new System.Text.StringBuilder();
-        sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
-        foreach (var s in segs)
-            sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
-        // CUT_02 — the cuts MUST be part of the cache signature. Without them the ruler would keep
-        // serving the pre-cut timeline until some unrelated edit changed the signature, and the
-        // video would silently be shorter than the timeline claimed.
-        foreach (var c in _cuts) sb.Append('X').Append(c.StartMs).Append(',').Append(c.EndMs).Append(';');
-        // MEME_06 — memes belong in the signature for exactly the reason CUT_02 gives above: without
-        // them the ruler would keep serving the pre-meme timeline until some unrelated edit changed
-        // the signature, and the finished video would be LONGER than the timeline claimed.
-        foreach (var m in _memes) sb.Append('M').Append(m.Id).Append(',')
-            .Append(m.AtSourceSecRelative.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
-            .Append(m.DurationSec.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
-        string sig = sb.ToString();
-
-        if (_outTimeline == null || sig != _outTimelineSig)
-        {
-            _outTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
-                durSec * 1000.0, segs, 1.0, 0, InsertionsForTimeline(), CutsForTimeline());
-            _outTimelineSig = sig;
-        }
-        return _outTimeline;
-    }
+        => _outputTimelineCache.Get(Math.Max(0.001, GetDuration()) * 1000, _segments, _cuts, _memes,
+            freezeStartMs: _freezeTimeMs >= 0 ? _freezeTimeMs - _trimStartMs : -1,
+            freezeDurationSeconds: _freezeDurationS);
 
     /// <summary>
     /// MEME_06 — the meme list in the shape OutputTimeline wants.
@@ -6510,8 +6628,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// <summary>Length of the FINISHED video in seconds - what the ruler is drawn against.</summary>
     private double OutDurationSec() => Math.Max(0.001, OutTimeline().TotalOutputSeconds);
 
-    private FortniteVideoSoftware.Core.Media.OutputTimeline? _baseTimeline;
-    private string _baseTimelineSig = "";
+    private readonly Services.EditorTimelineCache _baseTimelineCache = new();
 
     /// <summary>
     /// FREEZE_DRAG — the timeline WITHOUT the freeze spliced in.
@@ -6531,25 +6648,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </para>
     /// </summary>
     private FortniteVideoSoftware.Core.Media.OutputTimeline BaseTimeline()
-    {
-        double durSec = Math.Max(0.001, GetDuration());
-
-        var sb = new System.Text.StringBuilder();
-        sb.Append(durSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
-        foreach (var s in _segments)
-            sb.Append(s.StartMs).Append(',').Append(s.EndMs).Append(',').Append(s.Speed).Append(';');
-        // CUT_02 — see OutTimeline: cuts belong in the signature and in the model.
-        foreach (var c in _cuts) sb.Append('X').Append(c.StartMs).Append(',').Append(c.EndMs).Append(';');
-        string sig = sb.ToString();
-
-        if (_baseTimeline == null || sig != _baseTimelineSig)
-        {
-            _baseTimeline = FortniteVideoSoftware.Core.Media.OutputTimeline.Create(
-                durSec * 1000.0, _segments, 1.0, 0, null, CutsForTimeline());
-            _baseTimelineSig = sig;
-        }
-        return _baseTimeline;
-    }
+        => _baseTimelineCache.Get(Math.Max(0.001, GetDuration()) * 1000, _segments, _cuts, []);
 
     /// <summary>
     /// FREEZE_DRAG — an X on the output-time canvas -> seconds on the FREEZE-FREE timeline.
@@ -6635,12 +6734,14 @@ public partial class GranularSpeedEditorWindow : Window
 
     private double GetDuration()
     {
-        if (_videoHost?.IpcClient == null) return 0;
-        double fullDur = _videoHost.IpcClient.Duration;
+        double fullDur = (_videoHost?.IpcClient != null && _videoHost.IpcClient.Duration > 0)
+            ? _videoHost.IpcClient.Duration
+            : _probedDurationSec;
         double trimEndSec = (_trimEndMs > 0) ? _trimEndMs / 1000.0 : fullDur;
-        double trimDur = Math.Max(0.1, trimEndSec - (_trimStartMs / 1000.0));
+        double trimStartSec = Math.Max(0, _trimStartMs / 1000.0);
+        if (trimEndSec <= trimStartSec) return 0;
 
-        return trimDur;
+        return Math.Max(0.1, trimEndSec - trimStartSec);
     }
 
     private static string FormatMs(double ms)
@@ -6885,8 +6986,8 @@ public partial class GranularSpeedEditorWindow : Window
             // The ruler is drawn against OutTimeline(), which now has to know about the hole. Both
             // caches are keyed on a signature that includes the cuts, so clearing them is what
             // makes the timeline visibly condense on the next redraw.
-            _outTimeline = null; _outTimelineSig = "";
-            _baseTimeline = null; _baseTimelineSig = "";
+            _outputTimelineCache.Clear();
+            _baseTimelineCache.Clear();
 
             double removedSec = TotalCutSeconds();
             RuntimeLog.Success("CUT",
@@ -7321,8 +7422,8 @@ public partial class GranularSpeedEditorWindow : Window
             _pendingStartMs = -1;
             _pendingEndMs = -1;
 
-            _outTimeline = null; _outTimelineSig = "";
-            _baseTimeline = null; _baseTimelineSig = "";
+            _outputTimelineCache.Clear();
+            _baseTimelineCache.Clear();
 
             if (_zoomModeActive) ExitZoomMode();
 
@@ -7551,7 +7652,8 @@ public partial class GranularSpeedEditorWindow : Window
 
     private readonly ApplicationPaths _granularRecoveryPaths = ApplicationPaths.CreateDefault();
     private readonly RecoveryManager _granularRecovery = new();
-    private System.Timers.Timer? _granularRecoveryTimer;
+    private DispatcherTimer? _granularRecoveryTimer;
+    private Services.EditorRecoveryWriter? _granularRecoveryWriter;
 
     /// <summary>
     /// RECOVERY_03 — arms the debounce. Safe to call from anywhere on the UI thread and any number
@@ -7560,61 +7662,23 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void ScheduleGranularRecoverySave()
     {
+        if (_editorClosing) return;
         if (_granularRecoveryTimer == null)
         {
-            _granularRecoveryTimer = new System.Timers.Timer(GranularRecoveryDebounceMs)
+            _granularRecoveryTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
-                AutoReset = false   // one-shot; being re-armed by the next call IS the debounce
+                Interval = TimeSpan.FromMilliseconds(GranularRecoveryDebounceMs)
             };
-            _granularRecoveryTimer.Elapsed += (s, e) => GranularRecoveryTimer_Elapsed(e);
-        }
-        else
-        {
-            _granularRecoveryTimer.Stop();
-        }
-        _granularRecoveryTimer.Start();
-    }
-
-    /// <summary>
-    /// RECOVERY_03 — the debounce closed with no further edits: capture and persist.
-    ///
-    /// The CAPTURE runs on the UI thread (the lists are UI-owned) and the disk work is then handed
-    /// back to the thread pool, so the UI never touches the file. Capturing at FIRE time rather
-    /// than at SCHEDULE time is deliberate: triggers such as PushUndo run BEFORE the mutation they
-    /// precede, and 300ms later the change has long settled — the payload therefore always
-    /// describes the state the user is actually looking at.
-    /// </summary>
-    private void GranularRecoveryTimer_Elapsed(System.Timers.ElapsedEventArgs e)
-    {
-        JsonObject payload;
-        try
-        {
-            Avalonia.Threading.Dispatcher ui = Avalonia.Threading.Dispatcher.UIThread;
-            payload = ui.CheckAccess()
-                ? BuildGranularRecoveryPayload()
-                : ui.Invoke(BuildGranularRecoveryPayload);
-        }
-        catch (System.Exception ex)
-        {
-            RuntimeLog.Swallowed(ex);   // a shutting-down dispatcher must never take the timer down
-            return;
-        }
-
-        Task.Run(() =>
-        {
-            try
+            _granularRecoveryTimer.Tick += (_, _) =>
             {
-                // Read-modify-write: MainWindow owns this file too. Overlay ONLY the granular node
-                // so a save from here can never erase the app-level recovery state beside it.
-                JsonObject merged = AtomicJsonFile.ReadObject(_granularRecoveryPaths.RecoveryStateFile)
-                    ?? new JsonObject();
-                merged[GranularRecoveryKey] = payload;
-
-                // SaveStateAsync -> SaveState -> AtomicJsonFile.WriteObject: temp file + File.Move.
-                _granularRecovery.SaveStateAsync(merged);
-            }
-            catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        });
+                _granularRecoveryTimer.Stop();
+                if (_editorClosing) return;
+                _granularRecoveryWriter ??= new Services.EditorRecoveryWriter(_granularRecovery.UpdateGranularSession);
+                _granularRecoveryWriter.Request(BuildGranularRecoveryPayload());
+            };
+        }
+        _granularRecoveryTimer.Stop();
+        _granularRecoveryTimer.Start();
     }
 
     /// <summary>
@@ -7778,27 +7842,11 @@ public partial class GranularSpeedEditorWindow : Window
         return true;
     }
 
-    /// <summary>
-    /// RECOVERY_03 — a deliberate close (Accept OR Cancel) ends the live session: strip the node,
-    /// keep every other key. Runs synchronously inside OnClosing — the file is tiny and the close
-    /// path already does synchronous saves (WindowBoundsHelper.SaveBoundsSync).
-    /// </summary>
-    private void RemoveGranularRecoverySession()
+    private Task RemoveGranularRecoverySessionAsync()
     {
-        try { _granularRecoveryTimer?.Stop(); }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-
-        try
-        {
-            JsonObject? existing = AtomicJsonFile.ReadObject(_granularRecoveryPaths.RecoveryStateFile);
-            if (existing == null || !existing.ContainsKey(GranularRecoveryKey)) return;
-
-            existing.Remove(GranularRecoveryKey);
-            _granularRecovery.SaveState(existing);   // atomic; stamps schema_version itself
-            RuntimeLog.Info("Granular",
-                "RECOVERY_03 - granular session closed cleanly; live-session node removed from the recovery state.");
-        }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        _granularRecoveryTimer?.Stop();
+        _granularRecoveryWriter ??= new Services.EditorRecoveryWriter(_granularRecovery.UpdateGranularSession);
+        return _granularRecoveryWriter.FinishAsync();
     }
 
     private static double GetJsonDouble(JsonNode? node, double fallback)
@@ -7816,45 +7864,41 @@ public partial class GranularSpeedEditorWindow : Window
     private static string? GetJsonString(JsonNode? node)
         => node is JsonValue v && v.TryGetValue(out string? s) ? s : null;
 
-    protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
+    protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        if (_isSafeToClose) { base.OnClosing(e); return; }
+        e.Cancel = true;
+        if (_editorClosing) return;
+        _editorClosing = true;
         _isSeeking = false;
         _nextSeekTarget = null;
-        try { _seekFlushTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _uiWatchdog?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        _seekFlushTimer?.Stop();
+        _uiWatchdog?.Dispose();
         _uiWatchdog = null;
-        try { _marchingAntsTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _playbackTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _freezePulseTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _zoomTutorialTimer?.Stop(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        try { _thumbCts?.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        DeleteThumbStrip();
-
-        // RECOVERY_03 — a deliberate close (Accept OR Cancel) ends the live granular session; see
-        // RemoveGranularRecoverySession. A force-kill never reaches this line — which is exactly
-        // why the node surviving one is the point of the feature.
-        RemoveGranularRecoverySession();
-
-        if (_isSafeToClose)
-        {
-            base.OnClosing(e);
-            return;
-        }
-
-        e.Cancel = true;
-        FortniteVideoSoftware.App.WindowBoundsHelper.SaveBoundsSync(this, "GranularBounds");
-
-        RuntimeLog.Info("Granular", "Granular Speed Editor closing. Stopping timers and saving bounds.");
-        ClearLiveZoomCrop();
+        _marchingAntsTimer?.Stop();
         _playbackTimer?.Stop();
-
-        try { _videoHost?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-        _videoHost = null;
-
-        this.Hide();
-
-        _isSafeToClose = true;
-        Avalonia.Threading.Dispatcher.UIThread.Post(Close);
+        _freezePulseTimer?.Stop();
+        _zoomTutorialTimer?.Stop();
+        _thumbCts?.Cancel();
+        DeleteThumbStrip();
+        var host = _videoHost;
+        try
+        {
+            // GRANULARPERF_01 — keep dispatching while disk writes and render-thread shutdown finish.
+            ClearLiveZoomCrop();
+            await Task.WhenAll(RemoveGranularRecoverySessionAsync(),
+                WindowBoundsHelper.SaveBoundsAsync(this, "GranularBounds"),
+                host?.StopRenderingAsync() ?? Task.CompletedTask);
+            host?.Dispose();
+            _videoHost = null;
+        }
+        catch (Exception ex) { RuntimeLog.Fail("Granular close", ex); }
+        finally
+        {
+            Hide();
+            _isSafeToClose = true;
+            Dispatcher.UIThread.Post(Close);
+        }
     }
 
     protected override void OnClosed(EventArgs e)
@@ -7865,7 +7909,7 @@ public partial class GranularSpeedEditorWindow : Window
 
         // RECOVERY_03 — OnClosing already stopped the debounce timer; release it here so nothing of
         // this window outlives it.
-        try { _granularRecoveryTimer?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        _granularRecoveryTimer?.Stop();
         _granularRecoveryTimer = null;
 
         Controls.CoachOverlay.Cancel(this);

@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -925,6 +925,8 @@ public partial class MusicWizardWindow : Window
 
             };
 
+            listbox.AddHandler(InputElement.KeyDownEvent, OnMusicListKeyDown, RoutingStrategies.Tunnel);
+
             LoadMusicDirectory();
 
         }
@@ -935,19 +937,21 @@ public partial class MusicWizardWindow : Window
             queueList.ItemsSource = AutoFillQueueItems;
         }
 
+        var clearSearchBtn = this.FindControl<Button>("ClearSearchBtn");
         var searchBox = this.FindControl<TextBox>("MusicSearchBox");
         if (searchBox != null)
         {
             searchBox.TextChanged += (s, e) =>
             {
                 _musicSearchText = searchBox.Text ?? string.Empty;
+                if (clearSearchBtn != null)
+                    clearSearchBtn.IsVisible = !string.IsNullOrEmpty(_musicSearchText);
                 ApplyTrackFilterAndSort();
             };
             searchBox.KeyDown += OnMusicSearchKeyDown;
             Dispatcher.UIThread.Post(() => searchBox.Focus(), DispatcherPriority.Input);
         }
 
-        var clearSearchBtn = this.FindControl<Button>("ClearSearchBtn");
         if (clearSearchBtn != null)
         {
             clearSearchBtn.Click += (s, e) =>
@@ -955,6 +959,7 @@ public partial class MusicWizardWindow : Window
                 if (searchBox != null)
                 {
                     searchBox.Text = string.Empty;
+                    clearSearchBtn.IsVisible = false;
                     searchBox.Focus();
                 }
             };
@@ -1623,6 +1628,136 @@ public partial class MusicWizardWindow : Window
             if (listbox.SelectedItem != null && _currentStep == 1)
                 OnNextClicked(listbox, new RoutedEventArgs());
             e.Handled = true;
+        }
+    }
+
+    private string _quickJumpBuffer = string.Empty;
+    private DateTime _lastQuickJumpTime = DateTime.MinValue;
+    private static readonly TimeSpan QuickJumpTimeout = TimeSpan.FromMilliseconds(1000);
+
+    private void OnMusicListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (AvailableTracks.Count == 0) return;
+        var listbox = this.FindControl<ListBox>("MusicListBox");
+        if (listbox == null) return;
+
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End or Key.Enter or Key.Escape or Key.Tab)
+        {
+            _quickJumpBuffer = string.Empty;
+            return;
+        }
+
+        if (e.Key == Key.Back)
+        {
+            if (_quickJumpBuffer.Length > 0)
+            {
+                _quickJumpBuffer = _quickJumpBuffer.Substring(0, _quickJumpBuffer.Length - 1);
+                _lastQuickJumpTime = DateTime.UtcNow;
+                if (!string.IsNullOrEmpty(_quickJumpBuffer))
+                {
+                    ExecuteQuickJumpMatch(listbox, _quickJumpBuffer, isRepeatChar: false);
+                }
+            }
+            e.Handled = true;
+            return;
+        }
+
+        char? inputChar = null;
+        if (!string.IsNullOrEmpty(e.KeySymbol) && e.KeySymbol.Length == 1 && !char.IsControl(e.KeySymbol[0]))
+        {
+            inputChar = e.KeySymbol[0];
+        }
+        else if (e.Key >= Key.A && e.Key <= Key.Z)
+        {
+            inputChar = (char)('a' + (e.Key - Key.A));
+        }
+        else if (e.Key >= Key.D0 && e.Key <= Key.D9)
+        {
+            inputChar = (char)('0' + (e.Key - Key.D0));
+        }
+        else if (e.Key >= Key.NumPad0 && e.Key <= Key.NumPad9)
+        {
+            inputChar = (char)('0' + (e.Key - Key.NumPad0));
+        }
+
+        if (inputChar.HasValue)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastQuickJumpTime > QuickJumpTimeout)
+            {
+                _quickJumpBuffer = string.Empty;
+            }
+            _lastQuickJumpTime = now;
+            _quickJumpBuffer += inputChar.Value;
+
+            bool isAllSameChar = _quickJumpBuffer.Length > 0 &&
+                _quickJumpBuffer.All(c => char.ToUpperInvariant(c) == char.ToUpperInvariant(_quickJumpBuffer[0]));
+
+            ExecuteQuickJumpMatch(listbox, _quickJumpBuffer, isRepeatChar: isAllSameChar);
+            e.Handled = true;
+        }
+    }
+
+    private void ExecuteQuickJumpMatch(ListBox listbox, string query, bool isRepeatChar)
+    {
+        if (string.IsNullOrEmpty(query) || AvailableTracks.Count == 0) return;
+
+        int currentIndex = listbox.SelectedIndex;
+        if (currentIndex < 0) currentIndex = 0;
+
+        MusicTrackItem? match = null;
+
+        if (isRepeatChar)
+        {
+            char firstChar = query[0];
+            for (int i = 1; i <= AvailableTracks.Count; i++)
+            {
+                int idx = (currentIndex + i) % AvailableTracks.Count;
+                var track = AvailableTracks[idx];
+                string name = track.Title ?? track.Name ?? string.Empty;
+                if (name.StartsWith(firstChar.ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    match = track;
+                    break;
+                }
+            }
+            if (match == null)
+            {
+                for (int i = 1; i <= AvailableTracks.Count; i++)
+                {
+                    int idx = (currentIndex + i) % AvailableTracks.Count;
+                    var track = AvailableTracks[idx];
+                    string name = track.Title ?? track.Name ?? string.Empty;
+                    if (name.IndexOf(firstChar.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        match = track;
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            match = AvailableTracks.FirstOrDefault(t =>
+            {
+                string name = t.Title ?? t.Name ?? string.Empty;
+                return name.StartsWith(query, StringComparison.OrdinalIgnoreCase);
+            });
+
+            if (match == null)
+            {
+                match = AvailableTracks.FirstOrDefault(t =>
+                {
+                    string name = t.Title ?? t.Name ?? string.Empty;
+                    return name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+                });
+            }
+        }
+
+        if (match != null)
+        {
+            listbox.SelectedItem = match;
+            listbox.ScrollIntoView(match);
         }
     }
 

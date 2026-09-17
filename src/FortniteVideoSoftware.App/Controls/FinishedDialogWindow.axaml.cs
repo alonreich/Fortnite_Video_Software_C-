@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -18,6 +18,8 @@ public partial class FinishedDialogWindow : Window
     public FinishedDialogWindow()
     {
         InitializeComponent();
+
+        Controls.WindowResizeGrip.Attach(this, "Drag to resize the Finished dialog");
 
         Opened += (_, _) => UiSoundEffect.PlayProcess();
     }
@@ -49,6 +51,7 @@ public partial class FinishedDialogWindow : Window
         while (el != null)
         {
             if (el is Button) return;
+            if (el is Control c && c.Name == "ResizeGrip") return;
             el = el.Parent;
         }
         try { BeginMoveDrag(e); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }

@@ -1,4 +1,7 @@
-﻿using System;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md, docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -102,47 +105,32 @@ public sealed class MpvVideoView : Control, IDisposable
 
     public MpvIpcClient? IpcClient { get; private set; }
 
-    public void InitializeMpv(string mpvPath)
+    private async Task InitializeMpvAsync(string mpvPath)
     {
         var renderMode = VideoRenderMode.Current;
         bool useHardwareInterop = renderMode.UseHardwareAcceleration;
 
-        _mpvHandle = MpvWrapper.mpv_create();
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "wid", "0");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "vo", "libmpv");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "hwdec", useHardwareInterop ? "cuda,dxva2,auto-safe" : "no");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "background", "#FF000000");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "keep-open", "yes");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "volume", MpvIpcClient.ToMpvVolume(MpvIpcClient.GlobalMasterVolume).ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
+        // GRANULARPERF_01 — native initialization can open audio devices and load drivers.
+        // Only a local handle is touched by the worker, so closing during startup cannot free it twice.
+        long started = Environment.TickCount64;
+        nint handle = await Task.Run(() => CreateNativePlayer(useHardwareInterop));
+        if (_isDisposed || _disposing)
         {
-            string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, $"mpv_debug_{Environment.ProcessId}_{RuntimeLog.SessionId}.log");
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "yes");
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "msg-level", "all=v");
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "log-file", mpvLogPath);
+            await Task.Run(() => MpvWrapper.mpv_terminate_destroy(handle));
+            return;
         }
-        else
-        {
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "terminal", "no");
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "msg-level", "all=warn");
-        }
-
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "force-window", "no");
-        MpvWrapper.mpv_set_option_string(_mpvHandle, "osd-bar", "no");
-
-        MpvWrapper.mpv_initialize(_mpvHandle);
-        IpcClient = new MpvIpcClient(_mpvHandle);
-
+        RuntimeLog.Info(InteropLogStep, $"Native player initialized off UI in {Environment.TickCount64 - started}ms.");
+        _mpvHandle = handle;
+        IpcClient = new MpvIpcClient(handle);
+        started = Environment.TickCount64;
+        // WGL window/context ownership stays on the UI thread.
         if (OperatingSystem.IsWindows())
         {
             if (!useHardwareInterop)
             {
                 RuntimeLog.Info(InteropLogStep, $"Hardware video interop disabled ({renderMode.FailureReason}); using CPU software preview.");
                 IsSoftwareFallbackActive = !InitializeSoftwareRender();
+                RuntimeLog.Info(InteropLogStep, $"Software render setup: {Environment.TickCount64 - started}ms.");
                 return;
             }
 
@@ -150,6 +138,7 @@ public sealed class MpvVideoView : Control, IDisposable
             {
                 InitializeWGLInteropContext();
                 IsSoftwareFallbackActive = false;
+                RuntimeLog.Info(InteropLogStep, $"GPU render setup: {Environment.TickCount64 - started}ms.");
             }
             catch (Exception ex)
             {
@@ -161,6 +150,49 @@ public sealed class MpvVideoView : Control, IDisposable
         else
         {
             throw new PlatformNotSupportedException();
+        }
+    }
+
+    private static nint CreateNativePlayer(bool useHardwareInterop)
+    {
+        nint handle = MpvWrapper.mpv_create();
+        if (handle == nint.Zero) throw new InvalidOperationException("Could not create the video player.");
+        try
+        {
+
+        MpvWrapper.mpv_set_option_string(handle, "wid", "0");
+        MpvWrapper.mpv_set_option_string(handle, "vo", "libmpv");
+        MpvWrapper.mpv_set_option_string(handle, "hwdec", useHardwareInterop ? "cuda,dxva2,auto-safe" : "no");
+        MpvWrapper.mpv_set_option_string(handle, "background", "#FF000000");
+        MpvWrapper.mpv_set_option_string(handle, "keep-open", "yes");
+        MpvWrapper.mpv_set_option_string(handle, "idle", "yes");
+        MpvWrapper.mpv_set_option_string(handle, "ytdl", "no");
+        MpvWrapper.mpv_set_option_string(handle, "volume", MpvIpcClient.ToMpvVolume(MpvIpcClient.GlobalMasterVolume).ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
+        {
+            string mpvLogPath = System.IO.Path.Combine(RuntimeLog.DevLogDir, $"mpv_debug_{Environment.ProcessId}_{RuntimeLog.SessionId}.log");
+            MpvWrapper.mpv_set_option_string(handle, "terminal", "yes");
+            MpvWrapper.mpv_set_option_string(handle, "msg-level", "all=v");
+            MpvWrapper.mpv_set_option_string(handle, "log-file", mpvLogPath);
+        }
+        else
+        {
+            MpvWrapper.mpv_set_option_string(handle, "terminal", "no");
+            MpvWrapper.mpv_set_option_string(handle, "msg-level", "all=warn");
+        }
+
+        MpvWrapper.mpv_set_option_string(handle, "force-window", "no");
+        MpvWrapper.mpv_set_option_string(handle, "osd-bar", "no");
+
+        int error = MpvWrapper.mpv_initialize(handle);
+        if (error < 0) throw new InvalidOperationException($"Video player initialization failed ({error}).");
+        return handle;
+        }
+        catch
+        {
+            MpvWrapper.mpv_terminate_destroy(handle);
+            throw;
         }
     }
 
@@ -596,10 +628,29 @@ public sealed class MpvVideoView : Control, IDisposable
         WglInterop.wglMakeCurrent(nint.Zero, nint.Zero);
     }
 
+    private Task? _initializationTask;
+
     public Task StartMpvProcessAsync(string mpvPath)
     {
-        InitializeMpv(mpvPath);
-        return Task.CompletedTask;
+        Dispatcher.UIThread.VerifyAccess();
+        if (_isDisposed || _disposing) return Task.CompletedTask;
+        return _initializationTask ??= InitializeMpvAsync(mpvPath);
+    }
+
+    /// <summary>Let render threads finish while the dispatcher can still service their queued imports.</summary>
+    public async Task StopRenderingAsync()
+    {
+        _disposing = true;
+        _swDisposing = true;
+        _renderThreadRunning = false;
+        try { _renderSignal.Set(); } catch (ObjectDisposedException) { }
+        var gpu = _renderThread;
+        var cpu = _swThread;
+        await Task.Run(() =>
+        {
+            gpu?.Join(TimeSpan.FromSeconds(3));
+            cpu?.Join(TimeSpan.FromSeconds(3));
+        });
     }
 
     protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

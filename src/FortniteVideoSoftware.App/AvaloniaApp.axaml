@@ -112,6 +112,16 @@
         <sys:Double x:Key="AppSpeedPresetMinHeight">44</sys:Double>
         <sys:Double x:Key="AppCloseBtnSize">44</sys:Double>
 
+        <!-- ISSUE_11 (Crop Tools audit round 6) — two more runtime-scaled geometry tokens, added
+             for the Crop Tool's wizard strip and zoom rail, where the type scaled with the font
+             scale and the boxes around it did not. Both are registered in
+             ThemeManager.s_scaledTokens alongside the AppFontSizeN family, so they move together.
+             ADDITIVE ONLY: no existing key changes value, and nothing outside CropToolWindow.axaml
+             references either of them today. -->
+        <sys:Double x:Key="AppWizStepDotSize">24</sys:Double>
+        <sys:Double x:Key="AppWizConnectorWidth">10</sys:Double>
+        <sys:Double x:Key="AppZoomStripTextMaxWidth">46</sys:Double>
+
         <!-- SpeedPreset hover/pressed tokens -->
         <SolidColorBrush x:Key="AppSpeedPresetHoverBackground" Color="#4a3714" />
         <SolidColorBrush x:Key="AppSpeedPresetHoverForeground" Color="#fef3c7" />
@@ -233,6 +243,32 @@
             <GradientStop Offset="1.0" Color="#0e7490"/>
         </LinearGradientBrush>
 
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             MERGERRETURN_01 — THE HELP HUE.
+             Every button class in this file is an ACTION class: Primary (do the main thing),
+             Success (finish), Danger (destroy), Secondary (do a lesser thing), ZoomAction and
+             VoiceOverEntry (one feature each, by IDEA_6's "one feature, one colour" rule).
+             A "SHOW ME AROUND" button is none of those — it does nothing to the user's work at
+             all — but it was wearing Secondary, so on every screen it sat in the same violet as
+             RETURN, CROP SETTINGS and SET THUMBNAIL and competed with them for the same glance.
+             This is the suite's INFORMATION hue (AppInfoBrush / AppInfoColor, already the colour
+             of every advisory readout in the app) given the standard 3-stop button ramp. It is
+             close to VoiceOverEntry's cyan on purpose — they are neighbours on the same wheel —
+             and the two never appear on the same screen.
+             Used by: VideoMergerWindow MergerHelpButton. Any other screen's walkthrough button
+             should move onto it too. ══════════════════════════════════════════════════════════ -->
+        <SolidColorBrush x:Key="AppHelpBorderBrush" Color="#075985" />
+        <LinearGradientBrush x:Key="AppHelpButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#7dd3fc"/>
+            <GradientStop Offset="0.18" Color="#0284c7"/>
+            <GradientStop Offset="1.0" Color="#0c4a6e"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AppHelpButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0.0" Color="#bae6fd"/>
+            <GradientStop Offset="0.18" Color="#0ea5e9"/>
+            <GradientStop Offset="1.0" Color="#075985"/>
+        </LinearGradientBrush>
+
         <!-- ISSUE_04: hover/pressed overlay + CloseBtn state tokens (previously raw hex inline) -->
         <SolidColorBrush x:Key="AppHoverOverlayBrush" Color="#22ffffff" />
         <SolidColorBrush x:Key="AppCloseBtnHoverBackgroundBrush" Color="#227DD3FC" />
@@ -285,6 +321,15 @@
         <ResourceDictionary.ThemeDictionaries>
             <ResourceDictionary x:Key="Dark">
                 <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1e293b" />
+                <!-- ISSUE_09 (Crop Tools audit round 6) — the drop shadow behind a floating in-panel
+                     chooser. Avalonia's BoxShadows cannot take a per-stop DynamicResource, so the
+                     Crop Tool's RolePopup used to carry a raw `0 4 18 0 #66000000` literal in the
+                     AXAML: the one hardcoded colour left in that file, and a fixed 40%-black smear
+                     that stayed identical in Light mode. The shadow is now assembled in code from
+                     this token (CropToolWindow.ApplyRolePopupShadow) and rebuilt whenever the theme
+                     variant changes. Dark mode: a deep shadow, because the ground is already dark
+                     and the popup has to lift clear of it. -->
+                <Color x:Key="AppPopupShadowColor">#66000000</Color>
                 <!-- ISSUE_01: previously referenced but never defined (MemeWall cells,
                      RadialMenu hub). 80%-alpha variant of AppSurfaceBrush per theme. -->
                 <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CC1e293b" />
@@ -373,6 +418,9 @@
             </ResourceDictionary>
             <ResourceDictionary x:Key="Light">
                 <SolidColorBrush x:Key="AppSurfaceBrush" Color="#f8fafc" />
+                <!-- ISSUE_09 — see the dark-theme note. A 40%-black shadow on a near-white ground
+                     reads as dirt rather than depth, so Light gets a far lighter, cooler one. -->
+                <Color x:Key="AppPopupShadowColor">#2A0F172A</Color>
                 <!-- ISSUE_01: previously referenced but never defined (MemeWall cells,
                      RadialMenu hub). 80%-alpha variant of AppSurfaceBrush per theme. -->
                 <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CCf8fafc" />
@@ -545,6 +593,20 @@
                     <GradientStop Offset="1.0" Color="#083344"/>
                 </LinearGradientBrush>
 
+                <!-- MERGERRETURN_01 — see the dark-theme note. Deepened so white label text keeps
+                     its contrast against a near-white panel. -->
+                <SolidColorBrush x:Key="AppHelpBorderBrush" Color="#0c4a6e" />
+                <LinearGradientBrush x:Key="AppHelpButtonGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#38bdf8"/>
+                    <GradientStop Offset="0.18" Color="#0369a1"/>
+                    <GradientStop Offset="1.0" Color="#082f49"/>
+                </LinearGradientBrush>
+                <LinearGradientBrush x:Key="AppHelpButtonHoverGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0.0" Color="#7dd3fc"/>
+                    <GradientStop Offset="0.18" Color="#0284c7"/>
+                    <GradientStop Offset="1.0" Color="#0c4a6e"/>
+                </LinearGradientBrush>
+
                 <!-- ISSUE_13: the hover wash was a 13%-WHITE overlay defined outside the theme
                      dictionaries. On a #f8fafc panel that is invisible, so hovering a checkbox
                      or radio button gave no feedback at all in Light. Same inversion the ripple
@@ -663,6 +725,13 @@
             <Setter Property="RenderTransform" Value="translateY(2px)"/>
         </Style>
 
+        <!-- MERGERBOTTOM_01 — the LAST wearer of this class was VideoMergerWindow's speed preset
+             StackPanel, which is now the Main App's Grid geometry (RowDefinitions="Auto,8,Auto",
+             ColumnDefinitions="Auto,8,Auto,8,Auto") so both screens' preset blocks are one design in
+             two places. The style is KEPT rather than deleted because a StackPanel-based preset
+             stack is a perfectly reasonable thing for a future screen to want, and a two-line
+             spacing rule is not worth a merge conflict; it is simply unworn today. If you are
+             adding a preset row, prefer the Grid geometry and leave this alone. -->
         <Style Selector="StackPanel.SpeedPresetRows">
             <Setter Property="Spacing" Value="3"/>
         </Style>
@@ -760,6 +829,26 @@
         </Style>
         <Style Selector="Button.VoiceOverEntry:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppVoiceOverDisabledBackgroundBrush}"/>
+        </Style>
+
+        <!-- MERGERRETURN_01 — the walkthrough / help affordance. Same recipe as every other class
+             above (deep border, on-accent text, 3-stop ramp, hand cursor, hover ramp, disabled
+             pair) so it inherits the whole shared Button style unchanged; only the hue differs. -->
+        <Style Selector="Button.HelpHint">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppHelpBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppOnAccentTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppHelpButtonGradient}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.HelpHint:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppHelpButtonHoverGradient}"/>
+        </Style>
+        <Style Selector="Button.HelpHint:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource AppDisabledForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppDisabledBorderBrush}"/>
+        </Style>
+        <Style Selector="Button.HelpHint:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppDisabledBackgroundBrush}"/>
         </Style>
 
         <Style Selector="Button.Primary:disabled">

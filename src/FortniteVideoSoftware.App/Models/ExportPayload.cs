@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
@@ -30,10 +33,9 @@ public record ExportPayload
     public bool? ApplyLoudnessNormalization { get; init; }
     public bool? ApplyPeakFlattening { get; init; }
     public bool IsMobileFormat { get; init; }
-    public bool IsBossHp { get; init; }
     public bool EnableFades { get; init; }
     public bool ShowTeammates { get; init; }
-    public bool ShowSpectating { get; init; }
+    public bool ShowSpectating { get; init; } = true;
     public string? MemeFile { get; init; }
 
     /// <summary>
@@ -72,4 +74,3 @@ public record ExportResult
     public string? Warning { get; init; }
     public FortniteVideoSoftware.Core.Media.ExportFailure? Failure { get; init; }
 }
-

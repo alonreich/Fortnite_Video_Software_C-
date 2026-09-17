@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md, docs/SPEC_GOVERNANCE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -24,7 +27,7 @@ public sealed class RecoveryManager
 
     private readonly ApplicationPaths _paths;
     private readonly TimeSpan _safeModeThreshold = TimeSpan.FromSeconds(120);
-    private readonly object _saveLock = new();
+    private static readonly object _saveLock = new(); // Shared by the main window and editor writers.
     private int _saveSequence;
     private int _latestCommittedSave;
     private bool _skipCleanup;
@@ -311,6 +314,20 @@ public sealed class RecoveryManager
     {
         int sequence = Interlocked.Increment(ref _saveSequence);
         Task.Run(() => SaveState(state, sequence));
+    }
+
+    /// <summary>GRANULARPERF_01 — atomic editor-node update under the same gate as app-level saves.</summary>
+    public void UpdateGranularSession(JsonObject? session)
+    {
+        lock (_saveLock)
+        {
+            var state = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
+            if (state == null && session == null) return;
+            state ??= new JsonObject();
+            // Explicit null suppresses SaveState's preservation rule on deliberate close.
+            state["granular_session"] = session?.DeepClone();
+            SaveState(state);
+        }
     }
 
     public void SaveState(JsonObject state, int? sequence = null)

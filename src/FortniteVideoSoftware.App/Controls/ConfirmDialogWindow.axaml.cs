@@ -1,4 +1,7 @@
-﻿using Avalonia.Controls;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 
@@ -10,6 +13,41 @@ public partial class ConfirmDialogWindow : Window
     
     public ConfirmDialogResult DialogResult { get; private set; } = ConfirmDialogResult.Cancelled;
     public bool Result => DialogResult == ConfirmDialogResult.Yes;
+
+    public enum SaveChangesChoice { BackToEditing, Save, Discard }
+
+    // CROPUNSAVED_01 — explicit actions, with the harmless escape on Enter and Escape.
+    // Saving is green; discarding is red. Closing the prompt never discards anything.
+    public static async System.Threading.Tasks.Task<SaveChangesChoice> AskSaveChangesAsync(
+        Window owner, string profileName, string destination)
+    {
+        try
+        {
+            var dlg = new ConfirmDialogWindow();
+            dlg.SetTitle("Save your changes?");
+            dlg.SetMessage($"Save your changes to \"{profileName}\" before {destination}?\n\n" +
+                           "Discard changes will lose your unsaved edits.");
+            dlg.SetButtonText("Save changes", "Back to editing", "Discard changes");
+            dlg.SetButtonClasses("Success", "Secondary", "Danger");
+            var save = dlg.FindControl<Button>("YesBtn")!;
+            var back = dlg.FindControl<Button>("NoBtn")!;
+            save.IsDefault = false;
+            back.IsDefault = true;
+            dlg.Opened += (_, _) => back.Focus();
+            await dlg.ShowDialog(owner);
+            return dlg.DialogResult switch
+            {
+                ConfirmDialogResult.Yes => SaveChangesChoice.Save,
+                ConfirmDialogResult.Alt => SaveChangesChoice.Discard,
+                _ => SaveChangesChoice.BackToEditing
+            };
+        }
+        catch (System.Exception ex)
+        {
+            RuntimeLog.Fail("DIALOG", $"Save prompt failed, keeping the edits open: {ex.Message}");
+            return SaveChangesChoice.BackToEditing;
+        }
+    }
 
     public ConfirmDialogWindow()
     {
@@ -191,11 +229,20 @@ public partial class ConfirmDialogWindow : Window
         var yesBtn = this.FindControl<Button>("YesBtn");
         var noBtn = this.FindControl<Button>("NoBtn");
         var altBtn = this.FindControl<Button>("AltBtn");
-        if (yesBtn != null) yesBtn.Content = yesText;
-        if (noBtn != null) noBtn.Content = noText;
+        if (yesBtn != null)
+        {
+            yesBtn.Content = yesText;
+            Avalonia.Automation.AutomationProperties.SetName(yesBtn, yesText);
+        }
+        if (noBtn != null)
+        {
+            noBtn.Content = noText;
+            Avalonia.Automation.AutomationProperties.SetName(noBtn, noText);
+        }
         if (altBtn != null && altText != null)
         {
             altBtn.Content = altText;
+            Avalonia.Automation.AutomationProperties.SetName(altBtn, altText);
             altBtn.IsVisible = true;
         }
     }

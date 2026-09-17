@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -82,8 +85,8 @@ public partial class MainWindow
         //
         // `resolvedTargetMb` has always been "the size to aim for, or null for constant quality",
         // and it still is. What changed is that it used to BE the dial's value (5 + idx * 5) and
-        // is now DERIVED from the quality tier the dial selects — through the same ExportViewModel
-        // method that produces the estimate shown under the dial, so the user is never promised
+        // is now DERIVED from the quality tier the dial selects — through the same estimator
+        // that produces the readout beside PROCESS, so the user is never promised
         // one size and handed another.
         // ══════════════════════════════════════════════════════════════════════════════════════
         int qualityIdx = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("QualitySlider")?.Value
@@ -93,10 +96,38 @@ public partial class MainWindow
         // keepHighestRes and the constant-quality path. Passing the raw tier here would strip
         // `Original` of the one thing it promises. See QualityLadder.ToWorkerQualityLevel.
         int resolvedQuality = FortniteVideoSoftware.App.ViewModels.QualityLadder.ToWorkerQualityLevel(qualityIdx);
-        double? resolvedTargetMb = _viewModel.Export.ResolveTargetMb(
-            _viewModel.Timeline.CalculateEffectiveDurationMs(),
-            IsPortraitMode,
-            _viewModel.Timeline.CalculateFreezeOutputMs());
+        // SIZEESTIMATE_01 — recapture current inputs; never export using a stale displayed result.
+        // Original's rough prediction remains separate from its null (uncapped) encoder target.
+        var sizeRequest = CaptureSizeRequest();
+        Services.OutputSizeEstimate sizeEstimate;
+        try
+        {
+            var estimateToken = _processCts.Token;
+            sizeEstimate = await Task.Run(() => SizeEstimator.EstimateMainAsync(sizeRequest, estimateToken), estimateToken);
+        }
+        catch (OperationCanceledException)
+        {
+            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            processButton.IsEnabled = true;
+            processButton.Content = "PROCESS";
+            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+            return;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("SIZE ESTIMATE", ex);
+            sizeEstimate = Services.OutputSizeEstimate.Empty;
+        }
+        double? resolvedTargetMb = sizeEstimate.TargetMegabytes;
+        if (!FortniteVideoSoftware.App.ViewModels.QualityLadder.IsOriginal(qualityIdx) && !resolvedTargetMb.HasValue)
+        {
+            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            processButton.IsEnabled = true;
+            processButton.Content = "PROCESS";
+            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+            await ErrorReporter.ShowAsync(this, "Could not read the video", "Please reload the video and try again.", "");
+            return;
+        }
 
         RuntimeLog.Info("EXPORT",
             $"Quality tier '{FortniteVideoSoftware.App.ViewModels.QualityLadder.NameOf(qualityIdx)}' -> " +
@@ -257,10 +288,9 @@ public partial class MainWindow
             ApplyLoudnessNormalization = _applyLoudnessNormalization,
             ApplyPeakFlattening = _applyPeakFlattening,
             IsMobileFormat = this.FindControl<Avalonia.Controls.ToggleSwitch>("PortraitModeCheckbox")?.IsChecked ?? true,
-            IsBossHp = this.FindControl<Avalonia.Controls.ToggleSwitch>("BossHpCheckbox")?.IsChecked ?? false,
             EnableFades = this.FindControl<Avalonia.Controls.ToggleSwitch>("EnableFadeCheckbox")?.IsChecked ?? true,
             ShowTeammates = this.FindControl<Avalonia.Controls.ToggleSwitch>("TeammatesCheckbox")?.IsChecked ?? false,
-            ShowSpectating = this.FindControl<Avalonia.Controls.ToggleSwitch>("SpectatingCheckbox")?.IsChecked ?? false,
+            ShowSpectating = IsSpectating,
             MemeFile = memeFile,
             MemeAtStart = !string.IsNullOrWhiteSpace(memeFile) &&
                           Infrastructure.MemePlacementStore.Get(memeFile!) == Infrastructure.MemePlacement.Start,
@@ -321,6 +351,12 @@ public partial class MainWindow
         {
             ShowTacticalFeedback(result.Warning == null ? "Processing complete" : "Complete — thumbnail failed");
             PlayUiSound();
+
+            // CAPTIONWIPE_01 — this video is finished, so its title is finished with it. MUST run
+            // BEFORE the clean flag below: writing OverlayText fires NotifyStateDirty, which would
+            // clear that flag again and arm crash recovery for a project that has just been
+            // exported successfully. See MainWindow.ClearOverlayTextForNextVideo.
+            ClearOverlayTextForNextVideo("the video finished processing");
 
             _exportedCleanSinceLastEdit = true;
             _recovery.ClearState();

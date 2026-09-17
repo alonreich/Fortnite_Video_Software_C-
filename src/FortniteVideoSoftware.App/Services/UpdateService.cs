@@ -58,15 +58,15 @@ internal static class UpdateService
     private const string LastCheckFile = "update_last_check_utc.txt";
     private const string SkippedTagFile = "update_skipped_tag.txt";
 
-    private static readonly TimeSpan StartupGracePeriod = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan StartupGracePeriod = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan MinimumIntervalBetweenChecks = TimeSpan.FromHours(24);
+    private static readonly TimeSpan MinimumIntervalBetweenChecks = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(30);
 
     private static readonly HttpClient Http = CreateHttpClient();
     private static int _checkInProgress;
 
-    private sealed record UpdateRelease(string Tag, string DownloadUrl, string? Sha256Hex, long Size);
+    private sealed record UpdateRelease(string Tag, string DownloadUrl, string? Sha256Hex, long Size, string? ReleaseNotes);
 
     private static HttpClient CreateHttpClient()
     {
@@ -109,6 +109,7 @@ internal static class UpdateService
 
             if (!ThrottlePermitsCheck()) return;
 
+            RuntimeLog.Info("UPDATE", "Running startup update probe against GitHub releases...");
             UpdateRelease? release = await QueryLatestReleaseAsync().ConfigureAwait(false);
             if (release is null) return;
 
@@ -127,6 +128,8 @@ internal static class UpdateService
                 return;
             }
 
+            RuntimeLog.Info("UPDATE", $"Newer version found: {remote} (installed {local}). Prompting user.");
+
             string skipped = UiStateStore.ReadText(SkippedTagFile).Trim();
             if (string.Equals(skipped, release.Tag, StringComparison.OrdinalIgnoreCase))
             {
@@ -139,7 +142,7 @@ internal static class UpdateService
             var choiceReady = new TaskCompletionSource<UpdateChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
             Dispatcher.UIThread.Post(async () =>
             {
-                try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag)); }
+                try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag, release.ReleaseNotes)); }
                 catch (Exception ex) { choiceReady.SetException(ex); }
             });
             UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
@@ -174,13 +177,129 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>At most one probe per 24h, regardless of outcome, so a flaky network cannot hammer.</summary>
+    /// <summary>
+    /// Explicit manual check triggered on user demand (e.g. from the About tab or Help menu).
+    /// Bypasses the 24-hour throttle and auto-update toggle since the user explicitly requested it.
+    /// </summary>
+    public static async Task CheckManualAsync(Window owner, Action<string>? statusCallback = null)
+    {
+        if (Interlocked.CompareExchange(ref _checkInProgress, 1, 0) != 0)
+        {
+            statusCallback?.Invoke("An update check is already in progress...");
+            return;
+        }
+
+        try
+        {
+            statusCallback?.Invoke("Checking GitHub for updates...");
+            RuntimeLog.Info("UPDATE", "Manual update check initiated by user.");
+
+            UpdateRelease? release = await QueryLatestReleaseAsync().ConfigureAwait(false);
+            if (release is null)
+            {
+                statusCallback?.Invoke("Could not connect to GitHub or find release.");
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    NativeDialog.ShowError("Could not retrieve update information from GitHub.\r\nPlease check your network connection and try again.", "Update Check Failed");
+                });
+                return;
+            }
+
+            if (!DeploymentLifecycle.TryParseVersion(release.Tag, out Version remote) ||
+                !TryGetLocalVersion(out Version local))
+            {
+                statusCallback?.Invoke($"Could not compare versions ({release.Tag}).");
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    NativeDialog.ShowError($"Could not determine version compatibility (installed build vs release tag '{release.Tag}').", "Update Check Failed");
+                });
+                return;
+            }
+
+            if (remote.CompareTo(local) <= 0)
+            {
+                statusCallback?.Invoke($"Up to date (v{local}).");
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    NativeDialog.ShowInfo($"You are already running the latest version of Fortnite Video Software (v{local}).");
+                });
+                return;
+            }
+
+            statusCallback?.Invoke($"Update available: {release.Tag}");
+
+            var choiceReady = new TaskCompletionSource<UpdateChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag, release.ReleaseNotes)); }
+                catch (Exception ex) { choiceReady.SetException(ex); }
+            });
+            UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
+
+            switch (choice)
+            {
+                case UpdateChoice.SkipThisVersion:
+                    UiStateStore.WriteText(SkippedTagFile, release.Tag);
+                    RuntimeLog.Info("UPDATE", $"User skipped {release.Tag} via manual check.");
+                    statusCallback?.Invoke($"Skipped {release.Tag}");
+                    break;
+
+                case UpdateChoice.NeverTellMeAgain:
+                    SettingsManager.Instance.AutoUpdateChecks = false;
+                    SettingsManager.Save();
+                    RuntimeLog.Info("UPDATE", "User disabled auto updates via prompt.");
+                    statusCallback?.Invoke("Auto updates disabled in Settings.");
+                    break;
+
+                case UpdateChoice.UpdateNow:
+                    statusCallback?.Invoke("Starting download...");
+                    await DownloadVerifyLaunchAsync(owner, release).ConfigureAwait(false);
+                    break;
+
+                case UpdateChoice.NotNow:
+                case UpdateChoice.Dismissed:
+                    statusCallback?.Invoke("Update postponed.");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("UPDATE", $"Manual update check failed: {ex.Message}");
+            statusCallback?.Invoke($"Check failed: {ex.Message}");
+        }
+        finally
+        {
+            _ = Interlocked.Exchange(ref _checkInProgress, 0);
+        }
+    }
+
+    public static string GetSkippedVersion()
+    {
+        try { return UiStateStore.ReadText(SkippedTagFile).Trim(); }
+        catch { return string.Empty; }
+    }
+
+    public static void ClearSkippedVersion()
+    {
+        try
+        {
+            UiStateStore.WriteText(SkippedTagFile, string.Empty);
+            RuntimeLog.Info("UPDATE", "Skipped version cleared by user.");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("UPDATE", $"Could not clear skipped version: {ex.Message}");
+        }
+    }
+
+    /// <summary>At most one probe per 15m, so rapid restarts do not hammer GitHub rate limits.</summary>
     private static bool ThrottlePermitsCheck()
     {
         string last = UiStateStore.ReadText(LastCheckFile);
         if (DateTime.TryParse(last, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime when) &&
             DateTime.UtcNow - when < MinimumIntervalBetweenChecks)
         {
+            RuntimeLog.Info("UPDATE", $"Last update check was at {when:u} (throttled for {MinimumIntervalBetweenChecks.TotalMinutes:0}m); skipping startup check.");
             return false;
         }
 
@@ -204,6 +323,7 @@ internal static class UpdateService
             var root = JsonNode.Parse(json)?.AsObject();
 
             string? tag = root?["tag_name"]?.GetValue<string>();
+            string? releaseNotes = root?["body"]?.GetValue<string>();
             if (string.IsNullOrWhiteSpace(tag))
             {
                 RuntimeLog.Fail("UPDATE", "Release JSON carried no tag_name; staying silent.");
@@ -244,7 +364,7 @@ internal static class UpdateService
             }
 
             long size = asset?["size"]?.GetValue<long>() ?? 0;
-            return new UpdateRelease(tag, url, sha256, size);
+            return new UpdateRelease(tag, url, sha256, size, releaseNotes);
         }
         catch (Exception ex)
         {
@@ -253,12 +373,18 @@ internal static class UpdateService
         }
     }
 
-    /// <summary>Reads the real Win32 file version off the running image (same source RuntimeLog uses).</summary>
+    /// <summary>Reads the current running version using DeploymentLifecycle and Win32 file version.</summary>
     private static bool TryGetLocalVersion(out Version version)
     {
         version = new Version(0, 0);
         try
         {
+            string current = DeploymentLifecycle.GetCurrentVersion();
+            if (DeploymentLifecycle.TryParseVersion(current, out version))
+            {
+                return true;
+            }
+
             string? exe = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe)) return false;
             return DeploymentLifecycle.TryParseVersion(FileVersionInfo.GetVersionInfo(exe).FileVersion, out version);
@@ -302,9 +428,16 @@ internal static class UpdateService
             byte[] buffer = new byte[1024 * 1024];
             long copied = 0;
             DateTime lastReport = DateTime.MinValue;
-            int read;
-            while ((read = await source.ReadAsync(buffer, cts.Token).ConfigureAwait(false)) > 0)
+
+            // Network guard: 45-second per-chunk read stall timeout to prevent hanging indefinitely
+            while (true)
             {
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                readCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+                int read = await source.ReadAsync(buffer, readCts.Token).ConfigureAwait(false);
+                if (read <= 0) break;
+
                 await target.WriteAsync(buffer.AsMemory(0, read), cts.Token).ConfigureAwait(false);
                 copied += read;
                 if ((DateTime.UtcNow - lastReport).TotalMilliseconds >= 200)

@@ -1,4 +1,4 @@
-﻿# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
+# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -17,6 +17,8 @@
 | src/FortniteVideoSoftware.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | DimmerFlanks, CenterClearSlice = 720 | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
 | src/FortniteVideoSoftware.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, RestoreBounds, SaveBoundsSync, DebounceMs = 700 | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
 | src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window in the suite. |
+| src/FortniteVideoSoftware.App/Controls/SettingsWindow.axaml.cs | SettingsWindow | SelectTab, ShowAboutAsync, BuildAboutUi | Suite-wide preferences, About identity, hardware acceleration readout, and manual update checks. |
+| src/FortniteVideoSoftware.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | 4-way update suggestion modal with scrollable release notes and non-nagging choices. |
 
 ---
 
@@ -50,6 +52,7 @@
 
   Where a compiled binding would need a converter for a value the view-model produces as a string (a colour name or hex), one assignment in the method that already owns the refresh is less machinery and cannot silently unbind itself.
 * **One Writer For Text And Tooltip (QUALITY_04):** the quality dial's tooltip was set in a `ValueChanged` handler while its readout was set elsewhere. Two places writing about one piece of state is how they drift. Both now come from a single pass so the words and the number can never disagree.
+  `SIZEESTIMATE_01`: the main size label and tooltip now bind to `ExportViewModel` properties published by the shared background estimator. The caption says `ESTIMATED FILE SIZE` and sits beside the PROCESS/export button in the same wrapping group; values use MB/GB/TB and an approximation mark. Initial loading may say `Calculating…`; ordinary edits retain the current number until the next result to avoid flashing the layout.
 * **A Label's Layout Slot Still Takes Input:** a `TextBlock` overlapping an interactive control swallows presses aimed at it even though nothing is visible there. Decorative text over or beside a control gets `IsHitTestVisible="False"`.
 * **Press Feedback:** Installed globally via Tactile.EnableGlobalRipple on the Button class. Tactile ripple is suppressed on disabled buttons or via Tactile.IsRippleSuppressed="True". Custom controls bind to AppTube* / AppDial* tokens.
 
@@ -94,6 +97,10 @@
 ## 4. Tooltips, Safeguards, & Confirmations  {#UI-SAFEGUARDS}
 * **Colloquial Tooltip Standard:** Written for a 14-year-old audience. Technical jargon (e.g., "temporal interpolation", "quantization matrix") is banned in user-facing tooltips (e.g., "Throw this piece into the trash", "Turn Magnetic Pull on or off").
 * **Crop Tool Visual Safeguards:** "Finish & Save" displays a blocking "Thinking..." spinner, followed by an auto-closing (2.5s) Summary Overlay.
+* **Crop save wording (CROPSAVEPROMPT_02):** Name the destination profile and offer `Save changes` (primary save action) / `Back to editing` (secondary). Going back, Escape, and closing the prompt leave the current edits open. Never call the cancel action `KEEP IT`: it does not tell the user which version they are keeping. Actual deletion remains a danger action.
+* **Unsaved crop edits (CROPUNSAVED_01):** Switching profiles, returning to the Main App, and closing Crop Tools offer `Save changes` (green), `Back to editing` (neutral), and `Discard changes` (red). Enter, Escape, and closing the prompt return to editing. This includes deleting the last layer. Failed saves block departure, and timers/preview teardown start only after departure is approved. Saving succeeds only when both the live configuration and the named profile have been written.
+* **Temporary crop selection zoom (CROPZOOMRESET_01):** Once a HUD quick selection is successfully added, restore the landscape viewport's zoom, fit mode, and scroll offset from before auto-zoom. Cancel restores the same state. A failed addition keeps its selection, and a manually zoomed view that did not trigger auto-zoom is preserved.
+* **HUD controls (SPECTATINGDEFAULT_01 / NO_BOSS_HP_01):** New projects start with Spectating Eye on. Explicit saved on/off choices restore faithfully. No Mask forces HUD controls off and remains a clean initial state. Boss HP has no control, setting, detection role, or export flag; legacy `boss_hp` layer keys are ignored.
 * **Destructive Confirmations:**
   * Settings toggle defaults to protected (ConfirmDestructiveActions = true).
   * Confirmation dialogs itemize exactly what will be discarded (segments, cuts, memes, take count) with clear escape buttons (KEEP IT, STAY HERE).
@@ -148,6 +155,10 @@
   * Holds value types and immutable records only; UI controls, bitmaps, and IPC handles are strictly excluded.
   * Playhead does not move during undo/redo operations.
   * Undo history clears when the window is accepted or closed.
+* **Full-Card Clickable RadioButton Hitbox (ZOOMCARD_01):** The "How should the zoom arrive?" dialog replaces stock Avalonia RadioButton layout with a full-surface card `ControlTemplate`. The entire card area (padding, badges, text headers, descriptions) serves as the click target with visual hover elevation, eliminating narrow bullet hitboxes.
+* **Persistent Style Dialog & Playhead Exit Dismissal (ZOOMSTYLE_02):** The zoom arrival dialog remains open while aiming, resizing, or dragging the rubberband box. The dialog and rubberband box cleanly unbind and disappear the moment the playhead exits the active zoom segment across all transport actions (timeline click-to-seek, scrubbing, and continuous playback).
+* **Live GPU Crop & Slow Glide Preview (ZOOMPREVIEW_01):** Real-time preview coordinates in `UpdateLiveZoomCrop` calculate off the exact timeline playhead position during pause and respect dynamic hardware resolution, rendering instantaneous snappy crops and smooth slow glides directly in mpv.
+* **Export Auto-Commit Guard (ZOOMCOMMIT_01):** Default placed zoom boxes are auto-committed prior to zoom mode toggle, Accept button click, seek-exit, and transport play, ensuring placed zoom boxes are never omitted from exported FFmpeg scripts.
 
 ---
 
@@ -211,3 +222,18 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 * **Live Refresh:** The styling re-evaluates dynamically — toggling `PortraitModeCheckbox` restyles the open list immediately; it is not computed once at load.
 * **Intent:** It is a WARNING, not a block. The user may still pick the meme; they are told up front that a wide landscape clip will be heavily cropped or letterboxed on the 9:16 canvas, instead of discovering it after an export.
 * **Data Source:** Aspect ratios come from the boot probe described in `03_FFMPEG_EXPORT_PIPELINE.md` §10 (FFM-MEMELIB).
+
+---
+
+## 11. Settings Window, About Tab & Universal Version Title Bar  {#UI-SETTINGS-ABOUT}
+* **Dedicated About Tab:** Application identity, versioning, system runtime metadata, and update controls reside inside a dedicated `About` tab in `SettingsWindow.axaml`. The updates checkbox is removed from Confirmation Dialogs to ensure cohesive information architecture.
+* **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and ProgramData storage root.
+* **Manual Update Trigger:** The `Check For Updates Now` button executes on-demand checking (`UpdateService.CheckManualAsync`), providing inline status feedback and bypassing the 24-hour startup probe throttle.
+* **Skipped Release Filter Management:** Displays skipped release tags with a `Clear Skip` action button allowing users to re-enable skipped update prompts without modifying raw files.
+* **Direct Navigation Routes:**
+  * Clicking `File -> About` or `Help -> About` in `MainWindow.axaml` and `VideoMergerWindow.axaml` invokes `SettingsWindow.ShowAboutAsync(owner)`, opening Settings directly to the About tab.
+  * Clicking `Help -> Check for Updates...` directly executes `UpdateService.CheckManualAsync(owner)`.
+* **Universal Title Bar Versioning:** Custom title bars in `MainWindow` and `VideoMergerWindow` dynamically format window titles as `Fortnite Video Software v{version}` and `Fortnite Video Software - Merger v{version}` via `DeploymentLifecycle.GetCurrentVersion()`.
+* **Update Suggestion Dialog (UpdateAvailableWindow):**
+  * Houses scrollable release notes ("What's New in this Release") parsed from GitHub release `body`.
+  * Clarifies dismissal copy to `"Not Now (Remind me later)"` to distinguish transient postponement from version skipping.

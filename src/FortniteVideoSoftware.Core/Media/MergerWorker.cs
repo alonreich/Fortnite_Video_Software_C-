@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -484,14 +487,14 @@ public class MergerWorker : IDisposable
                 }
                 string currentEncoder = encoderMgr.GetInitialEncoder(!encoderMgr.ForcedCpu);
 
-                int cqValue = QualityPercent >= 100 ? 15 : Math.Max(15, 35 - (int)((QualityPercent - 5) * 20.0 / 95.0));
+                int cqValue = OutputFileSize.MergerConstantQuality(QualityPercent);
                 int qualityLevel = QualityPercent >= 100 ? 3 : (QualityPercent >= 50 ? 2 : 1);
 
                 int? losslessBitrateKbps = null;
                 int losslessMaxrateKbps = 0;
                 if (QualityPercent >= 100 && averageSourceVideoBitrateKbps > 0)
                 {
-                    losslessBitrateKbps = Math.Max(800, (int)Math.Min(EncoderManager.MaxBitrateKbps, averageSourceVideoBitrateKbps));
+                    losslessBitrateKbps = OutputFileSize.MergerTargetKbps(averageSourceVideoBitrateKbps);
                     losslessMaxrateKbps = Math.Max(losslessBitrateKbps.Value, (int)Math.Min(EncoderManager.MaxBitrateKbps, peakSourceVideoBitrateKbps));
                     CoreLogger.Info("Merger", $"Lossless target bitrate {losslessBitrateKbps} kbps (avg), maxrate {losslessMaxrateKbps} kbps (peak) — output size will track the combined source size.");
                 }

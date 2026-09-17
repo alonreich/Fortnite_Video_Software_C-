@@ -6,7 +6,10 @@
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
 | `src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs` | `QualityLadder`, `Tier` | `Tiers`, `TargetMbFor`, `DefaultIndex`, `OriginalIndex`, `ColorFor` | The quality dial's tiers and the tier -> target-megabytes model. |
-| `src/FortniteVideoSoftware.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `ResolveTargetMb`, `UpdateEstimatedQuality` | Quality selection state and the single source of the export's target size. |
+| `src/FortniteVideoSoftware.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `EstimatedFileSizeText`, `EstimatedFileSizeDescription` | Quality selection and bound output-size readout. |
+| `src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs` | `MainWindow` | `CaptureSizeRequest`, `RequestSizeEstimate` | Immutable estimate inputs and UI publication. |
+| `src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs` | `OutputSizeEstimator` | `EstimateMainAsync`, `EstimateMergerAsync`, `CalculateMain`, `CalculateMerger`, `ReadMediaAsync` | Shared estimates and bounded media metadata cache. |
+| `src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps` | MB/GB/TB formatting and shared merger encoder settings. |
 | `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `ExportPayload`, `ProgressInfo` | `ExecuteAsync`, `BuildFilterGraph`, `UpdateMonotonicProgress`, `ParseProgress`, `AppContext.BaseDirectory` + `backend/` probe | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
 | `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `ProbeEncoders`, `HasNvenc`, `HasAmf`, `FallbackToCpu` | Hardware GPU encoder detection and automated fallback logic. |
 | `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanGpu`, `IsRdpSession`, `FixRdpWddmRegistry` | Hardware capability enumeration, RDP session detection, and registry auto-fix. |
@@ -151,14 +154,14 @@ Render progress tracking is cost-weighted across three sequential phases and mus
 * **Why one guess was never enough.** Bits-per-pixel depends on DURATION. The same 40MB is "Lifelike" on a ten-second clip and "Pixelated" on a three-minute one, so the dial position meant something different in every project and the guessing restarted with each clip. Tiers are duration-independent by construction: "Sharp" is the same Sharp at 10 seconds and at 3 minutes — only the predicted megabytes move.
 * **The ladder (18 stops, worst to best):** Pixelated · Blurry · Low · Okay · Good− · Good · Good+ · Sharp− · Sharp · Sharp+ · High− · High · High+ · Ultra− · Ultra · Ultra+ · Premium HQ · **Original**.
   Steps are geometric at roughly 15-20% of bits-per-pixel each, because perceived quality tracks bitrate logarithmically — equal absolute steps would feel enormous at the bottom and identical at the top. The `−`/`+` stops are REAL positions the user selects, not suffixes computed from where a size happened to land.
-* **`Original` has no size target at all.** `TargetMbFor` returns null, which is the signal the export layer already understood as constant-quality. The readout says "no size limit" rather than inventing a number.
+* **`Original` has no size target at all.** `TargetMbFor` returns null, which signals constant-quality export. The size readout may show a rough prediction from source bitrate, dimensions, frame rate, output duration and audio; that prediction MUST NEVER become an encoder size cap.
 * **The maths is the old maths, inverted term for term** — including the 1.5 landscape divisor and the 60fps basis:
   $$\text{videoKbps} = \text{bpp} \times k \times \frac{W \times H \times 60}{1000}, \qquad k = \begin{cases} 1.0 & \text{portrait} \\ 1.5 & \text{landscape} \end{cases}$$
   $$\text{targetMB} = \frac{(\text{videoKbps} \times t_{\text{billable}}) + (\text{audioKbps} \times t_{\text{sec}})}{8192}$$
   ⚠️ The 1.5 is **not** cosmetic: the old forward pass divided landscape's bits-per-pixel by it before naming the result, so landscape must carry 1.5x the bitrate to earn the same word. Dropping it silently re-grades every landscape export by two or three tiers.
   ⚠️ Audio follows the old rule in the old order: assume 192 kbps, fall back to 64 kbps only if the resulting file would be too small to afford it.
   ⚠️ VIDEO is billed on $t_{\text{billable}}$ (freeze-discounted, below); AUDIO is billed on the FULL $t_{\text{sec}}$. A frozen picture still has a soundtrack running under it.
-* **The export contract did not change.** `ProcessWorker` has always received "target megabytes, or null for constant quality". `ExportViewModel.ResolveTargetMb` is now the single place that number is produced — the same call feeds the estimate under the dial and the value handed to the worker, so the user cannot be promised one size and handed another. Do NOT pass a tier index into the encoder.
+* **The export contract did not change.** `ProcessWorker` receives "target megabytes, or null for constant quality". `OutputSizeEstimator.CalculateMain` supplies both the readout and the target. Export captures fresh inputs and awaits this calculation, rather than using the last asynchronous UI result. Do NOT pass a tier index into the encoder.
 * **Default is `Sharp`,** not a megabyte figure. A size default produces a different quality for every clip length, which is the whole defect. The default tier lives in Settings as **Default Video Quality** (`DefaultValues.QualityIndex`, an index into the ladder) and a NEW project always starts there — never on whatever the previous project happened to use.
 
 ### The Worker's Quality Level Is Not The Tier Index (QUALITY_02) — NON-NEGOTIABLE
@@ -179,14 +182,23 @@ A freeze holds ONE still picture; every frame after the first is a near-empty P-
 $$t_{\text{billable}} = (t_{\text{sec}} - t_{\text{freeze}}) + (t_{\text{freeze}} \times 0.15)$$
 
 ⚠️ **SAFE ONLY BECAUSE THE EXPORT IS TWO-PASS VBR.** `ProcessWorker` runs an analysis pass and allocates bits by complexity, so a smaller target does not starve the moving footage — the freeze simply stops being paid for. Under a fixed-bitrate single-pass encode this discount would take bits AWAY from the motion and must not be applied.
-⚠️ `TimelineViewModel.CalculateFreezeOutputMs` mirrors `CalculateEffectiveDurationMs`'s segment walk clamp for clamp, including its `|Speed| < 0.001` freeze test. The two numbers are subtracted from each other and must describe ONE timeline; if that walk changes, both change together.
+⚠️ Size estimates derive duration and held-frame seconds from the SAME `OutputTimeline`: total output seconds and the sum of its freeze chunks. The older `TimelineViewModel` duration walks must not drive output-size estimates: they treated freezes as replacements and ignored cuts when speed segments existed.
 
 ### No Marks Set Means The Whole Video (QUALITY_05)
-Before MARK START or MARK END is pressed, `TrimEndMs` is 0 and the duration calculation hit its 1 ms floor, so the estimate read as nothing on a freshly loaded clip — the moment a user most wants to know what they are in for. `CalculateEffectiveDurationMs` and `CalculateFreezeOutputMs` now fall back to `start = 0, end = LoadedVideoDurationMs`.
+Before MARK START or MARK END is pressed, `TrimEndMs` is 0 and the older duration calculation hit its 1 ms floor, so the estimate read as nothing on a freshly loaded clip. `CaptureSizeRequest` resolves an unmarked start to 0 and an unmarked end to the known video duration. If that duration is still unavailable, `OutputSizeEstimator.CalculateMain` resolves the end from source metadata. Each explicitly marked boundary remains in effect.
 
 ⚠️ **READ-ONLY FALLBACK.** `EnsureTrimPointsSet` applies the same rule but MUTATES — it stamps `IsTrimStartSet` / `IsTrimEndSet` true, which changes what the marker buttons and the export do next. A passive size calculation that silently marked a clip as trimmed would be a far worse defect than the blank label it fixes. Resolve the two numbers locally; write nothing.
 
-With **no video loaded at all**, zero is passed deliberately and the readout stays blank rather than showing a floor value.
+With **no video loaded at all**, the size readout shows an em dash, never a zero-byte estimate.
+
+### Live size estimates in Main App and Video Merger (SIZEESTIMATE_01) {#FFM-SIZEESTIMATE}
+* Main estimates include trim bounds, base speed, granular speeds, cuts, freeze insertions, the 0.1s intro and meme durations. Explicit meme placements take precedence over the legacy start/end meme, matching export. Portrait mode and quality use the existing quality ladder.
+* Main's label binds to `Export.EstimatedFileSizeText` with a matching descriptive tooltip. Both apps format approximate sizes as MB, GB or TB. Unknown or incomplete media details show an em dash, never a misleading partial total.
+* Main's first estimate uses known timeline inputs. Merger can reuse metadata from the last completed queue estimate. A background pass checks cached file identity and probes missing/changed media, then refines the number. Normal edits reuse metadata. No trial encode is started during editing.
+* Opening a video initializes its known duration without marking trim points. On recovery, if player duration is not ready and no end is marked, the background estimate resolves the end from probed source metadata without changing the editor's trim selections.
+* Merger at 100% uses the duration-weighted video bitrate and the SAME bitrate clamp as `MergerWorker`. Below 100%, its rough prediction follows the export's constant-quality curve, with an estimated factor of `2^((15-CQ)/6)`. Source dimensions and frame rate adjust that prediction for 1080p60 output.
+* Audio counts once as the exported soundtrack. Merger always writes 192 kbps AAC; mixing in music does not add the original music files' bytes. Rough constant-quality predictions include 1% container overhead. These predictions cannot guarantee a final size without encoding the full content.
+* Worker lifetime and stale-result guarantees are specified in `05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-SIZEESTIMATE`.
 
 ---
 

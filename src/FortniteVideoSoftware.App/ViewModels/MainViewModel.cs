@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -28,9 +31,8 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool _isPortraitMode = true;
     private string _overlayText = string.Empty;
-    private bool _isBossHp;
     private bool _isTeammates;
-    private bool _isSpectating;
+    private bool _isSpectating = true; // SPECTATINGDEFAULT_01 — new projects start with the eye enabled.
     private bool _isEnableFade = true;
     private bool _isAddMeme;
     private MemeItem? _selectedMemeItem;
@@ -71,9 +73,14 @@ public sealed class MainViewModel : ViewModelBase
         {
             if (e.PropertyName == nameof(Timeline.BaseSpeed) ||
                 e.PropertyName == nameof(Timeline.TrimStartMs) ||
-                e.PropertyName == nameof(Timeline.TrimEndMs))
+                e.PropertyName == nameof(Timeline.TrimEndMs) ||
+                e.PropertyName == nameof(Timeline.IsTrimStartSet) ||
+                e.PropertyName == nameof(Timeline.IsTrimEndSet) ||
+                e.PropertyName == nameof(Timeline.LoadedVideoDurationMs) ||
+                e.PropertyName == nameof(Timeline.FreezeTimeMs) ||
+                e.PropertyName == nameof(Timeline.FreezeDurationS))
             {
-                Export.UpdateEstimatedQuality(Timeline.CalculateEffectiveDurationMs(), IsPortraitMode);
+                SizeEstimateRequested?.Invoke();
             }
         };
 
@@ -81,13 +88,15 @@ public sealed class MainViewModel : ViewModelBase
         {
             if (e.PropertyName == nameof(Export.QualitySliderValue))
             {
-                Export.UpdateEstimatedQuality(Timeline.CalculateEffectiveDurationMs(), IsPortraitMode);
+                SizeEstimateRequested?.Invoke();
                 OnPropertyChanged(nameof(QualitySliderValue));
             }
         };
 
         ToggleMuteCommand = new RelayCommand(ToggleMute);
     }
+
+    public event Action? SizeEstimateRequested;
 
     public string? LoadedVideoPath
     {
@@ -146,7 +155,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _isPortraitMode, value))
             {
-                Export.UpdateEstimatedQuality(Timeline.CalculateEffectiveDurationMs(), value);
+                SizeEstimateRequested?.Invoke();
                 OnPortraitModeToggled?.Invoke();
                 NotifyStateDirty();
             }
@@ -162,16 +171,6 @@ public sealed class MainViewModel : ViewModelBase
             {
                 NotifyStateDirty();
             }
-        }
-    }
-
-    public bool IsBossHp
-    {
-        get => _isBossHp;
-        set
-        {
-            if (SetProperty(ref _isBossHp, value))
-                NotifyStateDirty();
         }
     }
 
@@ -354,8 +353,8 @@ public sealed class MainViewModel : ViewModelBase
         Timeline.ApplyMainSpeedPreset(d.DefaultSpeed);
         Export.QualitySliderValue = d.QualityIndex;
         IsPortraitMode = d.PortraitMode;
-        IsBossHp = d.BossHp;
         IsTeammates = d.ShowTeammates;
+        IsSpectating = true;
         IsEnableFade = d.EnableFade;
 
         string stateFile = _paths.SessionStateFile;
@@ -381,7 +380,6 @@ public sealed class MainViewModel : ViewModelBase
         IsInGameOverlaysVisible = !isNoMask;
         if (isNoMask)
         {
-            IsBossHp = false;
             IsTeammates = false;
             IsSpectating = false;
         }

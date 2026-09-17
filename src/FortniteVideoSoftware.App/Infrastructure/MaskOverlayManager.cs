@@ -1,4 +1,7 @@
-﻿using System;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -87,27 +90,21 @@ public static class MaskOverlayManager
                 continue;
             }
 
+            // FORTNITEDEFAULT_02 — seed Fortnite from the shipped layout, never from whichever
+            // profile last occupied the shared config. Preserve valid user edits to this profile.
+            if (p == "Fortnite" && File.Exists(pPath))
+            {
+                var existing = AtomicJsonFile.ReadObject(pPath);
+                if (existing == null || !CropConfigStore.IsUsableConfig(existing))
+                {
+                    File.Copy(pPath, pPath + $".invalid.{DateTime.UtcNow:yyyyMMddHHmmssfff}.{Guid.NewGuid():N}.bak");
+                    AtomicJsonFile.WriteObject(pPath, CropConfigDefaults.Create());
+                    RuntimeLog.Info("MASK PROFILE", "Restored the damaged Fortnite profile from the shipped defaults; the old file was backed up.");
+                }
+            }
+
             if (!File.Exists(pPath))
             {
-                if (p == "Fortnite" && File.Exists(ApplicationPaths.CreateDefault().CropCoordinatesFile))
-                {
-                    JsonObject? existingConfig = null;
-                    try
-                    {
-                        using (AcquireConfigLock())
-                        {
-                            existingConfig = AtomicJsonFile.ReadObject(ApplicationPaths.CreateDefault().CropCoordinatesFile);
-                        }
-                    }
-                    catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-
-                    if (existingConfig != null)
-                    {
-                        AtomicJsonFile.WriteObject(pPath, existingConfig);
-                        continue;
-                    }
-                }
-
                 var def = CropConfigDefaults.Create();
                 AtomicJsonFile.WriteObject(pPath, def);
             }
@@ -115,7 +112,19 @@ public static class MaskOverlayManager
 
         if (!File.Exists(ApplicationPaths.CreateDefault().CropCoordinatesFile))
         {
-            ApplyProfile(SettingsManager.Instance.ActiveMaskOverlay);
+            // CROPFIRSTBOOT_01 — ApplyProfile calls EnsureDefaults. Seed the missing live
+            // document directly so a fresh install cannot recurse before its first write.
+            var activeName = SanitizeProfileName(SettingsManager.Instance.ActiveMaskOverlay);
+            var active = activeName == null ? null
+                : AtomicJsonFile.ReadObject(Path.Combine(ProfilesDirectory, activeName + ".json"));
+            var initial = active != null && CropConfigStore.IsUsableConfig(active)
+                ? HudConfig.Sanitize(active, migrateLegacy: true)
+                : CropConfigDefaults.Create();
+            using (AcquireConfigLock())
+            {
+                var livePath = ApplicationPaths.CreateDefault().CropCoordinatesFile;
+                if (!File.Exists(livePath)) AtomicJsonFile.WriteObject(livePath, initial);
+            }
         }
     }
 
@@ -161,12 +170,12 @@ public static class MaskOverlayManager
         }
     }
 
-    public static void SyncActiveProfileFromCurrentConfig()
+    public static bool SyncActiveProfileFromCurrentConfig()
     {
         try
         {
             var active = SettingsManager.Instance.ActiveMaskOverlay;
-            if (string.IsNullOrWhiteSpace(active)) return;
+            if (string.IsNullOrWhiteSpace(active)) return false;
 
             // NOMASK_01 — NEVER write the live crop config back into the reserved profile.
             // This method exists so Crop Tools edits follow the active profile. The Main App
@@ -176,7 +185,7 @@ public static class MaskOverlayManager
             if (IsNoMask(active))
             {
                 RuntimeLog.Info("MASK PROFILE", $"'{active}' is read-only. Live crop config NOT written back to it.");
-                return;
+                return false;
             }
 
             var pPath = Path.Combine(ProfilesDirectory, active + ".json");
@@ -190,12 +199,14 @@ public static class MaskOverlayManager
             {
                 if (!Directory.Exists(ProfilesDirectory)) Directory.CreateDirectory(ProfilesDirectory);
                 AtomicJsonFile.WriteObject(pPath, current);
+                return true;
             }
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("MASK PROFILE", $"Profile sync failed: {ex.Message}");
         }
+        return false;
     }
 
     public static void CreateNewProfile(string newName)

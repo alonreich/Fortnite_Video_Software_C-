@@ -214,9 +214,5 @@ public static class QualityLadder
 
     /// <summary>QUALITY_01 — "≈ 171 MB", or "1.9 GB" once megabytes stop being readable.</summary>
     public static string FormatSize(double megabytes)
-    {
-        if (megabytes >= 1024.0) return $"{megabytes / 1024.0:0.00} GB";
-        if (megabytes >= 100.0) return $"{megabytes:0} MB";
-        return $"{megabytes:0.0} MB";
-    }
+        => FortniteVideoSoftware.Core.Media.OutputFileSize.FormatMegabytes(megabytes);
 }

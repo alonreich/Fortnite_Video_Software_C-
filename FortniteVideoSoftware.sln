@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FortniteVideoSoftware.Core.Tests", "tests\FortniteVideoSoftware.Core.Tests\FortniteVideoSoftware.Core.Tests.csproj", "{7D721DDD-3728-402E-B96D-9BD4F976F378}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FortniteVideoSoftware.App.Tests", "tests\FortniteVideoSoftware.App.Tests\FortniteVideoSoftware.App.Tests.csproj", "{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -59,6 +61,18 @@ Global
 		{7D721DDD-3728-402E-B96D-9BD4F976F378}.Release|x64.Build.0 = Release|Any CPU
 		{7D721DDD-3728-402E-B96D-9BD4F976F378}.Release|x86.ActiveCfg = Release|Any CPU
 		{7D721DDD-3728-402E-B96D-9BD4F976F378}.Release|x86.Build.0 = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|x64.Build.0 = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Debug|x86.Build.0 = Debug|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|x64.ActiveCfg = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|x64.Build.0 = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|x86.ActiveCfg = Release|Any CPU
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -67,5 +81,6 @@ Global
 		{72041F03-842D-44C9-86B7-706AD17B9E92} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{4DD0FE75-AE85-42D7-9367-73B7ED094E6D} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{7D721DDD-3728-402E-B96D-9BD4F976F378} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{E7F25202-40A3-4ECF-ABB4-89EAA16482E0} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

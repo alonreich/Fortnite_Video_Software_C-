@@ -40,6 +40,7 @@
                         <MenuItem Name="MenuImportConfig" Header="Restore Settings..." ToolTip.Tip="Load your saved settings from a previous backup." />
                         <Separator />
                         <MenuItem Name="MenuSettingsBtn" Header="_Settings" ToolTip.Tip="Open the settings menu to tweak how the application works." />
+                        <MenuItem Name="MenuAboutBtn" Header="_About" ToolTip.Tip="View application version, system details, and check for updates." />
                         <Separator />
                         <MenuItem Name="MenuExit" Header="E_xit" ToolTip.Tip="Close the application." />
                     </MenuItem>
@@ -64,6 +65,13 @@
                              parseable name such as "OemQuestion" or "Ctrl+K". -->
                         <MenuItem Name="MenuShowShortcuts" Header="Keyboard Shortcuts    ?" ToolTip.Tip="Show every keyboard shortcut, using your own key choices. Shortcut: press ?" />
                         <MenuItem Name="MenuShowHelp" Header="Show Me Around" ToolTip.Tip="Replay the short walkthrough that points out what everything on this screen does." />
+                    </MenuItem>
+                    <MenuItem Header="_Help">
+                        <MenuItem Name="MenuHelpShortcuts" Header="Keyboard Shortcuts    ?" ToolTip.Tip="Show every keyboard shortcut, using your own key choices. Shortcut: press ?" />
+                        <MenuItem Name="MenuHelpTour" Header="Show Me Around" ToolTip.Tip="Replay the short walkthrough that points out what everything on this screen does." />
+                        <Separator />
+                        <MenuItem Name="MenuCheckUpdates" Header="Check for Updates..." ToolTip.Tip="Check GitHub for newer versions of Fortnite Video Software." />
+                        <MenuItem Name="MenuHelpAbout" Header="_About Fortnite Video Software" ToolTip.Tip="View application version, system runtime, GPU acceleration and update settings." />
                     </MenuItem>
                 </Menu>
                 <Grid Grid.Row="2" ColumnDefinitions="*, Auto">
@@ -280,19 +288,20 @@
                     </Button>
 
                     <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <!-- SIZEESTIMATE_01 — estimated output file size to the left of VIDEO QUALITY -->
+                        <StackPanel Name="EstimatedSizePanel" IsVisible="{Binding IsVisible, ElementName=QualityPanel}" Orientation="Vertical" Spacing="2" Margin="0,0,20,8" MinWidth="130" VerticalAlignment="Center"
+                                    ToolTip.Tip="{Binding Export.EstimatedFileSizeDescription}">
+                            <TextBlock Text="ESTIMATED FILE SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" IsHitTestVisible="False" />
+                            <TextBlock Name="QualityLabel" Text="{Binding Export.EstimatedFileSizeText}" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center" IsHitTestVisible="False" />
+                        </StackPanel>
+
                         <StackPanel Name="QualityPanel" IsVisible="False" Orientation="Vertical" Spacing="2" Margin="0,0,20,8" VerticalAlignment="Center">
                             <!-- QUALITY_01: the heading names what the dial ASKS FOR. It said "OUTPUT FILE SIZE"
                                  because the dial used to be a size; it is a quality choice now, and the
-                                 size appears in QualityLabel underneath as the consequence. -->
+                                 size appears to the left as the consequence. -->
                             <TextBlock Text="VIDEO QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap"
                                        ToolTip.Tip="How good you want the finished video to look. Pick it once and leave it — the app works out the file size for you." />
-<controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Pick how good the finished video should look. The size it will come out at is shown underneath." />
-                            <!-- QUALITY_04: filled from code (PaintQualityEstimate), NOT bound. Leaving Text=""
-                                 here with nothing writing to it is what made the estimate invisible for
-                                 so long — if this ever reads blank on a loaded video, that method is the
-                                 first place to look. -->
-                            <TextBlock Name="QualityLabel" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis"
-                                       ToolTip.Tip="Roughly how big the finished file will be.&#x0a;&#x0a;It updates by itself whenever you change the video — trim it, speed it up, add a freeze or add music." />
+                            <controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding QualitySliderValue, Mode=TwoWay}" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Pick how good the finished video should look. The estimated file size appears to the left." />
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,20,8">
@@ -394,7 +403,7 @@
                             <!-- SPACING_01: (A) the OUTER stack separates the three bands, so its
                                  Spacing is what puts air around each gentle separator line — raised
                                  10 -> 18. (B) each band's INNER Spacing is lowered separately below
-                                 (4 -> 2), so rows like Boss HP / Teammate HP / Spectating Eye sit
+                                 (4 -> 2), so rows like Teammate HP / Spectating Eye sit
                                  tighter together while the groups themselves breathe more.
                                  These two numbers pull in opposite directions on purpose; changing
                                  only one of them undoes the effect. -->
@@ -416,10 +425,6 @@
                                      is active, because that profile composites no HUD layers at all. -->
                                 <StackPanel Name="InGameOverlaysPanel" Spacing="2">
                                     <TextBlock Text="IN-GAME OVERLAYS" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize9}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,3"/>   <!-- SPACING_01: centred + bold -->
-                                    <Grid ColumnDefinitions="*, Auto">
-                                        <TextBlock Text="Boss HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <ToggleSwitch Name="BossHpCheckbox" IsChecked="{Binding IsBossHp, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Boss HP overlay" ToolTip.Tip="Turn this on to show a boss health bar in the video." />
-                                    </Grid>
                                     <Grid ColumnDefinitions="*, Auto">
                                         <TextBlock Text="Teammate HP" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                         <ToggleSwitch Name="TeammatesCheckbox" IsChecked="{Binding IsTeammates, Mode=TwoWay}" IsEnabled="False" OnContent="{x:Null}" OffContent="{x:Null}" MinWidth="36" MinHeight="36" Grid.Column="1" AutomationProperties.Name="Teammate HP overlay" ToolTip.Tip="Turn this on to show your teammates' health in the video." />

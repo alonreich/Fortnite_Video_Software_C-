@@ -1,4 +1,7 @@
-﻿using System;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -127,8 +130,32 @@ public class AppSettings
     /// <summary>
     /// ISSUE_02 — ask before leaving the Main App for the Video Merger / Crop Tools, which closes
     /// the Main App. Only ever asked when real editing work exists (see MainWindow.HasUnsavedWork).
+    ///
+    /// SWITCHPROMPT_01 — that second sentence was a PROMISE THE CODE DID NOT KEEP. This property
+    /// was declared, surfaced in Settings, loaded and saved... and never read by anything. The
+    /// switch handlers in MainWindow.Wireup called SwitchToCompanionAppAsync unconditionally, so
+    /// the prompt fired on an empty editor with no video loaded — a warning about losing work that
+    /// did not exist. MainWindow.ConfirmToolSwitchAsync is the reader it was always missing: the
+    /// prompt now requires BOTH this flag AND HasUnsavedWork().
     /// </summary>
     public bool ConfirmMainAppSwitchTool { get; set; } = true;
+
+    /// <summary>
+    /// CAPTIONWIPE_01 — should the text strip's caption survive into the next video?
+    ///
+    /// OFF by default, and that default is the fix rather than a preference. The caption is a
+    /// per-video TITLE. Leaving it in place meant the second clip of a session silently inherited
+    /// the first clip's title, the third inherited it again, and the mistake is invisible until the
+    /// finished file is watched — by which point it has been exported, and possibly uploaded, with
+    /// the wrong words burned into the picture. Nothing else in the editor persists across videos
+    /// like that.
+    ///
+    /// ON restores the old behaviour for the one workflow that actually wants it: someone cutting a
+    /// numbered series who types the same caption every time.
+    ///
+    /// Read only through MainWindow.ClearOverlayTextForNextVideo.
+    /// </summary>
+    public bool KeepOverlayTextBetweenVideos { get; set; } = false;
 
     /// <summary>
     /// ISSUE_07 — ask before DELETE removes a recorded voice-over take. The take's .wav is
@@ -335,10 +362,6 @@ public class DefaultValues
     public bool PortraitMode { get; set; } = true;
     public CheckboxDefaultBehavior PortraitBehavior { get; set; } = CheckboxDefaultBehavior.RememberLast;
 
-    /// <summary>Default Boss HP checkbox state</summary>
-    public bool BossHp { get; set; } = false;
-    public CheckboxDefaultBehavior BossHpBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
-
     /// <summary>Default Show Teammates checkbox state</summary>
     public bool ShowTeammates { get; set; } = false;
     public CheckboxDefaultBehavior ShowTeammatesBehavior { get; set; } = CheckboxDefaultBehavior.AlwaysOff;
@@ -409,9 +432,13 @@ public static class SettingsManager
     ///   5 = added VoiceProtectGameMode / VoiceProtectMusicMode and their remembered
     ///       last-choice flags (VOPROT_02 — voice-protection policy).
     /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
+    ///   6 = added voice protection / initial auto-update.
+    ///   7 = AUTO-UPDATE — ensures AutoUpdateChecks defaults to true on initial install
+    ///       and on upgrades where the configuration did not yet exist.
+    /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
     /// case to <see cref="Migrate"/>. NEVER reuse a number.
     /// </summary>
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
@@ -429,7 +456,9 @@ public static class SettingsManager
 
         if (!File.Exists(SettingsPath))
         {
-            RuntimeLog.Info("Settings", "No settings file yet — starting from defaults.");
+            RuntimeLog.Info("Settings", "No settings file yet — starting from defaults (AutoUpdateChecks=true).");
+            Instance = new AppSettings { AutoUpdateChecks = true };
+            Save();
             return;
         }
 
@@ -454,14 +483,27 @@ public static class SettingsManager
                 throw new InvalidDataException("Settings file deserialized to null.");
             }
 
+            int schemaBefore = loaded.SchemaVersion;
+            bool lackedAutoUpdate = !json.Contains("\"AutoUpdateChecks\"");
+            if (lackedAutoUpdate)
+            {
+                loaded.AutoUpdateChecks = true;
+            }
+
             Migrate(loaded);
             Instance = loaded;
             RuntimeLog.Info("Settings", $"Settings loaded (schema v{loaded.SchemaVersion}).");
+            if (schemaBefore < CurrentSchemaVersion || lackedAutoUpdate)
+            {
+                Save();
+                RuntimeLog.Info("Settings", $"Migrated settings from schema v{schemaBefore} to v{CurrentSchemaVersion} (AutoUpdateChecks: {loaded.AutoUpdateChecks}) and persisted to disk.");
+            }
         }
         catch (Exception ex)
         {
             string backupPath = QuarantineCorruptFile(json);
-            Instance = new AppSettings();
+            Instance = new AppSettings { AutoUpdateChecks = true };
+            Save();
 
             LoadFailureMessage =
                 "Your saved settings could not be understood and have been reset to defaults. " +
@@ -518,10 +560,17 @@ public static class SettingsManager
 
         if (from < 6)
         {
-            // AUTO-UPDATE — purely additive. A v5 file has no AutoUpdateChecks recorded, and the
-            // C# property default (true) IS the intended behaviour for everyone: checks on, ask
-            // before doing anything. Nothing to convert.
+            loaded.AutoUpdateChecks = true;
             from = 6;
+        }
+
+        if (from < 7)
+        {
+            // AUTO-UPDATE — newly introduced configuration:
+            // On upgrade from any prior version that lacked this configuration,
+            // auto-update checks MUST be enabled (true) by default.
+            loaded.AutoUpdateChecks = true;
+            from = 7;
         }
 
         loaded.SchemaVersion = from;

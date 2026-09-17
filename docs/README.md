@@ -44,7 +44,7 @@ MicLevelMonitor.cs  MpvIpcClient.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPre
 
 ```
 ExportViewModel.cs  FfmpegDiagnosticCollector.cs  GpuCapabilityProbe.cs  GranularSpeedBuilder.cs
-HardwareScanner.cs  QualityLadder.cs
+HardwareScanner.cs  QualityLadder.cs  MainWindow.SizeEstimate.cs  OutputFileSize.cs  OutputSizeEstimator.cs
 MemePreviewDirector.cs  MergerWorker.cs  MobileFilterBuilder.cs  ProcessWorker.cs
 TextOverlayGenerator.cs  ZoomPreviewSimulator.cs
 ```
@@ -63,7 +63,7 @@ FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.c
 ```
 ⚠ApplicationPaths.cs  AtomicJsonFile.cs  Build.cmd  DeploymentLifecycle.cs  dev.cmd
 ⚠GranularSpeedEditorWindow.axaml.cs  MaskOverlayManager.cs  ProjectRecoveryService.cs
-⚠RecoveryManager.cs  RuntimeLog.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs
+⚠RecoveryManager.cs  RuntimeLog.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs  LatestEstimateWorker.cs
 ```
 
 ---

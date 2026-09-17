@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -309,15 +312,11 @@ public partial class MainWindow
             var portraitCbRestore = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
             if (portraitCbRestore != null) portraitCbRestore.IsChecked = portraitMode;
 
-            bool bossHp = state["bossHp"]?.GetValue<bool>() ?? false;
-            var bossHpCbRestore = this.FindControl<ToggleSwitch>("BossHpCheckbox");
-            if (bossHpCbRestore != null) bossHpCbRestore.IsChecked = bossHp;
-
             bool showTeammates = state["showTeammates"]?.GetValue<bool>() ?? false;
             var teammatesCbRestore = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
             if (teammatesCbRestore != null) teammatesCbRestore.IsChecked = showTeammates;
 
-            bool showSpectating = state["showSpectating"]?.GetValue<bool>() ?? false;
+            bool showSpectating = state["showSpectating"]?.GetValue<bool>() ?? true;
             var spectatingCbRestore = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
             if (spectatingCbRestore != null) spectatingCbRestore.IsChecked = showSpectating;
 

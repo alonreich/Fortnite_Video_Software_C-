@@ -69,6 +69,7 @@ internal static class Program
         string tag = "v" + buildVersion;
         string flavor = devMode ? "Local Dev" : "NativeAOT win-x64";
         log.Info($"Build version: {buildVersion}  (tag {tag})");
+        SynchronizeVersionFiles(buildVersion, log);
 
         try
         {
@@ -235,4 +236,78 @@ internal static class Program
             // No interactive console at all; nothing to pause on.
         }
     }
+
+    private static void SynchronizeVersionFiles(string buildVersion, BuildLog log)
+    {
+        string root = FindRepoRoot();
+        log.Info($"[VERSION] Synchronizing version '{buildVersion}' across project files...");
+
+        // 1. version.txt
+        string versionTxtPath = Path.Combine(root, "version.txt");
+        try
+        {
+            File.WriteAllText(versionTxtPath, buildVersion.Trim() + Environment.NewLine);
+            log.Info($"[VERSION] Updated {versionTxtPath}");
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"[VERSION] Failed to update version.txt: {ex.Message}");
+        }
+
+        // 2. Directory.Build.props
+        string propsPath = Path.Combine(root, "Directory.Build.props");
+        string propsContent = $"""
+<Project>
+  <PropertyGroup>
+    <Version>{buildVersion}</Version>
+    <AssemblyVersion>{buildVersion}</AssemblyVersion>
+    <FileVersion>{buildVersion}</FileVersion>
+    <InformationalVersion>{buildVersion}</InformationalVersion>
+    <ProductVersion>{buildVersion}</ProductVersion>
+  </PropertyGroup>
+</Project>
+
+""";
+        try
+        {
+            File.WriteAllText(propsPath, propsContent);
+            log.Info($"[VERSION] Updated {propsPath}");
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"[VERSION] Failed to update Directory.Build.props: {ex.Message}");
+        }
+
+        // 3. Update csproj files directly so IDE and standalone builds always match
+        string appCsproj = Path.Combine(root, "src", "FortniteVideoSoftware.App", "FortniteVideoSoftware.App.csproj");
+        UpdateCsprojVersion(appCsproj, buildVersion, log);
+
+        string coreCsproj = Path.Combine(root, "src", "FortniteVideoSoftware.Core", "FortniteVideoSoftware.Core.csproj");
+        UpdateCsprojVersion(coreCsproj, buildVersion, log);
+    }
+
+    private static void UpdateCsprojVersion(string csprojPath, string buildVersion, BuildLog log)
+    {
+        if (!File.Exists(csprojPath))
+        {
+            log.Warn($"[VERSION] Project file not found: {csprojPath}");
+            return;
+        }
+
+        try
+        {
+            string content = File.ReadAllText(csprojPath);
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<Version>.*?</Version>", $"<Version>{buildVersion}</Version>");
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<AssemblyVersion>.*?</AssemblyVersion>", $"<AssemblyVersion>{buildVersion}</AssemblyVersion>");
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<FileVersion>.*?</FileVersion>", $"<FileVersion>{buildVersion}</FileVersion>");
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<InformationalVersion>.*?</InformationalVersion>", $"<InformationalVersion>{buildVersion}</InformationalVersion>");
+            File.WriteAllText(csprojPath, content);
+            log.Info($"[VERSION] Updated {csprojPath}");
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"[VERSION] Failed to update {csprojPath}: {ex.Message}");
+        }
+    }
 }
+

@@ -1,13 +1,18 @@
-﻿using Avalonia;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Media;
 using FortniteVideoSoftware.App.Infrastructure;
+using FortniteVideoSoftware.App.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -41,7 +46,6 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
-        DataContext = this;
         FortniteVideoSoftware.App.WindowBoundsHelper.Track(this, "SettingsBounds");
 
         _pendingDefaults = new DefaultValues
@@ -50,8 +54,6 @@ public partial class SettingsWindow : Window
             SpeedBehavior = SettingsManager.Instance.Defaults.SpeedBehavior,
             PortraitMode = SettingsManager.Instance.Defaults.PortraitMode,
             PortraitBehavior = SettingsManager.Instance.Defaults.PortraitBehavior,
-            BossHp = SettingsManager.Instance.Defaults.BossHp,
-            BossHpBehavior = SettingsManager.Instance.Defaults.BossHpBehavior,
             ShowTeammates = SettingsManager.Instance.Defaults.ShowTeammates,
             ShowTeammatesBehavior = SettingsManager.Instance.Defaults.ShowTeammatesBehavior,
             EnableFade = SettingsManager.Instance.Defaults.EnableFade,
@@ -90,13 +92,17 @@ public partial class SettingsWindow : Window
         ConfirmMainAppCancel = SettingsManager.Instance.ConfirmMainAppCancel;
         ConfirmMainAppCut = SettingsManager.Instance.ConfirmMainAppCut;   // CUT_01
         ConfirmMainAppSwitchTool = SettingsManager.Instance.ConfirmMainAppSwitchTool;
+        KeepOverlayTextBetweenVideos = SettingsManager.Instance.KeepOverlayTextBetweenVideos;   // CAPTIONWIPE_01
         ConfirmVoiceOverDeleteTake = SettingsManager.Instance.ConfirmVoiceOverDeleteTake;
         ConfirmFinishedDialogExit = SettingsManager.Instance.ConfirmFinishedDialogExit;
         AutoUpdateChecks = SettingsManager.Instance.AutoUpdateChecks;
 
         UiSoundsEnabled = SettingsManager.Instance.UiSoundsEnabled;
         UiSoundVolume = SettingsManager.Instance.UiSoundVolume;
+
+        DataContext = this;
         BuildUiSoundUi();
+        BuildAboutUi();
 
         this.FindControl<Button>("SaveBtn")!.Click += (s, e) => SaveAndClose();
         this.FindControl<Button>("CancelBtn")!.Click += (s, e) => Close();
@@ -151,11 +157,15 @@ public partial class SettingsWindow : Window
     public bool ConfirmMainAppCut { get; set; }
     public bool ConfirmMainAppSwitchTool { get; set; }
 
+    /// <summary>CAPTIONWIPE_01 — pending value of <see cref="AppSettings.KeepOverlayTextBetweenVideos"/>
+    /// (ships OFF: the caption is wiped between videos).</summary>
+    public bool KeepOverlayTextBetweenVideos { get; set; }
+
     /// <summary>ISSUE_07 / ISSUE_04 — pending values. Both ship OFF; see SettingsManager.</summary>
     public bool ConfirmVoiceOverDeleteTake { get; set; }
 
     /// <summary>AUTO-UPDATE — pending value of <see cref="AppSettings.AutoUpdateChecks"/> (ships ON).</summary>
-    public bool AutoUpdateChecks { get; set; }
+    public bool AutoUpdateChecks { get; set; } = true;
     public bool ConfirmFinishedDialogExit { get; set; }
 
     /// <summary>AUDIO_06 — pending value for the UI sound master switch; committed by APPLY.</summary>
@@ -534,7 +544,6 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeValueBehaviorRow("Default Video Quality", _pendingDefaults.QualityBehavior, v => _pendingDefaults.QualityBehavior = v, qCombo));
 
         panel.Children.Add(MakeBehaviorCheckboxRow("Portrait Mode (9:16)", _pendingDefaults.PortraitBehavior, v => _pendingDefaults.PortraitBehavior = v));
-        panel.Children.Add(MakeBehaviorCheckboxRow("Boss HP", _pendingDefaults.BossHpBehavior, v => _pendingDefaults.BossHpBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Show Teammates", _pendingDefaults.ShowTeammatesBehavior, v => _pendingDefaults.ShowTeammatesBehavior = v));
         panel.Children.Add(MakeBehaviorCheckboxRow("Enable Fade-In/Out", _pendingDefaults.EnableFadeBehavior, v => _pendingDefaults.EnableFadeBehavior = v));
 
@@ -562,6 +571,42 @@ public partial class SettingsWindow : Window
                 _pendingDefaults.DefaultFreezeDurationS = freezeVals[freezeCombo.SelectedIndex];
         };
         panel.Children.Add(MakeSimpleRow("Default Freeze Duration", freezeCombo));
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // CAPTIONWIPE_01 — "Leave text from Video to Video".
+        //
+        // Built here in code rather than written into the AXAML because this whole tab is built in
+        // code (see the "Speed Editor" heading a few rows up); a static CheckBox declared in the
+        // AXAML would land ABOVE every row this method appends, which is not where it belongs.
+        //
+        // The tooltip is deliberately written for someone who has never heard the word "overlay".
+        // It names the thing by where they can SEE it ("the words you type across the top"), states
+        // what happens with the box off, states what happens with it on, and says which one is
+        // normal — in that order, because that is the order the question forms in the reader's head.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Text Caption",
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            Margin = new Thickness(0, 16, 0, 2)
+        });
+
+        var keepCaption = new CheckBox
+        {
+            Content = "Leave text from Video to Video",
+            IsChecked = KeepOverlayTextBetweenVideos,
+            MinHeight = 44
+        };
+        ToolTip.SetTip(keepCaption,
+            "This is about the words you type across the top of the video.\n\n" +
+            "OFF (normal): the words are cleared as soon as a video finishes processing, and again " +
+            "when you open the next video. Every new video starts with an empty box, so you can " +
+            "never accidentally publish a clip carrying the last one's title.\n\n" +
+            "ON: the words stay exactly as you left them and carry over to the next video. Useful " +
+            "if you make a series and type the same title every single time — but then it is on " +
+            "you to change it when it needs changing.");
+        keepCaption.IsCheckedChanged += (_, _) => KeepOverlayTextBetweenVideos = keepCaption.IsChecked == true;
+        panel.Children.Add(keepCaption);
 
         try
         {
@@ -767,8 +812,14 @@ public partial class SettingsWindow : Window
         SettingsManager.Instance.ConfirmMainAppCancel = ConfirmMainAppCancel;
         SettingsManager.Instance.ConfirmMainAppCut = ConfirmMainAppCut;   // CUT_01
         SettingsManager.Instance.ConfirmMainAppSwitchTool = ConfirmMainAppSwitchTool;
+        SettingsManager.Instance.KeepOverlayTextBetweenVideos = KeepOverlayTextBetweenVideos;   // CAPTIONWIPE_01
         SettingsManager.Instance.ConfirmVoiceOverDeleteTake = ConfirmVoiceOverDeleteTake;
         SettingsManager.Instance.ConfirmFinishedDialogExit = ConfirmFinishedDialogExit;
+        var autoCheckCb = this.FindControl<CheckBox>("AutoUpdateChecksCheckbox");
+        if (autoCheckCb != null && autoCheckCb.IsChecked.HasValue)
+        {
+            AutoUpdateChecks = autoCheckCb.IsChecked.Value;
+        }
         SettingsManager.Instance.AutoUpdateChecks = AutoUpdateChecks;
 
         SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
@@ -869,4 +920,121 @@ public partial class SettingsWindow : Window
             };
         }
     }
+
+    private void BuildAboutUi()
+    {
+        var verText = this.FindControl<TextBlock>("AboutVersionText");
+        if (verText != null)
+        {
+            verText.Text = $"Version {DeploymentLifecycle.GetCurrentVersion()}";
+        }
+
+        var platformText = this.FindControl<TextBlock>("AboutPlatformText");
+        if (platformText != null)
+        {
+            string os = System.Runtime.InteropServices.RuntimeInformation.OSDescription;
+            string arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+            platformText.Text = $".NET 9.0 ({os}, {arch}, NativeAOT)";
+        }
+
+        var gpuText = this.FindControl<TextBlock>("AboutGpuText");
+        if (gpuText != null)
+        {
+            string activeEncoder = SettingsManager.Instance.VideoEncoderOverride;
+            gpuText.Text = activeEncoder.Equals("Auto", StringComparison.OrdinalIgnoreCase)
+                ? "Auto (Hardware Acceleration Preferred)"
+                : $"{activeEncoder} (Manual Override)";
+        }
+
+        var storageText = this.FindControl<TextBlock>("AboutStorageText");
+        if (storageText != null)
+        {
+            storageText.Text = _paths.ProgramDataRoot;
+        }
+
+        var statusText = this.FindControl<TextBlock>("UpdateStatusText");
+        var checkBtn = this.FindControl<Button>("CheckUpdatesNowBtn");
+        var autoCheckCb = this.FindControl<CheckBox>("AutoUpdateChecksCheckbox");
+        if (autoCheckCb != null)
+        {
+            autoCheckCb.IsChecked = AutoUpdateChecks;
+            autoCheckCb.IsCheckedChanged += (_, _) => AutoUpdateChecks = autoCheckCb.IsChecked == true;
+        }
+        var skippedBorder = this.FindControl<Border>("SkippedReleaseBorder");
+        var skippedLabel = this.FindControl<TextBlock>("SkippedReleaseLabel");
+        var clearSkipBtn = this.FindControl<Button>("ClearSkipBtn");
+
+        void RefreshSkippedBorder()
+        {
+            if (skippedBorder == null) return;
+            string skipped = UpdateService.GetSkippedVersion();
+            if (!string.IsNullOrWhiteSpace(skipped))
+            {
+                if (skippedLabel != null) skippedLabel.Text = $"Skipped release: {skipped}";
+                skippedBorder.IsVisible = true;
+            }
+            else
+            {
+                skippedBorder.IsVisible = false;
+            }
+        }
+
+        RefreshSkippedBorder();
+
+        if (clearSkipBtn != null)
+        {
+            clearSkipBtn.Click += (_, _) =>
+            {
+                UpdateService.ClearSkippedVersion();
+                RefreshSkippedBorder();
+                if (statusText != null) statusText.Text = "Skipped release filter cleared.";
+            };
+        }
+
+        if (checkBtn != null)
+        {
+            checkBtn.Click += async (_, _) =>
+            {
+                checkBtn.IsEnabled = false;
+                if (statusText != null) statusText.Text = "Checking for updates...";
+                try
+                {
+                    await UpdateService.CheckManualAsync(this, msg =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            if (statusText != null) statusText.Text = msg;
+                        });
+                    });
+                }
+                finally
+                {
+                    checkBtn.IsEnabled = true;
+                    RefreshSkippedBorder();
+                }
+            };
+        }
+    }
+
+    public void SelectTab(string tabHeader)
+    {
+        var tabControl = this.FindControl<TabControl>("SettingsTabControl");
+        if (tabControl == null) return;
+        for (int i = 0; i < tabControl.Items.Count; i++)
+        {
+            if (tabControl.Items[i] is TabItem ti && string.Equals(ti.Header?.ToString(), tabHeader, StringComparison.OrdinalIgnoreCase))
+            {
+                tabControl.SelectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    public static async Task<bool> ShowAboutAsync(Window owner)
+    {
+        var settingsWin = new SettingsWindow();
+        settingsWin.SelectTab("About");
+        return await settingsWin.ShowDialog<bool>(owner);
+    }
 }
+

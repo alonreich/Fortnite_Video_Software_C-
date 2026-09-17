@@ -1,4 +1,7 @@
-﻿using System.Collections.Generic;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 
@@ -94,13 +97,14 @@ public static class CropConfigDefaults
     /// CoordinateMath.ClampContentCrop deliberately permits a wide negative range.
     ///
     /// ISSUE_6: this comment previously listed "minimap" among the overlays these defaults render.
-    /// It does not — the six keys below are the complete shipped set, and they match
+    /// It does not — the five keys below are the complete shipped set, and they match
     /// HudConfig.HudKeys exactly. HudConfig.CropDriftType still recognises "map"/"minimap" because
     /// the Crop Tool lets the user name a custom element freely and HudConfig.Sanitize admits
     /// arbitrary keys, so a user-created minimap layer does receive the +1px LEFT bias. No default
     /// minimap rectangle is shipped, and none has been invented here.
     ///
-    /// Values ported from the original Python crops_coordinations.conf.
+    /// FORTNITEDEFAULT_02 — copied exactly from the dev sandbox's Apex Legends profile
+    /// on 2026-09-13, excluding the retired boss_hp layer. Shared by new profiles and recovery.
     /// </summary>
     public static JsonObject Create()
     {
@@ -110,39 +114,43 @@ public static class CropConfigDefaults
             ["coordinate_space"] = CoordinateSpace,
             ["crops_1080p"] = new JsonObject
             {
-                ["loot"] = Rect(511, 103, 1420, 1462),
-                ["stats"] = Rect(326, 233, 1620, 30),
-                ["normal_hp"] = Rect(465, 71, -839, 1470),
-                ["boss_hp"] = Rect(450, 150, 30, 1320),
-                ["team"] = Rect(270, 181, -881, 1256),
-                ["spectating"] = Rect(54, 22, -842, 1555)
+                ["loot"] = Rect(520, 176, 1416, 1389),
+                ["stats"] = Rect(329, 234, 1619, 30),
+                ["normal_hp"] = Rect(496, 92, -852, 1465),
+                ["team"] = Rect(275, 183, -883, 1254),
+                ["spectating"] = Rect(59, 24, -844, 1554)
             },
             ["scales"] = new JsonObject
             {
-                ["loot"] = 1.0227,
-                ["stats"] = 1.2694,
-                ["team"] = 1.1253,
-                ["normal_hp"] = 1.1107,
-                ["boss_hp"] = 1.0,
-                ["spectating"] = 1.2059
+                ["loot"] = "521/520",
+                ["stats"] = "59/47",
+                ["team"] = "278/275",
+                ["normal_hp"] = "255/248",
+                ["spectating"] = "106/59"
             },
             ["overlays"] = new JsonObject
             {
-                ["loot"] = Point(539, 1406),
+                ["loot"] = Point(540, 1462),
                 ["stats"] = Point(666, 150),
                 ["team"] = Point(0, 150),
-                ["normal_hp"] = Point(9, 1419),
-                ["boss_hp"] = Point(30, 1620),
-                ["spectating"] = Point(18, 1524)
+                ["normal_hp"] = Point(19, 1503),
+                ["spectating"] = Point(676, 383)
             },
             ["z_orders"] = new JsonObject
             {
                 ["loot"] = 10,
                 ["normal_hp"] = 20,
-                ["boss_hp"] = 20,
                 ["stats"] = 30,
                 ["team"] = 40,
                 ["spectating"] = 100
+            },
+            [SourceCropsSection] = new JsonObject
+            {
+                ["stats"] = Rect(220, 156, 1678, 20),
+                ["team"] = Rect(184, 122, 10, 836),
+                ["spectating"] = Rect(40, 16, 36, 1036),
+                ["normal_hp"] = Rect(331, 61, 31, 977),
+                ["loot"] = Rect(347, 117, 1544, 926)
             }
         };
     }
@@ -151,7 +159,7 @@ public static class CropConfigDefaults
     /// NOMASK_01 — the reserved "No Mask Profile" document: the exact same schema, scales,
     /// overlay positions and z-orders as <see cref="Create"/>, with EVERY crop rectangle zeroed.
     ///
-    /// Derived from Create() on purpose so the six HudKeys are guaranteed present (see the
+    /// Derived from Create() on purpose so the five HudKeys are guaranteed present (see the
     /// remarks on <see cref="NoMaskProfileName"/> for why a missing key is not the same as a zero
     /// key). The scales/overlays/z_orders values are left intact and are simply never read: with
     /// no active layer, MobileFilterBuilder takes its zero-layer branch and composites nothing.

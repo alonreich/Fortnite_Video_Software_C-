@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,8 +19,6 @@ namespace FortniteVideoSoftware.App.ViewModels;
 public sealed class ExportViewModel : ViewModelBase
 {
     private int _qualitySliderValue = QualityLadder.DefaultIndex;   // QUALITY_01
-    private string _qualityLabelText = "";
-    private string _qualityLabelColor = "White";
     private double? _targetMbOverride;
     private string _hardwareMode = "Auto";
     private string _hardwareStatusText = "HW: Detecting…";
@@ -30,6 +31,20 @@ public sealed class ExportViewModel : ViewModelBase
     private string _phaseTitle = "";
     private int _phaseProgress;
     private string _statusText = "Ready";
+    private string _estimatedFileSizeText = "—";
+    private string _estimatedFileSizeDescription = "Estimated size of the finished video, including sound.";
+
+    public string EstimatedFileSizeText
+    {
+        get => _estimatedFileSizeText;
+        set => SetProperty(ref _estimatedFileSizeText, value);
+    }
+
+    public string EstimatedFileSizeDescription
+    {
+        get => _estimatedFileSizeDescription;
+        set => SetProperty(ref _estimatedFileSizeDescription, value);
+    }
 
     public int QualitySliderValue
     {
@@ -38,18 +53,6 @@ public sealed class ExportViewModel : ViewModelBase
         // from an older session is clamped rather than rejected; the top stop still means
         // "no size limit", so the one setting anybody deliberately chose survives the change.
         set => SetProperty(ref _qualitySliderValue, QualityLadder.ClampIndex(value));
-    }
-
-    public string QualityLabelText
-    {
-        get => _qualityLabelText;
-        set => SetProperty(ref _qualityLabelText, value);
-    }
-
-    public string QualityLabelColor
-    {
-        get => _qualityLabelColor;
-        set => SetProperty(ref _qualityLabelColor, value);
     }
 
     public double? TargetMbOverride
@@ -124,59 +127,6 @@ public sealed class ExportViewModel : ViewModelBase
         set => SetProperty(ref _statusText, value);
     }
 
-    /// <summary>
-    /// QUALITY_01 — the target size this tier needs for THIS clip, or null for `Original`
-    /// (constant quality, no cap). ONE source of truth: the readout under the dial and the number
-    /// handed to the export worker both come from here, so what the user was promised and what
-    /// gets encoded cannot drift apart.
-    /// </summary>
-    public double? ResolveTargetMb(double effectiveDurationMs, bool isPortraitMode, double freezeOutputMs = 0)
-    {
-        if (effectiveDurationMs <= 0) return null;
-
-        int w = 1920;
-        int h = 1080;
-        if (isPortraitMode)
-        {
-            w = CoordinateConstants.ContentW;
-            h = CoordinateConstants.ContentH;
-        }
-
-        // Same duration basis the old forward calculation used, including the 0.1s pad.
-        double durSec = Math.Max(0.1, effectiveDurationMs / 1000.0) + 0.1;
-
-        double freezeSec = Math.Clamp(freezeOutputMs / 1000.0, 0, durSec);   // QUALITY_03
-        return QualityLadder.TargetMbFor(QualitySliderValue, durSec, w, h, isPortraitMode, freezeSec);
-    }
-
-    /// <summary>
-    /// QUALITY_01 — WAS: "here is the quality your megabytes bought". IS: "here is what your
-    /// quality will cost". The label under the dial is the consequence now, not the goal.
-    /// </summary>
-    public void UpdateEstimatedQuality(double effectiveDurationMs, bool isPortraitMode, double freezeOutputMs = 0)
-    {
-        if (effectiveDurationMs <= 0)
-        {
-            QualityLabelText = "";
-            return;
-        }
-
-        QualityLabelColor = QualityLadder.ColorFor(QualitySliderValue);
-
-        if (QualityLadder.IsOriginal(QualitySliderValue))
-        {
-            // No target size exists to predict — the encoder holds a constant quality and the
-            // file lands where it lands. Saying "no size limit" is honest; inventing a number
-            // would not be.
-            QualityLabelText = "no size limit";
-            return;
-        }
-
-        double? targetMb = ResolveTargetMb(effectiveDurationMs, isPortraitMode, freezeOutputMs);
-        // QUALITY_05 — no "≈". The number is an estimate and everyone reading it knows that; the
-        // symbol only made a short, glanceable figure look like an equation.
-        QualityLabelText = targetMb.HasValue ? QualityLadder.FormatSize(targetMb.Value) : "";
-    }
 
     public string ResolveHardwareMode()
     {

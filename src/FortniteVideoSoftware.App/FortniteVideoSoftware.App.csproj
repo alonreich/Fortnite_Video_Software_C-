@@ -48,6 +48,7 @@
     <TrimmerRootAssembly Include="Avalonia.Controls.DataGrid" />
     <TrimmerRootAssembly Include="Avalonia.Themes.Fluent" />
     <TrimmerRootAssembly Include="SkiaSharp" />
+    <InternalsVisibleTo Include="FortniteVideoSoftware.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -106,10 +107,10 @@
           InformationalVersion carry the real number that users and bug reports see.
        ══════════════════════════════════════════════════════════════════════════════════════════ -->
   <PropertyGroup>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>2026.09.17.0947</Version>
+    <AssemblyVersion>2026.09.17.0947</AssemblyVersion>
+    <FileVersion>2026.09.17.0947</FileVersion>
+    <InformationalVersion>2026.09.17.0947</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Clip Studio for Gameplay</Product>

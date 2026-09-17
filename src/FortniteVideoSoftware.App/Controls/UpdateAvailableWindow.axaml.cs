@@ -45,25 +45,43 @@ public partial class UpdateAvailableWindow : Window
             button.Click += (s, e) => { Choice = choice; Close(); };
     }
 
-    public void SetVersions(Version local, string remoteTag)
+    public void SetVersions(Version local, string remoteTag, string? releaseNotes = null)
     {
         string remote = remoteTag.TrimStart('v', 'V');
         var yourVersion = this.FindControl<TextBlock>("YourVersionText");
         var newVersion = this.FindControl<TextBlock>("NewVersionText");
         if (yourVersion != null) yourVersion.Text = $"Your version:  {local}";
         if (newVersion != null) newVersion.Text = $"New version:  {remote}";
+
+        var notesExpander = this.FindControl<Expander>("ReleaseNotesExpander");
+        var notesText = this.FindControl<TextBlock>("ReleaseNotesText");
+        if (notesExpander != null && notesText != null)
+        {
+            if (!string.IsNullOrWhiteSpace(releaseNotes))
+            {
+                notesText.Text = releaseNotes.Trim();
+                notesExpander.IsVisible = true;
+                notesExpander.IsExpanded = true;
+            }
+            else
+            {
+                notesText.Text = "No release notes were provided for this release.";
+                notesExpander.IsVisible = true;
+                notesExpander.IsExpanded = false;
+            }
+        }
     }
 
     /// <summary>
     /// AUTO-UPDATE — shows the four-way update prompt. A prompt that cannot be shown must never
     /// be interpreted as consent, so any failure collapses to <see cref="UpdateChoice.NotNow"/>.
     /// </summary>
-    public static async Task<UpdateChoice> AskAsync(Window owner, Version localVersion, string remoteTag)
+    public static async Task<UpdateChoice> AskAsync(Window owner, Version localVersion, string remoteTag, string? releaseNotes = null)
     {
         try
         {
             var dlg = new UpdateAvailableWindow();
-            dlg.SetVersions(localVersion, remoteTag);
+            dlg.SetVersions(localVersion, remoteTag, releaseNotes);
             await dlg.ShowDialog(owner);
             return dlg.Choice;
         }

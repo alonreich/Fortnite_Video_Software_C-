@@ -1,4 +1,7 @@
-﻿
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -34,9 +37,8 @@ public class MobileFilterBuilder
         string inputMainPad,
         string inputHudPad,
         JsonObject mobileCoords,
-        bool isBossHp,
         bool showTeammates,
-        bool showSpectating = false,
+        bool showSpectating = true,
         string? txtInputLabel = null,
         bool useCuda = false,
         string originalResolution = "1920x1080")
@@ -46,7 +48,6 @@ public class MobileFilterBuilder
         var overlays = mobileCoords["overlays"]?.AsObject() ?? new JsonObject();
         var zOrders = mobileCoords["z_orders"]?.AsObject() ?? new JsonObject();
 
-        string hpKey = isBossHp ? "boss_hp" : "normal_hp";
         var activeLayers = new List<LayerSpec>();
 
         var crops1080p = mobileCoords["crops_1080p"]?.AsObject();
@@ -56,18 +57,23 @@ public class MobileFilterBuilder
             {
                 string key = kvp.Key;
                 
-                if (key == "boss_hp" || key == "normal_hp")
-                {
-                    if (key != hpKey) continue;
-                }
-                else if (key == "spectating" && !showSpectating) continue;
+                if (HudConfig.IsRetiredRole(key)) continue; // NO_BOSS_HP_01: also guard unsanitized callers.
+                if (key == "spectating" && !showSpectating) continue;
                 else if (key == "team" && !showTeammates) continue;
 
                 activeLayers.RegisterLayer(mobileCoords, key, key, key, key);
             }
         }
 
-        activeLayers.Sort((a, b) => a.Z.CompareTo(b.Z));
+        // ZTIEBREAK_01 — List<T>.Sort is an UNSTABLE introsort, so two layers sharing a z order
+        // came out in an order decided by the pivot, not by the document: the same config could
+        // stack them one way in a 3-layer export and the other way in a 5-layer export, and the
+        // composer in Crop Tools (which breaks the same tie by element key) agreed with neither.
+        // This is the shared tie-break rule: ascending Z, then element key, OrdinalIgnoreCase.
+        activeLayers = activeLayers
+            .OrderBy(l => l.Z)
+            .ThenBy(l => l.ConfKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         string currV;
 
@@ -152,16 +158,25 @@ public class MobileFilterBuilder
             }
         }
 
-        parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
-                  $"flags=lanczos," +
-                  $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
-                  $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
-        currV = "[v_padded]";
-
         if (!string.IsNullOrEmpty(txtInputLabel))
         {
-            parts.Add($"{currV}{txtInputLabel}overlay=x=0:y='if(lt(t,0.11),180,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw]");
+            parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                      $"flags=lanczos,setsar=1[v_scaled_content]");
+            parts.Add($"[v_scaled_content]split=2[v_sc_base][v_sc_video]");
+            parts.Add($"[v_sc_base]pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:0:0:black," +
+                      $"drawbox=x=0:y=0:w={CoordinateConstants.PortraitW}:h={CoordinateConstants.PortraitH}:color=black:t=fill[v_bg_canvas]");
+            parts.Add($"[v_bg_canvas][v_sc_video]overlay=x=0:y='if(lt(t,0.11),320,{CoordinateConstants.PaddingTop})':shortest=1[v_padded]");
+            currV = "[v_padded]";
+            parts.Add($"{currV}{txtInputLabel}overlay=x=0:y='if(lt(t,0.11),170,0)':shortest=1:eof_action=repeat:format=auto[v_final_raw]");
             currV = "[v_final_raw]";
+        }
+        else
+        {
+            parts.Add($"{currV}scale={CoordinateConstants.ContentW}:{CoordinateConstants.ContentH}:" +
+                      $"flags=lanczos," +
+                      $"pad={CoordinateConstants.PortraitW}:{CoordinateConstants.PortraitH}:" +
+                      $"0:{CoordinateConstants.PaddingTop}:black,setsar=1[v_padded]");
+            currV = "[v_padded]";
         }
 
         parts.Add($"{currV}format=yuv420p[v_final]");
@@ -188,19 +203,36 @@ internal static class MobileFilterBuilderExtensions
         int[] rect = GetRectHelper(coords, "crops_1080p", cropKey1080);
         var scalesObj = coords["scales"]?.AsObject();
         double scale = 1.0;
-        if (scalesObj != null && scalesObj.ContainsKey(confKey))
+        JsonNode? scaleNode = scalesObj != null ? LookupHelper(scalesObj, confKey) : null;
+        if (scaleNode != null)
         {
-            try { scale = (double)scalesObj[confKey]!; } 
-            catch 
-            { 
-                var parsedFrac = Frac.FromString(scalesObj[confKey]!.ToString());
-                if (parsedFrac != Frac.Zero) scale = parsedFrac.ToDouble();
+            double parsed;
+            try { parsed = (double)scaleNode!; }
+            catch
+            {
+                // ZEROSCALE_01 — the old code checked `!= Frac.Zero`, which let a NEGATIVE fraction
+                // straight through; and the numeric branch above had no check at all, so a JSON 0
+                // became scale 0. Either one reaches QuantizeBackendSizeInternal, whose
+                // Math.Max(factor, ...) floor silently rewrites the layer as a 32x32 sliver, and a
+                // negative would land there via a negative Frac. Only a strictly positive scale is
+                // meaningful; anything else falls back to 1/1 and is logged.
+                try { parsed = Frac.FromString(scaleNode!.ToString()).ToDouble(); }
+                catch { parsed = double.NaN; }
+            }
+
+            if (double.IsFinite(parsed) && parsed > 0.0)
+            {
+                scale = parsed;
+            }
+            else
+            {
+                CoreLogger.Info("EXPORT", $"Layer '{confKey}' has a non-positive or unreadable scale ('{scaleNode}'); using 1/1.");
             }
         }
 
         var overlaysObj = coords["overlays"]?.AsObject();
         double posX = 0, posY = CoordinateConstants.UIPaddingTop;
-        if (overlaysObj != null && overlaysObj[ovKey] is JsonObject ov)
+        if (overlaysObj != null && LookupHelper(overlaysObj, ovKey) is JsonObject ov)
         {
             try { posX = (double)ov["x"]!; } catch { try { posX = double.Parse(ov["x"]!.ToString()); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
             try { posY = (double)ov["y"]!; } catch { try { posY = double.Parse(ov["y"]!.ToString()); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); } }
@@ -208,9 +240,17 @@ internal static class MobileFilterBuilderExtensions
 
         var zOrdersObj = coords["z_orders"]?.AsObject();
         int z = 50;
-        if (zOrdersObj != null && zOrdersObj.ContainsKey(ovKey))
+        JsonNode? zNode = zOrdersObj != null ? LookupHelper(zOrdersObj, ovKey) : null;
+        if (zNode != null)
         {
-            try { z = zOrdersObj[ovKey]!.GetValue<int>(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            try { z = zNode.GetValue<int>(); }
+            catch
+            {
+                // A z order written as 20.0, "20" or by another tool must not silently become 50 —
+                // that is a stacking change the user never asked for.
+                try { z = (int)System.Math.Round(double.Parse(zNode.ToString(), System.Globalization.CultureInfo.InvariantCulture)); }
+                catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            }
         }
 
         if (rect.Length >= 4 && rect[0] >= 1 && rect[1] >= 1)
@@ -219,11 +259,29 @@ internal static class MobileFilterBuilderExtensions
         }
     }
 
+    /// <summary>
+    /// KEYCASE_01 — JsonObject indexes ordinally, but every element-key comparison in the Crop Tool
+    /// editor is OrdinalIgnoreCase. A config whose "scales" says "Loot" while "crops_1080p" says
+    /// "loot" therefore exported the layer at scale 1/1 with a default z, silently, with the user's
+    /// real values sitting untouched in the file. Look the key up exactly first, then ignoring case.
+    /// </summary>
+    private static JsonNode? LookupHelper(JsonObject section, string key)
+    {
+        if (section.TryGetPropertyValue(key, out JsonNode? exact)) return exact;
+
+        foreach (var pair in section)
+        {
+            if (string.Equals(pair.Key, key, System.StringComparison.OrdinalIgnoreCase)) return pair.Value;
+        }
+
+        return null;
+    }
+
     private static int[] GetRectHelper(JsonObject coords, string section, string key)
     {
         var sectionObj = coords[section]?.AsObject();
         if (sectionObj == null) return [0, 0, 0, 0];
-        var node = sectionObj[key];
+        var node = LookupHelper(sectionObj, key);
         if (node is JsonArray arr && arr.Count >= 4)
             return [arr[0]!.GetValue<int>(), arr[1]!.GetValue<int>(), arr[2]!.GetValue<int>(), arr[3]!.GetValue<int>()];
         return [0, 0, 0, 0];

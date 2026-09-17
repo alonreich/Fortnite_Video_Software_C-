@@ -1,3 +1,6 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.IO;
 using System.Threading;
@@ -93,7 +96,6 @@ public class MainMediaController
             worker.AutoVoiceNormalization = audioPrefs.Defaults.AutoVoiceNormalization;
             
             worker.IsMobileFormat = payload.IsMobileFormat;
-            worker.IsBossHp = payload.IsBossHp;
             worker.EnableFades = payload.EnableFades;
             worker.ShowTeammates = payload.ShowTeammates;
             worker.ShowSpectating = payload.ShowSpectating;

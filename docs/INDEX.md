@@ -1,4 +1,4 @@
-﻿# SYMBOL & FILE INDEX (routing lookup)
+# SYMBOL & FILE INDEX (routing lookup)
 
 Flat lookup. Grep for a filename, symbol, constant or engineering tag; read ONLY the spec it names.
 Notation: `03 §9 FFM-BINPATH` = `03_FFMPEG_EXPORT_PIPELINE.md`, section 9, stable anchor `FFM-BINPATH`.
@@ -32,7 +32,9 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ GranularSpeedEditorWindow.axaml.cs         01 04 05
   HardwareScanner.cs                         03
   KineticScrubController.cs                  01
+  LatestEstimateWorker.cs                    05
   MainWindow.Canvas.cs                       01
+  MainWindow.SizeEstimate.cs                 03
   MainWindow.Shortcuts.cs                    01
   MainWindow.Wireup.cs                       01
 ⚠ MainWindow.axaml.cs                        01 02 04 GOV
@@ -44,6 +46,8 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   MpvIpcClient.cs                            02
 ⚠ MusicWizardWindow.axaml.cs                 01 02
   OutputTimeline.cs                          01
+  OutputFileSize.cs                          03
+  OutputSizeEstimator.cs                     03
 ⚠ PhoneFrameMockup.axaml.cs                  01 04
   ExportViewModel.cs                         03
   ProcessWorker.cs                           03
@@ -51,17 +55,21 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   ProjectRecoveryService.cs                  05
 ⚠ RecoveryManager.cs                         05 GOV
   RuntimeLog.cs                              05
+  SettingsWindow.axaml.cs                    04
   SpinningWheelSlider.cs                     04
   TextOverlayGenerator.cs                    03
   TimelineKnob.cs                            01
   TimelineLanesControl.axaml.cs              01
   UiStateStore.cs                            05
+  UpdateAvailableWindow.axaml.cs             04
+  UpdateService.cs                           05
   WindowResizeGrip.cs                        04
   VoiceOverPreviewPlayer.cs                  02
 ⚠ VoiceOverWindow.axaml.cs                   01 02
   VoiceRecorder.cs                           02
 ⚠ WindowBoundsHelper.cs                      04 05
   ZoomPreviewSimulator.cs                    03
+  FvsBuild (Program.cs / Staging.cs)         05
 ```
 
 Full paths: see each spec's Code Mini-Map.
@@ -72,6 +80,7 @@ Full paths: see each spec's Code Mini-Map.
 
 ```
 _isSafeToClose                               05 §3 SYS-WINSTATE
+SIZEESTIMATE_01                              03 FFM-SIZEESTIMATE | 04 UI-THEME | 05 SYS-SIZEESTIMATE
 _lastFreezeTriggerMs                         01 §4 TL-FREEZE
 _mainEndParkIssued                           01 §8 TL-ENDSTOP
 _muteCache                                   02 (mini-map only)
@@ -397,7 +406,17 @@ WriteObject                                  05 §4 SYS-RECOVERY
 WriteString                                  05 (mini-map only)
 ZoomCropResult                               03 (mini-map only)
 ZOOMLIVE_07                                  04 §6 UI-GRANULAR
+ZOOMCARD_01                                  04 §6 UI-GRANULAR
+ZOOMSTYLE_02                                 04 §6 UI-GRANULAR
+ZOOMPREVIEW_01                               04 §6 UI-GRANULAR
+ZOOMCOMMIT_01                                04 §6 UI-GRANULAR
+CheckManualAsync                             05 §6 SYS-AUTOUPDATE
+ShowAboutAsync                               04 §11 UI-SETTINGS-ABOUT
+GetCurrentVersion                            05 §6 SYS-AUTOUPDATE
+TryParseVersion                              05 §6 SYS-AUTOUPDATE
+SynchronizeVersionFiles                      05 §6 SYS-AUTOUPDATE
 ZoomPreviewSimulator                         02 §4 AUD-VOICEOVER | 03 (mini-map only)
 ZoomRampRequiredGap                          03 (mini-map only)  [= 1.0]
 ZoomRampSeconds                              03 (mini-map only)  [= 0.5]
 ```
+

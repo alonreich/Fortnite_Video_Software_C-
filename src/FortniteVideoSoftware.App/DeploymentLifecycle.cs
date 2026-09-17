@@ -358,8 +358,17 @@ internal static class DeploymentLifecycle
         version = new Version(0, 0);
         if (string.IsNullOrWhiteSpace(value)) return false;
 
-        string cleaned = new string(value!.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray()).Trim('.');
-        return Version.TryParse(cleaned, out version!);
+        string trimmed = value!.Trim().TrimStart('v', 'V');
+        string cleaned = new string(trimmed.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray()).Trim('.');
+        if (string.IsNullOrEmpty(cleaned)) return false;
+
+        if (Version.TryParse(cleaned, out Version? parsed) && parsed != null)
+        {
+            version = parsed;
+            return true;
+        }
+
+        return false;
     }
 
     /// <param name="includeUserData">
@@ -1121,9 +1130,82 @@ internal static class DeploymentLifecycle
         return null;
     }
 
-    private static string GetCurrentVersion()
+    internal static string GetCurrentVersion()
     {
-        return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
+        try
+        {
+            string? exe = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exe) && File.Exists(exe))
+            {
+                var fvi = FileVersionInfo.GetVersionInfo(exe);
+                string? pv = fvi.ProductVersion;
+                if (!string.IsNullOrWhiteSpace(pv))
+                {
+                    int plusIdx = pv.IndexOf('+');
+                    if (plusIdx >= 0) pv = pv[..plusIdx];
+                    pv = pv.Trim().TrimStart('v', 'V');
+                    if (TryParseVersion(pv, out _)) return pv;
+                }
+
+                string? fv = fvi.FileVersion;
+                if (!string.IsNullOrWhiteSpace(fv))
+                {
+                    int plusIdx = fv.IndexOf('+');
+                    if (plusIdx >= 0) fv = fv[..plusIdx];
+                    fv = fv.Trim().TrimStart('v', 'V');
+                    if (TryParseVersion(fv, out _)) return fv;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+
+        try
+        {
+            var infoAttr = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            if (!string.IsNullOrWhiteSpace(infoAttr?.InformationalVersion))
+            {
+                string infoVer = infoAttr.InformationalVersion;
+                int plusIdx = infoVer.IndexOf('+');
+                if (plusIdx >= 0) infoVer = infoVer[..plusIdx];
+                infoVer = infoVer.Trim().TrimStart('v', 'V');
+                if (TryParseVersion(infoVer, out _)) return infoVer;
+            }
+
+            var fileAttr = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyFileVersionAttribute>();
+            if (!string.IsNullOrWhiteSpace(fileAttr?.Version))
+            {
+                string fv = fileAttr.Version.Trim().TrimStart('v', 'V');
+                if (TryParseVersion(fv, out _)) return fv;
+            }
+
+            var asmVer = Assembly.GetExecutingAssembly().GetName().Version;
+            if (asmVer != null && asmVer != new Version(0, 0) && asmVer != new Version(1, 0, 0, 0))
+            {
+                return asmVer.ToString();
+            }
+
+            string[] probePaths = [
+                Path.Combine(AppContext.BaseDirectory, "version.txt"),
+                Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "version.txt")
+            ];
+            foreach (string p in probePaths)
+            {
+                if (File.Exists(p))
+                {
+                    string txt = File.ReadAllText(p).Trim().TrimStart('v', 'V');
+                    if (TryParseVersion(txt, out _)) return txt;
+                }
+            }
+
+            return asmVer?.ToString() ?? "1.0.0.0";
+        }
+        catch
+        {
+            return "1.0.0.0";
+        }
     }
 
     private static async Task RelaunchInstallFromTempAsync(bool noLaunch, bool quiet, bool autoUpdate)

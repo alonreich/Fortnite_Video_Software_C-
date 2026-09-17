@@ -61,8 +61,8 @@
                          as before; MarkerHeadroomPx sets it from code. -->
                     <RowDefinition Height="0"/>
                     <RowDefinition Height="22"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto" MinHeight="60"/>
+                    <RowDefinition Height="Auto" MinHeight="60"/>
                 </Grid.RowDefinitions>
 
             <!-- Ruler. Explicit Height, NOT MinHeight: a Canvas reports zero desired size, so an
@@ -73,12 +73,12 @@
             </Border>
 
             <Border Grid.Row="2" Name="LaneABorder" BorderBrush="{DynamicResource AppPanelBrush}"
-                    BorderThickness="2" CornerRadius="2" MinHeight="60" ClipToBounds="False">
+                    BorderThickness="2" CornerRadius="2" Height="60" MinHeight="60" ClipToBounds="False">
                 <Panel Name="LaneAHostPanel" ClipToBounds="False"/>
             </Border>
 
             <Border Grid.Row="3" Name="LaneBBorder" BorderBrush="{DynamicResource AppPanelBrush}"
-                    BorderThickness="2" CornerRadius="2" MinHeight="60">
+                    BorderThickness="2" CornerRadius="2" Height="60" MinHeight="60">
                 <Panel Name="LaneBHostPanel"/>
             </Border>
 

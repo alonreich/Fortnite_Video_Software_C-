@@ -291,7 +291,7 @@ public class CoordinateMathTests
     }
 
     // =========================================================================
-    // 5. QuantizeBackendSize & Alignment to 32px
+    // 5. HUD dimensions stay even for export and preserve the source aspect ratio.
     // =========================================================================
 
     [Theory]
@@ -300,16 +300,19 @@ public class CoordinateMathTests
     [InlineData(300, 150, 4, 3)]
     [InlineData(1080, 1620, 1, 1)]
     [InlineData(10, 10, 1, 1)]
-    public void QuantizeBackendSizeInternal_AlwaysSnapsToMultiplesOf32(
+    public void QuantizeBackendSizeInternal_PreservesAspectAndEvenDimensions(
         int contentW, int contentH, long scaleNum, long scaleDen)
     {
         var scaleFrac = new Frac(scaleNum, scaleDen);
         var (bw, bh) = CoordinateMath.QuantizeBackendSizeInternal(contentW, contentH, scaleFrac);
 
-        Assert.True(bw >= 32, "Backend width must be at least 32");
-        Assert.True(bh >= 32, "Backend height must be at least 32");
-        Assert.Equal(0, bw % 32);
-        Assert.Equal(0, bh % 32);
+        Assert.True(bw >= 2);
+        Assert.True(bh >= 2);
+        Assert.Equal(0, bw % 2);
+        Assert.Equal(0, bh % 2);
+        double desiredWidth = contentW * scaleFrac.ToDouble() * CoordinateConstants.BackendScale.ToDouble();
+        Assert.InRange(Math.Abs(bw - desiredWidth), 0, 1.000001);
+        Assert.InRange(Math.Abs(bh - bw * (double)contentH / contentW), 0, 1.000001);
     }
 
     [Theory]
@@ -317,14 +320,14 @@ public class CoordinateMathTests
     [InlineData(134, 202)]
     [InlineData(300, 150)]
     [InlineData(1080, 1620)]
-    public void QuantizeBackendSize_ResultsInExactWholeNumbers(int contentW, int contentH)
+    public void QuantizeBackendSize_PreviewMatchesExportWithinHalfAPixel(int contentW, int contentH)
     {
         var (width, height) = CoordinateMath.QuantizeBackendSize(contentW, contentH, Frac.One);
 
-        // In 1080-wide content area, (rw / 32) * 27 must be a whole number.
         var (rw, rh) = CoordinateMath.QuantizeBackendSizeInternal(contentW, contentH, Frac.One);
-        Assert.Equal((rw / 32) * 27, width);
-        Assert.Equal((rh / 32) * 27, height);
+        double backendScale = CoordinateConstants.BackendScale.ToDouble();
+        Assert.InRange(Math.Abs(width - rw / backendScale), 0, 0.500001);
+        Assert.InRange(Math.Abs(height - rh / backendScale), 0, 0.500001);
     }
 
     // =========================================================================
@@ -442,13 +445,11 @@ public class CoordinateMathTests
     }
 
     [Fact]
-    public void ClampOverlayPosition_SnapsToBackendScaleDenominator()
+    public void ClampOverlayPosition_PreservesPositionToTheNearestPixel()
     {
         var (x, y) = CoordinateMath.ClampOverlayPosition(123.4, 250.7, 200, 100);
 
-        // x must snap to multiples of 27
-        Assert.Equal(0, x % 27);
-        // y minus top padding must snap to multiples of 27
-        Assert.Equal(0, (y - CoordinateConstants.UIPaddingTop) % 27);
+        Assert.Equal(123, x);
+        Assert.Equal(251, y);
     }
 }

@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
         x:CompileBindings="True"
@@ -20,7 +20,7 @@
                     <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
                 </Border>
                 <Grid Grid.Row="1" Margin="15" RowDefinitions="*, Auto">
-                    <TabControl Grid.Row="0" Background="Transparent">
+                    <TabControl Name="SettingsTabControl" Grid.Row="0" Background="Transparent">
                         <TabItem Header="Appearance">
                             <StackPanel Margin="10" Spacing="15" HorizontalAlignment="Left" MaxWidth="600">
                                 <TextBlock Text="Appearance Settings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
@@ -235,17 +235,64 @@
                                   ToolTip.Tip="Off by default. These two buttons sit next to OPEN FOLDER and either close the app or discard the current project."
                                   IsChecked="{Binding ConfirmFinishedDialogExit, Mode=TwoWay}" />
 
-                                <!-- AUTO-UPDATE: master switch for the update suggestor. ON by
-                                     default; the update prompt's "Never tell me about updates
-                                     again" choice flips this off, so this checkbox always tells
-                                     the truth about the feature's state. -->
-                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,15,0,0"/>
-                                <TextBlock Text="Updates" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,5"/>
-                                <CheckBox Content="Automatically check for updates"
-                                          Foreground="{DynamicResource AppTextMutedBrush}"
-                                          IsChecked="{Binding AutoUpdateChecks, Mode=TwoWay}"
-                                          ToolTip.Tip="When on, the app quietly looks for a newer version when it starts and ASKS before downloading or changing anything. When off, it never checks and never asks." />
                             </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="About" Name="AboutTab">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="15" Spacing="14" HorizontalAlignment="Left" MaxWidth="680">
+                                    <!-- App Brand & Identity -->
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Fortnite Video Software" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Name="AboutVersionText" Text="Version 2026.09.17" FontSize="{DynamicResource AppFontSize13}" FontWeight="SemiBold" Foreground="{DynamicResource AppAccentBrush}"/>
+                                        <TextBlock Text="Clip Studio for Gameplay — Trim, speed-ramp, add music and export gameplay clips." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                        <TextBlock Text="Copyright © 2026 Alon Reich. All rights reserved." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                    </StackPanel>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+
+                                    <!-- System & Hardware Capabilities -->
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="System &amp; Hardware Status" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto, Auto" Margin="4,0,0,0">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Platform Runtime: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}"/>
+                                            <TextBlock Name="AboutPlatformText" Grid.Row="0" Grid.Column="1" Text=".NET 9.0 (win-x64, NativeAOT)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Active Hardware: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                            <TextBlock Name="AboutGpuText" Grid.Row="1" Grid.Column="1" Text="Detecting..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Storage Root: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                            <TextBlock Name="AboutStorageText" Grid.Row="2" Grid.Column="1" Text="ProgramData\FortniteVideoSoftware" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+
+                                    <!-- Software Updates -->
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Software Updates" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="Stay up to date with the newest features, performance optimizations, and bug fixes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
+
+                                        <CheckBox Name="AutoUpdateChecksCheckbox" Content="Automatically check for updates on startup"
+                                                  Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                  IsChecked="{Binding AutoUpdateChecks, Mode=TwoWay}"
+                                                  ToolTip.Tip="When enabled, the app quietly checks GitHub releases on startup and prompts if a newer version is available. When disabled, checks are never performed automatically." />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0">
+                                            <Button Name="CheckUpdatesNowBtn" Classes="Primary" Content="Check For Updates Now" MinWidth="180" Cursor="Hand"
+                                                    ToolTip.Tip="Immediately checks GitHub for a newer version of Fortnite Video Software."/>
+                                            <TextBlock Name="UpdateStatusText" VerticalAlignment="Center" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" MaxWidth="400"/>
+                                        </StackPanel>
+
+                                        <!-- Skipped Releases Reset -->
+                                        <Border Name="SkippedReleaseBorder" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,6,0,0" IsVisible="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <TextBlock Name="SkippedReleaseLabel" Text="Skipped release: v2026.00.00" Foreground="{DynamicResource AppWarningBrush}" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                <Button Name="ClearSkipBtn" Classes="Secondary" Content="Clear Skip" Cursor="Hand" ToolTip.Tip="Clears the ignored version so it can be offered again."/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
                             </ScrollViewer>
                         </TabItem>
                     </TabControl>

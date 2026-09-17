@@ -1,4 +1,7 @@
-﻿using Avalonia.Platform.Storage;
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/02_AUDIO_ENGINE_MASTERING.md, docs/04_UI_UX_AVALONIA_SPEC.md, docs/SPEC_GOVERNANCE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -66,7 +69,6 @@ public partial class MainWindow : Window
 
     public string OverlayText { get => _viewModel.OverlayText; set => _viewModel.OverlayText = value; }
     public bool IsPortraitMode { get => _viewModel.IsPortraitMode; set => _viewModel.IsPortraitMode = value; }
-    public bool IsBossHp { get => _viewModel.IsBossHp; set => _viewModel.IsBossHp = value; }
     public bool IsTeammates { get => _viewModel.IsTeammates; set => _viewModel.IsTeammates = value; }
     public bool IsSpectating { get => _viewModel.IsSpectating; set => _viewModel.IsSpectating = value; }
     public bool IsEnableFade { get => _viewModel.IsEnableFade; set => _viewModel.IsEnableFade = value; }
@@ -239,10 +241,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
         InitializeComponent();
+        Title = $"Fortnite Video Software v{DeploymentLifecycle.GetCurrentVersion()}";
 
         _viewModel = new MainViewModel(_paths);
         _recoveryService = new ProjectRecoveryService(_paths);
         DataContext = _viewModel;
+        InitializeSizeEstimate();
 
         WireComponents();
 
@@ -720,6 +724,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
+        // SIZEESTIMATE_01 — metadata is available before any trim marker has been selected.
+        _loadedVideoDurationMs = videoHost.IpcClient.Duration * 1000.0;
+        _viewModel.Timeline.LoadedVideoDurationMs = _loadedVideoDurationMs;
         ApplyDefaults();
         UpdateSpeedLabel();
         UpdateEstimatedQuality();
@@ -900,8 +907,58 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         SaveRecoveryState();
     }
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// CAPTIONWIPE_01 — EMPTIES THE TEXT STRIP'S CAPTION BETWEEN VIDEOS.
+    ///
+    /// THE BUG THIS FIXES. The caption is a per-video TITLE, typed into PortraitTextInput and burnt
+    /// into the top strip of the finished portrait file. It was the only piece of the project that
+    /// survived both a finished export AND the loading of a different clip, so a session's second
+    /// video silently inherited the first one's title, the third inherited it again, and nothing on
+    /// screen flagged it — the box still showed the words, and a user who had already read them once
+    /// does not read them a second time. The mistake only surfaces in the exported file, after it has
+    /// been rendered and possibly uploaded.
+    ///
+    /// WHEN IT RUNS. Both ends of the cycle, because either one alone leaves a hole:
+    ///   • after a SUCCESSFUL export (MainWindow.Export.cs) — that video is finished with;
+    ///   • when a different clip is loaded (<see cref="ResetEditingStateForNewVideo"/>) — covers
+    ///     the user who abandons a clip without exporting it, and the recovery-restore path that
+    ///     loads a clip straight into a fresh session.
+    ///
+    /// It does NOT run on cancel or on a failed export: the user is still working on that video and
+    /// deleting their title would be its own small disaster.
+    ///
+    /// ORDER MATTERS AT THE EXPORT CALL SITE. Writing OverlayText fires the ViewModel's
+    /// NotifyStateDirty, which re-arms the recovery state and clears ExportedCleanSinceLastEdit —
+    /// so this must be called BEFORE `_exportedCleanSinceLastEdit = true`, or a clean export would
+    /// immediately look dirty again and the crash-recovery prompt would be armed for a project that
+    /// is finished and saved.
+    ///
+    /// Settings → Defaults → "Leave text from Video to Video" turns the whole thing off for people
+    /// who genuinely retype the same title every time; the flag ships OFF.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    /// <param name="reason">Logged, so the runtime log says which of the two paths cleared it.</param>
+    private void ClearOverlayTextForNextVideo(string reason)
+    {
+        if (FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.KeepOverlayTextBetweenVideos)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(OverlayText)) return;
+
+        RuntimeLog.Info("UI", $"Clearing the text caption ({reason}). Turn this off in Settings \u2192 Defaults \u2192 \"Leave text from Video to Video\".");
+        OverlayText = string.Empty;
+    }
+
     private void ResetEditingStateForNewVideo()
     {
+        _loadedVideoDurationMs = 0;
+        _viewModel.Timeline.LoadedVideoDurationMs = 0;
+        // CAPTIONWIPE_01 — a different clip means a different title. See the method above.
+        ClearOverlayTextForNextVideo("a different video was loaded");
+
         _speedSegments.Clear();
         _musicWizardResult = null;
         StopMusicPreview();
@@ -994,16 +1051,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
         if (portrait != null) portrait.IsChecked = d.PortraitMode;
 
-        var bossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox");
-        if (bossHp != null) bossHp.IsChecked = d.BossHp;
-
         var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammates != null) teammates.IsChecked = d.ShowTeammates;
+
+        var spectating = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        if (spectating != null) spectating.IsChecked = true; // SPECTATINGDEFAULT_01
 
         var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
         if (enableFade != null) enableFade.IsChecked = d.EnableFade;
 
-        // NOMASK_01 — MUST run last. The lines above restore BossHp/ShowTeammates from the saved
+        // NOMASK_01 — MUST run last. The lines above restore HUD toggle
         // defaults, which would switch the HUD flags back ON underneath the reserved profile.
         ApplyMaskProfileToOverlayUi();
     }
@@ -1062,9 +1119,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
         if (portrait != null) portrait.IsEnabled = true;
-
-        var bossHp = this.FindControl<ToggleSwitch>("BossHpCheckbox");
-        if (bossHp != null) bossHp.IsEnabled = true;
 
         var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
         if (teammates != null) teammates.IsEnabled = true;
@@ -1314,21 +1368,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void UpdateEstimatedQuality()
     {
-        _viewModel.Timeline.LoadedVideoDurationMs = _loadedVideoDurationMs;
-        // QUALITY_03 — freezes are handed over separately so the estimate does not bill motion
-        // rates for a held still frame. Recalculated here, on the SAME tick as the duration, so
-        // the two can never describe different versions of the timeline.
-        // QUALITY_05 — with a video loaded but no marks set, the estimate covers the WHOLE clip
-        // (TimelineViewModel resolves that). With no video at all there is nothing to estimate, so
-        // zero is passed deliberately and the strip stays blank rather than showing a floor value.
-        double effectiveMs = _loadedVideoDurationMs > 0
-            ? _viewModel.Timeline.CalculateEffectiveDurationMs()
-            : 0.0;
-
-        _viewModel.Export.UpdateEstimatedQuality(
-            effectiveMs,
-            IsPortraitMode,
-            _viewModel.Timeline.CalculateFreezeOutputMs());
+        RequestSizeEstimate();
     }
 
     private List<SpeedSegment> BuildExportSpeedSegments() => _viewModel.Timeline.BuildExportSpeedSegments();
@@ -2184,6 +2224,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {
+        _mainSizeWorker?.Dispose();
         StopMusicPreview();
         if (_isSafeToClose)
         {
@@ -2206,6 +2247,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
 
 
+            if (_mainSizeWorker != null)
+                await Task.WhenAny(_mainSizeWorker.Completion, Task.Delay(1000));
             await WindowBoundsHelper.SaveBoundsAsync(this, "MainWindowBounds");
 
             this.Hide();
@@ -2251,6 +2294,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     protected override void OnClosed(EventArgs e)
     {
+        _mainSizeWorker?.Dispose();
+        _viewModel.SizeEstimateRequested -= UpdateEstimatedQuality;
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         base.OnClosed(e);
@@ -2594,8 +2639,70 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     }
 
 
+    /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// SWITCHPROMPT_01 — ASKS BEFORE LEAVING FOR A COMPANION TOOL, BUT ONLY WHEN THERE IS SOMETHING
+    /// TO LOSE.
+    ///
+    /// THE BUG. <c>AppSettings.ConfirmMainAppSwitchTool</c> has existed, been surfaced in Settings,
+    /// and been loaded and saved for a long time — and NOTHING EVER READ IT. Both switch paths
+    /// (the VIDEO MERGER / CROP SETTINGS buttons and their Tools-menu twins) called
+    /// <see cref="SwitchToCompanionAppAsync"/> directly. Whatever prompt the user was seeing could
+    /// therefore not be turned off from Settings and could not tell an empty editor from a full
+    /// one: it fired with no video loaded at all, warning about losing work that did not exist.
+    /// A warning that appears when nothing is at stake is worse than no warning, because it teaches
+    /// the user to dismiss the one that matters.
+    ///
+    /// THE RULE. Two conditions, both required:
+    ///   1. the user has left the setting on, AND
+    ///   2. <see cref="HasUnsavedWork"/> is true.
+    ///
+    /// HasUnsavedWork is already exactly the right predicate and says so in its own summary:
+    /// "A LOADED VIDEO IS NOT WORK. Uploading a clip and touching nothing else must return false —
+    /// that is exactly the case the Video Merger / Crop Tools switch prompt must NOT interrupt."
+    /// It returns true only for a real edit: a start or end mark, a thumbnail, a cut, a speed
+    /// segment or changed base speed, a freeze, granular speed, music, a voice-over, a meme, a HUD
+    /// toggle, a changed export toggle, or typed caption text. Loading a clip and looking at it is
+    /// none of those, and neither is scrubbing, playing or changing the volume.
+    ///
+    /// Returns TRUE when the caller should go ahead.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private async Task<bool> ConfirmToolSwitchAsync(string toolDisplayName)
+    {
+        if (!FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.ConfirmMainAppSwitchTool)
+        {
+            return true;
+        }
+
+        if (!HasUnsavedWork())
+        {
+            RuntimeLog.Info("UI", $"{toolDisplayName} switch: nothing to lose, no prompt shown.");
+            return true;
+        }
+
+        // The message names what is actually at risk and what actually happens, in that order. It
+        // does NOT say "you will lose your work", because the hand-off saves the project first and
+        // brings it straight back — overstating the risk is how a prompt earns a reflex click.
+        bool go = await Controls.ConfirmDialogWindow.AskAsync(
+            this,
+            $"{toolDisplayName} opens in place of this window, so the editor closes while you are in it.\n\n" +
+            "Your edits are saved first and will be waiting when you come back.\n\n" +
+            $"Open {toolDisplayName} now?",
+            "Leaving the editor",
+            yesText: "OPEN " + toolDisplayName.ToUpperInvariant(),
+            noText: "STAY HERE");
+
+        if (!go) RuntimeLog.Info("UI", $"{toolDisplayName} switch cancelled by the user.");
+        return go;
+    }
+
     private async Task SwitchToCompanionAppAsync(string argument, string toolDisplayName)
     {
+        // SWITCHPROMPT_01 — the one gate, in the one place both entry points funnel through, so a
+        // future third caller cannot forget it.
+        if (!await ConfirmToolSwitchAsync(toolDisplayName)) return;
+
         ShowCompanionHandoffOverlay(toolDisplayName);
         SaveRecoveryState(sync: true, isUserEdit: false);
 
@@ -2712,7 +2819,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// RECOVERY_04: the meme choice and the HUD/portrait toggles are all written into the recovery
     /// payload, yet none of them used to count as "work". If they were the user's only edits the
     /// app decided there was nothing to keep and ERASED the file — and since the toggle handlers
-    /// call SaveRecoveryState() on every click, ticking Boss HP actively destroyed the recovery
+    /// call SaveRecoveryState() on every click, changing a HUD toggle actively destroyed the recovery
     /// state instead of saving it. They are counted here.
     /// ⚠️ These two fixes are a PAIR. RECOVERY_03 alone would have exposed RECOVERY_04 immediately;
     /// RECOVERY_04 alone leaves the dead-branch half of RECOVERY_03 in place.
@@ -2729,6 +2836,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private void SaveRecoveryState(bool sync = false, bool isUserEdit = true)
     {
         if (_isRestoring) return;
+        if (isUserEdit) UpdateEstimatedQuality();
         try
         {
             if (isUserEdit && _exportedCleanSinceLastEdit)
@@ -2802,7 +2910,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     /// <summary>
     /// NOMASK_01 — collapses the IN-GAME OVERLAYS block (and its separator) while the reserved
-    /// "No Mask Profile" is active, and forces the three HUD toggles off so a stale ON state
+    /// "No Mask Profile" is active, and forces both HUD toggles off so a stale ON state
     /// cannot survive the profile switch into an export payload.
     ///
     /// Forcing the toggles off is belt-and-braces, not the mechanism: the profile carries zero-size
@@ -2826,9 +2934,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
             if (noMask)
             {
-                var boss = this.FindControl<ToggleSwitch>("BossHpCheckbox");
-                if (boss != null) boss.IsChecked = false;
-
                 var team = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
                 if (team != null) team.IsChecked = false;
 

@@ -38,6 +38,19 @@
                         <TextBlock Name="NewVersionText" Foreground="{DynamicResource AppTextPrimaryBrush}"
                                    FontSize="{DynamicResource AppFontSize12}" FontWeight="SemiBold" TextAlignment="Center"/>
                     </StackPanel>
+
+                    <!-- Scrollable release notes fetched from GitHub release notes / body -->
+                    <Expander Name="ReleaseNotesExpander" Header="What's New in this Release"
+                              IsExpanded="False" MaxHeight="220" Margin="0,5,0,0"
+                              Foreground="{DynamicResource AppTextPrimaryBrush}">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="160">
+                            <TextBlock Name="ReleaseNotesText"
+                                       TextWrapping="Wrap"
+                                       FontSize="{DynamicResource AppFontSize12}"
+                                       Foreground="{DynamicResource AppTextSecondaryBrush}"
+                                       Margin="5"/>
+                        </ScrollViewer>
+                    </Expander>
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" Margin="25,5,25,25" Spacing="10">
@@ -51,9 +64,9 @@
 
                     <Button Name="NotNowBtn" Classes="Secondary" Cursor="Hand" IsCancel="True"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                            AutomationProperties.Name="Not now, keep using this version"
-                            ToolTip.Tip="Not now. You may be asked again the next time the app starts.">
-                        <TextBlock Text="No. I like this version."
+                            AutomationProperties.Name="Not now, remind me later"
+                            ToolTip.Tip="Not now. You may be reminded again on a later start.">
+                        <TextBlock Text="Not Now (Remind me later)"
                                    TextWrapping="Wrap" TextAlignment="Center"/>
                     </Button>
 

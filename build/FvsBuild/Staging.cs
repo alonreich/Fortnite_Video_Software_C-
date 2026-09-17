@@ -108,8 +108,7 @@ internal static class Staging
             "-p:TreatWarningsAsErrors=true",
             "-p:PublishAot=true",
             "-p:SelfContained=true",
-            // AssemblyVersion is deliberately NOT stamped - the csproj pins it to a
-            // 1.0.0.0-style major line so assembly binding never breaks between builds.
+            "-p:AssemblyVersion=" + buildVersion,
             "-p:Version=" + buildVersion,
             "-p:FileVersion=" + buildVersion,
             "-p:InformationalVersion=" + buildVersion,

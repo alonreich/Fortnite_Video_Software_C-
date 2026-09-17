@@ -169,6 +169,12 @@ for %%P in (
   "QUALITY_03=src\FortniteVideoSoftware.App\ViewModels\QualityLadder.cs"
   "QUALITY_04=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
   "QUALITY_05=src\FortniteVideoSoftware.App\ViewModels\TimelineViewModel.cs"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.SizeEstimate.cs"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.axaml"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.Export.cs"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\VideoMergerWindow.axaml.cs"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\Services\LatestEstimateWorker.cs"
+  "SIZEESTIMATE_01=src\FortniteVideoSoftware.Core\Media\OutputFileSize.cs"
   "DOUBLEFIRE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
   "LIST_07=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
   "LAYOUT_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
@@ -180,6 +186,15 @@ for %%P in (
   REM FindControl reference; WIZCOMPACT_01 then deleted the bar, the field AND the writer, so
   REM there is no fix left for a sentinel to protect. A guard for a deleted fix is a permanent
   REM false alarm - exactly the QUALITY_04 failure this list already learned from once.
+  "CROPZOOMRESET_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "CROPSAVEPROMPT_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "CROPUNSAVED_01=src\FortniteVideoSoftware.App\Controls\ConfirmDialogWindow.axaml.cs"
+  "CROPUNSAVED_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "CROPFIRSTBOOT_01=src\FortniteVideoSoftware.App\Infrastructure\MaskOverlayManager.cs"
+  "FORTNITEDEFAULT_02=src\FortniteVideoSoftware.Core\Ipc\CropConfigDefaults.cs"
+  "CROPFALLBACK_02=src\FortniteVideoSoftware.Core\Ipc\CropConfigStore.cs"
+  "SPECTATINGDEFAULT_01=src\FortniteVideoSoftware.App\ViewModels\MainViewModel.cs"
+  "NO_BOSS_HP_01=src\FortniteVideoSoftware.Core\Media\MobileFilterBuilder.cs"
   "SAVECONFIRM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
   "MAGICWAND_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
   "DELETEBTN_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
@@ -220,6 +235,10 @@ for %%P in (
   "HEADERMERGE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
   "TIMELINESLIM_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
   "PLAYROW_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
+  "POPUPCLEAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "AUTOZOOM_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "CROSSHAIR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "POPUPCLEAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

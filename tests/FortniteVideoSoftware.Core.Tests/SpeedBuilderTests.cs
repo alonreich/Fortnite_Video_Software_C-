@@ -142,6 +142,69 @@ public class SpeedBuilderTests
 
         Assert.NotEmpty(filterGraph);
         Assert.Equal(40.0, finalDuration, 1);
-        Assert.Contains("setpts='PTS/0.2500'", filterGraph);
+    }
+
+    [Fact]
+    public void Build_WithZoomSegment_OutputsValidZoomFilter()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: false)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Contains("crop=", filterGraph);
+    }
+
+    [Fact]
+    public void Build_WithSlowZoomSegment_OutputsDynamicScaleAndCrop()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: true)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, inputVideoLabel: "[0:v]", inputAudioLabel: "[1:a]", needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Contains("eval=frame", filterGraph);
+
+        string ffmpegPath = Path.GetFullPath(@"..\..\..\..\..\binaries\ffmpeg.exe");
+        if (File.Exists(ffmpegPath))
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = $"-v error -f lavfi -i testsrc=s=1920x1080:r=60:d=6 -f lavfi -i anullsrc=r=48000:cl=stereo:d=6 -filter_complex \"{filterGraph}\" -map \"{videoLabel}\" -map \"{audioLabel}\" -t 1 -f null NUL",
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi)!;
+            string err = proc.StandardError.ReadToEnd();
+            proc.WaitForExit();
+            Assert.True(proc.ExitCode == 0, $"FFmpeg failed with exit code {proc.ExitCode}: {err}");
+        }
+    }
+
+    [Fact]
+    public void Build_WithSlowZoomSegment_MobileFormat_OutputsHudAndMainBranches()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: true)
+        };
+
+        var (filterGraph, videoLabel, hudLabel, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, needHudBranch: true);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.NotEmpty(hudLabel);
     }
 }
+

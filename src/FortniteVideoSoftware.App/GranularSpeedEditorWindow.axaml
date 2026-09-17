@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         xmlns:controls="clr-namespace:FortniteVideoSoftware.App.Controls"
@@ -126,12 +126,61 @@
                                 HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14"
                                 Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppZoomBrush}"
                                 BorderThickness="2" CornerRadius="8" Padding="14,10">
+                            <Border.Styles>
+                                <Style Selector="RadioButton">
+                                    <Setter Property="Cursor" Value="Hand" />
+                                    <Setter Property="Background" Value="#222234" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+                                    <Setter Property="BorderThickness" Value="1.5" />
+                                    <Setter Property="CornerRadius" Value="6" />
+                                    <Setter Property="Padding" Value="12,8" />
+                                    <Setter Property="Template">
+                                        <ControlTemplate TargetType="RadioButton">
+                                            <Border Name="CardBorder"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+                                                    <Panel Grid.Column="0" Width="18" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
+                                                        <Ellipse Name="OuterBullet" Width="18" Height="18"
+                                                                 Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2"
+                                                                 Fill="#181824" />
+                                                        <Ellipse Name="InnerBullet" Width="8" Height="8"
+                                                                 Fill="{DynamicResource AppZoomBrush}" IsVisible="False" />
+                                                    </Panel>
+                                                    <ContentPresenter Grid.Column="1"
+                                                                      Content="{TemplateBinding Content}"
+                                                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                                      VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter>
+                                </Style>
+                                <Style Selector="RadioButton:pointerover /template/ Border#CardBorder">
+                                    <Setter Property="Background" Value="#2f2f45" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
+                                </Style>
+                                <Style Selector="RadioButton:checked /template/ Border#CardBorder">
+                                    <Setter Property="Background" Value="#3a2b48" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
+                                    <Setter Property="BorderThickness" Value="2" />
+                                </Style>
+                                <Style Selector="RadioButton:checked /template/ Ellipse#OuterBullet">
+                                    <Setter Property="Stroke" Value="{DynamicResource AppZoomBrush}" />
+                                </Style>
+                                <Style Selector="RadioButton:checked /template/ Ellipse#InnerBullet">
+                                    <Setter Property="IsVisible" Value="True" />
+                                </Style>
+                            </Border.Styles>
                             <StackPanel Spacing="8">
                                 <TextBlock Text="HOW SHOULD THE ZOOM ARRIVE?" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"
                                            Foreground="{DynamicResource AppZoomBrush}" HorizontalAlignment="Center"/>
-                                <StackPanel Orientation="Horizontal" Spacing="18" HorizontalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center">
                                     <RadioButton Name="InstantZoomCheck" GroupName="ZoomRamp" IsChecked="True"
-                                                 MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center"
+                                                 MinHeight="{DynamicResource AppButtonMinHeight}" VerticalContentAlignment="Center"
                                                  ToolTip.Tip="The picture cuts straight to the zoomed view with no movement.">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <!-- Step shape = an instant jump -->
@@ -143,7 +192,7 @@
                                         </StackPanel>
                                     </RadioButton>
                                     <RadioButton Name="SlowZoomCheck" GroupName="ZoomRamp"
-                                                 MinHeight="{DynamicResource AppButtonMinHeight}" Padding="8,0,8,0" VerticalContentAlignment="Center"
+                                                 MinHeight="{DynamicResource AppButtonMinHeight}" VerticalContentAlignment="Center"
                                                  ToolTip.Tip="The camera glides into the zoom over half a second, then glides back out. Needs at least half a second of spare video on that side, otherwise that side snaps.">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <!-- Ramp shape = a gradual glide -->
@@ -329,7 +378,7 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
                         <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
-                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="40" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
+                            <controls:SpinningWheelSlider Name="PendingSpeedSlider" Value="10" Width="160" MinHeight="{DynamicResource AppButtonMinHeight}" HorizontalAlignment="Center" ToolTip.Tip="Precise speed for the active segment" />
                             <TextBlock Name="PendingSpeedLabel" Text="1.1x" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,-2,0,0" />
                         </StackPanel>
                         <!-- Speed preset buttons — two rows with vertical gap -->

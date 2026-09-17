@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -83,7 +83,18 @@ public static class AtomicJsonFile
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(tempPath, path, overwrite: true);
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.Move(tempPath, path, overwrite: true);
+                    break;
+                }
+                catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < 5)
+                {
+                    Thread.Sleep(20 * (attempt + 1));
+                }
+            }
         }
         catch
         {

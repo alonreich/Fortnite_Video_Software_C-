@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FortniteVideoSoftware.App"
         x:Class="FortniteVideoSoftware.App.VideoMergerWindow"
@@ -69,6 +69,7 @@
                         <MenuItem Name="MenuOutputFolder" Header="Output Folder..." ToolTip.Tip="Choose the folder on your computer where the final merged video will be saved." />
                         <Separator />
                         <MenuItem Name="MenuSettings" Header="_Settings" ToolTip.Tip="Open advanced settings for video merging." />
+                        <MenuItem Name="MenuAbout" Header="_About" ToolTip.Tip="View application version, system details, and check for updates." />
                         <Separator />
                         <MenuItem Name="MenuReturnToApp" Header="Return to Main App" ToolTip.Tip="Close the merger and go back to the main editing studio." />
                         <MenuItem Name="MenuExit" Header="Exit" ToolTip.Tip="Close the application entirely." />
@@ -95,83 +96,21 @@
                     </MenuItem>
                 </Menu>
 
-                <!-- FLIPPED: Queue on LEFT, Player on RIGHT -->
-                <Grid Grid.Row="2" ColumnDefinitions="Auto, *">
+                <!-- MERGERMAIN_01 — THE COLUMNS ARE THE MAIN APP'S WAY ROUND NOW.
+                     This grid used to be ColumnDefinitions="Auto, *" with the queue pinned to the
+                     LEFT (the "FLIPPED" comment that used to sit here). Nothing else in the suite is
+                     laid out that way: the Main App puts the player and its transport on the left in
+                     the star column and a narrow utility rail on the right, and a user moving
+                     between the two screens had to relearn which side their tools were on. Star
+                     first, Auto second, exactly as MainWindow.axaml row 2 does it. -->
+                <Grid Grid.Row="2" ColumnDefinitions="*, Auto">
 
                     <!-- Ambient live-wallpaper bubbles (very gentle, non-interactive, behind all content).
                          Echoes the FluidVolumeSlider bubble aesthetic across the theme background. -->
                     <controls:AmbientBubblesBackground Grid.ColumnSpan="2" IsHitTestVisible="False" ZIndex="-1" />
 
-                    <!-- LEFT PANEL: Video Queue & Controls -->
-                    <Border Grid.Column="0" MinWidth="260" Background="Transparent" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,0,1,0" Padding="15">
-                            <Grid RowDefinitions="Auto, *, Auto, Auto" ColumnDefinitions="*, Auto">
-                                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="VIDEOS LIST" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-
-                                <Border Grid.Row="1" Grid.Column="0" Name="VideoListFrame" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,15">
-                                <Grid>
-                                    <ListBox Name="VideoList" Background="Transparent" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" DragDrop.AllowDrop="True" SelectionMode="Multiple">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="x:String">
-                                                <Grid MinHeight="30" ClipToBounds="False" ToolTip.Tip="{Binding}">
-                                                    <Border Classes="ItemGlow" CornerRadius="3" Background="Transparent" BorderThickness="1"/>
-                                                    <Rectangle Classes="MarchingAnts" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="1" StrokeDashArray="4,2" IsVisible="False" IsHitTestVisible="False" RadiusX="3" RadiusY="3"/>
-                                                    <!-- Long titles ellipsize (TextTrimming); full path shows via the item ToolTip -->
-                                                    <Grid Margin="8,0" VerticalAlignment="Center" ColumnDefinitions="Auto, *">
-                                                        <TextBlock Grid.Column="0" Text="🎬" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                                        <TextBlock Grid.Column="1" Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Foreground="{DynamicResource AppTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                                    </Grid>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    <TextBlock Name="EmptyQueueText" Text="Add at least one video to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
-                                    <Border Name="DropIndicator" Height="3" Background="{DynamicResource AppInfoBrush}" CornerRadius="1.5" IsVisible="False" VerticalAlignment="Top" Margin="4,0,4,0" BoxShadow="{DynamicResource AppDropIndicatorShadow}" ZIndex="100" IsHitTestVisible="False"/>
-                                </Grid>
-                            </Border>
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" Spacing="10" Margin="10,0,0,15">
-                                <!-- ISSUE_07: icon-only buttons need AutomationProperties.Name for screen readers -->
-                                <!-- ISSUE_02 (audit round 4): icon Fill is AppTextPrimaryBrush (theme-aware), NOT
-                                     AppOnAccentTextBrush — always-white icons vanish on the light Secondary
-                                     background in the Light ThemeVariant. -->
-                                <Button Name="MoveUpButton" Classes="Secondary" Padding="12,12" IsEnabled="False" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier." HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                                    <Polygon Points="6,0 12,8 0,8" Fill="{Binding $parent[Button].Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
-                                </Button>
-                                <Button Name="MoveDownButton" Classes="Secondary" Padding="12,12" IsEnabled="False" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later." HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                                    <Polygon Points="0,0 12,0 6,8" Fill="{Binding $parent[Button].Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" Width="12" Height="10" Stretch="Uniform"/>
-                                </Button>
-                            </StackPanel>
-
-                            <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Spacing="8" Margin="0,0,0,15">
-                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add video to queue" ToolTip.Tip="Browse your computer and add another video to your list."/>
-                                <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add background music" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
-                                    <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
-                                        <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
-                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
-                                    </StackPanel>
-                                </Button>
-                                <Grid ColumnDefinitions="Auto, *">
-                                    <TextBlock Grid.Column="0" Text="⚠️" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <Button Name="RemoveVideoButton" Grid.Column="1" Classes="Danger" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Remove selected video" IsEnabled="False" ToolTip.Tip="Delete the currently highlighted video from your list.">
-                                        <TextBlock Text="REMOVE SELECTED" TextWrapping="Wrap" TextAlignment="Center" />
-                                        <Button.Flyout>
-                                            <Flyout Placement="Top">
-                                                <StackPanel Spacing="8" Margin="8">
-                                                    <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
-                                                    <Button Name="ConfirmRemoveVideoButton" Classes="Danger" Content="CONFIRM REMOVE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently remove the selected video from the queue." />
-                                                </StackPanel>
-                                            </Flyout>
-                                        </Button.Flyout>
-                                    </Button>
-                                </Grid>
-                            </StackPanel>
-
-                                <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" TextAlignment="Center"/>
-                        </Grid>
-                    </Border>
-
-                    <!-- RIGHT COLUMN: Player & Editing Controls -->
-                    <Grid Grid.Column="1" RowDefinitions="*, Auto" ClipToBounds="False">
+                    <!-- LEFT COLUMN (star): Player & Editing Controls. Was Grid.Column="1". -->
+                    <Grid Grid.Column="0" RowDefinitions="*, Auto" ClipToBounds="False">
 
                         <!-- Video Player Area + Volume Slider -->
                         <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,10,10,10" ClipToBounds="False">
@@ -264,95 +203,340 @@
                             </Border>
                         </Grid>
 
-                        <!-- Bottom Controls --><!-- Bottom Controls -->
-                        <Grid Grid.Row="1" Margin="0,8,10,8">
-                            <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <!-- Output Quality -->
-                                <Border Background="{DynamicResource AppSurfaceAlpha80Brush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="4">
-                                    <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
-                                        <TextBlock Text="OUTPUT QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-                                        <controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding $parent[local:VideoMergerWindow].QualitySliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="35" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
-                                        <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
-                                        <!-- ISSUE_09: duplicate EstimatedSizeText2 removed — the estimate is shown once, next to the output path -->
-                                    </StackPanel>
-                                </Border>
+                        <!-- ══════════════════════════════════════════════════════════════════
+                             MERGERBOTTOM_01 — THE BOTTOM BAR IS THE MAIN APP'S BOTTOM BAR NOW.
+                             This was a WrapPanel of FOUR bordered "cards", each with its own
+                             AppSurfaceAlpha80Brush fill, 1px border, 8px corner radius and 12x10
+                             padding. The Main App's bottom bar has no cards at all: it is plain rows
+                             on the window background, with grouping done by position and spacing.
+                             Four framed boxes side by side read as four separate tools rather than
+                             one control strip, and every frame cost ~26px of width and height that
+                             the controls inside then had to fight for.
+                             All four Borders are gone. Same controls, same order, no chrome.
 
-                                <!-- Transport Controls + Merge Button -->
-                                <Border Background="{DynamicResource AppSurfaceAlpha80Brush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="4">
-                                    <StackPanel Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,0,0,2">
-                                            <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
-                                            <!-- ISSUE_02 (audit round 4): theme-aware icon fill on Secondary buttons (see MoveUp/MoveDown) -->
-                                            <Button Name="FastBackwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip backward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
-                                                <Path Data="{DynamicResource AppFastBackwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
-                                            </Button>
-                                            <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video." IsEnabled="False">
-                                                <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
-                                                    <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
-                                                    <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
-                                                </Panel>
-                                            </Button>
-                                            <!-- Fast forward uses RIGHT-pointing triangles -->
-                                            <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 10 seconds in the video." Padding="0" IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
-                                                <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
-                                            </Button>
-                                        </StackPanel>
-                                        <!-- IDEA_8: per-clip in/out. Cuts the highlighted clip only; every
-                                             other clip in the queue is untouched. -->
-                                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" Margin="0,0,0,2">
-                                            <Button Name="SetClipInButton" Classes="Secondary" Content="SET IN" MinWidth="76" FontSize="{DynamicResource AppFontSize10}" IsEnabled="False" ToolTip.Tip="Cut everything before this point out of the highlighted clip." AutomationProperties.Name="Set the start point of the selected clip"/>
-                                            <Button Name="SetClipOutButton" Classes="Secondary" Content="SET OUT" MinWidth="84" FontSize="{DynamicResource AppFontSize10}" IsEnabled="False" ToolTip.Tip="Cut everything after this point out of the highlighted clip." AutomationProperties.Name="Set the end point of the selected clip"/>
-                                            <Button Name="ClearClipTrimButton" Classes="Secondary" Content="FULL CLIP" MinWidth="90" FontSize="{DynamicResource AppFontSize10}" IsEnabled="False" ToolTip.Tip="Use the whole clip again and forget the cut points." AutomationProperties.Name="Clear the trim on the selected clip"/>
-                                        </StackPanel>
-                                        <TextBlock Name="ClipTrimStatusText" Text="" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
-    
-                                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <Button Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" CornerRadius="10" IsEnabled="False" ToolTip.Tip="Combine all the videos in your list into one single final video." Padding="20,10"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
+                             ALSO GONE: SET IN / SET OUT / FULL CLIP and the ClipTrimStatusText line
+                             they wrote to. Per-clip trimming is not part of this screen any more;
+                             the trim MODEL survives in the code-behind (BuildClipTrimList still
+                             feeds MergerWorker, and every clip now reports a full-length trim), so
+                             nothing downstream changed shape.
+                             ══════════════════════════════════════════════════════════════════ -->
+                        <Grid Grid.Row="1" RowDefinitions="Auto, Auto" Margin="10,8,10,8">
 
-                                <!-- Speed -->
-                                <Border Background="{DynamicResource AppSurfaceAlpha80Brush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="4">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <StackPanel Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
-                                            <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
-                                            <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding $parent[local:VideoMergerWindow].MainSpeedSliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="35" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
-                                            <TextBlock Name="MainSpeedLabel" Text="1.0x — Normal" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <StackPanel Name="MainSpeedPresetsPanel" Classes="SpeedPresetRows" Orientation="Vertical" VerticalAlignment="Center">
-                                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
-                                                <Button Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x" ToolTip.Tip="Set speed to 0.1x"/>
-                                                <Button Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x" ToolTip.Tip="Set speed to 0.5x"/>
-                                                <Button Name="SpeedPreset10" Classes="SpeedPreset BaseSpeedPreset" Content="1.0x" ToolTip.Tip="Set speed to normal (1.0x)"/>
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
-                                                <Button Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x" ToolTip.Tip="Set speed to 2.0x"/>
-                                                <Button Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x" ToolTip.Tip="Set speed to 3.0x"/>
-                                                <Button Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x" ToolTip.Tip="Set speed to 4.0x"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
+                            <!-- ══════════════════════════════════════════════════════════════
+                                 MERGERROWS_01 — TWO ROWS, AND BOTH OF THEM FULL.
+                                 MERGERBOTTOM_01 removed the four bordered cards but kept their
+                                 stacking: transport on its own row, then a column with the quality
+                                 dial, the two big estimate figures, the output path and the
+                                 normalisation line all underneath each other, with MERGE and SPEED
+                                 beside it. That column alone was ~230px tall, and the transport row
+                                 above it spent its entire width on three buttons in the middle and
+                                 empty space either side.
+                                 The empty space is now the estimate's home. Row 0 carries the
+                                 readout on the LEFT, the transport in the CENTRE and the output path
+                                 on the RIGHT — three things at the same height, in a row that was
+                                 already being paid for. Row 1 is one line: OUTPUT QUALITY, MERGE
+                                 VIDEOS and SPEED side by side, which is the Main App's lower row
+                                 exactly (MainWindow.axaml Grid.Row="2": left action, centred
+                                 WrapPanel of quality / process / speed).
+                                 Net: roughly 150px of vertical space returned to the video.
+                                 ══════════════════════════════════════════════════════════════ -->
 
-                                <!-- RETURN + Output Info + Estimated Size -->
-                                <Border Background="{DynamicResource AppSurfaceAlpha80Brush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="4">
-                                    <StackPanel Orientation="Vertical" Spacing="3" VerticalAlignment="Center">
-                                        <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
-                                     The walkthrough auto-plays only on the first few opens; this button is
-                                     how a returning user gets it again. Every screen in the suite has one. -->
-                                        <Button Name="MergerHelpButton" Classes="Secondary" Content="? SHOW ME AROUND" FontSize="{DynamicResource AppFontSize9}" MinHeight="{DynamicResource AppButtonMinHeight}" AutomationProperties.Name="Show me around the video merger" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
-                                        <Button Name="ReturnToMainAppButton" Classes="Secondary" Content="← RETURN TO MAIN APP" FontSize="{DynamicResource AppFontSize9}" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
-                                        <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
-                                        <TextBlock Name="EstimatedSizeText" Text="" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0" MaxWidth="380" TextWrapping="Wrap"/>
-                                        <!-- ISSUE_005: Normalization info -->
-                                        <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0" MaxWidth="380" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="0" Margin="0,0,0,6">
+
+                                <!-- ══════════════════════════════════════════════════════════
+                                     MERGERESTIMATE_02 — THE TWO FIGURES THAT ANSWER "WHAT AM I
+                                     ABOUT TO MAKE", parked in the dead space to the left of the
+                                     transport.
+                                     They are the same height as the buttons beside them, so they
+                                     cost NOTHING: this row existed already and was empty here.
+                                     Left-aligned rather than centred because the eye reads this bar
+                                     left to right and these are the facts, not the controls.
+                                     Both are rewritten by UpdateEstimatedSize(), which runs on every
+                                     add, remove, reorder, quality change, speed change and music
+                                     change — so they track the dials in row 1 live.
+                                     ══════════════════════════════════════════════════════════ -->
+                                <StackPanel Orientation="Horizontal" Spacing="26" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Vertical" Spacing="0">
+                                        <TextBlock Text="TOTAL SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" />
+                                        <TextBlock Name="EstimatedSizeText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold"
+                                                   ToolTip.Tip="Roughly how big the finished file will be, with the music included. It updates whenever you add or remove a clip, or move either dial." />
                                     </StackPanel>
-                                </Border>
-                            </WrapPanel>
+                                    <StackPanel Orientation="Vertical" Spacing="0">
+                                        <TextBlock Text="TOTAL LENGTH" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" />
+                                        <TextBlock Name="EstimatedLengthText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold"
+                                                   ToolTip.Tip="How long the finished video will run once every clip in the list is joined end to end, at the speed you have chosen." />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Transport, centred on the player above it — the Main App's upper row. -->
+                                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <!-- ISSUE_007: Fast backward uses LEFT-pointing triangles -->
+                                    <!-- ISSUE_02 (audit round 4): theme-aware icon fill on Secondary buttons -->
+                                    <Button Name="FastBackwardButton" Classes="Secondary" MinWidth="50" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip backward 10 seconds in the video. Doing this also turns the sound on." IsEnabled="False" AutomationProperties.Name="Fast Backward 10 Seconds">
+                                        <Path Data="{DynamicResource AppFastBackwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
+                                    </Button>
+                                    <Button Name="PlayPauseButton" Classes="Primary" MinWidth="70" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Play or Pause" ToolTip.Tip="Play or pause the video. Previews start silent while you browse the list; pressing this turns the sound on." IsEnabled="False">
+                                        <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                            <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                            <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                        </Panel>
+                                    </Button>
+                                    <!-- Fast forward uses RIGHT-pointing triangles -->
+                                    <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 10 seconds in the video. Doing this also turns the sound on." IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
+                                        <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
+                                    </Button>
+                                </StackPanel>
+
+                                <!-- Where the file lands, and whether the audio will be levelled.
+                                     Advisory text, so it takes the right-hand dead space and trims
+                                     rather than pushing the transport off centre. -->
+                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" MaxWidth="300" Spacing="1">
+                                    <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                    <!-- ISSUE_005: Normalization info -->
+                                    <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Row 1: OUTPUT QUALITY, MERGE VIDEOS and SPEED on ONE line, in the
+                                 Main App's order — the dial that decides the output, the button that
+                                 makes it, the dial that decides how fast it runs. -->
+                            <Grid Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,6,0,0" ColumnDefinitions="Auto,28,Auto,28,Auto">
+
+                                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="OUTPUT QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap"
+                                               ToolTip.Tip="How good you want the finished video to look. Pick it once and leave it — the size it works out to is shown top left." />
+                                    <controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding $parent[local:VideoMergerWindow].QualitySliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
+                                    <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <Button Grid.Column="2" Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" CornerRadius="10" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Combine all the videos in your list into one single final video." Padding="20,12"/>
+
+                                <Grid Grid.Column="4" VerticalAlignment="Center" ColumnDefinitions="Auto,8,Auto">
+                                    <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
+                                        <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding $parent[local:VideoMergerWindow].MainSpeedSliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
+                                        <TextBlock Name="MainSpeedLabel" Text="1.0x — Normal" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,2,0,0" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <!-- Preset grid geometry copied from MainWindow's MainSpeedPresetsPanel so the
+                                         two screens' speed blocks are the same object in two places. -->
+                                    <Grid Grid.Column="2" Name="MainSpeedPresetsPanel" RowDefinitions="Auto,8,Auto" ColumnDefinitions="Auto,8,Auto,8,Auto" VerticalAlignment="Center">
+                                        <Button Grid.Row="0" Grid.Column="0" Name="SpeedPreset01" Classes="SpeedPreset" Content="0.1x" ToolTip.Tip="Set speed to 0.1x"/>
+                                        <Button Grid.Row="0" Grid.Column="2" Name="SpeedPreset05" Classes="SpeedPreset" Content="0.5x" ToolTip.Tip="Set speed to 0.5x"/>
+                                        <Button Grid.Row="0" Grid.Column="4" Name="SpeedPreset10" Classes="SpeedPreset BaseSpeedPreset" Content="1.0x" ToolTip.Tip="Set speed to normal (1.0x)"/>
+                                        <Button Grid.Row="2" Grid.Column="0" Name="SpeedPreset20" Classes="SpeedPreset" Content="2.0x" ToolTip.Tip="Set speed to 2.0x"/>
+                                        <Button Grid.Row="2" Grid.Column="2" Name="SpeedPreset30" Classes="SpeedPreset" Content="3.0x" ToolTip.Tip="Set speed to 3.0x"/>
+                                        <Button Grid.Row="2" Grid.Column="4" Name="SpeedPreset40" Classes="SpeedPreset" Content="4.0x" ToolTip.Tip="Set speed to 4.0x"/>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
                         </Grid>
                     </Grid>
+
+                    <!-- ══════════════════════════════════════════════════════════════════════════
+                         MERGERQUEUE_01 — THE QUEUE IS A RIGHT-HAND UTILITY RAIL, LIKE THE MAIN APP'S.
+                         Same shell as MainWindow.axaml's right panel: transparent background, a
+                         single 1px left border, 15px padding, a bounded width, and a
+                         RowDefinitions="Auto, *, Auto" that pins a block to the bottom.
+                         Order inside it is deliberately the Main App's FILE OPERATIONS order —
+                         the "get something in" button first, ADD MUSIC directly under it — so the
+                         two screens' rails start the same way and a user's hand goes to the same
+                         place on both.
+                         ══════════════════════════════════════════════════════════════════════════ -->
+                    <Border Grid.Column="1" MinWidth="260" MaxWidth="380" Background="Transparent" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15">
+                        <Grid RowDefinitions="Auto, *, Auto">
+
+                            <!-- Row 0: the two "add something" buttons, in the Main App's order. -->
+                            <!-- MERGERQUEUE_02 — the "FILE OPERATIONS" heading is gone.
+                                 It was carried over from the Main App's rail, where it separates two
+                                 labelled groups. Here there is only one group and its first control
+                                 says ADD VIDEO in capitals, so the heading named nothing the button
+                                 below it did not already say — while costing a text line plus the
+                                 10px stack gap out of the top of the tallest control in the window.
+                                 That space belongs to the list. -->
+                            <StackPanel Grid.Row="0" Spacing="10" Margin="0,0,0,12">
+                                <Button Name="AddVideoButton" Classes="Primary" Content="ADD VIDEO" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add video to queue" ToolTip.Tip="Browse your computer and add another video to your list."/>
+                                <Button Name="AddMusicButton" Classes="Secondary" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Add background music" IsEnabled="False" ToolTip.Tip="Add a background song to play over your combined videos.">
+                                    <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
+                                        <TextBlock Name="AddMusicText" Text=" ADD MUSIC " FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,6,0" />
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- ══════════════════════════════════════════════════════════════════
+                                 QUEUEFRAME_01 — ONE CONTAINER, ONE CONTROL.
+                                 The list, the reorder arrows and REMOVE SELECTED used to be three
+                                 separate things in three separate places: the list in a framed box,
+                                 the arrows in a floating strip to its right OUTSIDE the frame, and
+                                 REMOVE two rows further down under ADD MUSIC, next to a bare warning
+                                 glyph. Nothing said they belonged together, and the arrows in
+                                 particular looked like they applied to the panel rather than to the
+                                 selected row.
+                                 They are all inside this one frame now: list on top, a footer welded
+                                 to the bottom edge of the same box holding the arrows and then
+                                 REMOVE under them. The 1px top rule on the footer is the only thing
+                                 separating them, so the whole box reads as a single list control
+                                 with its own toolbar — which is what it is.
+
+                                 The "VIDEOS LIST" heading that used to sit above this box is gone.
+                                 A box full of video file names, in a pane whose top button says ADD
+                                 VIDEO, does not need a label telling the user it contains videos —
+                                 and the heading cost a full text row plus 10px of margin out of the
+                                 narrowest pane in the window.
+                                 ══════════════════════════════════════════════════════════════════ -->
+                            <Border Grid.Row="1" Name="VideoListFrame" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                                <Grid RowDefinitions="*, Auto">
+
+                                    <Grid Grid.Row="0">
+                                        <ListBox Name="VideoList" Background="Transparent" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}" DragDrop.AllowDrop="True" SelectionMode="Multiple">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Grid MinHeight="30" ClipToBounds="False" ToolTip.Tip="{Binding}">
+                                                        <Border Classes="ItemGlow" CornerRadius="3" Background="Transparent" BorderThickness="1"/>
+                                                        <Rectangle Classes="MarchingAnts" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="1" StrokeDashArray="4,2" IsVisible="False" IsHitTestVisible="False" RadiusX="3" RadiusY="3"/>
+                                                        <!-- Long titles ellipsize (TextTrimming); full path shows via the item ToolTip -->
+                                                        <Grid Margin="8,0" VerticalAlignment="Center" ColumnDefinitions="Auto, *">
+                                                            <TextBlock Grid.Column="0" Text="🎬" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding Converter={x:Static local:FileNameConverter.Instance}}" Cursor="Hand" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center" Foreground="{DynamicResource AppTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                        </Grid>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+
+                                            <!-- ══════════════════════════════════════════════════
+                                                 QUEUEMENU_01 — RIGHT-CLICK A CLIP.
+                                                 Deliberately a Flyout carrying a hand-built Border,
+                                                 NOT a MenuFlyout: this is the same object as the Crop
+                                                 Tool's RolePopup (CropToolWindow.axaml, ROLEPOPUP_01)
+                                                 — accent-bordered surface, 8px radius, a small bold
+                                                 muted caption over a stack of real Buttons — so the
+                                                 two screens' pop-up choosers are recognisably the
+                                                 same control. A MenuFlyout would have inherited
+                                                 Fluent's own menu chrome instead and looked like it
+                                                 came from a different program.
+                                                 Flyout, not a bare Border, because a context menu
+                                                 genuinely does need to escape the pane's bounds and
+                                                 genuinely does want light dismiss — the two reasons
+                                                 ROLEPOPUP_01 gives for NOT using one do not apply to a
+                                                 240px menu on a 260px rail.
+                                                 The buttons bind nothing: VideoList_ContextAction in
+                                                 the code-behind reads them by name, and the selection
+                                                 they act on is set by the right-press itself.
+                                                 ══════════════════════════════════════════════════ -->
+                                            <ListBox.ContextFlyout>
+                                                <Flyout Placement="Pointer" ShowMode="Standard">
+                                                    <Border Name="QueueContextPopup"
+                                                            MinWidth="210"
+                                                            MaxWidth="300"
+                                                            Background="{DynamicResource AppSurfaceBrush}"
+                                                            BorderBrush="{DynamicResource AppAccentBrush}"
+                                                            BorderThickness="2"
+                                                            CornerRadius="8"
+                                                            Padding="6">
+                                                        <StackPanel Spacing="4">
+                                                            <TextBlock Text="THIS CLIP"
+                                                                       Foreground="{DynamicResource AppTextMutedBrush}"
+                                                                       FontSize="{DynamicResource AppFontSize11}"
+                                                                       FontWeight="Bold"
+                                                                       Margin="4,2,4,4"
+                                                                       IsHitTestVisible="False" />
+                                                            <Button Name="CtxMoveUpButton" Classes="Secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" ToolTip.Tip="Move this clip one place earlier in the list.">
+                                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                                    <Polygon Points="6,0 12,8 0,8" Fill="{Binding $parent[Button].Foreground}" VerticalAlignment="Center" Width="12" Height="10" Stretch="Uniform"/>
+                                                                    <TextBlock Text="Move up" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                                </StackPanel>
+                                                            </Button>
+                                                            <Button Name="CtxMoveDownButton" Classes="Secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" ToolTip.Tip="Move this clip one place later in the list.">
+                                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                                    <Polygon Points="0,0 12,0 6,8" Fill="{Binding $parent[Button].Foreground}" VerticalAlignment="Center" Width="12" Height="10" Stretch="Uniform"/>
+                                                                    <TextBlock Text="Move down" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                                </StackPanel>
+                                                            </Button>
+                                                            <Border Height="1" Background="{DynamicResource AppBorderBrush}" Margin="2,4" />
+                                                            <Button Name="CtxRemoveButton" Classes="Danger" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" ToolTip.Tip="Take this clip out of the list. The file on your computer is not touched.">
+                                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                                    <TextBlock Text="&#x26A0;" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                                    <TextBlock Text="Remove from list" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                                </StackPanel>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Flyout>
+                                            </ListBox.ContextFlyout>
+                                        </ListBox>
+
+                                        <TextBlock Name="EmptyQueueText" Text="Add at least one video to build a merge queue." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18" IsHitTestVisible="False"/>
+                                        <Border Name="DropIndicator" Height="3" Background="{DynamicResource AppInfoBrush}" CornerRadius="1.5" IsVisible="False" VerticalAlignment="Top" Margin="4,0,4,0" BoxShadow="{DynamicResource AppDropIndicatorShadow}" ZIndex="100" IsHitTestVisible="False"/>
+                                    </Grid>
+
+                                    <!-- The list's own toolbar, welded to the bottom of the same frame. -->
+                                    <Border Grid.Row="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="0,1,0,0" Padding="8,8">
+                                        <StackPanel Spacing="8">
+                                            <!-- QUEUEFRAME_01 — the arrows are BIG now. They were 12x12
+                                                 polygons in a Padding="12,12" Secondary button, which
+                                                 made the glyph itself smaller than the 44px target it
+                                                 sat in and left the button reading as decorative. Half
+                                                 the footer each, a real minimum height, and a glyph
+                                                 sized off the font tokens so it scales with everything
+                                                 else. -->
+                                            <Grid ColumnDefinitions="*,8,*">
+                                                <Button Grid.Column="0" Name="MoveUpButton" Classes="Secondary" MinHeight="44" Padding="8,10" IsEnabled="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Move selected video up" ToolTip.Tip="Move the highlighted video higher up in the list so it plays earlier.">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Polygon Points="6,0 12,8 0,8" Fill="{Binding $parent[Button].Foreground}" VerticalAlignment="Center" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform"/>
+                                                        <TextBlock Text="UP" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Grid.Column="2" Name="MoveDownButton" Classes="Secondary" MinHeight="44" Padding="8,10" IsEnabled="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" AutomationProperties.Name="Move selected video down" ToolTip.Tip="Move the highlighted video lower down in the list so it plays later.">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Polygon Points="0,0 12,0 6,8" Fill="{Binding $parent[Button].Foreground}" VerticalAlignment="Center" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform"/>
+                                                        <TextBlock Text="DOWN" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+
+                                            <Button Name="RemoveVideoButton" Classes="Danger" HorizontalAlignment="Stretch" MinHeight="{DynamicResource AppButtonMinHeight}" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Remove selected video" IsEnabled="False" ToolTip.Tip="Delete the currently highlighted video from your list. The file on your computer is not touched.">
+                                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <TextBlock Text="&#x26A0;" FontSize="{DynamicResource AppFontSize12}" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="REMOVE SELECTED" TextAlignment="Center" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <Button.Flyout>
+                                                    <Flyout Placement="Top">
+                                                        <StackPanel Spacing="8" Margin="8">
+                                                            <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                                                            <Button Name="ConfirmRemoveVideoButton" Classes="Danger" Content="CONFIRM REMOVE" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently remove the selected video from the queue." />
+                                                        </StackPanel>
+                                                    </Flyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <!-- Row 2: queue status, then the way out — pinned to the bottom of the rail,
+                                 exactly where MainWindow.axaml pins its ADVANCED TOOLS block. -->
+                            <StackPanel Grid.Row="2" Spacing="8" VerticalAlignment="Bottom" Margin="0,12,0,0">
+                                <TextBlock Name="QueueStatusText" Text="Waiting for videos." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" TextAlignment="Center"/>
+                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,4,0,1"/>
+                                <!-- MERGERRETURN_01 — the way back lives where the way in lives.
+                                     RETURN TO MAIN APP is now the mirror image of the Main App's
+                                     VIDEO MERGER button: same Secondary class, same stretched width,
+                                     same bottom-right corner of the right-hand rail. Going there and
+                                     coming back are now the same gesture in the same place.
+                                     SHOW ME AROUND sits directly above it in the HelpHint class —
+                                     the suite's information hue — so the permanent walkthrough entry
+                                     is unmistakably a help affordance and not another navigation
+                                     button competing with RETURN for the same click. -->
+                                <Button Name="MergerHelpButton" Classes="HelpHint" Content="? SHOW ME AROUND" HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" MinHeight="{DynamicResource AppButtonMinHeight}" AutomationProperties.Name="Show me around the video merger" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
+                                <Button Name="ReturnToMainAppButton" Classes="Secondary" Content="← RETURN TO MAIN APP" HorizontalAlignment="Stretch" FontSize="{DynamicResource AppFontSize11}" MinHeight="{DynamicResource AppButtonMinHeight}" ToolTip.Tip="Close the merger and go back to the main editing studio."/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </Grid>
+
+                <!-- Modal Scrim for Flyout Confirmations -->
+                <Border Name="FlyoutScrim" Grid.RowSpan="3" Grid.ColumnSpan="2" Background="#90000000" IsVisible="False" ZIndex="98"/>
 
                 <!-- Processing Overlay -->
                 <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.RowSpan="3" Grid.ColumnSpan="2" IsVisible="False" />

@@ -80,7 +80,7 @@ public static class CoachTours
 
         new CoachStep(
             "Put them in the right order",
-            "Drag a clip up or down in the list, or use these arrows. Top of the list plays first.",
+            "Drag a clip up or down in the list, or use these arrows under it. Top of the list plays first. Right-clicking a clip gives you the same moves plus remove.",
             "MoveUpButton", CoachGesture.Click),
 
         new CoachStep(
@@ -88,10 +88,15 @@ public static class CoachTours
             "Click any clip in the list to watch it here, so you can check you queued the right ones.",
             "VideoAreaBorder", CoachGesture.Point),
 
+        // MERGERBOTTOM_01 — the "Trim the joined video" step pointed at SetClipInButton, which no
+        // longer exists. A CoachStep whose target cannot be found has nothing to highlight, so the
+        // step would have shown its text over a blank screen. Replaced with the readout that took
+        // that corner of the window, which is worth a step of its own: it is the only place the
+        // user finds out how big and how long the result will be BEFORE waiting for the merge.
         new CoachStep(
-            "Trim the joined video",
-            "These set where the whole joined video starts and ends, so you can shave off a slow beginning without re-cutting each clip.",
-            "SetClipInButton", CoachGesture.Click),
+            "Check the size before you wait",
+            "This is how big the finished file will be and how long it will run, for the whole list at once. Move the quality dial beside it and both numbers follow.",
+            "EstimatedSizeText", CoachGesture.Point),
 
         new CoachStep(
             "Join them into one file",
