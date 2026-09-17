@@ -72,7 +72,7 @@ internal static class Staging
         {
             TryDeleteDirectory(directory);
         }
-        _ = Cli.RunQuiet("dotnet", ["clean", ProjectFile, "-c", "Release", "-r", "win-x64", "--nologo", "-v", "q"]);
+        _ = Cli.RunQuiet("dotnet", ["clean", ProjectFile, "-c", "Release", "-r", "win-x64", "--nologo", "-v", "q", "-nodeReuse:false"]);
     }
 
     /// <summary>Release mode wipes .\compiled entirely; dev mode only ensures it exists (old Build.cmd vs dev_build.cmd).</summary>
@@ -112,8 +112,10 @@ internal static class Staging
             "-p:Version=" + buildVersion,
             "-p:FileVersion=" + buildVersion,
             "-p:InformationalVersion=" + buildVersion,
+            "-nodeReuse:false",
+            "-p:UseSharedCompilation=false",
             "-o", outputDir,
-            "-consoleLoggerParameters:ErrorsOnly",
+            "-v", "m",
         ];
         return Cli.RunStreaming("dotnet", arguments, log) == 0;
     }
