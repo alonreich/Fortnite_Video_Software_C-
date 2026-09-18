@@ -107,10 +107,10 @@
           InformationalVersion carry the real number that users and bug reports see.
        ══════════════════════════════════════════════════════════════════════════════════════════ -->
   <PropertyGroup>
-    <Version>2026.09.17.2131</Version>
-    <AssemblyVersion>2026.09.17.2131</AssemblyVersion>
-    <FileVersion>2026.09.17.2131</FileVersion>
-    <InformationalVersion>2026.09.17.2131</InformationalVersion>
+    <Version>2026.09.18.0937</Version>
+    <AssemblyVersion>2026.09.18.0937</AssemblyVersion>
+    <FileVersion>2026.09.18.0937</FileVersion>
+    <InformationalVersion>2026.09.18.0937</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Clip Studio for Gameplay</Product>
