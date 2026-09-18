@@ -88,7 +88,7 @@
     <IlcTrimMetadata>false</IlcTrimMetadata>
     <ApplicationIcon>..\..\assets\icons\Video_Icon_File.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <NoWarn>$(NoWarn);CS1998;CS0414</NoWarn>
+    <NoWarn>$(NoWarn);CS1998;CS0414;IL2104</NoWarn>
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -107,10 +107,10 @@
           InformationalVersion carry the real number that users and bug reports see.
        ══════════════════════════════════════════════════════════════════════════════════════════ -->
   <PropertyGroup>
-    <Version>2026.09.17.2052</Version>
-    <AssemblyVersion>2026.09.17.2052</AssemblyVersion>
-    <FileVersion>2026.09.17.2052</FileVersion>
-    <InformationalVersion>2026.09.17.2052</InformationalVersion>
+    <Version>2026.09.17.2131</Version>
+    <AssemblyVersion>2026.09.17.2131</AssemblyVersion>
+    <FileVersion>2026.09.17.2131</FileVersion>
+    <InformationalVersion>2026.09.17.2131</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Clip Studio for Gameplay</Product>

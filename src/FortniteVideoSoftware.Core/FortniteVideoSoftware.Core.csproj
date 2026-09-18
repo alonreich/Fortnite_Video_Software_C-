@@ -20,10 +20,10 @@
        satellite assembly is exactly the kind of detail a security reviewer flags. Keep in step
        with FortniteVideoSoftware.App.csproj on every release. -->
   <PropertyGroup>
-    <Version>2026.09.17.2052</Version>
-    <AssemblyVersion>2026.09.17.2052</AssemblyVersion>
-    <FileVersion>2026.09.17.2052</FileVersion>
-    <InformationalVersion>2026.09.17.2052</InformationalVersion>
+    <Version>2026.09.17.2131</Version>
+    <AssemblyVersion>2026.09.17.2131</AssemblyVersion>
+    <FileVersion>2026.09.17.2131</FileVersion>
+    <InformationalVersion>2026.09.17.2131</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Clip Studio for Gameplay</Product>

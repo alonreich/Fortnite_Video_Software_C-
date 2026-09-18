@@ -14,12 +14,62 @@ internal static class Cli
     public static int RunStreaming(string fileName, IEnumerable<string> args, BuildLog log)
     {
         using Process process = Start(fileName, args, redirect: true);
+        DateTime lastActivity = DateTime.UtcNow;
+        DateTime startTime = DateTime.UtcNow;
+        object sync = new();
+
         // Output events arrive on threadpool threads; BuildLog is internally locked.
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) log.Info(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) log.Info(e.Data); };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (sync) { lastActivity = DateTime.UtcNow; }
+                log.Info(e.Data);
+                if (e.Data.Contains("Generating native code", StringComparison.OrdinalIgnoreCase))
+                {
+                    log.Info("  -> [NativeAOT] Compiling native machine code via ilc.exe / link.exe (~30-60s expected)...");
+                }
+            }
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (sync) { lastActivity = DateTime.UtcNow; }
+                log.Info(e.Data);
+            }
+        };
+
         process.Start();
+        try { process.StandardInput.Close(); } catch { }
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
+
+        using Timer heartbeat = new(_ =>
+        {
+            try
+            {
+                if (process.HasExited) return;
+                DateTime now = DateTime.UtcNow;
+                TimeSpan silence;
+                TimeSpan total;
+                lock (sync)
+                {
+                    silence = now - lastActivity;
+                    total = now - startTime;
+                }
+                if (silence.TotalSeconds >= 15)
+                {
+                    string name = Path.GetFileName(fileName);
+                    log.Info($"  -> [Active] Process '{name}' is still running ({total.TotalSeconds:F0}s elapsed)...");
+                }
+            }
+            catch
+            {
+                // Process may have exited concurrently.
+            }
+        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+
         process.WaitForExit();
         return process.ExitCode;
     }
@@ -31,6 +81,7 @@ internal static class Cli
         {
             using Process process = Start(fileName, args, redirect: true);
             process.Start();
+            try { process.StandardInput.Close(); } catch { }
             // Drain both pipes concurrently; a full stderr pipe would otherwise deadlock.
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             _ = process.StandardOutput.ReadToEnd();
@@ -51,6 +102,7 @@ internal static class Cli
         {
             using Process process = Start(fileName, args, redirect: true);
             process.Start();
+            try { process.StandardInput.Close(); } catch { }
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             lines = [.. process.StandardOutput.ReadToEnd().Split('\n').Select(l => l.Trim('\r')).Where(l => l.Length > 0)];
             _ = stderr.Result;
@@ -72,9 +124,14 @@ internal static class Cli
             WorkingDirectory = Environment.CurrentDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardInput = true,
             RedirectStandardOutput = redirect,
             RedirectStandardError = redirect,
         };
+        info.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
+        info.EnvironmentVariables["GH_PROMPT_DISABLED"] = "1";
+        info.EnvironmentVariables["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        info.EnvironmentVariables["DOTNET_NOLOGO"] = "1";
         foreach (string argument in args)
         {
             info.ArgumentList.Add(argument);
@@ -184,6 +241,7 @@ internal static class Cli
             // The outer extra quotes are cmd.exe's quoted-command rule, not C# noise.
             Arguments = $"/d /c \"\"{devCmd}\" -arch=x64 -host_arch=x64 >nul 2>&1 && set\"",
             UseShellExecute = false,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
@@ -192,6 +250,7 @@ internal static class Cli
         {
             using Process process = new() { StartInfo = info };
             process.Start();
+            try { process.StandardInput.Close(); } catch { }
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             string[] variables = process.StandardOutput.ReadToEnd().Split('\n');
             _ = stderr.Result;

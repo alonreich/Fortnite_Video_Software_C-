@@ -214,27 +214,7 @@ internal static class Program
         log.Error("Scroll up for the first ERROR line, or read .\\build.log");
         log.Banner("###########################################################");
         log.WriteVerdictAndClose(ExitBuildFailed, DateTimeOffset.Now - started);
-        PauseIfInteractive();
         return ExitBuildFailed;
-    }
-
-    /// <summary>The old Build.cmd paused on failure for double-click users; skip that in CI (redirected input).</summary>
-    private static void PauseIfInteractive()
-    {
-        if (Console.IsInputRedirected)
-        {
-            return;
-        }
-        try
-        {
-            Console.Write("Press any key to continue . . . ");
-            _ = Console.ReadKey(intercept: true);
-            Console.WriteLine();
-        }
-        catch (InvalidOperationException)
-        {
-            // No interactive console at all; nothing to pause on.
-        }
     }
 
     private static void SynchronizeVersionFiles(string buildVersion, BuildLog log)

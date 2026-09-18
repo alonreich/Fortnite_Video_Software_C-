@@ -66,11 +66,14 @@ internal static class GitHubReleasePublisher
         }
 
         _ = Cli.RunQuiet("git", ["fetch", "--tags", "--prune", "--prune-tags"]);
-        if (Cli.TryCapture("git", ["tag", "--list"], out List<string> localTags))
+        if (Cli.TryCapture("git", ["tag", "--list"], out List<string> localTags) && localTags.Count > 0)
         {
+            log.Info($"[PUBLISH]     purging {localTags.Count} residual tag(s)...");
+            List<string> pushDelete = ["push", "origin", "--delete"];
+            pushDelete.AddRange(localTags);
+            _ = Cli.RunQuiet("git", pushDelete);
             foreach (string tagName in localTags)
             {
-                _ = Cli.RunQuiet("git", ["push", "origin", "--delete", tagName]);
                 _ = Cli.RunQuiet("git", ["tag", "-d", tagName]);
             }
         }
@@ -88,8 +91,11 @@ internal static class GitHubReleasePublisher
         log.Info($"[PUBLISH] 5/7 Removed {removed} previous release(s) and all tags.   [OK]");
 
         string notes = $"Automated NativeAOT release published by FvsBuild on {tag}. SHA256 {localHash}";
-        if (Cli.RunQuiet("gh", ["release", "create", tag, exePath, "--repo", repo,
-                "--title", $"Fortnite Video Software {tag}", "--notes", notes, "--latest"]) != 0)
+        FileInfo fileInfo = new(exePath);
+        double sizeMb = fileInfo.Exists ? fileInfo.Length / (1024.0 * 1024.0) : 0.0;
+        log.Info($"[PUBLISH] Uploading installer ({sizeMb:F1} MB) to GitHub release {tag}...");
+        if (Cli.RunStreaming("gh", ["release", "create", tag, exePath, "--repo", repo,
+                "--title", $"Fortnite Video Software {tag}", "--notes", notes, "--latest"], log) != 0)
         {
             log.Warn($"[PUBLISH] STOPPED: creating release {tag} failed.");
             log.Warn("[PUBLISH] Your build is fine - only the upload failed. Retry, or publish by hand.");
