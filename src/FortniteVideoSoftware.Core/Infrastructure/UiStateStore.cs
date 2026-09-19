@@ -96,12 +96,29 @@ public static class UiStateStore
         }
     }
 
-    /// <summary>Writes a small text value. Silently no-ops on failure.</summary>
+    /// <summary>
+    /// Writes a small text value. Silently no-ops on failure.
+    ///
+    /// ATOMICSTATE_01 — this used <c>File.WriteAllText</c>, which opens the target with
+    /// truncation: from the moment it opens until the last byte lands, the file on disk is
+    /// SHORTER than the document it is replacing, and it returns when the bytes reach the OS
+    /// cache rather than the platter. A crash, a forced kill or a power loss inside that window
+    /// leaves a correctly named but truncated or zero-length file — the exact failure
+    /// <c>MemeDimensionCache</c> documents. Routing through
+    /// <see cref="AtomicJsonFile.WriteText"/> gives this the same three-step guarantee
+    /// <c>docs/05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-RECOVERY</c> mandates everywhere else:
+    /// unique GUID temp file in the TARGET directory opened WriteThrough, flush-to-disk, then an
+    /// atomic same-volume rename. A reader therefore only ever sees the whole old document or
+    /// the whole new one.
+    ///
+    /// The no-op-on-failure contract is unchanged: <see cref="AtomicJsonFile.WriteText"/> throws
+    /// on a failed write and the catch below still swallows it into a log line.
+    /// </summary>
     public static void WriteText(string fileName, string value)
     {
         try
         {
-            File.WriteAllText(PathFor(fileName), value);
+            AtomicJsonFile.WriteText(PathFor(fileName), value);
         }
         catch (Exception ex)
         {

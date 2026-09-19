@@ -204,6 +204,30 @@ public partial class MainWindow : Window
     private double _marchingAntsOffset = 0;
     private bool _isThumbnailMarkerSelected = false;
     private bool _isDraggingThumbnailMarker = false;
+
+    /// <summary>
+    /// TIMELINEDRAW_01 — THE one list of "a marker gesture is in flight", and the ONLY place it
+    /// may be written down.
+    ///
+    /// <para>WHY THIS EXISTS. <c>UpdateTimelineMarkers</c> clears and recreates the marker controls,
+    /// so a rebuild in the middle of a gesture destroys the very control holding pointer capture —
+    /// the drag then dies under the user's cursor. The guard against that used to be a LOCAL
+    /// boolean, spelled out by hand at one call site in <c>MainWindow.Wireup.cs</c>, while the
+    /// other twenty-nine call sites had no guard at all. THUMB_02 records what that costs: the
+    /// thumbnail marker was simply missing from that hand-written list, and the bug was exactly
+    /// the dropped drag described above.</para>
+    ///
+    /// <para>A hand-copied list of six fields in one place is a list that will be wrong again the
+    /// next time a seventh draggable is added. One property, referenced everywhere, cannot be
+    /// forgotten at a call site — and the render pass itself now consults it, so protection no
+    /// longer depends on each caller remembering.</para>
+    ///
+    /// <para>⚠️ ADD NEW DRAGGABLE TIMELINE ELEMENTS HERE. Nowhere else.</para>
+    /// </summary>
+    private bool IsMarkerGestureActive =>
+        _draggingStartMarker || _draggingEndMarker ||
+        _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock ||
+        _isDraggingThumbnailMarker;
     private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerIconAntsRef;
     private Avalonia.Controls.Shapes.Rectangle? _thumbnailMarkerLineAntsRef;
     private bool? _keepMusicDuringMeme;
@@ -211,6 +235,42 @@ public partial class MainWindow : Window
     private bool _isTimelineDrawn = false;
     private string _loadedVideoPath = string.Empty;
     private System.Threading.CancellationTokenSource? _processCts;
+
+    /// <summary>
+    /// EXPORTSESSION_01 — TRUE FOR AS LONG AS AN EXPORT PIPELINE IS ALIVE, not merely for as long
+    /// as the PROCESS button looks busy.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// THE DEFECT THIS EXISTS TO CLOSE.
+    ///
+    /// Export had exactly ONE mutual-exclusion mechanism: processButton.IsEnabled. The overlay's
+    /// CancelRequested handler defeated it — it fired _processCts.Cancel() and then IMMEDIATELY
+    /// re-enabled the button and dismissed the overlay, while the pipeline was still unwinding.
+    /// FFmpeg's kill is asynchronous; ReadExitCodeSafely alone grants it 5 seconds of grace plus a
+    /// further 2, and ProcessWorker's finally then recursively deletes a job temp directory that can
+    /// hold a multi-gigabyte two-pass master. The user could therefore start a SECOND export during
+    /// that window, and three things went wrong at once:
+    ///
+    ///   1. Two FFmpeg pipelines ran concurrently, saturating every core on the machine.
+    ///   2. The second export executed `previousCts?.Dispose()` — disposing the CancellationTokenSource
+    ///      the FIRST worker still held live registrations on. CancellationToken.Register on a
+    ///      disposed source throws ObjectDisposedException, and in ProcessWorker that throw escaped
+    ///      RunAsync without ever reaching EmitFinished, so the controller's TaskCompletionSource
+    ///      never completed and the awaiting UI hung forever with no error shown.
+    ///   3. Both pipelines resolved an output filename by scanning for the first free index, so both
+    ///      picked the same one and the later File.Move silently destroyed the earlier render.
+    ///
+    /// Cancel is now a STATE TRANSITION (Running -> Cancelling -> Idle), not a UI reset. The button
+    /// is re-armed in exactly one place: the finally in ProcessVideoAsync, after the pipeline Task
+    /// has actually completed. (ProcessWorker's CANCELREG_01 and OUTPATH_01 fix 2 and 3 at their own
+    /// layer, as defence in depth.)
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private bool _exportRunning;
+
+    /// <summary>EXPORTSESSION_01 — the in-flight pipeline, so shutdown can wait for it.</summary>
+    private Task? _exportInFlight;
+
 private readonly RecoveryManager _recovery = new RecoveryManager();
 
 /// <summary>
@@ -291,18 +351,83 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private Task<double> ProbeMusicDurationSecondsAsync(string musicPath)
         => MemeManagementService.ProbeMusicDurationSecondsAsync(ResolveFfmpegPath(), musicPath);
 
-    private async void PopulateMemeComboBox()
+    /// <summary>
+    /// MEMECOMBO_01 — monotonic scan generation. Only the NEWEST scan may write state.
+    ///
+    /// <para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// THE DEFECT THIS EXISTS TO CLOSE. <see cref="PopulateMemeComboBox"/> was <c>async void</c>
+    /// with no single-flight gate. It has at least three concurrent entry points — this.Loaded
+    /// (MainWindow.Wireup.cs), the STATIC MemeDirectory.Changed event (raised from SettingsWindow),
+    /// and RunCloudMemeSyncAsync after a download batch — and each returns to its caller at the
+    /// first await. Two overlapping invocations therefore both resumed, and whichever
+    /// ScanMemesAsync finished LAST won the write to _memeItems and to the ComboBox, regardless of
+    /// which was started last.
+    ///
+    /// Because a scan's duration is proportional to library size, the SLOWER, OLDER scan reliably
+    /// won: the user changed the meme folder, the new folder's short scan landed first, and then
+    /// the old folder's long scan overwrote it. The combo then listed memes that were no longer in
+    /// the active directory, and picking one handed a stale FullPath straight into the export
+    /// payload.
+    ///
+    /// _pendingMemeRestorePath made it worse. It is a read-null-write of shared state with no
+    /// ordering guarantee, so the FIRST invocation to resume consumed it — and if a later one won
+    /// the list write, the recovery-restore selection was silently dropped with no error anywhere.
+    ///
+    /// A superseded scan now writes NOTHING: not _memeItems, not ItemsSource, not the restore path.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </para>
+    /// </summary>
+    private int _memeScanGeneration;
+
+    /// <summary>
+    /// MEMECOMBO_01 — the event-compatible member. Kept parameterless and Action-shaped so
+    /// <c>MemeDirectory.Changed += PopulateMemeComboBox</c> and its matching <c>-=</c> in
+    /// MainWindow.Wireup.cs stay symmetrical.
+    ///
+    /// <para>It is deliberately NOT <c>async void</c>. MemeDirectory.NotifyChanged wraps its
+    /// <c>Changed?.Invoke()</c> in a try/catch, but that catch only ever covered the SYNCHRONOUS
+    /// prefix of an async handler — everything up to the first await. Anything thrown after the
+    /// resume (an ItemTemplate build, an ItemsSource assignment) escaped onto the dispatcher
+    /// unobserved and took the process with it. The faulted continuation below is what makes that
+    /// impossible.</para>
+    /// </summary>
+    private void PopulateMemeComboBox()
+    {
+        _ = PopulateMemeComboBoxAsync().ContinueWith(
+            t => RuntimeLog.Fail("Memes", $"Meme combo refresh failed: {t.Exception?.GetBaseException().Message}"),
+            System.Threading.CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task PopulateMemeComboBoxAsync()
     {
         var cb = this.FindControl<ComboBox>("MemeComboBox");
         if (cb == null) return;
 
-        _memeItems = await MemeManagementService.ScanMemesAsync();
+        // MEMECOMBO_01 — claimed BEFORE the await, checked after it.
+        int generation = Interlocked.Increment(ref _memeScanGeneration);
+
+        var scanned = await MemeManagementService.ScanMemesAsync();
+
+        if (Volatile.Read(ref _memeScanGeneration) != generation)
+        {
+            RuntimeLog.Info("Memes",
+                $"Discarding superseded meme scan (generation {generation}, current {Volatile.Read(ref _memeScanGeneration)}).");
+            return;
+        }
+
+        // Past this line we are the newest scan and the only writer.
+        _memeItems = scanned;
         ApplyMemeItemsToCombo(preserveSelection: true);
 
         if (_pendingMemeRestorePath != null)
         {
             string p = _pendingMemeRestorePath;
             _pendingMemeRestorePath = null;
+            // ⚠️ The FullPath-or-filename dual match is load-bearing: the filename arm is what
+            // re-binds a recovered project after the user has moved their meme folder.
             var match = _memeItems.FirstOrDefault(m => string.Equals(m.FullPath, p, StringComparison.OrdinalIgnoreCase)
                                                     || string.Equals(m.FileName, Path.GetFileName(p), StringComparison.OrdinalIgnoreCase));
             if (match != null) cb.SelectedItem = match;
@@ -311,6 +436,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ApplyMemeItemsToCombo(bool preserveSelection)
     {
+        // MEMECOMBO_01 — MemeDirectory.Changed is a STATIC event with no documented thread
+        // affinity, and this method mutates Avalonia controls. Marshal rather than assume.
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => ApplyMemeItemsToCombo(preserveSelection));
+            return;
+        }
+
         var cb = this.FindControl<ComboBox>("MemeComboBox");
         if (cb == null) return;
 
@@ -1375,29 +1508,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private double SourceMsToOutputSeconds(double sourceMs, IReadOnlyList<SpeedSegment>? segments = null)
         => _viewModel.Timeline.SourceMsToOutputSeconds(sourceMs, segments);
-    private void UpdateSpeedLabel()
-    {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-            var label = this.FindControl<TextBlock>("MainSpeedLabel");
-            if (label == null) return;
-
-            double speed = _baseSpeed;
-            string desc;
-            string color;
-
-            if (speed <= 0.5) { desc = "Slow Motion"; color = "#3498db"; }
-            else if (speed <= 0.8) { desc = "Cinematic"; color = "#3498db"; }
-            else if (speed < 1.05) { desc = "Normal"; color = "White"; }
-            else if (speed <= 1.2) { desc = "Slight Boost"; color = "#f1c40f"; }
-            else if (speed <= 1.5) { desc = "Fast"; color = "#f39c12"; }
-            else if (speed <= 2.0) { desc = "Very Fast"; color = "#e67e22"; }
-            else if (speed <= 3.0) { desc = "Turbo"; color = "#e74c3c"; }
-            else { desc = "Extreme"; color = "#e74c3c"; }
-
-            label.Text = $"{speed:F1}x — {desc}";
-            label.Foreground = Avalonia.Media.Brush.Parse(color);
-        });
-    }
+    /// <summary>
+    /// SPEEDLABEL_01 — the speed → description/colour ladder was duplicated BYTE FOR BYTE between
+    /// this window and the other one, control name included. It is a product decision the user
+    /// reads ("1.2x — Slight Boost"), so the two windows must never be able to disagree about it.
+    /// One ladder now, in <see cref="Infrastructure.SpeedLabel"/>.
+    /// </summary>
+    private void UpdateSpeedLabel() => Infrastructure.SpeedLabel.Apply(this, _baseSpeed);
 
     private void ApplyMainSpeedPreset(double speed)
     {
@@ -2246,6 +2363,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 catch (ObjectDisposedException) { }
             }
 
+            // EXPORTSESSION_01 — give the pipeline a bounded moment to actually stop before the
+            // window tears down the objects it is using. Without this, closing mid-export raced
+            // ProcessWorker's teardown against MpvVideoView's disposal.
+            if (_exportInFlight != null)
+            {
+                await Task.WhenAny(_exportInFlight, Task.Delay(3000));
+            }
+
 
             if (_mainSizeWorker != null)
                 await Task.WhenAny(_mainSizeWorker.Completion, Task.Delay(1000));
@@ -2996,13 +3121,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     }
 
     /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    /// <summary>MEMESWAP_01 — was one of three byte-identical private copies; see
+    /// <see cref="Infrastructure.MemeSwapOverlay"/>.</summary>
     private void SetMemeSwapOverlay(bool visible, string message)
-    {
-        var overlay = this.FindControl<Border>("MemeSwapOverlay");
-        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
-        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
-        if (overlay != null) overlay.IsVisible = visible;
-    }
+        => Infrastructure.MemeSwapOverlay.Set(this, visible, message);
 
     /// <summary>
     /// CUT_01 — at least this much footage must survive, in ms. A clip cut down to nothing has no

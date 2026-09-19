@@ -22,7 +22,84 @@ namespace FortniteVideoSoftware.App;
 
 public partial class MainWindow
 {
+    /// <summary>
+    /// EXPORTSESSION_01 — THE SINGLE-FLIGHT GATE AND THE CANCELLATION-TOKEN-SOURCE OWNER.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// Everything about an export's LIFETIME lives here; everything about its CONTENT lives in
+    /// <see cref="ProcessVideoCoreAsync"/>. That split is the whole point, because the three defects
+    /// this replaces were all lifetime defects, not pipeline defects:
+    ///
+    ///   • Export had no mutual exclusion beyond processButton.IsEnabled, and the overlay's Cancel
+    ///     handler re-enabled that button while the previous pipeline was still unwinding. Two
+    ///     FFmpeg pipelines could run at once.
+    ///   • The old code did `previousCts?.Dispose()` at the top of every export, disposing the
+    ///     CancellationTokenSource the PREVIOUS worker still held live registrations on. That is an
+    ///     ObjectDisposedException inside ProcessWorker, and it used to escape RunAsync without ever
+    ///     reaching EmitFinished — leaving the awaiting UI hung forever with the overlay already
+    ///     dismissed.
+    ///   • Nothing waited for the pipeline before tearing down the window.
+    ///
+    /// THE RULE, and it is not negotiable: the CancellationTokenSource created here is disposed HERE,
+    /// in the finally, and only AFTER the pipeline Task it was handed to has completed. No other code
+    /// path may dispose it. The UI is likewise restored in exactly one place — this finally — so
+    /// "the overlay is gone" can never again mean anything except "the pipeline has stopped".
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     private async Task ProcessVideoAsync(Button processButton)
+    {
+        if (_exportRunning)
+        {
+            RuntimeLog.Info("UI", "PROCESS ignored: an export is already running or still stopping.");
+            ShowTacticalFeedback("An export is already running");
+            return;
+        }
+
+        _exportRunning = true;
+
+        var cts = new System.Threading.CancellationTokenSource();
+        _processCts = cts;
+
+        processButton.IsEnabled = false;
+        processButton.Content = "PROCESSING...";
+
+        Task work = ProcessVideoCoreAsync(processButton, cts);
+        _exportInFlight = work;
+
+        try
+        {
+            await work;
+        }
+        catch (OperationCanceledException)
+        {
+            RuntimeLog.Info("EXPORT", "Export cancelled.");
+            ShowTacticalFeedback("Processing Cancelled");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("EXPORT", ex);
+            await ErrorReporter.ShowAsync(this, "Export failed",
+                "Something went wrong while preparing or running the export.", ex.Message);
+        }
+        finally
+        {
+            _exportInFlight = null;
+            _processCts = null;
+
+            // Disposed only now: every registration ProcessWorker took on this token is released by
+            // the time its Task has completed.
+            try { cts.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+
+            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+            processButton.IsEnabled = true;
+            processButton.Content = "PROCESS";
+
+            _exportRunning = false;
+        }
+    }
+
+    private async Task ProcessVideoCoreAsync(Button processButton, System.Threading.CancellationTokenSource processCts)
     {
         if (ActiveVideoHost?.IpcClient != null)
         {
@@ -58,10 +135,10 @@ public partial class MainWindow
             return;
         }
 
-        var previousCts = _processCts;
-        _processCts = new System.Threading.CancellationTokenSource();
-        try { previousCts?.Dispose(); } catch (System.ObjectDisposedException) { /* ISSUE_13: already disposed by the task that owned it. Expected. */ }
-
+        // EXPORTSESSION_01 — the CancellationTokenSource is created and disposed by the wrapper
+        // above, which is the only code that knows when this pipeline has actually stopped. The old
+        // `previousCts?.Dispose()` that stood here disposed a source the PREVIOUS export's worker was
+        // still registered on; see the block on ProcessVideoAsync. Do not reintroduce it.
         await Task.Yield();
         
         SetTimelinePopupsVisible(false);
@@ -102,7 +179,7 @@ public partial class MainWindow
         Services.OutputSizeEstimate sizeEstimate;
         try
         {
-            var estimateToken = _processCts.Token;
+            var estimateToken = processCts.Token;
             sizeEstimate = await Task.Run(() => SizeEstimator.EstimateMainAsync(sizeRequest, estimateToken), estimateToken);
         }
         catch (OperationCanceledException)
@@ -329,7 +406,7 @@ public partial class MainWindow
         
         var result = await controller.ExecuteExportAsync(
             payload, 
-            _processCts.Token,
+            processCts.Token,
             (percent) => { Avalonia.Threading.Dispatcher.UIThread.Post(() => processButton.Content = $"PROCESSING... {percent}%"); },
             (phase, title, progress) => { 
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => 

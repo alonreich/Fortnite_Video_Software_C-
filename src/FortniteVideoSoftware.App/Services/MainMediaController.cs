@@ -21,8 +21,30 @@ public class MainMediaController
         Action<int, string, int> onPhase)
     {
         var paths = ApplicationPaths.CreateDefault();
-        var worker = new ProcessWorker(paths);
-        
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // WORKERLIFETIME_01 — THE WORKER IS NOW SCOPED, AND SO IS ITS CANCELLATION REGISTRATION.
+        //
+        // ProcessWorker is IDisposable and NOTHING EVER DISPOSED IT. Its Dispose() carries the
+        // ISSUE_11 contract — "any path that disposed a worker without cancelling left a full-speed
+        // encode running on a file that would never be delivered, with the progress overlay already
+        // gone" — and that entire backstop was unreachable code, because the only construction site
+        // in the app (this method) let the instance fall out of scope on every exit path, success
+        // and failure alike. The symptom users report (fans at full tilt, pegged CPU, nothing on
+        // screen) is exactly what an undisposed worker produces when the setup path throws AFTER
+        // RunAsync has been kicked off.
+        //
+        // `using` on the worker must be the OUTERMOST scope so Dispose runs strictly AFTER
+        // `await tcs.Task` returns — disposing earlier would kill a process that had already
+        // succeeded.
+        //
+        // The ct.Register handle was also being discarded. A discarded CancellationTokenRegistration
+        // keeps its closure — and therefore the worker, and therefore the ProgressUpdate/PhaseUpdate/
+        // Finished delegate chains that close over MainWindow's controls — rooted for the whole
+        // lifetime of the CancellationTokenSource. `using` unregisters it deterministically.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        using var worker = new ProcessWorker(paths);
+
         try
         {
             RuntimeLog.Info("Process", "Starting video processing pipeline via MainMediaController.");
@@ -31,9 +53,12 @@ public class MainMediaController
             worker.ProgressUpdate += (percent) => onProgress(percent);
             worker.PhaseUpdate += (phase, title, prog) => onPhase(phase, title, prog);
             
-            var tcs = new TaskCompletionSource<ExportResult>();
+            // RunContinuationsAsynchronously: Finished is raised from the FFmpeg pump thread. Without
+            // this flag the awaiting continuation in ProcessVideoAsync would be invoked INLINE on
+            // that thread, which is how a UI continuation ends up executing off the dispatcher.
+            var tcs = new TaskCompletionSource<ExportResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             
-            ct.Register(() => {
+            using var cancelReg = ct.Register(() => {
                 try { worker.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
             });
 
@@ -121,7 +146,53 @@ public class MainMediaController
             worker.VoiceOverDuckAudio = payload.VoiceOverDuckAudio;
             worker.VoiceOverProtectFromMusic = payload.VoiceOverProtectFromMusic;
             
-            _ = worker.RunAsync(ct);
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // WORKERLIFETIME_02 — THE HANG GUARD.
+            //
+            // RunAsync signals completion through the Finished EVENT, not through its Task, so the
+            // Task is intentionally not awaited. But that means a throw which escapes RunAsync
+            // WITHOUT reaching EmitFinished leaves `tcs` uncompleted forever: the await below never
+            // returns, the phase overlay never clears and the PROCESS button never re-enables — a
+            // permanently wedged UI with no error shown.
+            //
+            // RunAsync's own top-level catch covers almost everything, but not a throw from the
+            // registration it takes before that try opens (see CANCELREG_01 in ProcessWorker), and
+            // not an OOM. This continuation is the backstop that converts any such escape into a
+            // normal, reported export failure.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            _ = worker.RunAsync(ct).ContinueWith(t =>
+            {
+                if (t.IsFaulted && t.Exception != null)
+                {
+                    RuntimeLog.Fail("Process", $"Export pipeline faulted outside its own handler: {t.Exception.GetBaseException().Message}");
+                    var escaped = FfmpegErrorClassifier.ClassifyException(
+                        t.Exception.GetBaseException(),
+                        ExportStage.Preflight,
+                        new ExportAttemptIdentity { AttemptIndex = 1, Operation = "ExportPipeline", Description = "Export pipeline" });
+                    tcs.TrySetResult(new ExportResult
+                    {
+                        Success = false,
+                        ErrorMessage = escaped.Summary,
+                        Failure = escaped
+                    });
+                }
+                else if (t.IsCanceled)
+                {
+                    tcs.TrySetResult(new ExportResult { Canceled = true });
+                }
+                else
+                {
+                    // Completed normally. Finished should already have fired; if a future edit ever
+                    // introduces a silent return path, this stops the UI wedging on it.
+                    tcs.TrySetResult(new ExportResult
+                    {
+                        Success = false,
+                        ErrorMessage = worker.LastFailure?.Summary ?? "The export pipeline stopped without reporting a result.",
+                        Failure = worker.LastFailure
+                    });
+                }
+            }, TaskScheduler.Default);
+
             return await tcs.Task;
         }
         catch (Exception ex)

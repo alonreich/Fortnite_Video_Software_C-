@@ -19,6 +19,13 @@ using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
 
 
+// TRACKSEARCH_01 / MWDRAW_01 / PEAKMATH_01 — helper types holding methods extracted verbatim from this class. Imported with
+// `using static` on purpose: every call site below keeps the exact unqualified spelling it
+// already had, so the extraction cannot change a single statement inside this file.
+using static FortniteVideoSoftware.App.Infrastructure.TrackSearch;
+using static FortniteVideoSoftware.App.Infrastructure.MusicWizardDraw;
+using static FortniteVideoSoftware.App.Infrastructure.AudioPeakMath;
+
 namespace FortniteVideoSoftware.App;
 
 
@@ -1837,30 +1844,9 @@ public partial class MusicWizardWindow : Window
                 .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
         };
     }
-
-    private static bool TrackMatchesSearch(MusicTrackItem track, string rawQuery)
-    {
-        string query = NormalizeSearchQuery(rawQuery);
-        if (query.Length == 0)
-            return true;
-
-        return ContainsIgnoreCase(track.Title, query)
-            || ContainsIgnoreCase(Path.GetFileNameWithoutExtension(track.Name), query)
-            || ContainsIgnoreCase(track.Name, query)
-            || ContainsIgnoreCase(track.Artist, query)
-            || ContainsIgnoreCase(track.Album, query);
-    }
-
-    private static string NormalizeSearchQuery(string query)
-    {
-        return (query ?? string.Empty).Trim().Replace("*", string.Empty, StringComparison.Ordinal);
-    }
-
-    private static bool ContainsIgnoreCase(string source, string query)
-    {
-        return !string.IsNullOrEmpty(source) &&
-            source.Contains(query, StringComparison.OrdinalIgnoreCase);
-    }
+// TRACKSEARCH_01 — TrackMatchesSearch moved verbatim; see the extracted type.
+// TRACKSEARCH_01 — NormalizeSearchQuery moved verbatim; see the extracted type.
+// TRACKSEARCH_01 — ContainsIgnoreCase moved verbatim; see the extracted type.
 
     private void UpdateMusicResultCount()
     {
@@ -2043,7 +2029,6 @@ public partial class MusicWizardWindow : Window
             try { process?.Dispose(); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
         }
     }
-
     private static double? FindNearestPeakTime(AudioEnergyAnalysis analysis, double targetSeconds, double radiusSeconds)
     {
         double? best = null;
@@ -4473,8 +4458,7 @@ public partial class MusicWizardWindow : Window
     private double PreviewMusicAttenuationDb() => Math.Min(0.0, PreviewMusicBalanceDb());
 
     private double PreviewVideoAttenuationDb() => Math.Min(0.0, -PreviewMusicBalanceDb());
-
-    private static double DbToLinear(double db) => Math.Pow(10.0, db / 20.0);
+// PEAKMATH_01 — DbToLinear moved verbatim; see the extracted type.
 
     /// <summary>
     /// PREVIEW_04 — measures the SEGMENT of the track that will actually play and caches it.
@@ -4613,24 +4597,8 @@ public partial class MusicWizardWindow : Window
         status.Text = message;
         status.IsVisible = !string.IsNullOrWhiteSpace(message);
     }
-
-    private static string FormatSeconds(double seconds)
-    {
-        seconds = Math.Max(0, seconds);
-        var ts = TimeSpan.FromSeconds(seconds);
-        return ts.TotalHours >= 1
-            ? ts.ToString(@"h\:mm\:ss\.ff")
-            : ts.ToString(@"m\:ss\.ff");
-    }
-
-    private static void DeleteTempFile(ref string? path)
-    {
-        if (!string.IsNullOrEmpty(path) && File.Exists(path))
-        {
-            try { File.Delete(path); } catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
-        }
-        path = null;
-    }
+// PEAKMATH_01 — FormatSeconds moved verbatim; see the extracted type.
+// PEAKMATH_01 — DeleteTempFile moved verbatim; see the extracted type.
 
     private void TogglePreview()
     {
@@ -5131,50 +5099,8 @@ public partial class MusicWizardWindow : Window
             }
         }
     }
-
-    private static void AddLaneBoundary(Canvas canvas, double xPos, double height, Avalonia.Media.IBrush brush, double opacity)
-    {
-        var border = new Avalonia.Controls.Border
-        {
-            Width = 2,
-            Height = Math.Max(1, height),
-            Background = brush,
-            Opacity = opacity,
-            IsHitTestVisible = false
-        };
-        Canvas.SetLeft(border, Math.Max(0, xPos - 1));
-        Canvas.SetTop(border, 0);
-        canvas.Children.Add(border);
-    }
-
-
-    private static void EnsurePlayheadLine(
-        Canvas canvas,
-        ref Avalonia.Controls.Shapes.Line? line,
-        Avalonia.Media.IBrush stroke,
-        bool dashed)
-    {
-        if (line == null)
-        {
-            line = new Avalonia.Controls.Shapes.Line
-            {
-                Stroke = stroke,
-                StrokeThickness = 2,
-                IsHitTestVisible = false
-            };
-
-            if (dashed)
-            {
-                line.StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(new[] { 2.0, 2.0 });
-            }
-
-            canvas.Children.Add(line);
-        }
-        else if (!canvas.Children.Contains(line))
-        {
-            canvas.Children.Add(line);
-        }
-    }
+// MWDRAW_01 — AddLaneBoundary moved verbatim; see the extracted type.
+// MWDRAW_01 — EnsurePlayheadLine moved verbatim; see the extracted type.
 
     private void UpdatePlayhead()
 

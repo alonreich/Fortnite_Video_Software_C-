@@ -12,7 +12,60 @@ namespace FortniteVideoSoftware.Core.Media;
 public class ProcessWorker : IDisposable
 {
     private readonly ApplicationPaths _paths;
+
+    /// <summary>
+    /// PROCGATE_01 — the currently running child process, and the ONLY field in this class that is
+    /// handed between the export thread and the cancelling thread while holding an OS resource.
+    ///
+    /// It used to be a bare, NON-volatile field — note that its two neighbours below were already
+    /// marked volatile, and this one, the only one that matters for correctness, was not. Cancel()
+    /// tested it for null and then called Kill() on it as two separate reads, so the export thread
+    /// could run `_currentProcess = null; proc.Dispose();` in between. Kill() on a disposed Process
+    /// throws ObjectDisposedException straight into CoreLogger.Swallowed, and the user's cancel was
+    /// silently lost — AFTER the log had already announced "Terminating FFmpeg process tree."
+    ///
+    /// Access is now exclusively through <see cref="SetCurrentProcess"/>, <see cref="TakeCurrentProcess"/>
+    /// and <see cref="PeekCurrentProcess"/>, all of which hold <see cref="_procGate"/>. The gate is
+    /// held for a reference copy only — never across a Kill, a Dispose or any I/O — so it cannot
+    /// deadlock against the export thread.
+    /// </summary>
     private Process? _currentProcess;
+    private readonly object _procGate = new();
+
+    /// <summary>
+    /// FFMPEGSTOP_01 — single-flight gate for the cooperative shutdown ladder.
+    ///
+    /// <para>WHAT WAS WRONG. Every termination site in this file called
+    /// <c>Kill(entireProcessTree: true)</c> as the FIRST and ONLY action, and no
+    /// <see cref="ProcessStartInfo"/> here redirected stdin — so FFmpeg's interactive quit
+    /// command ('q') had no channel and this pipeline was STRUCTURALLY INCAPABLE of asking the
+    /// encoder to stop cleanly. Killing an MP4 muxer mid-write means the <c>moov</c> atom is never
+    /// emitted: the output is <c>mdat</c> payload with no index — right size, right name, and
+    /// unplayable in every player. On the failure paths that reach
+    /// <see cref="TryRescueFinishedRender"/>, that corrupt file was then moved to
+    /// <c>Fortnite-Video-RECOVERED-*.mp4</c> and presented to the user as preserved work.</para>
+    ///
+    /// <para>⚠️ THE PROJECT ALREADY BUILT THE FIX AND THIS FILE NEVER RECEIVED IT.
+    /// <see cref="GracefulProcessTerminator"/> states the failure verbatim and is used by
+    /// <c>CrashLogDigest</c>, <c>DeploymentLifecycle</c>, <c>AsyncProcessRunner</c>,
+    /// <c>HudAutoDetector</c> and <c>MergerWorker</c>. ProcessWorker — the PRIMARY user-facing
+    /// export path — was the only media worker that never referenced it. The two copies of
+    /// <see cref="ReadExitCodeSafely"/> are the proof: MergerWorker's routes through the ladder,
+    /// this one called Kill raw, from an identical signature. Duplicated logic is how that
+    /// divergence happened and went unnoticed.</para>
+    ///
+    /// <para>The gate guarantees exactly ONE ladder ('q' → grace → Kill(tree) → exit confirmation)
+    /// ever runs per FFmpeg process, because <see cref="Cancel"/>, the cancellation-token
+    /// registrations and <see cref="Dispose"/> can all race each other.</para>
+    /// </summary>
+    /// PIPEDEDUP_01 — these three fields and their three methods were written out here AND,
+    /// separately, in <c>MergerWorker</c>. Two copies of one mechanism is exactly how
+    /// <c>ReadExitCodeSafely</c> silently diverged between these two files (FFMPEGSTOP_01) and how
+    /// <c>TryRescueFinishedRender</c> shipped the same race twice (RESCUE_01). One copy now lives
+    /// in <see cref="CooperativeShutdownGate"/>; the members below are thin delegations kept at
+    /// their original signatures so no call site in this file changes.
+    private readonly CooperativeShutdownGate _shutdown = new();
+
     private volatile bool _isCanceled;
     private volatile bool _finishEmitted;
     private string _ffmpegPath;
@@ -275,18 +328,84 @@ public class ProcessWorker : IDisposable
     /// </summary>
     public string? CompletionWarning { get; private set; }
 
+    /// <summary>PROCGATE_01 — publish the live child process. Export thread only.</summary>
+    private void SetCurrentProcess(Process? proc)
+    {
+        lock (_procGate) { _currentProcess = proc; }
+    }
+
+    /// <summary>
+    /// PROCGATE_01 — claim the live child process AND clear the slot in one atomic step, so exactly
+    /// one caller can ever be responsible for disposing it. Every teardown site uses this instead of
+    /// the old `_currentProcess = null; proc.Dispose();` pair.
+    /// </summary>
+    private Process? TakeCurrentProcess()
+    {
+        lock (_procGate) { Process? p = _currentProcess; _currentProcess = null; return p; }
+    }
+
+    /// <summary>PROCGATE_01 — one consistent read for callers that only observe.</summary>
+    private Process? PeekCurrentProcess()
+    {
+        lock (_procGate) { return _currentProcess; }
+    }
+
+    /// <summary>
+    /// FFMPEGSTOP_01 — starts the bounded cooperative shutdown ladder for <paramref name="proc"/>
+    /// exactly once, off the calling thread.
+    ///
+    /// <para>Ported verbatim from <c>MergerWorker.BeginCooperativeShutdown</c>, which is the
+    /// already-proven shape. Fire-and-forget on purpose: the ladder is strictly bounded
+    /// (<c>CooperativeGraceMs</c> + <c>HardKillConfirmMs</c>) but it DOES wait, and this is called
+    /// from <see cref="Cancel"/> (UI thread) and from cancellation-token registrations (which run
+    /// synchronously on whichever thread cancels). Neither may block. Faults are observed so a
+    /// background stop can never surface as an unobserved task exception.</para>
+    ///
+    /// <para>Single-flight: <see cref="Cancel"/>, the token registrations and <see cref="Dispose"/>
+    /// may all race, but only one ladder ever runs per process.</para>
+    /// </summary>
+    private void BeginCooperativeShutdown(Process? proc, string logTag, bool attemptQuitCommand)
+        => _shutdown.Begin(proc, logTag, attemptQuitCommand);
+
+    /// <summary>
+    /// FFMPEGSTOP_01 — awaits the in-flight shutdown ladder, if any. Bounded by the ladder itself.
+    /// Called before <see cref="ReadExitCodeSafely"/> so the exit code is read from a process that
+    /// has actually finished finalizing its output, not one still writing its moov atom.
+    /// </summary>
+    private Task AwaitActiveShutdownAsync() => _shutdown.AwaitActiveAsync();
+
+    /// <summary>
+    /// PROCGATE_01 — best-effort cancellation. The authoritative mechanism is the CancellationToken
+    /// registrations taken around each child process; this remains the belt-and-braces path, but it
+    /// now acts on a SINGLE consistent read of the process reference instead of re-reading the field
+    /// between the null test and the Kill.
+    ///
+    /// FFMPEGSTOP_01 — the Kill is now the LAST rung of a ladder rather than the first action. The
+    /// call still returns immediately (the ladder runs off-thread), so a cancel can never hang the
+    /// UI, but FFmpeg now gets the chance to finalize its container instead of being shot mid-write.
+    /// </summary>
     public void Cancel()
     {
         _isCanceled = true;
 
-        bool encoding = _currentProcess is { HasExited: false };
+        Process? proc = PeekCurrentProcess();
+
+        bool encoding = false;
+        if (proc != null)
+        {
+            try { encoding = !proc.HasExited; }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+        }
+
         CoreLogger.Info("Process", encoding
-            ? "Cancellation requested by user. Terminating FFmpeg process tree."
+            ? "Cancellation requested by user. Stopping the FFmpeg process tree (cooperative quit, then hard kill)."
             : "Export worker released on shutdown (no encode was running).");
 
-        if (_currentProcess != null)
+        // ⚠️ The ObjectDisposedException / InvalidOperationException cases the old raw Kill caught
+        // by hand are handled inside the ladder: it re-checks HasExited and swallows everything.
+        if (proc != null && encoding)
         {
-            try { _currentProcess.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            BeginCooperativeShutdown(proc, "FFmpeg", attemptQuitCommand: true);
         }
     }
 
@@ -297,31 +416,12 @@ public class ProcessWorker : IDisposable
     /// yet (Kill is asynchronous). Give it a short grace period, then fall back to a sentinel
     /// rather than letting InvalidOperationException masquerade as a pipeline crash.
     /// </summary>
-    private static int ReadExitCodeSafely(Process proc, string logTag, int graceMs = 5000)
-    {
-        try
-        {
-            if (!proc.HasExited)
-            {
-                if (!proc.WaitForExit(graceMs))
-                {
-                    try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-                    proc.WaitForExit(2000);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Debug(logTag, $"Could not confirm process exit: {ex.Message}");
-        }
-
-        try { return proc.HasExited ? proc.ExitCode : -1; }
-        catch (Exception ex)
-        {
-            CoreLogger.Debug(logTag, $"Exit code unavailable: {ex.Message}");
-            return -1;
-        }
-    }
+    /// FFMPEGSTOP_01 — was a bare WaitForExit -> Kill(tree) -> WaitForExit while the sibling copy
+    /// in MergerWorker had already been hardened to the bounded ladder. PIPEDEDUP_01 removed the
+    /// second copy so the two can never disagree again; the default stays true here because this
+    /// pipeline's cancellable wait can return with the ladder unfinished.
+    private static int ReadExitCodeSafely(Process proc, string logTag, int graceMs = 5000, bool attemptQuitCommand = true)
+        => CooperativeShutdownGate.ReadExitCodeSafely(proc, logTag, graceMs, attemptQuitCommand);
 
     /// <summary>
     /// Runs the complete rendering pipeline. Returns true on success.
@@ -330,15 +430,34 @@ public class ProcessWorker : IDisposable
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         UsedGpuVideoProcessing = false;
-        using var cancelMirror = cancellationToken.CanBeCanceled
-            ? cancellationToken.Register(() => _isCanceled = true)
-            : default;
 
         var earlierAttempts = new List<ExportFailure>();
         int attemptCounter = 0;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // CANCELREG_01 — THIS REGISTRATION MUST STAY INSIDE THE TRY. DO NOT HOIST IT BACK OUT.
+        //
+        // It used to sit ABOVE the try. CancellationToken.Register throws ObjectDisposedException
+        // when its CancellationTokenSource has already been disposed — which is exactly what
+        // happened when the user cancelled an export and immediately started another one, because
+        // the new export disposed the previous CTS while this worker still held registrations on it.
+        // That exception escaped RunAsync entirely, so EmitFinished NEVER FIRED, the controller's
+        // TaskCompletionSource never completed, and the caller's await hung forever: overlay gone,
+        // PROCESS button dead, no error on screen.
+        //
+        // Inside the try, the same throw lands in the catch-all at the bottom of this method, which
+        // always calls EmitFinished. A cancelled export then reports as cancelled instead of wedging
+        // the UI. (EXPORTSESSION_01 in MainWindow.Export.cs removes the disposal race itself; this
+        // is the defence in depth that keeps a future regression from being unrecoverable.)
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        CancellationTokenRegistration cancelMirror = default;
+
         try
         {
+            if (cancellationToken.CanBeCanceled)
+            {
+                cancelMirror = cancellationToken.Register(() => _isCanceled = true);
+            }
             var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var encoderMgr = await Task.Run(() => new EncoderManager(HardwareStrategy, _ffmpegPath), cancellationToken).ConfigureAwait(false);
             if (encoderMgr.EncoderPreflightError != null)
@@ -1568,6 +1687,13 @@ public class ProcessWorker : IDisposable
                             FileName = _ffmpegPath,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
+                            // FFMPEGSTOP_01 — redirected on purpose: this is the ONLY channel for
+                            // FFmpeg's interactive quit command ('q'), which the cooperative
+                            // shutdown ladder writes to ask the encoder to finalize its container
+                            // (moov atom, indexes) and exit on its own. Without it a cancel can
+                            // only ever be a mid-write kill, and the output is unplayable.
+                            // ⚠️ No argument in ffmpegArgs may be -nostdin, or the quit is ignored.
+                            RedirectStandardInput = true,
                             UseShellExecute = false,
                             CreateNoWindow = true,
                         };
@@ -1611,7 +1737,7 @@ public class ProcessWorker : IDisposable
                             return false;
                         }
 
-                        _currentProcess = proc;
+                        SetCurrentProcess(proc);   // PROCGATE_01
 
                         bool disposedByGuard = false;
                         try
@@ -1619,11 +1745,17 @@ public class ProcessWorker : IDisposable
 
                         try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
-                        using var reg = cancellationToken.Register(() =>
-                        {
-                            try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-                        });
+                        // FFMPEGSTOP_01 — cooperative stop on external cancellation: 'q' quit
+                        // command -> 1500 ms grace -> Kill(entireProcessTree) -> 2000 ms exit
+                        // confirmation. Single-flight and off-thread, so cancelling can never hang
+                        // the caller, and FFmpeg gets the chance to write its moov atom instead of
+                        // leaving a headerless mdat behind.
+                        using var reg = cancellationToken.Register(
+                            () => BeginCooperativeShutdown(proc, "FFmpeg", attemptQuitCommand: true));
 
+                        // ⚠️ The reader loops below deliberately take NO cancellation token: they
+                        // drain to EOF once the cooperatively stopped process closes its pipes, so
+                        // they always complete before the Process object is disposed.
                         var progressTask = Task.Run(async () =>
                         {
                             using var reader = proc.StandardOutput;
@@ -1675,8 +1807,14 @@ public class ProcessWorker : IDisposable
                         catch (OperationCanceledException) { }
                         catch (Exception ex) { CoreLogger.Fail("FFmpeg", $"Reader task error: {ex.Message}"); }
 
+                        // FFMPEGSTOP_01 — let an in-flight ladder finish before reading the exit
+                        // code, so the code comes from a process that has actually finished
+                        // finalizing its output rather than one still writing its trailer.
+                        // Bounded by the ladder itself; returns immediately when none is running.
+                        await AwaitActiveShutdownAsync();
+
                         int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
-                        _currentProcess = null;
+                        TakeCurrentProcess();      // PROCGATE_01 — claim + clear atomically
                         proc.Dispose();
                         disposedByGuard = true;
 
@@ -1794,7 +1932,7 @@ public class ProcessWorker : IDisposable
                         {
                             if (!disposedByGuard)
                             {
-                                _currentProcess = null;
+                                TakeCurrentProcess();   // PROCGATE_01
                                 try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                             }
                         }
@@ -1994,6 +2132,19 @@ public class ProcessWorker : IDisposable
                 }
                 catch (Exception copyEx)
                 {
+                    // OUTPATH_01 — the name was RESERVED with a zero-byte placeholder. The move that
+                    // was meant to fill it failed, so remove the placeholder rather than leaving an
+                    // empty "Fortnite-Video-N.mp4" in the user's folder that looks like a broken
+                    // export. Only ever deletes a file that is still zero bytes.
+                    try
+                    {
+                        if (File.Exists(finalOutput) && new FileInfo(finalOutput).Length == 0)
+                        {
+                            File.Delete(finalOutput);
+                        }
+                    }
+                    catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+
                     string? rescued = TryRescueFinishedRender(corePath);
 
                     CoreLogger.Fail("Output",
@@ -2077,6 +2228,25 @@ public class ProcessWorker : IDisposable
                         }
                         else
                         {
+                            // PROCGATE_02 — the thumbnail grab was the one child process in this
+                            // pipeline that was never published to _currentProcess, never registered
+                            // against the cancellation token and never handed to ChildProcessTracker.
+                            // Cancel() therefore could not reach it at all, and if the app exited
+                            // during the grab the ffmpeg child was not covered by the kill-on-close
+                            // Job Object either. All three are now wired, exactly like every other
+                            // child process here.
+                            SetCurrentProcess(p);
+                            try { ChildProcessTracker.AddProcess(p); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+                            // FFMPEGSTOP_01 — cooperativeGraceMs: 0 ON PURPOSE. This child has no
+                            // redirected stdin and writes a single -vframes 1 still, so there is
+                            // no container to finalize and nothing for a 'q' to save; spending the
+                            // 1500 ms grace here would only slow a cancel down. What the ladder
+                            // DOES add over the bare Kill is a bounded exit CONFIRMATION, so
+                            // teardown can no longer proceed while the child is still dying.
+                            using var thumbReg = cancellationToken.Register(() =>
+                                GracefulProcessTerminator.Terminate(
+                                    p, "Thumbnail", attemptQuitCommand: false, cooperativeGraceMs: 0));
+
                             var thumbErrTask = Task.Run(async () =>
                             {
                                 var q = new System.Collections.Generic.Queue<string>(400);
@@ -2100,6 +2270,7 @@ public class ProcessWorker : IDisposable
                             try { thumbErr = await thumbErrTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
                             int thumbExit = ReadExitCodeSafely(p, "Thumbnail", graceMs: 2000);
+                            TakeCurrentProcess();   // PROCGATE_02 — the grab is done; stop advertising it.
                             bool thumbWritten = File.Exists(thumbnailOutput) && new FileInfo(thumbnailOutput).Length > 0;
 
                             if (thumbExit == 0 && thumbWritten)
@@ -2136,6 +2307,13 @@ public class ProcessWorker : IDisposable
             }
             finally
             {
+                // FFMPEGSTOP_01 — WAIT FOR THE STOP LADDER BEFORE DELETING THE SCRATCH DIRECTORY.
+                // On Windows a file with a live handle cannot be deleted. Terminating FFmpeg is
+                // asynchronous, so a cancel that reached here while the child was still dying made
+                // this Directory.Delete fail, the failure was swallowed, and the two-pass scratch
+                // master — which can be GIGABYTES — was left in the temp root for good. Awaiting
+                // the ladder (bounded; a no-op when none is running) closes that leak.
+                await AwaitActiveShutdownAsync();
                 try { if (Directory.Exists(tempJobDir)) Directory.Delete(tempJobDir, true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }
         }
@@ -2165,6 +2343,23 @@ public class ProcessWorker : IDisposable
                 earlierAttempts);
             FailureDetail = LastFailure.FormatDiagnosticReport();
             EmitFinished(false, LastFailure.Summary);
+        }
+        finally
+        {
+            // CANCELREG_01 — the registration replaced the old `using var`, so it is released here.
+            // Dispose on a default(CancellationTokenRegistration) is a documented no-op, and on a
+            // registration whose source has already been disposed it is also safe.
+            try { cancelMirror.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+
+            // CANCELREG_01 — last-resort completion guarantee. Every path above already calls
+            // EmitFinished, and EmitFinished is idempotent (_finishEmitted), so this fires ONLY if
+            // some future edit introduces a silent return. Without it, such a path wedges the
+            // caller's await forever with no error on screen.
+            if (!_finishEmitted)
+            {
+                CoreLogger.Fail("Process", "Export pipeline ended without reporting a result — reporting failure so the UI cannot hang.");
+                EmitFinished(false, _isCanceled ? CancelledMessage : "The export stopped unexpectedly.");
+            }
         }
     }
 
@@ -2201,55 +2396,84 @@ public class ProcessWorker : IDisposable
     /// file is not yet at its destination. Returns the preserved path, or null if even that could
     /// not be managed (in which case there is genuinely nothing left to save).
     /// </summary>
+    /// <summary>
+    /// RESCUE_01 — delegates to <see cref="RescuedOutputPath.TryRescue"/>.
+    ///
+    /// WHAT WAS WRONG: this method picked its destination with a <c>while (File.Exists(...))</c>
+    /// scan and then called the TWO-argument <c>File.Move</c>, which throws when the destination
+    /// exists. Two rescues inside the same one-second stamp — cancel-then-restart, or Main App and
+    /// Merger together — meant the second one threw, was swallowed, returned null, and the
+    /// finished render (the ONLY copy, which is why it is being rescued at all) was abandoned. The
+    /// index loop also had no ceiling, so an unwritable temp root spun forever inside a failure
+    /// handler. <see cref="RescuedOutputPath"/> carries the OUTPATH_01 reservation primitive this
+    /// path always should have used, in ONE copy shared with <c>MergerWorker</c>.
+    ///
+    /// ⚠️ The prefix and the log tag stay distinct from the Merger's — they are how the user and
+    /// the crash digest tell the two tools' rescued files apart.
+    /// </summary>
     private string? TryRescueFinishedRender(string corePath)
-    {
-        try
-        {
-            if (!File.Exists(corePath)) return null;
+        => RescuedOutputPath.TryRescue(
+            corePath,
+            _paths.TempDirectory,
+            "Fortnite-Video-RECOVERED-",
+            "Output",
+            "Could not preserve the finished render");
 
-            Directory.CreateDirectory(_paths.TempDirectory);
-
-            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-            string rescued = Path.Combine(_paths.TempDirectory, $"Fortnite-Video-RECOVERED-{stamp}.mp4");
-
-            int n = 1;
-            while (File.Exists(rescued))
-            {
-                rescued = Path.Combine(_paths.TempDirectory, $"Fortnite-Video-RECOVERED-{stamp}-{n}.mp4");
-                n++;
-            }
-
-            File.Move(corePath, rescued);
-            return rescued;
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Fail("Output", $"Could not preserve the finished render: {ex.Message}");
-            return null;
-        }
-    }
-
+    /// <summary>
+    /// OUTPATH_01 — RESERVES the output name instead of merely testing it.
+    ///
+    /// This was a File.Exists scan: check, then return the name, then write to it much later. Two
+    /// pipelines running at once — which is exactly what a cancel-then-restart used to produce —
+    /// both saw the same index free and both returned it, so the second File.Move(..., overwrite:
+    /// true) silently destroyed the first render. The window is small but the loss is total and
+    /// silent, which is the worst combination.
+    ///
+    /// FileMode.CreateNew with FileShare.None is an ATOMIC create-or-fail at the filesystem level:
+    /// exactly one caller can win a given name, in this process or any other. The zero-byte
+    /// placeholder it leaves is overwritten by the pipeline's own File.Move/File.Copy, which
+    /// already pass overwrite: true.
+    ///
+    /// The iteration ceiling exists so a directory that cannot be written to (permissions, a full
+    /// disk, an offline network share) fails loudly after a bounded number of attempts instead of
+    /// spinning forever inside the export.
+    /// </summary>
     private static string ResolveOutputPath(string outputDir)
     {
         Directory.CreateDirectory(outputDir);
-        int idx = 1;
-        while (true)
+
+        const int MaxIndex = 10000;
+        for (int idx = 1; idx <= MaxIndex; idx++)
         {
             string path = Path.Combine(outputDir, $"Fortnite-Video-{idx}.mp4");
-            if (!File.Exists(path)) return path;
-            idx++;
+            try
+            {
+                using var reserve = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                return path;
+            }
+            catch (IOException)
+            {
+                // Taken by an existing file, or lost the race to a sibling export. Try the next index.
+            }
         }
+
+        throw new IOException(
+            $"Could not reserve an output filename in '{outputDir}' after {MaxIndex} attempts. " +
+            "The folder may be full, read-only, or unavailable.");
     }
 
     /// <summary>
     /// ISSUE_15 — renders an argument list into a human-readable, copy-pasteable command for
     /// the DEBUG log only. Never used to launch a process.
+    ///
+    /// PIPEDEDUP_01 — this was a PRIVATE COPY of <see cref="ProcessArgs.FormatForLog"/>, byte for
+    /// byte. Every other consumer in this assembly — AudioLoudnessProbe, MediaProber,
+    /// WaveformGenerator, HudAutoDetector — already called the shared one; this file alone kept
+    /// its own. The escaping rules it implements are a correctness contract (ISSUE_07: a path
+    /// containing a quote, or ending in a backslash, breaks a hand-assembled command line), and a
+    /// second copy is a second place for that contract to drift. Delegating keeps the private
+    /// name so none of the six call sites in this file change.
     /// </summary>
-    private static string FormatForLog(IEnumerable<string> args)
-    {
-        return string.Join(" ", args.Select(a =>
-            a.Length == 0 || a.Contains(' ') || a.Contains('"') ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
-    }
+    private static string FormatForLog(IEnumerable<string> args) => ProcessArgs.FormatForLog(args);
 
     private void EmitFinished(bool success, string message)
     {
@@ -2317,6 +2541,10 @@ public class ProcessWorker : IDisposable
             FileName = _ffmpegPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // FFMPEGSTOP_01 — see the main encode: this is the channel for the 'q' quit command.
+            // The two-pass tail is the pass that actually writes the deliverable file, so a
+            // mid-write kill here is exactly the case that produces an unplayable export.
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
@@ -2329,16 +2557,15 @@ public class ProcessWorker : IDisposable
             return false;
         }
 
-        _currentProcess = proc;
+        SetCurrentProcess(proc);   // PROCGATE_01
 
         try
         {
             try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
-            using var reg = cancellationToken.Register(() =>
-            {
-                try { proc.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-            });
+            // FFMPEGSTOP_01 — cooperative stop, single-flight, off-thread. See the main encode.
+            using var reg = cancellationToken.Register(
+                () => BeginCooperativeShutdown(proc, "FFmpeg", attemptQuitCommand: true));
 
             var progressTask = Task.Run(async () =>
             {
@@ -2375,11 +2602,34 @@ public class ProcessWorker : IDisposable
                 }
             });
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // PIPEDRAIN_01 — DRAIN BEFORE DISPOSE, ON EVERY PATH INCLUDING CANCELLATION.
+            //
+            // This used to be `catch (OperationCanceledException) { return false; }`. That return
+            // jumped straight to the finally below, which disposes `proc` — closing the
+            // StandardOutput / StandardError pipe handles while progressTask and stderrTask were
+            // still suspended inside ReadLineAsync on them. Both tasks faulted with nobody awaiting
+            // them (unobserved), their `using var reader` double-disposed the StreamReader, and the
+            // anonymous pipe pair survived until finalization. The main encode loop above already
+            // does this correctly with Task.WhenAll; this path was simply missed.
+            //
+            // The 5s ceiling exists so a child that survived the kill cannot hold teardown open.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            bool tailCanceled = false;
             try { await proc.WaitForExitAsync(cancellationToken); }
-            catch (OperationCanceledException) { return false; }
+            catch (OperationCanceledException) { tailCanceled = true; }
 
-            try { await progressTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-            try { await stderrTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+            try { await Task.WhenAll(progressTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+            catch (TimeoutException) { CoreLogger.Debug("FFmpeg", "Two-pass reader drain timed out after 5s; continuing teardown."); }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
+
+            // FFMPEGSTOP_01 — a cancelled tail must still let the ladder finish, or the process is
+            // abandoned mid-finalize and the scratch master/passlog are left behind with a live
+            // writer still holding them.
+            await AwaitActiveShutdownAsync();
+
+            if (tailCanceled) return false;
 
             int exitCode = ReadExitCodeSafely(proc, "FFmpeg");
             if (exitCode == 0) return true;
@@ -2403,7 +2653,7 @@ public class ProcessWorker : IDisposable
         }
         finally
         {
-            _currentProcess = null;
+            TakeCurrentProcess();      // PROCGATE_01
             proc.Dispose();
         }
     }
@@ -2543,10 +2793,12 @@ public class ProcessWorker : IDisposable
 
         try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
+        // FFMPEGSTOP_01 — PROBE_01 writes to the NULL MUXER ("-f null -"): no file is produced,
+        // so there is nothing a cooperative quit could protect. Grace 0 keeps cancellation as
+        // immediate as it was, while still confirming the tree actually died.
         using var probeKill = cancellationToken.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-        });
+            GracefulProcessTerminator.Terminate(
+                process, "FFmpeg", attemptQuitCommand: false, cooperativeGraceMs: 0));
 
         var lastLines = new Queue<string>(100);
         using var reader = process.StandardError;
@@ -2701,10 +2953,11 @@ public class ProcessWorker : IDisposable
 
             try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
+            // FFMPEGSTOP_01 — loudnorm pass 1 is a MEASUREMENT run into the null muxer; it writes
+            // no file, so grace 0 (immediate kill + bounded exit confirmation) is correct here.
             using var loudnormKill = cancellationToken.Register(() =>
-            {
-                try { process.Kill(entireProcessTree: true); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-            });
+                GracefulProcessTerminator.Terminate(
+                    process, "Loudnorm", attemptQuitCommand: false, cooperativeGraceMs: 0));
 
             var lastLines = new System.Collections.Generic.Queue<string>(100);
             // CUT_01 — the progress bar counts the audio ffmpeg actually decodes, which after cuts
@@ -2924,7 +3177,9 @@ public class ProcessWorker : IDisposable
     /// </summary>
     public void Dispose()
     {
-        var proc = _currentProcess;
+        // PROCGATE_01 — TakeCurrentProcess claims the reference AND clears the slot in one atomic
+        // step, so this can never race the export thread into a double Dispose of the same Process.
+        var proc = TakeCurrentProcess();
         if (proc != null)
         {
             try
@@ -2932,14 +3187,20 @@ public class ProcessWorker : IDisposable
                 if (!proc.HasExited)
                 {
                     _isCanceled = true;
-                    CoreLogger.Info("Process", "Worker disposed while the encoder was still running — terminating the FFmpeg process tree.");
-                    proc.Kill(entireProcessTree: true);
+                    CoreLogger.Info("Process", "Worker disposed while the encoder was still running — stopping the FFmpeg process tree (cooperative quit, then hard kill).");
+
+                    // FFMPEGSTOP_01 — the SYNCHRONOUS ladder, matching MergerWorker.Dispose.
+                    // ⚠️ ISSUE_11's guarantee is unchanged: this still returns only once the tree
+                    // is dead or the bounded confirmation window has elapsed. Worst case it blocks
+                    // for CooperativeGraceMs + HardKillConfirmMs — the same ceiling every other
+                    // teardown in this solution accepts — and the ChildProcessTracker job object
+                    // remains the final safeguard beyond that.
+                    GracefulProcessTerminator.Terminate(proc, "FFmpeg", attemptQuitCommand: true);
                 }
             }
             catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-            _currentProcess = null;
         }
     }
 }

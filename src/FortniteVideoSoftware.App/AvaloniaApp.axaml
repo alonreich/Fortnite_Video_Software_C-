@@ -37,6 +37,26 @@
         <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#1c449c" />
 
         <!-- ══════════════════════════════════════════════════════════════════════════════════
+             ZOOMANTS_01 — THE MARCHING-ANTS YELLOW, AND WHY IT IS A DELIBERATE EXCEPTION.
+             ⚠️ READ IDEA_6 DIRECTLY ABOVE BEFORE TOUCHING THIS. IDEA_6 says everything zoom wears
+             AppZoomColor and zoom must not be given "a second colour for contrast" — and it names
+             yellow #fde047 as one of the three colours that were REMOVED from zoom precisely
+             because users could not tell a zoom from a speed segment.
+             This token reintroduces that yellow for ONE thing only: the animated 1px marching-ants
+             outline of the zoom rubber-band, on the owner's explicit instruction. The reasoning is
+             that an ANIMATED hairline is distinguished by its motion rather than by its hue, so it
+             no longer relies on colour to be told apart from a static speed block.
+             ⚠️ THE COLLISIONS IDEA_6 WARNED ABOUT ARE STILL REAL: this yellow is close to
+             AppWarningBrush (#facc15) and to the selected-block highlight. If zoom and "selected"
+             or zoom and "warning" ever start reading as the same thing again, THIS is the token to
+             revert — set it to {StaticResource AppZoomColor} and the ants go back to zoom blue.
+             ⚠️ Theme-invariant on purpose: the ants are drawn over VIDEO, not over app chrome, so
+             they must not follow the Light/Dark dictionaries. Same reasoning as AppZoomColor.
+             ══════════════════════════════════════════════════════════════════════════════════ -->
+        <Color x:Key="AppZoomAntsColor">#fde047</Color>
+        <SolidColorBrush x:Key="AppZoomAntsBrush" Color="{StaticResource AppZoomAntsColor}" />
+
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
              MEME_06 — THE MEME COLOUR, and it follows AppZoomColor's rule exactly.
              Memes get their own token for the same reason zoom did: their timeline markers sit on
              the SAME ruler as the freeze camera (danger red) and the zoom magnifier (AppZoomColor),

@@ -358,28 +358,12 @@ public static class FloatingNotice
         return created;
     }
 
-    /// <summary>
-    /// Mirrors CoachOverlay.ResolveHostPanel — CropToolWindow's root Content is a Border, so a
-    /// bare `window.Content as Panel` silently disables the feature on a whole application.
-    /// </summary>
-    private static Panel? ResolveHostPanel(Window window)
-    {
-        if (window.Content is Panel direct) return direct;
-        if (window.Content is Decorator dec && dec.Child is Panel decChild) return decChild;
-        if (window.Content is ContentControl cc && cc.Content is Panel ccChild) return ccChild;
-        return null;
-    }
+    /// OVERLAYHOST_01 — was a private copy, byte-identical to the one in the sibling overlay
+    /// helper. One implementation now; the private names are kept so no call site changes.
+    /// See <see cref="OverlayHostLayout"/> for why `window.Content as Panel` is not sufficient.
+    private static Panel? ResolveHostPanel(Window window) => OverlayHostLayout.ResolveHostPanel(window);
 
-    private static void CoverWholeHost(Panel host, Control child)
-    {
-        if (host is Grid g)
-        {
-            Grid.SetRow(child, 0);
-            Grid.SetColumn(child, 0);
-            Grid.SetRowSpan(child, Math.Max(1, g.RowDefinitions.Count));
-            Grid.SetColumnSpan(child, Math.Max(1, g.ColumnDefinitions.Count));
-        }
-    }
+    private static void CoverWholeHost(Panel host, Control child) => OverlayHostLayout.CoverWholeHost(host, child);
 
     private static (IBrush Accent, IBrush Fill) Palette(Control? host, NoticeKind kind)
     {

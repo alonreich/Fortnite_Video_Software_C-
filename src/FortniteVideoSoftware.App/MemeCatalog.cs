@@ -73,59 +73,207 @@ public static class MemeCatalog
 
     /// <summary>
     /// §1 File Ingestion: scans the ACTIVE meme directory for supported formats, skipping
-    /// zero-byte files, and probes each file's native dimensions (ffprobe for videos,
+    /// zero-byte files, and resolves each file's native dimensions (ffprobe for videos,
     /// SkiaSharp for images). Runs fully off the UI thread.
     /// §3 Exception Handling: UnauthorizedAccessException propagates so the Settings flow
     /// can block the path change and revert; all other per-file errors are swallowed.
+    ///
+    /// <para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// MEMESCAN_01 — WHY THIS IS THREE PHASES INSTEAD OF ONE LOOP.
+    ///
+    /// WHAT WAS WRONG: a single foreach spawned ONE ffprobe child process per video, STRICTLY
+    /// SERIALLY, via <c>new MediaProber(...).GetResolutionAsync().GetAwaiter().GetResult()</c>.
+    /// Three separate costs compounded:
+    ///
+    ///   1. Serial process launches. ~100 ms each on Windows (CreateProcess + image load + ffprobe's
+    ///      own demuxer probe), and a single unreadable or network-backed file cost the full
+    ///      15-second MediaProber timeout on its own, blocking every file behind it.
+    ///   2. No memoisation, despite MediaProber having some. A NEW MediaProber was constructed
+    ///      inside the loop body and dropped on the next iteration, so its SemaphoreSlim-guarded
+    ///      _probeData cache never served a single hit on this path.
+    ///   3. Sync-over-async inside Task.Run. .GetAwaiter().GetResult() parks a thread-pool worker
+    ///      for the whole probe. The pool injects roughly one thread per 500 ms, so a large scan
+    ///      starved every other queued Task.Run in the app — filmstrip prewarm, size estimation,
+    ///      loudness probes — behind it.
+    ///
+    /// And this path is re-entered on window Loaded (cold start), on every MemeDirectory.Changed,
+    /// and immediately after a cloud sync — i.e. right when the library is at its largest.
+    ///
+    /// THE FIX: enumerate cheaply, resolve dimensions from a persisted (length, mtime)-keyed cache
+    /// and probe only the misses under a bounded worker pool with real awaits, then assemble.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </para>
     /// </summary>
     public static async Task<List<MemeItem>> ScanAsync(string directory, string ffprobePath)
     {
-        return await Task.Run(() =>
+        long startTicks = Environment.TickCount64;
+
+        // ── PHASE A: enumeration + cheap filtering ──────────────────────────────────────────
+        List<ScanCandidate> candidates = await Task.Run(() => EnumerateCandidates(directory)).ConfigureAwait(false);
+        if (candidates.Count == 0) return new List<MemeItem>();
+
+        // ── PHASE B: dimensions — cache first, bounded-concurrency probe for the misses ──────
+        MemeDimensionCache cache = MemeDimensionCache.Load();
+
+        var misses = new List<ScanCandidate>();
+        foreach (ScanCandidate c in candidates)
         {
-            var items = new List<MemeItem>();
-            if (!Directory.Exists(directory)) return items;
-
-            string[] files = Directory.GetFiles(directory);
-
-            foreach (string f in files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            if (cache.TryGet(c.FullPath, c.Length, c.MTimeTicks, out int cachedW, out int cachedH))
             {
-                string ext = Path.GetExtension(f).ToLowerInvariant();
-                bool isVideo = VideoExts.Contains(ext);
-                bool isImage = ImageExts.Contains(ext);
-                if (!isVideo && !isImage) continue;
-
-                try { if (new FileInfo(f).Length == 0) continue; } catch { continue; }
-
-                var item = new MemeItem { FileName = Path.GetFileName(f), FullPath = f, IsImage = isImage };
-                try
-                {
-                    if (isImage)
-                    {
-                        using var codec = SkiaSharp.SKCodec.Create(f);
-                        if (codec != null) { item.Width = codec.Info.Width; item.Height = codec.Info.Height; }
-                    }
-                    else
-                    {
-                        var (w, h) = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobePath, f)
-                            .GetResolutionAsync().GetAwaiter().GetResult();
-                        item.Width = w; item.Height = h;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog.Info("Memes", $"Dimension probe failed for '{item.FileName}': {ex.Message}");
-                }
-
-                if (isVideo && (item.Width <= 0 || item.Height <= 0))
-                {
-                    RuntimeLog.Fail("Memes", $"Excluding unreadable video meme '{item.FileName}' (failed to probe; would crash export).");
-                    continue;
-                }
-
-                items.Add(item);
+                c.Width = cachedW;
+                c.Height = cachedH;
             }
-            return items;
-        });
+            else
+            {
+                misses.Add(c);
+            }
+        }
+
+        if (misses.Count > 0)
+        {
+            // MEMESCAN_01 — the ceiling exists because each lane is a live ffprobe PROCESS, not a
+            // thread. Saturating every core with child processes during app start would fight the
+            // preview decode the user is actually looking at.
+            int lanes = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
+
+            await Parallel.ForEachAsync(
+                misses,
+                new ParallelOptions { MaxDegreeOfParallelism = lanes },
+                async (c, ct) =>
+                {
+                    try
+                    {
+                        if (c.IsImage)
+                        {
+                            using var codec = SkiaSharp.SKCodec.Create(c.FullPath);
+                            if (codec != null)
+                            {
+                                c.Width = codec.Info.Width;
+                                c.Height = codec.Info.Height;
+                            }
+                        }
+                        else
+                        {
+                            var (w, h) = await new FortniteVideoSoftware.Core.Media.MediaProber(ffprobePath, c.FullPath)
+                                .GetResolutionAsync().ConfigureAwait(false);
+                            c.Width = w;
+                            c.Height = h;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // §3 — one bad file may never fault the whole pass.
+                        RuntimeLog.Info("Memes", $"Dimension probe failed for '{c.FileName}': {ex.Message}");
+                    }
+                }).ConfigureAwait(false);
+
+            foreach (ScanCandidate c in misses)
+            {
+                // Put() ignores non-positive dimensions, so a failed probe is never cached and the
+                // export-crash guard below can never be satisfied from stale data.
+                cache.Put(c.FullPath, c.Length, c.MTimeTicks, c.Width, c.Height);
+            }
+
+            cache.Save();
+        }
+
+        // ── PHASE C: exclusion + assembly, in the PHASE A order ─────────────────────────────
+        var items = new List<MemeItem>(candidates.Count);
+        int excluded = 0;
+
+        foreach (ScanCandidate c in candidates)
+        {
+            // ⚠️ LOAD-BEARING GUARD. A video with no usable geometry crashes the export filter
+            // graph. Images are deliberately NOT subject to this — a Skia decode failure leaves a
+            // usable item that simply has no aspect-ratio hint for the §2 UI guardrail.
+            if (!c.IsImage && (c.Width <= 0 || c.Height <= 0))
+            {
+                RuntimeLog.Fail("Memes", $"Excluding unreadable video meme '{c.FileName}' (failed to probe; would crash export).");
+                excluded++;
+                continue;
+            }
+
+            items.Add(new MemeItem
+            {
+                FileName = c.FileName,
+                FullPath = c.FullPath,
+                IsImage = c.IsImage,
+                Width = c.Width,
+                Height = c.Height
+            });
+        }
+
+        RuntimeLog.Info("Memes",
+            $"Meme scan: {candidates.Count} candidate(s), {candidates.Count - misses.Count} from cache, " +
+            $"{misses.Count} probed, {excluded} excluded, {Environment.TickCount64 - startTicks} ms.");
+
+        return items;
+    }
+
+    /// <summary>MEMESCAN_01 — one file that survived filtering, carried through the three phases.</summary>
+    private sealed class ScanCandidate
+    {
+        public string FileName = "";
+        public string FullPath = "";
+        public bool IsImage;
+        public long Length;
+        public long MTimeTicks;
+        public int Width;
+        public int Height;
+    }
+
+    /// <summary>
+    /// MEMESCAN_01 — PHASE A. Pure filesystem work, no child processes, no decoding.
+    /// Establishes the canonical ordering (filename, ordinal-ignore-case) that PHASE C re-imposes
+    /// after the unordered parallel probe.
+    /// </summary>
+    private static List<ScanCandidate> EnumerateCandidates(string directory)
+    {
+        var candidates = new List<ScanCandidate>();
+        if (!Directory.Exists(directory)) return candidates;
+
+        // §3 — UnauthorizedAccessException from here PROPAGATES on purpose: the Settings
+        // meme-folder change flow catches it to block the path change and revert. Do NOT wrap this
+        // in a catch-all.
+        string[] files = Directory.GetFiles(directory);
+
+        foreach (string f in files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            string ext = Path.GetExtension(f).ToLowerInvariant();
+            bool isVideo = VideoExts.Contains(ext);
+            bool isImage = ImageExts.Contains(ext);
+            if (!isVideo && !isImage) continue;
+
+            long length;
+            long mtimeTicks;
+            try
+            {
+                var fi = new FileInfo(f);
+                length = fi.Length;
+                mtimeTicks = fi.LastWriteTimeUtc.Ticks;
+            }
+            catch
+            {
+                // Unreadable metadata — same disposition as the original zero-byte guard: skip.
+                continue;
+            }
+
+            // ⚠️ LOAD-BEARING GUARD. Zero bytes means an unresolved Git-LFS pointer or a
+            // half-finished download. It must be skipped BEFORE anything tries to probe it.
+            if (length == 0) continue;
+
+            candidates.Add(new ScanCandidate
+            {
+                FileName = Path.GetFileName(f),
+                FullPath = f,
+                IsImage = isImage,
+                Length = length,
+                MTimeTicks = mtimeTicks
+            });
+        }
+
+        return candidates;
     }
 
     /// <summary>

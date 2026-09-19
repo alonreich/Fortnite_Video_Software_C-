@@ -26,6 +26,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using IOPath = System.IO.Path;
 
+// COLORMATH_01 / CROPJSON_01 / CROPGEOM_01 / BINPATH_01 — these four helper types hold methods
+// extracted verbatim from this class. Imported with `using static` on purpose: every one of the
+// ~60 call sites below keeps the exact unqualified spelling it already had, so the extraction
+// cannot change a single statement inside this file.
+using static FortniteVideoSoftware.App.Infrastructure.ColorMath;
+using static FortniteVideoSoftware.App.Infrastructure.CropConfigJson;
+using static FortniteVideoSoftware.App.Infrastructure.CropGeometry;
+
 namespace FortniteVideoSoftware.App;
 
 public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataErrorInfo
@@ -218,7 +226,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     private const double MinSelectionSize = 10;
     private const double MinItemSize = 20;
     private const double HandleSize = 24;
-    private const double SnapThreshold = 8;
+    // CROPGEOM_01 — SnapThreshold moved to CropGeometry alongside SnapAxis, its only consumer.
 
     private readonly ApplicationPaths _paths = ApplicationPaths.CreateDefault();
     private readonly FortniteVideoSoftware.Core.Infrastructure.RecoveryManager _recovery = new FortniteVideoSoftware.Core.Infrastructure.RecoveryManager(ApplicationPaths.CreateDefault());
@@ -2866,81 +2874,13 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return chosen;
     }
 
-    /// <summary>BANDCONTRAST_01 — complementary hue, inverted value, guaranteed to separate.</summary>
-    private static Color OppositeOf(double r, double g, double b)
-    {
-        var (h, sat, _) = RgbToHsv(r, g, b);
-        double lum = RelativeLuminance(r, g, b);
+    // COLORMATH_01 — OppositeOf moved verbatim; see the extracted type.
 
-        // A near-neutral region has no meaningful complement — the hue is numerical noise and would
-        // flicker as the average shifted. Red is the defined default for exactly this case.
-        double hue = sat < 0.12 ? 0.0 : (h + 180.0) % 360.0;
-        double value = lum > 0.45 ? 0.20 : 1.00;
+    // COLORMATH_01 — RgbToHsv moved verbatim; see the extracted type.
 
-        Color candidate = HsvToColor(hue, 1.0, value);
+    // COLORMATH_01 — HsvToColor moved verbatim; see the extracted type.
 
-        // Last check on the numbers rather than on the theory: if the complement still does not
-        // separate (a mid-luminance, mid-saturation wash), fall back to flat black or flat white,
-        // which always does.
-        double candidateLum = RelativeLuminance(candidate.R, candidate.G, candidate.B);
-        double ratio = (Math.Max(candidateLum, lum) + 0.05) / (Math.Min(candidateLum, lum) + 0.05);
-        if (ratio < 3.0)
-        {
-            candidate = lum > 0.45 ? Color.FromRgb(0, 0, 0) : Color.FromRgb(255, 255, 255);
-        }
-
-        return candidate;
-    }
-
-    private static (double h, double s, double v) RgbToHsv(double r, double g, double b)
-    {
-        double rn = r / 255.0, gn = g / 255.0, bn = b / 255.0;
-        double max = Math.Max(rn, Math.Max(gn, bn));
-        double min = Math.Min(rn, Math.Min(gn, bn));
-        double delta = max - min;
-
-        double h;
-        if (delta < 1e-6) h = 0;
-        else if (max == rn) h = 60 * (((gn - bn) / delta) % 6);
-        else if (max == gn) h = 60 * (((bn - rn) / delta) + 2);
-        else h = 60 * (((rn - gn) / delta) + 4);
-
-        if (h < 0) h += 360;
-        return (h, max <= 1e-6 ? 0 : delta / max, max);
-    }
-
-    private static Color HsvToColor(double h, double s, double v)
-    {
-        h = ((h % 360) + 360) % 360;
-        double c = v * s;
-        double x = c * (1 - Math.Abs((h / 60.0 % 2) - 1));
-        double m = v - c;
-
-        double r, g, b;
-        if (h < 60) { r = c; g = x; b = 0; }
-        else if (h < 120) { r = x; g = c; b = 0; }
-        else if (h < 180) { r = 0; g = c; b = x; }
-        else if (h < 240) { r = 0; g = x; b = c; }
-        else if (h < 300) { r = x; g = 0; b = c; }
-        else { r = c; g = 0; b = x; }
-
-        return Color.FromRgb(
-            (byte)Math.Clamp(Math.Round((r + m) * 255), 0, 255),
-            (byte)Math.Clamp(Math.Round((g + m) * 255), 0, 255),
-            (byte)Math.Clamp(Math.Round((b + m) * 255), 0, 255));
-    }
-
-    /// <summary>BANDCONTRAST_01 — WCAG relative luminance, 0 (black) to 1 (white).</summary>
-    private static double RelativeLuminance(double r, double g, double b)
-    {
-        static double Channel(double v)
-        {
-            double n = v / 255.0;
-            return n <= 0.03928 ? n / 12.92 : Math.Pow((n + 0.055) / 1.055, 2.4);
-        }
-
-        return 0.2126 * Channel(r) + 0.7152 * Channel(g) + 0.0722 * Channel(b);
-    }
+    // COLORMATH_01 — RelativeLuminance moved verbatim; see the extracted type.
 
     /// <summary>
     /// CROPCANVAS_01 — builds the selection rectangle and its four corner handles, once.
@@ -4224,33 +4164,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return h / (double)w;
     }
 
-    /// <summary>
-    /// RESIZEFEEL_01 — how far a corner drag has moved ALONG the box's own diagonal.
-    ///
-    /// The old code passed only <c>dx</c> and ignored <c>dy</c> entirely, so dragging a corner
-    /// straight down did nothing at all and dragging it diagonally moved the box by only the
-    /// horizontal part of the gesture. That is most of the "unresponsive, unstable" feel: the box
-    /// does not follow the pointer, it follows the pointer's shadow on the X axis.
-    ///
-    /// Projecting onto the diagonal is the right answer for a ratio-locked box, because the corner
-    /// can only ever travel along that line. The pointer is then free to wander off it — the user
-    /// drags roughly outwards and the box grows smoothly outwards — which is exactly how every
-    /// other editor behaves.
-    /// </summary>
-    /// <param name="dx">Pointer delta on X since the gesture started.</param>
-    /// <param name="dy">Pointer delta on Y since the gesture started.</param>
-    /// <param name="aspect">height ÷ width of the locked ratio.</param>
-    /// <returns>The change in WIDTH the drag represents.</returns>
-    private static double DiagonalWidthDelta(double dx, double dy, double aspect)
-    {
-        // Unit vector along the box diagonal, expressed per unit of width: (1, aspect).
-        double len = Math.Sqrt(1.0 + aspect * aspect);
-        if (len < 1e-6) return dx;
-
-        // Dot the drag onto that direction, then convert back from diagonal distance into width.
-        double alongDiagonal = (dx * 1.0 + dy * aspect) / len;
-        return alongDiagonal / len;
-    }
+    // CROPGEOM_01 — DiagonalWidthDelta moved verbatim; see the extracted type.
 
     /// <summary>
     /// RESIZEFEEL_01 — resize to a target width with the TOP-LEFT corner pinned, ratio locked.
@@ -5985,36 +5899,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return (snappedX, snappedY);
     }
 
-    private static (double pos, double? guide) SnapAxis(double pos, double size, List<(double value, string label)> targets)
-    {
-        double start = pos;
-        double halfSize = CoordinateMath.ScaleRound(Frac.FromDouble(size / 2.0));
-        double center = pos + halfSize;
-        double end = pos + size;
-        double bestDistance = SnapThreshold + 1;
-        double bestPos = pos;
-        double? bestGuide = null;
-
-        foreach ((double target, _) in targets)
-        {
-            Check(start, target, target);
-            Check(center, target, target - halfSize);
-            Check(end, target, target - size);
-        }
-
-        return (bestPos, bestGuide);
-
-        void Check(double current, double guide, double candidatePos)
-        {
-            double distance = Math.Abs(current - guide);
-            if (distance < bestDistance && distance <= SnapThreshold)
-            {
-                bestDistance = distance;
-                bestPos = candidatePos;
-                bestGuide = guide;
-            }
-        }
-    }
+    // CROPGEOM_01 — SnapAxis moved verbatim; see the extracted type.
 
     private void DrawGuide(bool vertical, double value)
     {
@@ -6064,14 +5949,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             Math.Max(0, Math.Min(point.Y, _snapshotHeight)));
     }
 
-    private static Rect NormalizeRect(Point a, Point b)
-    {
-        double x = Math.Min(a.X, b.X);
-        double y = Math.Min(a.Y, b.Y);
-        double w = Math.Abs(a.X - b.X);
-        double h = Math.Abs(a.Y - b.Y);
-        return new Rect(x, y, w, h);
-    }
+    // CROPGEOM_01 — NormalizeRect moved verbatim; see the extracted type.
 
     private SourceRect ToSourceRect(Rect rect)
     {
@@ -6106,109 +5984,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return new HudRole("custom_element", "Custom Element", 50, -1, -1);
     }
 
-    /// <summary>
-    /// KEYCASE_01 — reads a section entry by element key, case-insensitively.
-    ///
-    /// RoleByKey is an OrdinalIgnoreCase dictionary, so everywhere else in this window "Loot" and
-    /// "loot" are one role. System.Text.Json.Nodes.JsonObject, however, indexes ORDINALLY: a config
-    /// written by an older build, hand-edited, or produced on a case-preserving path could hold
-    /// "Loot" while the role table offers "loot", and every `section[role.Key]` read then returned
-    /// null. The element looked absent on load and was re-created as a second entry on save, so the
-    /// exporter drew one of them and the user edited the other.
-    /// </summary>
-    private static JsonNode? ReadSectionNode(JsonObject section, string key)
-    {
-        if (section.TryGetPropertyValue(key, out JsonNode? exact))
-        {
-            return exact;
-        }
+    // CROPJSON_01 — ReadSectionNode moved verbatim; see the extracted type.
 
-        foreach (KeyValuePair<string, JsonNode?> pair in section)
-        {
-            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
-            {
-                return pair.Value;
-            }
-        }
+    // CROPJSON_01 — WriteSectionNode moved verbatim; see the extracted type.
 
-        return null;
-    }
+    // CROPJSON_01 — EnsureObject moved verbatim; see the extracted type.
 
-    /// <summary>
-    /// KEYCASE_01 — writes a section entry under <paramref name="key"/> and removes every
-    /// case-variant of it, so a save can never leave two spellings of the same element behind.
-    /// </summary>
-    private static void WriteSectionNode(JsonObject section, string key, JsonNode? value)
-    {
-        List<string> variants = section
-            .Where(pair => !string.Equals(pair.Key, key, StringComparison.Ordinal)
-                        && string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
-            .Select(pair => pair.Key)
-            .ToList();
+    // CROPJSON_01 — ReadInt moved verbatim; see the extracted type.
 
-        foreach (string variant in variants)
-        {
-            section.Remove(variant);
-            RuntimeLog.Info("CROP", $"  Removed duplicate config key '{variant}' (same element as '{key}').");
-        }
+    // CROPJSON_01 — ReadFrac moved verbatim; see the extracted type.
 
-        section[key] = value;
-    }
-
-    private static JsonObject EnsureObject(JsonObject config, string section)
-    {
-        if (config[section] is JsonObject obj)
-        {
-            return obj;
-        }
-
-        obj = new JsonObject();
-        config[section] = obj;
-        return obj;
-    }
-
-    private static int ReadInt(JsonNode? node, int fallback)
-    {
-        try
-        {
-            return node?.GetValue<int>() ?? fallback;
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Info("CROP", $"JSON int parse fallback to {fallback}: {ex.Message}");
-            return fallback;
-        }
-    }
-
-    private static Frac ReadFrac(JsonNode? node, Frac fallback)
-    {
-        try
-        {
-            if (node == null) return fallback;
-            if (node.AsValue().TryGetValue(out string? s) && !string.IsNullOrWhiteSpace(s))
-                return Frac.FromString(s);
-            if (node.AsValue().TryGetValue(out double d))
-                return Frac.FromDouble(d);
-            return fallback;
-        }
-        catch
-        {
-            return fallback;
-        }
-    }
-
-    private static double ReadDouble(JsonNode? node, double fallback)
-    {
-        try
-        {
-            return node?.GetValue<double>() ?? fallback;
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Info("CROP", $"JSON double parse fallback to {fallback}: {ex.Message}");
-            return fallback;
-        }
-    }
+    // CROPJSON_01 — ReadDouble moved verbatim; see the extracted type.
 
     private static string FormatTime(double millis)
     {
@@ -6363,26 +6149,15 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         }
     }
 
+    /// <summary>
+    /// BINPATH_01 — moved verbatim into <see cref="Infrastructure.BinaryPathProbe"/>.
+    ///
+    /// ⚠️ THIS WINDOW'S SEARCH ORDER IS NOT THE VOICE-OVER WINDOW'S — eight candidates rooted at
+    /// the process directory versus four rooted at AppContext.BaseDirectory. See BinaryPathProbe
+    /// for why that divergence matters and why it was NOT resolved in this step.
+    /// </summary>
     private static string ResolveBinaryPath(string fileName, string preferredSubdirectory)
-    {
-        string processDir = IOPath.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        string baseDir = AppContext.BaseDirectory;
-        string sourceRootCandidate = IOPath.GetFullPath(IOPath.Combine(baseDir, "..", "..", "..", "..", "..", "binaries", fileName));
-
-        string[] candidates =
-        [
-            IOPath.Combine(processDir, preferredSubdirectory, fileName),
-            IOPath.Combine(processDir, "backend", fileName),
-            IOPath.Combine(processDir, "frontend", fileName),
-            IOPath.Combine(processDir, fileName),
-            sourceRootCandidate,
-            IOPath.Combine(Environment.CurrentDirectory, "binaries", fileName),
-            IOPath.Combine(Environment.CurrentDirectory, preferredSubdirectory, fileName),
-            fileName
-        ];
-
-        return candidates.FirstOrDefault(File.Exists) ?? fileName;
-    }
+        => Infrastructure.BinaryPathProbe.ResolveForCropTool(fileName, preferredSubdirectory);
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

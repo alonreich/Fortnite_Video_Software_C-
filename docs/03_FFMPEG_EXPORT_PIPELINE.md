@@ -202,6 +202,57 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 
 ---
 
+## 8b. Export Is Single-Flight, And Its Child Processes Are Owned  {#FFM-EXPORTLIFETIME}
+* **`EXPORTSESSION_01` — the PROCESS button is not a lock.** Export previously had exactly one mutual
+  exclusion mechanism — `processButton.IsEnabled` — and the overlay's `CancelRequested` handler
+  defeated it by re-enabling the button and dismissing the overlay **in the same breath as** signalling
+  cancellation, while FFmpeg was still being killed (`ReadExitCodeSafely` alone grants 5 s of grace
+  plus 2 more) and a multi-gigabyte job temp directory was still being deleted. Three consequences:
+  two FFmpeg pipelines ran concurrently; the second export disposed the `CancellationTokenSource` the
+  first worker still held registrations on; and both pipelines resolved the same output filename.
+  * Cancel is now a **state transition**, not a UI reset: it signals the token and shows
+    `CANCELLING...`. The overlay is dismissed and the button re-armed in exactly one place — the
+    `finally` of `MainWindow.ProcessVideoAsync`, after the pipeline `Task` has completed.
+  * `ProcessVideoAsync` is a thin single-flight wrapper guarded by `_exportRunning`; all pipeline
+    content lives in `ProcessVideoCoreAsync`. **The wrapper creates the `CancellationTokenSource` and
+    is the only code permitted to dispose it**, and only after the work `Task` has completed.
+  * `MainWindow.OnClosing` waits (bounded, 3 s) on `_exportInFlight` before teardown.
+* **`CANCELREG_01` — `RunAsync`'s cancellation registration lives INSIDE its `try`.** Taken outside it,
+  an `ObjectDisposedException` from a already-disposed source escaped `RunAsync` without ever reaching
+  `EmitFinished`, so the controller's `TaskCompletionSource` never completed and the awaiting UI hung
+  forever with the overlay already gone. `RunAsync`'s `finally` additionally asserts that
+  `EmitFinished` has fired, reporting a failure rather than allowing any silent return to wedge a caller.
+* **`OUTPATH_01` — `ResolveOutputPath` RESERVES, it does not test.** A `File.Exists` scan is a TOCTOU:
+  two pipelines both saw the same index free and the later `File.Move(..., overwrite: true)` silently
+  destroyed the earlier render. The name is now claimed with `FileMode.CreateNew` + `FileShare.None`
+  (an atomic filesystem-level create-or-fail), bounded at 10,000 attempts; the zero-byte placeholder is
+  overwritten by the pipeline's own move, and removed if that move fails.
+* **`WORKERLIFETIME_01` / `WORKERLIFETIME_02` — `ProcessWorker` is `IDisposable` and MUST be disposed.**
+  `MainMediaController` let every instance fall out of scope, which made `ISSUE_11`'s kill-the-FFmpeg-tree
+  backstop unreachable code — the exact orphan it describes (fans at full tilt, pegged CPU, nothing on
+  screen). The worker is now `using`-scoped as the outermost scope so disposal happens strictly after
+  `await tcs.Task`, the `ct.Register` handle is `using`-scoped instead of discarded, the
+  `TaskCompletionSource` is created `RunContinuationsAsynchronously`, and a fault continuation on
+  `RunAsync` converts any escape into a reported failure instead of a hang.
+* **`PROCGATE_01` / `PROCGATE_02` — the live child process is handed between threads under a gate.**
+  `_currentProcess` was a non-volatile field (its two neighbours were already `volatile`) tested for
+  null and then `Kill`ed as two separate reads, so a cancel could land in the window where the export
+  thread had nulled and disposed it — `ObjectDisposedException`, swallowed, cancel silently lost, after
+  the log had already announced *"Terminating FFmpeg process tree."* All access is now through
+  `SetCurrentProcess` / `TakeCurrentProcess` / `PeekCurrentProcess` under `_procGate`, held for a
+  reference copy only and never across a `Kill`, a `Dispose` or any I/O. `TakeCurrentProcess` claims the
+  reference and clears the slot atomically, so exactly one caller can ever dispose a given `Process`.
+  The **thumbnail grab** — previously the one child process published nowhere, registered against no
+  token and unknown to `ChildProcessTracker` — is now wired like every other.
+* **`PIPEDRAIN_01` — drain before dispose, on every path including cancellation.** The two-pass tail
+  returned early on `OperationCanceledException` straight into a `finally` that disposed the `Process`,
+  closing the `StandardOutput`/`StandardError` pipe handles while both reader tasks were still inside
+  `ReadLineAsync`. Both faulted unobserved and the anonymous pipe pair survived to finalization. Both
+  readers are now awaited (bounded at 5 s) before the process is disposed, exactly as the main encode
+  loop already did.
+
+---
+
 ## 9. Production Binary Discovery Hierarchy  {#FFM-BINPATH}
 * **Strict Search Order:** `ProcessWorker` resolves `ffmpeg.exe` / `ffprobe.exe` in this order and stops at the first hit:
   1. `AppContext.BaseDirectory` + `backend\` — **ALWAYS PROBED FIRST.**

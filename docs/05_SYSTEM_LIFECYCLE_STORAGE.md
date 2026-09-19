@@ -8,7 +8,9 @@
 | `src/FortniteVideoSoftware.App/DeploymentLifecycle.cs` | `DeploymentLifecycle` | `AcquireMutex`, `ClaimOrphanedMutex`, `ExecuteInstall`, `Uninstall` | OS installation/uninstallation mutex and single-instance lifecycle guard. |
 | `src/FortniteVideoSoftware.App/RuntimeLog.cs` | `RuntimeLog`, `CoreLogger` | `BlockingCollection<string>`, `LogMutex`, `RotateLogs`, `RetentionDays = 14` | Decoupled asynchronous producer-consumer logging pipeline. |
 | `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive`, `SchemaVersion = 1` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
-| `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `ReadObject`, `FileOptions.WriteThrough`, `File.Move` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
+| `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `FileOptions.WriteThrough`, `File.Move`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
+| `src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `SETTINGSATOMIC_01`, `CurrentSchemaVersion = 7` | Cross-process settings persistence under a named mutex and the atomic write protocol. |
+| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `FlushDebounceMs = 500`, `FlushMaxWaitMs = 3000`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
 | `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
 | `src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `ReadString`, `WriteString` | Lightweight persistent key-value configuration and coach tour launch counts. |
 | `src/FortniteVideoSoftware.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `RestoreBounds`, `SaveBoundsSync`, `DebounceMs = 700` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
@@ -121,6 +123,61 @@
 * Filesystem access, ffprobe and estimate calculations run off the UI thread. Metadata caches hold at most 128 entries, keyed by path, size and modification time. A changed file is re-probed; failures are not cached. UI-owned queues and duration dictionaries are never mutated from a worker.
 * Both quick and refined results carry a request version. The version and disposal state are checked again INSIDE the UI callback; stale callbacks cannot overwrite newer state or touch a closed window.
 * Closing cancels the worker, completes its queue, and asynchronously allows up to one second for shutdown before continuing window teardown. ffprobe uses `AsyncProcessRunner` with a 15-second timeout and lifetime cancellation, which terminates the process and drains both pipes. The worker disposes its own cancellation source only after completion; no synchronous waits on the UI thread.
+
+## 4c. Atomic Persistence Is Not Optional, And It Is Not Per-Caller  {#SYS-ATOMICWRITE}
+* **`SETTINGSATOMIC_01` — every shared-state file goes through `AtomicJsonFile`, under a named mutex.**
+  `settings.json` lives in `ProgramDataRoot`, which the Main App, the Video Merger (`--merger`) and
+  the Crop Tools (`--crop-tool`) all share. `SettingsManager.Save` previously did
+  `File.WriteAllText(SettingsPath + ".tmp")` followed by `File.Move`. Three defects, all now closed:
+  1. **A FIXED temp name.** Three processes wrote the same scrap file. The loser got an `IOException`
+     that `Save()` swallowed while returning `false` — a value ten of its twelve call sites discarded.
+     In the other interleaving one process published another's half-written payload.
+  2. **No durability barrier.** `File.WriteAllText` returns at the OS cache, and `File.Move` maps to
+     `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` only. NTFS journals the rename, not the data, so a
+     power cut between them produced a correctly named, **zero-filled** `settings.json` — which `Load`
+     then quarantined, resetting every preference the user had.
+  3. **No lock on `Instance`.** A mutable static object graph was serialised while `UpdateService`'s
+     background task mutated it.
+* **The protocol is centralised, not copied.** `AtomicJsonFile.WriteText` (`ATOMICTEXT_01`) applies the
+  identical GUID-temp → `WriteThrough` → `Flush(flushToDisk: true)` → atomic `File.Move` sequence to a
+  caller-supplied JSON string, so a source-generated (NativeAOT) serializer's exact bytes reach disk
+  without a `JsonNode` round-trip that could silently reshape them. `WriteObject` and `WriteText` share
+  one `WriteCore`. **Never reimplement this sequence at a call site.**
+* **Locks are held around the WRITE, never around serialisation and never across a UI `await`.**
+  `SerializeGate` (in-process monitor) snapshots the document; `Global\FvsSettingsMutex` serialises the
+  disk write with the 2-second `InteractiveMutexTimeout` so a wedged sibling process cannot freeze a
+  click. A `LockException` is logged and reported as a failed save, not swallowed.
+
+## 4d. Bounded Flush Scheduling & Ordered IPC Teardown  {#SYS-IPCLIFETIME}
+* **`FLUSHCEILING_01` — a debounce without a maximum-wait ceiling is not a debounce.**
+  `NamedPipeStateServer.ScheduleDiskFlush` is called from every mutating opcode and used to `Stop()`
+  then `Start()` a 500 ms one-shot timer. A **continuous** update stream — a timeline scrub, a volume
+  drag — restarted that clock before it could ever elapse, so the flush was postponed **indefinitely**.
+  The app reported "continuous session serialization" while nothing reached disk for as long as the
+  user kept working, and a crash during that drag — when a crash is most likely — lost all of it.
+  * The trailing 500 ms edge (`FlushDebounceMs`) still coalesces bursts.
+  * `_firstDirtyTicks` records when the oldest unflushed change appeared. Once it has waited
+    `FlushMaxWaitMs` (3 s) the flush is **forced**, off the calling thread, regardless of traffic.
+  * Worst case is therefore bounded at one write per 3 s during sustained editing, and coalescing is
+    preserved everywhere else. Write amplification is the reason the debounce exists; do not remove
+    either half.
+* **`IPCLEASE_01` — the single-server lease is a SEMAPHORE, not a MUTEX.** A Win32 mutex is
+  thread-affine: the lease was taken on the startup thread and released in `Dispose` on another, so
+  `ReleaseMutex` threw on **every clean shutdown**, was swallowed, and the handle was closed while
+  still owned — marking the mutex abandoned and making the next launch log the permanently false
+  *"Prior server process exited abruptly"*. A semaphore has no thread affinity, and the lease **is**
+  the open handle: no `Release()` is called, and a crashed server frees the name automatically.
+  `IpcProtocol.ServerLeaseName` is deliberately distinct from the retired `ServerMutexName`, because a
+  `Mutex` and a `Semaphore` cannot share a name across an in-place upgrade.
+* **`IPCTEARDOWN_01` — signal, then WAIT, then dispose.** `Dispose` previously cancelled and disposed
+  its `CancellationTokenSource` while `ListenLoopAsync` was still inside `WaitForConnectionAsync`, so
+  the in-flight `NamedPipeServerStream` was not deterministically closed; a restart inside that window
+  hit `TryStart`'s `!createdNew` path and silently degraded every later `LoadSync`/`SaveState` to the
+  slow direct-disk path. The order is now fixed and mandatory: stop the timer → flush → cancel →
+  **wait (bounded, 2 s) for `_listenTask`** → drop the lease → dispose the CTS and the ready event.
+  `DisposeAsync` awaits rather than blocks; the synchronous path must never be left without a wait.
+
+---
 
 ## 5. Binary Metadata & Authenticode Signing Mandate  {#SYS-SIGNING}
 * **Win32 Executable Metadata:** The compiled `.exe` embeds complete production metadata (Product Name, Publisher, Assembly Version, File Version, Legal Copyright).

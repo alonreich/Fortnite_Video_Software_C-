@@ -33,7 +33,9 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   HardwareScanner.cs                         03
   KineticScrubController.cs                  01
   LatestEstimateWorker.cs                    05
+  MainMediaController.cs                     03
   MainWindow.Canvas.cs                       01
+  MainWindow.Export.cs                       03
   MainWindow.SizeEstimate.cs                 03
   MainWindow.Shortcuts.cs                    01
   MainWindow.Wireup.cs                       01
@@ -43,7 +45,10 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   MergerWorker.cs                            03
   MicLevelMonitor.cs                         02
   MobileFilterBuilder.cs                     03
+  IpcProtocol.cs                             05
   MpvIpcClient.cs                            02
+  MpvVideoView.cs                            04
+  NamedPipeStateServer.cs                    05
 ⚠ MusicWizardWindow.axaml.cs                 01 02
   OutputTimeline.cs                          01
   OutputFileSize.cs                          03
@@ -55,6 +60,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   ProjectRecoveryService.cs                  05
 ⚠ RecoveryManager.cs                         05 GOV
   RuntimeLog.cs                              05
+  SettingsManager.cs                         05
   SettingsWindow.axaml.cs                    04
   SpinningWheelSlider.cs                     04
   TextOverlayGenerator.cs                    03
@@ -81,6 +87,29 @@ Full paths: see each spec's Code Mini-Map.
 ```
 _isSafeToClose                               05 §3 SYS-WINSTATE
 SIZEESTIMATE_01                              03 FFM-SIZEESTIMATE | 04 UI-THEME | 05 SYS-SIZEESTIMATE
+CANCELREG_01                                 03 §8b FFM-EXPORTLIFETIME
+EXPORTSESSION_01                             03 §8b FFM-EXPORTLIFETIME
+FLUSHCEILING_01                              05 §4d SYS-IPCLIFETIME
+FlushMaxWaitMs                               05 §4d SYS-IPCLIFETIME
+GPUPRESENT_01                                04 §7b UI-GPUSLOT
+GPUSLOT_01                                   04 §7b UI-GPUSLOT
+GRANPROBE_01                                 04 §7c UI-GRANOPEN
+ImportedImageSlot                            04 §7b UI-GPUSLOT
+IPCLEASE_01                                  05 §4d SYS-IPCLIFETIME
+IPCTEARDOWN_01                               05 §4d SYS-IPCLIFETIME
+OUTPATH_01                                   03 §8b FFM-EXPORTLIFETIME
+PIPEDRAIN_01                                 03 §8b FFM-EXPORTLIFETIME
+PROCGATE_01                                  03 §8b FFM-EXPORTLIFETIME
+PROCGATE_02                                  03 §8b FFM-EXPORTLIFETIME
+ProcessVideoCoreAsync                        03 §8b FFM-EXPORTLIFETIME
+ServerLeaseName                              05 §4d SYS-IPCLIFETIME
+SETTINGSATOMIC_01                            05 §4c SYS-ATOMICWRITE
+TryRetireSlot                                04 §7b UI-GPUSLOT
+WORKERLIFETIME_01                            03 §8b FFM-EXPORTLIFETIME
+WORKERLIFETIME_02                            03 §8b FFM-EXPORTLIFETIME
+_exportRunning                               03 §8b FFM-EXPORTLIFETIME
+_presentGates                                04 §7b UI-GPUSLOT
+_procGate                                    03 §8b FFM-EXPORTLIFETIME
 _lastFreezeTriggerMs                         01 §4 TL-FREEZE
 _mainEndParkIssued                           01 §8 TL-ENDSTOP
 _muteCache                                   02 (mini-map only)
@@ -109,7 +138,9 @@ AppTableHairlineBrush                        04 §1 UI-THEME
 AppTubeBrush                                 02 (mini-map only) | 04 (mini-map only)
 AppZoomBrush                                 01 §6 TL-ZOOM | 04 §1 UI-THEME
 AskEditOrRemoveAsync                         02 §6 AUD-DIALOGS | 04 (mini-map only)
+ATOMICTEXT_01                                05 §4c SYS-ATOMICWRITE
 AtomicJsonFile                               05 §4 SYS-RECOVERY
+AtomicJsonFile.WriteText                     05 §4c SYS-ATOMICWRITE
 AttachHost                                   03 (mini-map only)
 AudioFilterChain                             02 §7 AUD-MUSICFADE
 AudioLevelChanged                            02 (mini-map only)

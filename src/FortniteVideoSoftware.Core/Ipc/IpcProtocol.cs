@@ -113,6 +113,41 @@ public static class IpcProtocol
     }
 
     public static string PipeName => $"FortniteVideoSoftware_StateIpc_{UserScope}";
+    /// <summary>
+    /// IPCLEASE_01 — THE SINGLE-SERVER LEASE. IT IS THE OPEN HANDLE, NOT AN ACQUIRED LOCK.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// WHAT WAS WRONG: the server created this mutex with <c>initiallyOwned: true</c> — that is,
+    /// it OWNED it — and released it in Dispose. A Win32 mutex is THREAD-AFFINE: only the thread
+    /// that acquired it may release it. Ownership was taken on whichever thread called TryStart
+    /// (startup) and released on whichever thread ran Dispose (shutdown / app teardown), which is
+    /// almost never the same one. So <c>ReleaseMutex</c> threw
+    ///   "Object synchronization method was called from an unsynchronized block of code"
+    /// on EVERY CLEAN SHUTDOWN, was swallowed by a bare catch, and the handle was then closed while
+    /// still owned — which marks the mutex ABANDONED. The next launch duly hit the
+    /// AbandonedMutexException branch and logged "Prior server process exited abruptly": a
+    /// permanently false crash signal on a completely normal exit.
+    ///
+    /// THE FIX IS TO STOP OWNING IT. A named kernel object lives exactly as long as one handle to
+    /// it remains open, so "I hold a handle" is already a perfect lease:
+    ///   • <c>new Mutex(initiallyOwned: false, name, out createdNew)</c> — createdNew is true only
+    ///     for the process that created it, which is the one that becomes the server.
+    ///   • Nothing is ever acquired, so there is nothing to release, no thread affinity, and no
+    ///     abandoned state that can exist at all.
+    ///   • A crashed server closes its handle with the process; the name frees itself and the next
+    ///     launch simply creates it again.
+    ///
+    /// ⚠️ The NAME is deliberately unchanged. A build from before this fix, still running, OWNS this
+    /// mutex — and because <c>initiallyOwned</c> is ignored when the object already exists, old and
+    /// new builds still see each other's lease correctly and exactly one of them serves. Renaming it
+    /// (or switching to a Semaphore, which cannot share a name with a Mutex) would let two servers
+    /// bind the same pipe and silently diverge the session state. Keep the name.
+    ///
+    /// ⚠️ Mutex is also the only named primitive .NET implements on every platform. Named Semaphore
+    /// and EventWaitHandle are Windows-only and throw PlatformNotSupportedException elsewhere, which
+    /// takes the IPC test suite with them. Do not substitute one.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     public static string ServerMutexName => $@"Local\FortniteVideoSoftware_IpcServerMutex_{UserScope}";
 
     public static bool IsConnectedClientTrusted(NamedPipeServerStream server)

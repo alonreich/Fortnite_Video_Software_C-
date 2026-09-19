@@ -57,6 +57,40 @@ public static class AtomicJsonFile
     }
 
     public static void WriteObject(string path, JsonObject payload)
+        => WriteCore(path, stream =>
+        {
+            using Utf8JsonWriter writer = new(stream, WriterOptions);
+            payload.WriteTo(writer);
+            writer.Flush();
+        });
+
+    /// <summary>
+    /// ATOMICTEXT_01 — the SAME power-outage-safe protocol as <see cref="WriteObject"/>, for callers
+    /// that already hold a fully formed JSON document as text and must not have it reshaped.
+    ///
+    /// WHY THIS EXISTS: <c>SettingsManager.Save</c> serialises <c>AppSettings</c> through a
+    /// source-generated <c>JsonSerializerContext</c> (required for NativeAOT). Round-tripping that
+    /// output through <see cref="JsonObject"/> just to reach <see cref="WriteObject"/> would re-emit
+    /// the document from a different writer and risk silent formatting/ordering drift in a file the
+    /// migration tests compare against. This overload keeps the bytes the caller produced and gives
+    /// them the identical three-step guarantee that
+    /// <c>docs/05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-RECOVERY</c> mandates:
+    ///   1. unique GUID temp file in the TARGET directory, opened <see cref="FileOptions.WriteThrough"/>
+    ///   2. <c>stream.Flush(flushToDisk: true)</c> — the bytes are on the platter, not in the OS cache
+    ///   3. <c>File.Move(temp, path, overwrite: true)</c> — an atomic same-volume NTFS rename
+    ///
+    /// Writing a fixed-name temp file, or renaming before the flush, is what produces a correctly
+    /// named but ZERO-FILLED document after a power cut. Do not "simplify" this back to
+    /// File.WriteAllText.
+    /// </summary>
+    public static void WriteText(string path, string contents)
+        => WriteCore(path, stream =>
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(contents);
+            stream.Write(bytes, 0, bytes.Length);
+        });
+
+    private static void WriteCore(string path, Action<FileStream> emit)
     {
         string? directory = Path.GetDirectoryName(path);
         if (string.IsNullOrWhiteSpace(directory))
@@ -77,9 +111,7 @@ public static class AtomicJsonFile
                 bufferSize: 64 * 1024,
                 FileOptions.WriteThrough))
             {
-                using Utf8JsonWriter writer = new(stream, WriterOptions);
-                payload.WriteTo(writer);
-                writer.Flush();
+                emit(stream);
                 stream.Flush(flushToDisk: true);
             }
 

@@ -22,7 +22,13 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
     private readonly object _stateLock = new();
     private JsonObject _currentState;
     private readonly ApplicationPaths _paths;
-    private readonly Mutex _serverMutex;
+
+    /// <summary>
+    /// IPCLEASE_01 — see <see cref="IpcProtocol.ServerMutexName"/>. This handle IS the lease; it is
+    /// never acquired and never released, so it has no thread affinity and can never be abandoned.
+    /// </summary>
+    private readonly Mutex _serverLease;
+
     private readonly CancellationTokenSource _cts = new();
     private readonly ManualResetEventSlim _readyEvent = new(false);
     private Task? _listenTask;
@@ -30,15 +36,49 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
     private bool _isDirty;
     private System.Timers.Timer? _debounceTimer;
 
+    /// <summary>
+    /// FLUSHCEILING_01 — the debounce interval. Coalescing is mandatory here: without it a timeline
+    /// drag would issue hundreds of AtomicJsonFile.WriteObject calls per second, each taking a
+    /// Global\ mutex and a WriteThrough flush, and the disk pressure would visibly stutter preview
+    /// playback.
+    /// </summary>
+    private const int FlushDebounceMs = 500;
+
+    /// <summary>
+    /// FLUSHCEILING_01 — THE MAXIMUM a change may sit in memory before it is forced to disk.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// WHAT WAS WRONG: ScheduleDiskFlush did Stop() then Start() on a 500ms one-shot timer, and it
+    /// is called from EVERY mutating opcode. A CONTINUOUS stream of updates — which is precisely
+    /// what dragging a timeline knob or a volume slider produces — restarted the 500ms clock before
+    /// it could ever elapse. The flush was therefore postponed INDEFINITELY: the app believed it was
+    /// "continuously serialising the session" (docs/05 §SYS-RECOVERY) while in fact nothing reached
+    /// the disk for as long as the user kept working. A crash during that drag — the moment a crash
+    /// is MOST likely, because it is when the app is busiest — lost everything since the last pause.
+    ///
+    /// A debounce with no maximum-wait ceiling is not a debounce. It is a promise that the work
+    /// happens only when the user stops.
+    ///
+    /// THE FIX: the trailing 500ms edge still coalesces bursts, but once a change has been waiting
+    /// this long the flush is forced regardless of how much more traffic is arriving. Worst case is
+    /// bounded at one write per 3 seconds during sustained editing.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private const int FlushMaxWaitMs = 3000;
+
+    /// <summary>FLUSHCEILING_01 — TickCount64 when the current unflushed change first appeared, or 0
+    /// when there is nothing pending. Guarded by <see cref="_stateLock"/>.</summary>
+    private long _firstDirtyTicks;
+
     public bool IsRunning => !_isDisposed && !_cts.IsCancellationRequested;
 
-    private NamedPipeStateServer(ApplicationPaths paths, JsonObject initialState, Mutex serverMutex)
+    private NamedPipeStateServer(ApplicationPaths paths, JsonObject initialState, Mutex serverLease)
     {
         _paths = paths;
         _currentState = initialState;
-        _serverMutex = serverMutex;
+        _serverLease = serverLease;
 
-        _debounceTimer = new System.Timers.Timer(500) { AutoReset = false };
+        _debounceTimer = new System.Timers.Timer(FlushDebounceMs) { AutoReset = false };
         _debounceTimer.Elapsed += (_, _) => FlushToDiskSafe();
     }
 
@@ -54,27 +94,27 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             paths ??= ApplicationPaths.CreateDefault();
             paths.EnsureWritableDirectories();
 
-            Mutex mutex;
+            // IPCLEASE_01 — created, NOT owned. `createdNew` is true only for the process that
+            // created the named object, and that process is the server. Because ownership is never
+            // taken there is nothing to release on shutdown, no thread affinity to get wrong, and no
+            // abandoned-mutex state to misreport as a prior crash. See IpcProtocol.ServerMutexName.
+            Mutex lease;
             bool createdNew;
             try
             {
-                mutex = new Mutex(initiallyOwned: true, IpcProtocol.ServerMutexName, out createdNew);
-            }
-            catch (AbandonedMutexException ex)
-            {
-                mutex = ex.Mutex as Mutex ?? new Mutex(true, IpcProtocol.ServerMutexName, out createdNew);
-                createdNew = true;
-                CoreLogger.Info("IpcServer", "Acquired abandoned IPC server mutex. Prior server process exited abruptly.");
+                lease = new Mutex(initiallyOwned: false, name: IpcProtocol.ServerMutexName, createdNew: out createdNew);
             }
             catch (Exception ex)
             {
-                CoreLogger.Debug("IpcServer", $"Could not acquire IPC server mutex: {ex.Message}");
+                CoreLogger.Debug("IpcServer", $"Could not create the IPC server lease: {ex.Message}");
                 return null;
             }
 
             if (!createdNew)
             {
-                try { mutex.Dispose(); } catch { }
+                // Another process already runs the server. Release our handle and fall back to the
+                // client path.
+                try { lease.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
                 return null;
             }
 
@@ -87,7 +127,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                 state["schema_version"] = StateTransferStore.SchemaVersion;
             }
 
-            var server = new NamedPipeStateServer(paths, state, mutex);
+            var server = new NamedPipeStateServer(paths, state, lease);
             server.Start();
             _activeInstance = server;
             return server;
@@ -137,6 +177,13 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             }
             catch (OperationCanceledException)
             {
+                serverStream?.Dispose();
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                // IPCTEARDOWN_01 — the source or a stream was disposed underneath us. That is a
+                // shutdown, not a fault: stop, do not spin.
                 serverStream?.Dispose();
                 break;
             }
@@ -290,14 +337,42 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
         ScheduleDiskFlush();
     }
 
+    /// <summary>
+    /// FLUSHCEILING_01 — debounce WITH a maximum-wait ceiling. See <see cref="FlushMaxWaitMs"/> for
+    /// the defect this encodes. Callers must already have set <c>_isDirty</c> under
+    /// <see cref="_stateLock"/>.
+    /// </summary>
     private void ScheduleDiskFlush()
     {
+        bool forceNow = false;
+
+        lock (_stateLock)
+        {
+            if (_firstDirtyTicks == 0)
+            {
+                _firstDirtyTicks = Environment.TickCount64;
+            }
+            else if (Environment.TickCount64 - _firstDirtyTicks >= FlushMaxWaitMs)
+            {
+                forceNow = true;
+            }
+        }
+
+        if (forceNow)
+        {
+            // The ceiling has been reached. Stop restarting the clock and get it on disk NOW —
+            // off this thread, because callers include the UI thread via the in-process path.
+            try { _debounceTimer?.Stop(); } catch (ObjectDisposedException) { }
+            _ = Task.Run(FlushToDiskSafe);
+            return;
+        }
+
         try
         {
             _debounceTimer?.Stop();
             _debounceTimer?.Start();
         }
-        catch { }
+        catch (ObjectDisposedException) { /* torn down between the null check and here. */ }
     }
 
     public void FlushToDiskSafe()
@@ -308,6 +383,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             if (!_isDirty) return;
             snapshot = _currentState.DeepClone().AsObject();
             _isDirty = false;
+            _firstDirtyTicks = 0;   // FLUSHCEILING_01 — the pending window closes with the write.
         }
 
         try
@@ -326,6 +402,26 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
         }
     }
 
+    /// <summary>
+    /// IPCTEARDOWN_01 — SIGNAL, THEN WAIT, THEN DISPOSE. In that order, always.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// WHAT WAS WRONG: this called _cts.Cancel() and then _cts.Dispose() IMMEDIATELY, while
+    /// ListenLoopAsync was still suspended inside WaitForConnectionAsync(ct). The NamedPipeServerStream
+    /// in flight at that moment was not deterministically closed, so the pipe instance stayed held
+    /// until the GC finalised it. A restart inside that window hit TryStart's !createdNew path and
+    /// silently returned null — quietly degrading every subsequent LoadSync/SaveState in the process
+    /// to the slow direct-disk path with no error anywhere.
+    ///
+    /// It also released a THREAD-AFFINE Mutex from the wrong thread (see IPCLEASE_01), and the
+    /// synchronous path never awaited _listenTask at all — only DisposeAsync did, and IDisposable
+    /// is the path most callers reach.
+    ///
+    /// The order below is the fix: stop producing work, flush what is pending, signal cancellation,
+    /// WAIT for the listener to actually finish (bounded — a wedged listener must not hang app
+    /// shutdown), and only then free the objects the listener was using.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -339,26 +435,58 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             }
         }
 
-        try { _debounceTimer?.Stop(); _debounceTimer?.Dispose(); } catch { }
+        // 1. Stop producing new flushes.
+        try { _debounceTimer?.Stop(); _debounceTimer?.Dispose(); }
+        catch (Exception ex) { CoreLogger.Swallowed(ex); }
         _debounceTimer = null;
 
+        // 2. Write out anything still pending, BEFORE cancellation tears the world down.
         FlushToDiskSafe();
 
-        try { _cts.Cancel(); } catch { }
-        try { _cts.Dispose(); } catch { }
+        // 3. Signal the listener.
+        try { _cts.Cancel(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
 
-        try { _serverMutex.ReleaseMutex(); } catch { }
-        try { _serverMutex.Dispose(); } catch { }
+        // 4. WAIT for it to finish. Bounded: a listener that will not stop must not hang shutdown.
+        if (_listenTask != null)
+        {
+            try
+            {
+                if (!_listenTask.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    CoreLogger.Debug("IpcServer", "IPC listener did not stop within 2s; continuing teardown.");
+                }
+            }
+            catch (Exception ex) { CoreLogger.Swallowed(ex); }
+        }
 
-        try { _readyEvent.Dispose(); } catch { }
+        // 5. Drop the lease. The lease IS the open handle: a named kernel object lives exactly as
+        //    long as one handle to it remains, so closing this handle is what frees the name for the
+        //    next process. There is deliberately NO ReleaseMutex() call — ownership was never taken
+        //    (see IPCLEASE_01), and Dispose, unlike ReleaseMutex, has no thread affinity. Calling
+        //    ReleaseMutex here is what used to throw on every clean shutdown and leave the mutex
+        //    abandoned.
+        try { _serverLease.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
+
+        // 6. Only now is nothing still using these.
+        try { _cts.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
+        try { _readyEvent.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
     }
 
     public async ValueTask DisposeAsync()
     {
-        Dispose();
-        if (_listenTask != null)
+        if (_isDisposed) return;
+
+        // Same ordering as Dispose, but awaits the listener instead of blocking on it.
+        Task? listener = _listenTask;
+        _listenTask = null;
+
+        if (listener != null)
         {
-            try { await _listenTask.ConfigureAwait(false); } catch { }
+            try { _cts.Cancel(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
+            try { await listener.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+            catch (Exception ex) { CoreLogger.Swallowed(ex); }
         }
+
+        Dispose();
     }
 }

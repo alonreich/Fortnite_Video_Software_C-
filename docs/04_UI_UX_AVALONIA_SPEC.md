@@ -195,6 +195,58 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 
 ---
 
+## 7b. GPU Swap-Chain Slot Ownership & Present Serialisation  {#UI-GPUSLOT}
+* **`GPUSLOT_01` — a swap-chain slot has ONE owner, and a generation stamp proves it.**
+  `MpvVideoView._importedImages` was a bare `ICompositionImportedGpuImage?[]` written by **three**
+  threads with no lock, no `volatile` and no `Interlocked`: the render thread (import / replace a lost
+  image), the UI thread inside `ImportAndPresentTexture`'s fire-and-forget continuation, and teardown.
+  The continuation's catch blocks disposed `_importedImages[index]` rather than the `image` they had
+  actually failed on — by then possibly a **different, newly imported** object. A failed present could
+  therefore destroy the live image the render thread was about to draw with, and the render thread
+  could hand a freshly disposed import to `UpdateWithKeyedMutexAsync`: a use-after-dispose across a COM
+  boundary on the hot path. The silent swallow of `COMException 0x80070057` (`E_INVALIDARG`) was the
+  field evidence of it, and that swallow is now logged (throttled) so the residual rate is measurable.
+  * Slots hold an `ImportedImageSlot { Image, Generation }`; every successful import takes the next
+    `Interlocked.Increment` of `_imageGeneration`.
+  * The **render thread is the sole importer and sole publisher** (`Interlocked.Exchange`).
+  * The **UI thread is a pure observer**: it may remove a slot only via `Interlocked.CompareExchange`
+    against the exact slot it was given (`TryRetireSlot`), and may dispose only if that proves it won.
+  * Teardown claims slots with `Interlocked.Exchange`. **All** disposal goes through the single
+    `DisposeImportedImageOnUiThread` funnel. Never assign an element with a bare array write.
+* **`GPUPRESENT_01` — one present in flight per slot, and frames are dropped, never queued.**
+  `ImportAndPresentTexture` posts to the UI thread and does not await, so the render thread could issue
+  present N+1 for a slot while present N was still running. Two overlapping `UpdateWithKeyedMutexAsync`
+  calls on the same `IDXGIKeyedMutex` with the same `(ConsumerKey, ProducerKey)` pair produce an
+  unordered `AcquireSync`/`ReleaseSync` sequence, and an `AcquireSync` for a key no producer will
+  release is an **unbounded block on the UI thread** — the one deadlock `ZOOMHANG_01`'s render-thread
+  timeout cannot save you from, because it is the UI thread that stops. A per-slot `SemaphoreSlim`
+  (`_presentGates`) is taken with `Wait(0)`; a frame that cannot take its permit is **dropped** (counted
+  in `DroppedPresentCount`, logged once), because at 60fps the next frame is 16 ms away and a queue here
+  is latency the user sees. The permit is released in the continuation's `finally`, and by the poster
+  itself if the dispatcher post throws.
+* **`ZOOMHANG_01` is unchanged and still required.** The render thread's 750 ms bounded wait on
+  `gpu.ImportImage`, and its once-only `_importTimeoutLogged`, stay exactly as written.
+
+## 7c. The Granular Editor Opens Without Blocking The Dispatcher  {#UI-GRANOPEN}
+* **`GRANPROBE_01` — `GranularSpeedEditorWindow.CreateAsync` is the supported entry point.**
+  The constructor used to run `prober.GetDurationAsync()` and then `Task.Wait(500 ms)` — a blocking wait
+  on the Avalonia dispatcher, up to half a second of frozen UI on every open, and a hard deadlock had
+  any continuation inside `MediaProber` ever captured the UI `SynchronizationContext`. It violated
+  `README.md` North Star Invariant 6 outright.
+* **A factory, NOT two-phase initialisation.** `_trimEndMs` must be final before
+  `TryRehydrateGranularRecovery()` (`RECOVERY_03`) runs and before any UI is built, so the duration is
+  resolved **before the object exists** and passed in as `preProbedDurationSec`. The constructor keeps
+  its "fully initialised on exit" contract, which is what the deferred-close chain
+  (`05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-WINSTATE`) depends on. An `Initialize()`-after-construction shape
+  is explicitly rejected.
+* **A failed or slow probe is not fatal.** `CreateAsync` bounds the wait at 10 s; `MediaProber` runs
+  ffprobe through `AsyncProcessRunner`, which carries its own 15 s timeout, registers the child with
+  `ChildProcessTracker` and terminates it through the graceful ladder while draining both pipes — so an
+  overrun cannot orphan an ffprobe. On failure the window opens on the caller's trim window, exactly as
+  it did when the old 500 ms wait expired. The difference is that the UI stayed responsive.
+
+---
+
 ## 8. Detachable Preview Console  {#UI-DETACH}
 * **Scope:** Main App, Granular Speed Editor, Music Wizard Phase 3, Voice Over Studio, and Video Merger.
 * **Window Memory:** Geometry, display device ID, and maximize state persist independently per screen via WindowBoundsHelper. First launch centers over the owning parent window.

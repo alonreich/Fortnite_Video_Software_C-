@@ -21,10 +21,15 @@ public class MergerWorker : IDisposable
     /// registration inside <see cref="ExecuteFFmpegAsync"/>, and <see cref="Dispose"/> can all
     /// race; the gate guarantees exactly ONE ladder ('q' quit command → grace period → hard
     /// kill → exit confirmation) ever runs per FFmpeg process.
+    ///
+    /// PIPEDEDUP_01 — the gate's three fields and their three methods used to be written out here
+    /// AND, separately, in <c>ProcessWorker</c>. Two copies of one mechanism is how
+    /// <c>ReadExitCodeSafely</c> silently diverged between these two files (FFMPEGSTOP_01) and how
+    /// <c>TryRescueFinishedRender</c> shipped the same race twice (RESCUE_01). One copy now lives
+    /// in <see cref="CooperativeShutdownGate"/>; the members below are thin delegations kept at
+    /// their original signatures so no call site in this file changes.
     /// </summary>
-    private readonly object _shutdownGate = new();
-    private Process? _shutdownTarget;
-    private Task? _shutdownTask;
+    private readonly CooperativeShutdownGate _shutdown = new();
 
     public event Action<int>? ProgressUpdate;
     public event Action<bool, string>? Finished;
@@ -164,32 +169,10 @@ public class MergerWorker : IDisposable
     /// never surface as an unobserved task exception.
     /// </summary>
     private void BeginCooperativeShutdown(Process? proc)
-    {
-        if (proc == null) return;
-
-        Task? started = null;
-        lock (_shutdownGate)
-        {
-            if (ReferenceEquals(_shutdownTarget, proc) && _shutdownTask != null) return;
-            _shutdownTarget = proc;
-            _shutdownTask = Task.Run(() => GracefulProcessTerminator.TerminateAsync(proc, "FFmpeg MERGE", attemptQuitCommand: true));
-            started = _shutdownTask;
-        }
-
-        _ = started.ContinueWith(
-            static t => { if (t.IsFaulted && t.Exception != null) CoreLogger.Swallowed(t.Exception); },
-            TaskScheduler.Default);
-    }
+        => _shutdown.Begin(proc, "FFmpeg MERGE", attemptQuitCommand: true);
 
     /// <summary>Awaits the in-flight shutdown ladder, if any. Bounded by the ladder itself.</summary>
-    private async Task AwaitActiveShutdownAsync()
-    {
-        Task? pending;
-        lock (_shutdownGate) { pending = _shutdownTask; }
-        if (pending == null) return;
-        try { await pending; }
-        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-    }
+    private Task AwaitActiveShutdownAsync() => _shutdown.AwaitActiveAsync();
 
     /// <summary>
     /// ISSUE_04 — reads a child process's exit code without ever throwing.
@@ -199,34 +182,10 @@ public class MergerWorker : IDisposable
     /// `ExitCode` would throw InvalidOperationException. Give it a short grace period, then fall
     /// back to a sentinel rather than letting that exception masquerade as a pipeline crash.
     /// </summary>
+    /// ⚠️ attemptQuitCommand STAYS false here. The caller has already attempted the cooperative
+    /// stop, so a second 'q' would only burn the grace budget. See CooperativeShutdownGate.
     private static int ReadExitCodeSafely(Process proc, string logTag, int graceMs = 5000)
-    {
-        try
-        {
-            if (!proc.HasExited)
-            {
-                // Bounded last-resort ladder (no stdin quit here — the caller already attempted
-                // the cooperative stop): grace period → hard kill of the tree → confirmation.
-                GracefulProcessTerminator.Terminate(
-                    proc,
-                    logTag,
-                    attemptQuitCommand: false,
-                    cooperativeGraceMs: graceMs,
-                    hardKillConfirmMs: 2000);
-            }
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Debug(logTag, $"Could not confirm process exit: {ex.Message}");
-        }
-
-        try { return proc.HasExited ? proc.ExitCode : -1; }
-        catch (Exception ex)
-        {
-            CoreLogger.Debug(logTag, $"Exit code unavailable: {ex.Message}");
-            return -1;
-        }
-    }
+        => CooperativeShutdownGate.ReadExitCodeSafely(proc, logTag, graceMs, attemptQuitCommand: false);
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -1351,33 +1310,24 @@ public class MergerWorker : IDisposable
 
     /// genuinely nothing left to save.
     /// </summary>
+    /// <summary>
+    /// RESCUE_01 — delegates to <see cref="RescuedOutputPath.TryRescue"/>. This was a byte-for-byte
+    /// copy of <c>ProcessWorker.TryRescueFinishedRender</c> carrying the same
+    /// File.Exists-then-File.Move race and the same unbounded index loop; see
+    /// <see cref="RescuedOutputPath"/> for the full failure analysis. Keeping one copy is
+    /// deliberate: the twin pair <c>ReadExitCodeSafely</c> silently diverged between these two
+    /// files, and duplicated logic is how that happened.
+    ///
+    /// ⚠️ "Merged-Videos-RECOVERED-" and the "Merger" tag are preserved verbatim — they are how
+    /// the user and the crash digest know a rescued file came from the Merger and not the editor.
+    /// </summary>
     private string? TryRescueFinishedRender(string sourcePath)
-    {
-        try
-        {
-            if (!File.Exists(sourcePath)) return null;
-
-            Directory.CreateDirectory(_paths.TempDirectory);
-
-            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-            string rescued = Path.Combine(_paths.TempDirectory, $"Merged-Videos-RECOVERED-{stamp}.mp4");
-
-            int n = 1;
-            while (File.Exists(rescued))
-            {
-                rescued = Path.Combine(_paths.TempDirectory, $"Merged-Videos-RECOVERED-{stamp}-{n}.mp4");
-                n++;
-            }
-
-            File.Move(sourcePath, rescued);
-            return rescued;
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Fail("Merger", $"Could not preserve the finished merge: {ex.Message}");
-            return null;
-        }
-    }
+        => RescuedOutputPath.TryRescue(
+            sourcePath,
+            _paths.TempDirectory,
+            "Merged-Videos-RECOVERED-",
+            "Merger",
+            "Could not preserve the finished merge");
 
     /// <summary>
     /// ISSUE_11 — disposing the worker now also STOPS the encoder.

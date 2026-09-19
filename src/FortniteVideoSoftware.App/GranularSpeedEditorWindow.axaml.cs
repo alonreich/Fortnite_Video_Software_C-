@@ -18,6 +18,12 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
+// GRANJSON_01 / GRANVIS_01 — helper types holding methods extracted verbatim from this class. Imported with
+// `using static` on purpose: every call site below keeps the exact unqualified spelling it
+// already had, so the extraction cannot change a single statement inside this file.
+using static FortniteVideoSoftware.App.Infrastructure.GranularJsonRead;
+using static FortniteVideoSoftware.App.Infrastructure.GranularEditorVisuals;
+
 namespace FortniteVideoSoftware.App;
 
 /// <summary>
@@ -477,47 +483,9 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _createDragActive;
     private double _createDragStartMs;
     private double _createDragCurrentMs;
-
-    /// <summary>
-    /// IDEA_6 — the ONE zoom colour, resolved from the `AppZoomColor` design token.
-    ///
-    /// Zoom visuals are built in code-behind (the dashed box, its four handles, the timeline bar,
-    /// the onboarding banner), so they cannot use DynamicResource from XAML. Routing them all
-    /// through here keeps them on the SAME token as the XAML ones instead of the three hard-coded
-    /// hexes they used before (#fde047 yellow, #1e40af blue, #d946ef fuchsia) — which is exactly
-    /// why users could not tell a zoom from a speed block.
-    ///
-    /// Falls back to the literal token value if resource lookup fails, so a missing theme resource
-    /// can never leave a zoom visual invisible.
-    /// </summary>
-    private static Avalonia.Media.Color ZoomColor()
-    {
-        if (Avalonia.Application.Current?.TryFindResource("AppZoomColor", out object? res) == true &&
-            res is Avalonia.Media.Color c)
-        {
-            return c;
-        }
-        return Avalonia.Media.Color.Parse("#2251c1");
-    }
-
-    /// <summary>Fresh brush on the zoom token. Fresh instance per call — Avalonia shapes take ownership.</summary>
-    private static Avalonia.Media.SolidColorBrush ZoomBrush(byte alpha = 255)
-    {
-        var c = ZoomColor();
-        return new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(alpha, c.R, c.G, c.B));
-    }
-
-    /// <summary>
-    /// FREEZE_VIS — the one blue every part of a freeze is drawn in.
-    /// <para>
-    /// Identical to what <c>GetSegmentOverlayColor</c> returns for a Speed≈0 segment. It is pulled
-    /// out here because the frozen span is now drawn in THREE places — the block on the upper lane,
-    /// the wash over the thumbnails, and the edge posts on both — and three hand-typed copies of
-    /// the same literal is how a colour quietly drifts apart.
-    /// </para>
-    /// </summary>
-    private static Avalonia.Media.SolidColorBrush FreezeBrush(byte alpha = 255)
-        => new(Avalonia.Media.Color.FromArgb(alpha, 96, 165, 250));
+// GRANVIS_01 — ZoomColor moved verbatim; see the extracted type.
+// GRANVIS_01 — ZoomBrush moved verbatim; see the extracted type.
+// GRANVIS_01 — FreezeBrush moved verbatim; see the extracted type.
 
     /// <summary>
     /// FREEZE_VIS — MAKES A HELD SPAN LOOK HELD.
@@ -666,8 +634,84 @@ public partial class GranularSpeedEditorWindow : Window
     /// The editor will only show/seek between trimStartMs and trimEndMs.
     /// Segments are stored in absolute video timestamps.
     /// </summary>
-    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null, IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null,
+    /// <summary>
+    /// <summary>
+    /// GRANPROBE_01 — THE SUPPORTED WAY TO OPEN THIS WINDOW.
+    ///
+    /// Resolves the clip duration OFF the UI thread and only then constructs the window, so the
+    /// constructor keeps its "everything is final on exit" contract — which
+    /// TryRehydrateGranularRecovery (RECOVERY_03) and the whole deferred-close chain
+    /// (docs/05 §SYS-WINSTATE) depend on — without the dispatcher ever blocking.
+    ///
+    /// The probe is bounded at 10 seconds here. MediaProber runs ffprobe through AsyncProcessRunner,
+    /// which carries its own 15-second timeout, registers the child with ChildProcessTracker and
+    /// terminates it through the graceful ladder while draining both pipes — so a probe that
+    /// overruns this wait cannot leave an orphaned ffprobe behind either.
+    ///
+    /// A probe that fails or times out is NOT fatal: the window opens on the trim window the caller
+    /// supplied, exactly as it did when the old 500ms blocking wait expired. The difference is that
+    /// the UI stayed responsive while it happened.
+    /// </summary>
+    public static async Task<GranularSpeedEditorWindow> CreateAsync(
+        string videoPath,
+        double trimStartMs = 0,
+        double trimEndMs = 0,
+        IEnumerable<SpeedSegment>? existingSegments = null,
+        double baseSpeed = 1.1,
+        double freezeTimeMs = -1,
+        double freezeDurationS = 1.0,
+        bool isMobileFormat = false,
+        string originalResolution = "1920x1080",
+        VoiceOverWindow.VoiceOverResult? voiceOverResult = null,
+        IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null,
         IEnumerable<FortniteVideoSoftware.Core.Media.MemePlacement>? existingMemes = null)
+    {
+        double probedSec = 0;
+
+        if (trimEndMs <= 0 && !string.IsNullOrWhiteSpace(videoPath))
+        {
+            try
+            {
+                probedSec = await Task.Run(async () =>
+                {
+                    if (!File.Exists(videoPath)) return 0.0;
+
+                    string ffprobe = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve(
+                        "ffprobe.exe", "backend", "binaries");
+                    var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobe, videoPath);
+                    return await prober.GetDurationAsync().ConfigureAwait(false);
+                }).WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+            }
+            catch (TimeoutException)
+            {
+                RuntimeLog.Info("Granular",
+                    "Duration probe exceeded 10s; opening the editor on the supplied trim window instead.");
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Info("Granular", $"Duration probe failed: {ex.Message}. Opening on the supplied trim window.");
+            }
+        }
+
+        // Back on the UI thread (ConfigureAwait(true) above) — Avalonia Windows must be constructed
+        // on the dispatcher.
+        return new GranularSpeedEditorWindow(
+            videoPath, trimStartMs, trimEndMs, existingSegments, baseSpeed, freezeTimeMs,
+            freezeDurationS, isMobileFormat, originalResolution, voiceOverResult, existingCuts,
+            existingMemes, probedSec);
+    }
+
+    /// <summary>
+    /// ⚠️ GRANPROBE_01 — PREFER <see cref="CreateAsync"/>. This constructor no longer probes.
+    ///
+    /// <paramref name="preProbedDurationSec"/> is the clip length already resolved OFF the UI thread
+    /// by <see cref="CreateAsync"/>. Constructing this window directly with a zero
+    /// <paramref name="trimEndMs"/> and no pre-probe now yields a zero-length timeline instead of
+    /// silently blocking the dispatcher — which is the correct trade, and why CreateAsync exists.
+    /// </summary>
+    public GranularSpeedEditorWindow(string videoPath, double trimStartMs = 0, double trimEndMs = 0, IEnumerable<SpeedSegment>? existingSegments = null, double baseSpeed = 1.1, double freezeTimeMs = -1, double freezeDurationS = 1.0, bool isMobileFormat = false, string originalResolution = "1920x1080", VoiceOverWindow.VoiceOverResult? voiceOverResult = null, IEnumerable<FortniteVideoSoftware.Core.Media.CutRange>? existingCuts = null,
+        IEnumerable<FortniteVideoSoftware.Core.Media.MemePlacement>? existingMemes = null,
+        double preProbedDurationSec = 0)
     {
         _voiceOverPlayer.Result = voiceOverResult;
 
@@ -686,21 +730,34 @@ public partial class GranularSpeedEditorWindow : Window
         _videoPath = videoPath;
         _trimStartMs = trimStartMs;
         _trimEndMs = trimEndMs;
-        if (_trimEndMs <= 0 && !string.IsNullOrWhiteSpace(_videoPath) && File.Exists(_videoPath))
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // GRANPROBE_01 — THE ffprobe CALL THAT USED TO BLOCK THE UI THREAD HAS MOVED TO CreateAsync.
+        //
+        // What stood here was:
+        //     var task = prober.GetDurationAsync();
+        //     if (task.Wait(TimeSpan.FromMilliseconds(500)) && task.Result > 0)
+        //
+        // Task.Wait on the Avalonia dispatcher BLOCKS THE DISPATCHER. Every open of this editor cost
+        // up to 500ms of frozen UI, and if any continuation inside MediaProber had ever captured the
+        // UI SynchronizationContext it would have been a hard deadlock rather than a stall. It also
+        // violates README.md North Star Invariant 6 outright ("UI dispatchers must never block on
+        // native audio/video subsystem calls").
+        //
+        // WHY A FACTORY AND NOT TWO-PHASE INIT: _trimEndMs must be FINAL before
+        // TryRehydrateGranularRecovery() runs a few lines below, and before any UI is built. An
+        // Initialize()-after-construction shape would leave a window in existence with a zero-length
+        // timeline, which is exactly the class of half-built state that the deferred-close contract
+        // (docs/05 §SYS-WINSTATE) makes so expensive to reason about. CreateAsync resolves the value
+        // BEFORE the object exists, so this constructor keeps its "fully initialised on exit"
+        // contract untouched.
+        //
+        // The probe is not repeated here on a miss: a caller that reaches this constructor without a
+        // resolved duration gets the trim window it passed in, exactly as before a probe that failed.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        if (preProbedDurationSec > 0)
         {
-            try
-            {
-                string ffprobe = FortniteVideoSoftware.Core.Infrastructure.BinaryPathResolver.Resolve(
-                    "ffprobe.exe", "backend", "binaries");
-                var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffprobe, _videoPath);
-                var task = prober.GetDurationAsync();
-                if (task.Wait(TimeSpan.FromMilliseconds(500)) && task.Result > 0)
-                {
-                    _probedDurationSec = task.Result;
-                    if (_trimEndMs <= 0) _trimEndMs = _probedDurationSec * 1000.0;
-                }
-            }
-            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            _probedDurationSec = preProbedDurationSec;
+            if (_trimEndMs <= 0) _trimEndMs = _probedDurationSec * 1000.0;
         }
         _baseSpeed = baseSpeed;
         _freezeTimeMs = freezeTimeMs;
@@ -937,6 +994,15 @@ public partial class GranularSpeedEditorWindow : Window
             if (_selectedSegmentBorderRef != null)
             {
                 _selectedSegmentBorderRef.StrokeDashOffset = _marchingAntsOffset;
+            }
+
+            // ZOOMANTS_01 — the zoom rubber-band rides the SAME offset as every other marching
+            // outline in this window, so the freeze markers, the selected-segment border and the
+            // zoom box all crawl in step instead of beating against each other. Guarded on
+            // IsVisible so a hidden box costs one bool read per tick, not a layout invalidation.
+            if (_zoomBoxRect != null && _zoomBoxRect.IsVisible)
+            {
+                _zoomBoxRect.StrokeDashOffset = _marchingAntsOffset;
             }
         };
         _marchingAntsTimer.Start();
@@ -1321,14 +1387,7 @@ public partial class GranularSpeedEditorWindow : Window
             e.Handled = true;
         }
     }
-
-    /// <summary>Executes a transport command from the global gesture dispatcher (KeyBinding.TryHandle semantics).</summary>
-    private static void ExecuteTransportCommand(FortniteVideoSoftware.App.ViewModels.RelayCommand? command, Avalonia.Input.KeyEventArgs e)
-    {
-        if (command == null || !command.CanExecute(null)) return;
-        command.Execute(null);
-        e.Handled = true;
-    }
+// GRANVIS_01 — ExecuteTransportCommand moved verbatim; see the extracted type.
 
     /// <summary>
     /// ══════════════════════════════════════════════════════════════════════════════════════════
@@ -3430,13 +3489,10 @@ public partial class GranularSpeedEditorWindow : Window
     }
 
     /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    /// <summary>MEMESWAP_01 — was one of three byte-identical private copies; see
+    /// <see cref="Infrastructure.MemeSwapOverlay"/>.</summary>
     private void SetMemeSwapOverlay(bool visible, string message)
-    {
-        var overlay = this.FindControl<Border>("MemeSwapOverlay");
-        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
-        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
-        if (overlay != null) overlay.IsVisible = visible;
-    }
+        => Infrastructure.MemeSwapOverlay.Set(this, visible, message);
 
     /// <summary>
     /// MEME_07 — where the caret sits while a meme is on screen.
@@ -4603,30 +4659,7 @@ public partial class GranularSpeedEditorWindow : Window
         if (instCb != null) instCb.IsChecked = !slow;
         _syncingZoomChecks = false;
     }
-
-    /// <summary>The video's actual letterboxed rect inside the overlay canvas (aspect-fit).</summary>
-    /// <summary>
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// ⚠️ ZOOM_09 — IS THE VIDEO RECT REAL, OR IS IT THE NOT-LAID-OUT FALLBACK?
-    ///
-    /// <see cref="GetVideoDisplayRect"/> returns `Rect(0,0,max(1,cw),max(1,ch))` when the canvas
-    /// has not been through a layout pass yet. That fallback is a SQUARE 1x1, and a square is a
-    /// perfectly valid-looking rectangle — so every coordinate conversion downstream keeps working
-    /// and quietly produces garbage.
-    ///
-    /// THIS IS NOT HYPOTHETICAL. It is what a real session logged:
-    ///     Zoom Placed on segment #1 ... W=284 H=240 src=854x480 mobile=True
-    /// The auto-placed box should have been 160x240 (a 2:3 rectangle). 284x240 is 1.18:1 — not 2:3
-    /// at all. The arithmetic reproduces exactly from a 1x1 vid: the box works out as 1/3 x 1/2 of
-    /// a unit square, and committing multiplies those by the source size, giving 854/3 = 284 and
-    /// 480/2 = 240. The zoom was written against a video rectangle that did not exist yet.
-    ///
-    /// ANY code that converts between canvas pixels and source pixels MUST check this first.
-    /// The threshold is 4, not 1: a 1- or 2-pixel canvas is layout noise, never a real preview.
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// </summary>
-    private static bool IsVideoRectUsable(Avalonia.Rect vid)
-        => vid.Width >= 4 && vid.Height >= 4;
+// GRANVIS_01 — IsVideoRectUsable moved verbatim; see the extracted type.
 
     private Avalonia.Rect GetVideoDisplayRect(Avalonia.Controls.Canvas canvas)
     {
@@ -5064,21 +5097,46 @@ public partial class GranularSpeedEditorWindow : Window
             _zoomDim[i] = new Avalonia.Controls.Shapes.Rectangle { Fill = dimBrush, IsHitTestVisible = false };
             canvas.Children.Add(_zoomDim[i]);
         }
+        // ZOOMANTS_01 — the rubber-band is a LIVE 1px marching-ants hairline, not a static dash.
+        //
+        // ⚠️ THIS IS A DELIBERATE EXCEPTION TO IDEA_6 (see AvaloniaApp.axaml). IDEA_6 unified every
+        // zoom visual onto AppZoomColor and explicitly removed yellow #fde047 from the zoom box
+        // because "users could not tell zoom apart from a speed segment". The ants are yellow again
+        // on the owner's instruction; what makes that safe is the ANIMATION — a moving hairline is
+        // identified by its motion, which no static speed block has. If the distinction ever stops
+        // working, revert AppZoomAntsColor to AppZoomColor and nothing else needs to change.
+        //
+        // ⚠️ DASH PERIOD MUST DIVIDE THE OFFSET WRAP. The shared _marchingAntsTimer advances
+        // _marchingAntsOffset as (offset + 1) % 8. A {2,2} dash has period 4, and 4 divides 8, so
+        // the loop is seamless. The previous {4,3} pattern has period 7 — animating THAT with a
+        // %8 wrap would visibly jump every eighth tick. Do not change one without the other.
         _zoomBoxRect = new Avalonia.Controls.Shapes.Rectangle
         {
-            Stroke = ZoomBrush(),
-            StrokeThickness = 2,
-            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 4, 3 },
+            Stroke = ZoomAntsBrush(),
+            StrokeThickness = 1,
+            StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 2, 2 },
+            StrokeDashOffset = _marchingAntsOffset,
             Fill = Avalonia.Media.Brushes.Transparent,
             IsHitTestVisible = false
         };
         canvas.Children.Add(_zoomBoxRect);
         for (int i = 0; i < 4; i++)
         {
+            // ZOOMANTS_01 — the handles wear the SAME yellow as the band they belong to.
+            //
+            // ⚠️ THIS IS THE HALF OF IDEA_6 THAT STILL APPLIES. IDEA_6's rule is that zoom must not
+            // speak in more than one colour at a time; reverting the band to yellow without these
+            // would have left one object drawn in two — a yellow outline with blue corner dots,
+            // which is the exact split IDEA_6 was written to remove. Band and handles move
+            // together, always. If AppZoomAntsColor is ever pointed back at AppZoomColor, both
+            // return to blue in the same step and nothing here needs editing.
+            //
+            // ⚠️ THE WHITE EDGING STAYS. It is what separates a handle from the band on a bright
+            // frame; yellow-on-yellow with no edge and the grab points disappear over pale video.
             _zoomHandles[i] = new Avalonia.Controls.Shapes.Rectangle
             {
                 Width = ZoomHandleVisualPx, Height = ZoomHandleVisualPx,
-                Fill = ZoomBrush(),
+                Fill = ZoomAntsBrush(),
                 Stroke = Avalonia.Media.Brushes.White, StrokeThickness = 1.5, IsHitTestVisible = false
             };
             canvas.Children.Add(_zoomHandles[i]);
@@ -5610,8 +5668,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private double ZoomFactorOf(Avalonia.Rect boxUi, Avalonia.Rect boundsUi)
         => boxUi.Width < 1 ? 1.0 : boundsUi.Width / boxUi.Width;
-
-    private static int Even(int v) => v % 2 == 0 ? v : v - 1;
+// GRANVIS_01 — Even moved verbatim; see the extracted type.
 
     private void CommitZoomToSegment(string action)
     {
@@ -5660,13 +5717,9 @@ public partial class GranularSpeedEditorWindow : Window
         RedrawTimeline();
     }
 
-    private const string ZoomTutorialCounterFile = "zoom_tutorial.txt";
-
-    private static int ReadZoomTutorialCount()
-        => FortniteVideoSoftware.Core.Infrastructure.UiStateStore.ReadInt(ZoomTutorialCounterFile);
-
-    private static void WriteZoomTutorialCount(int n)
-        => FortniteVideoSoftware.Core.Infrastructure.UiStateStore.WriteInt(ZoomTutorialCounterFile, n);
+    // GRANVIS_01 — ZoomTutorialCounterFile moved to GranularEditorVisuals with its only consumers.
+// GRANVIS_01 — ReadZoomTutorialCount moved verbatim; see the extracted type.
+// GRANVIS_01 — WriteZoomTutorialCount moved verbatim; see the extracted type.
 
     private static bool _zoomTutorialShownThisSession = false;
     private void MaybeShowZoomTutorial(Avalonia.Controls.Canvas canvas)
@@ -6743,34 +6796,8 @@ public partial class GranularSpeedEditorWindow : Window
 
         return Math.Max(0.1, trimEndSec - trimStartSec);
     }
-
-    private static string FormatMs(double ms)
-    {
-        var ts = TimeSpan.FromMilliseconds(ms < 0 ? 0 : ms);
-        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3}";
-    }
-
-    /// <summary>
-    /// SHORT CLOCK — the format used by everything the user READS on screen in this window:
-    /// the segment list, both ends of the timeline axis, and the ruler tick labels.
-    ///
-    /// Rule: <c>MM:SS</c>, escalating to <c>HH:MM:SS</c> only when the video is genuinely an hour
-    /// or longer. Never milliseconds. A gameplay clip is seconds long, so "00:00:04.963" spent
-    /// most of its width showing two zeros and a decimal nobody can act on, and it forced the
-    /// segment rows onto two lines.
-    ///
-    /// ⚠️ THIS IS NOT A REPLACEMENT FOR <see cref="FormatMs"/>. That one keeps millisecond
-    /// precision and is still what status messages and every RuntimeLog line use, because a
-    /// millisecond-accurate boundary is exactly what you need when diagnosing a segment/export
-    /// mismatch. Do not "unify" them — display and diagnostics want different things.
-    /// </summary>
-    private static string FormatClock(double ms)
-    {
-        var ts = TimeSpan.FromMilliseconds(ms < 0 ? 0 : ms);
-        return ts.TotalHours >= 1.0
-            ? $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}"
-            : $"{ts.Minutes:D2}:{ts.Seconds:D2}";
-    }
+// GRANVIS_01 — FormatMs moved verbatim; see the extracted type.
+// GRANVIS_01 — FormatClock moved verbatim; see the extracted type.
 
     /// <summary>
     /// Returns the timeline overlay color for a speed segment, based on its speed
@@ -7571,19 +7598,7 @@ public partial class GranularSpeedEditorWindow : Window
         foreach (var c in norm)
             _cuts.Add(new FortniteVideoSoftware.Core.Media.CutRange(c.StartSec * 1000.0, c.EndSec * 1000.0));
     }
-
-    private static double SurvivingMsAfterCuts(
-        IReadOnlyList<FortniteVideoSoftware.Core.Media.CutRange> cuts, double durMs)
-    {
-        var rel = cuts
-            .Select(c => new FortniteVideoSoftware.Core.Media.OutputTimeline.Cut(c.StartMs / 1000.0, c.EndMs / 1000.0))
-            .ToList();
-        var norm = FortniteVideoSoftware.Core.Media.OutputTimeline.NormalizeCuts(rel, durMs / 1000.0);
-
-        double removed = 0;
-        foreach (var c in norm) removed += c.LengthSec * 1000.0;
-        return Math.Max(0, durMs - removed);
-    }
+// GRANVIS_01 — SurvivingMsAfterCuts moved verbatim; see the extracted type.
 
     private double TotalCutSeconds()
     {
@@ -7848,21 +7863,11 @@ public partial class GranularSpeedEditorWindow : Window
         _granularRecoveryWriter ??= new Services.EditorRecoveryWriter(_granularRecovery.UpdateGranularSession);
         return _granularRecoveryWriter.FinishAsync();
     }
-
-    private static double GetJsonDouble(JsonNode? node, double fallback)
-        => node is JsonValue v && v.TryGetValue(out double d) ? d : fallback;
-
-    private static double? GetJsonDoubleOrNull(JsonNode? node)
-        => node is JsonValue v && v.TryGetValue(out double d) ? d : null;
-
-    private static int? GetJsonIntOrNull(JsonNode? node)
-        => node is JsonValue v && v.TryGetValue(out int i) ? i : null;
-
-    private static bool GetJsonBool(JsonNode? node, bool fallback)
-        => node is JsonValue v && v.TryGetValue(out bool b) ? b : fallback;
-
-    private static string? GetJsonString(JsonNode? node)
-        => node is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+// GRANJSON_01 — GetJsonDouble moved verbatim; see the extracted type.
+// GRANJSON_01 — GetJsonDoubleOrNull moved verbatim; see the extracted type.
+// GRANJSON_01 — GetJsonIntOrNull moved verbatim; see the extracted type.
+// GRANJSON_01 — GetJsonBool moved verbatim; see the extracted type.
+// GRANJSON_01 — GetJsonString moved verbatim; see the extracted type.
 
     protected override async void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {

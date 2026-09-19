@@ -239,6 +239,39 @@ for %%P in (
   "AUTOZOOM_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
   "CROSSHAIR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
   "POPUPCLEAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
+  REM --- Concurrency / lifetime audit, 2026-09-18. Each tag guards a fix that cost a full
+  REM --- diagnosis cycle to find and would revert silently. See docs/05 and docs/03.
+  REM Finding 1 - GPU image slots were mutated by three threads with no synchronisation.
+  "GPUSLOT_01=src\FortniteVideoSoftware.App\MpvVideoView.cs"
+  "GPUPRESENT_01=src\FortniteVideoSoftware.App\MpvVideoView.cs"
+  REM Finding 2 - settings.json was written non-atomically to a fixed temp name, cross-process.
+  "SETTINGSATOMIC_01=src\FortniteVideoSoftware.App\Infrastructure\SettingsManager.cs"
+  "ATOMICTEXT_01=src\FortniteVideoSoftware.Core\Infrastructure\AtomicJsonFile.cs"
+  REM Finding 3 - cancel re-armed PROCESS before the pipeline stopped; the next export disposed
+  REM the CancellationTokenSource the previous worker was still registered on.
+  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Export.cs"
+  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
+  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "CANCELREG_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  "OUTPATH_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  REM Finding 4 - ProcessWorker is IDisposable and was never disposed, so ISSUE_11's
+  REM kill-the-tree backstop was unreachable code.
+  "WORKERLIFETIME_01=src\FortniteVideoSoftware.App\Services\MainMediaController.cs"
+  "WORKERLIFETIME_02=src\FortniteVideoSoftware.App\Services\MainMediaController.cs"
+  REM Finding 5 - the session-state flush debounce had no maximum-wait ceiling, and teardown
+  REM disposed the CancellationTokenSource under a live listener.
+  "FLUSHCEILING_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
+  "IPCTEARDOWN_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
+  "IPCLEASE_01=src\FortniteVideoSoftware.Core\Ipc\IpcProtocol.cs"
+  "IPCLEASE_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
+  REM Finding 6 - the two-pass tail disposed the Process while its pipe readers were still live.
+  "PIPEDRAIN_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  REM Finding 7 - Cancel re-read a non-volatile Process field between the null test and Kill.
+  "PROCGATE_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  "PROCGATE_02=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  REM Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe.
+  "GRANPROBE_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
+  "GRANPROBE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

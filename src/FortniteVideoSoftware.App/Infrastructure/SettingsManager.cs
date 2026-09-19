@@ -442,6 +442,21 @@ public static class SettingsManager
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
+    /// <summary>
+    /// SETTINGSATOMIC_01 — cross-PROCESS write lock. settings.json is shared by the Main App, the
+    /// Video Merger and the Crop Tools; this is the only thing that stops two of them publishing
+    /// over each other. Named the same way as the existing Global\Fvs* locks so it is visible
+    /// alongside them in a handle dump.
+    /// </summary>
+    private const string SettingsMutexName = @"Global\FvsSettingsMutex";
+
+    /// <summary>
+    /// SETTINGSATOMIC_01 — in-PROCESS gate around reading/writing <see cref="Instance"/>. Serialising
+    /// a mutable object graph while another thread mutates it is how a torn settings document gets
+    /// written; UpdateService's background task is the concrete second writer.
+    /// </summary>
+    private static readonly object SerializeGate = new();
+
     public static AppSettings Instance { get; private set; } = new AppSettings();
 
     /// <summary>
@@ -457,7 +472,7 @@ public static class SettingsManager
         if (!File.Exists(SettingsPath))
         {
             RuntimeLog.Info("Settings", "No settings file yet — starting from defaults (AutoUpdateChecks=true).");
-            Instance = new AppSettings { AutoUpdateChecks = true };
+            lock (SerializeGate) { Instance = new AppSettings { AutoUpdateChecks = true }; }
             Save();
             return;
         }
@@ -465,6 +480,14 @@ public static class SettingsManager
         string json;
         try
         {
+            // SETTINGSATOMIC_01 — read under the same cross-process lock the write takes, so a
+            // sibling process cannot be mid-File.Move while this read is in flight.
+            using FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex readGuard =
+                FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.Acquire(
+                    SettingsMutexName,
+                    FortniteVideoSoftware.Core.Ipc.StateTransferStore.InteractiveMutexTimeout,
+                    System.Threading.CancellationToken.None);
+
             json = File.ReadAllText(SettingsPath);
         }
         catch (Exception ex)
@@ -491,7 +514,7 @@ public static class SettingsManager
             }
 
             Migrate(loaded);
-            Instance = loaded;
+            lock (SerializeGate) { Instance = loaded; }
             RuntimeLog.Info("Settings", $"Settings loaded (schema v{loaded.SchemaVersion}).");
             if (schemaBefore < CurrentSchemaVersion || lackedAutoUpdate)
             {
@@ -502,7 +525,7 @@ public static class SettingsManager
         catch (Exception ex)
         {
             string backupPath = QuarantineCorruptFile(json);
-            Instance = new AppSettings { AutoUpdateChecks = true };
+            lock (SerializeGate) { Instance = new AppSettings { AutoUpdateChecks = true }; }
             Save();
 
             LoadFailureMessage =
@@ -614,19 +637,86 @@ public static class SettingsManager
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
+    /// <summary>
+    /// SETTINGSATOMIC_01 — cross-process, power-outage-safe settings persistence.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// WHAT WAS WRONG, AND WHY IT WAS THREE BUGS, NOT ONE.
+    ///
+    /// This used to be:
+    ///     string tempFile = SettingsPath + ".tmp";
+    ///     File.WriteAllText(tempFile, json);
+    ///     File.Move(tempFile, SettingsPath, overwrite: true);
+    ///
+    ///   1. THE TEMP NAME WAS A CONSTANT. settings.json lives under ProgramDataRoot, which the Main
+    ///      App, the Video Merger (--merger) and the Crop Tools (--crop-tool) all share. Three
+    ///      processes writing "settings.json.tmp" is three processes writing the SAME scrap of
+    ///      paper. The loser gets IOException (swallowed, and 10 of the 12 call sites discarded the
+    ///      bool), or — worse — process B's File.Move publishes process A's half-written payload as
+    ///      the live configuration.
+    ///
+    ///   2. THERE WAS NO DURABILITY BARRIER. File.WriteAllText returns when the bytes reach the OS
+    ///      cache, not the platter, and File.Move maps to MoveFileExW with MOVEFILE_REPLACE_EXISTING
+    ///      only. NTFS journals the RENAME but not the DATA, so a power cut in that window leaves a
+    ///      correctly named, correctly sized, ZERO-FILLED settings.json. Load() then quarantines it
+    ///      and resets every preference the user ever set.
+    ///
+    ///   3. Instance WAS SERIALISED WITHOUT A LOCK. It is a mutable static reference object, and
+    ///      UpdateService's background task writes to it while UI handlers do. JsonSerializer walking
+    ///      a graph that is being mutated yields a torn document or InvalidOperationException.
+    ///
+    /// THE FIX, in the order the three defects are listed:
+    ///   1. A Global\ named mutex (SettingsMutexName) serialises the write across all three
+    ///      processes, exactly as CropConfigStore already does for crops_coordinations.conf.
+    ///   2. AtomicJsonFile.WriteText supplies the GUID temp name + FileOptions.WriteThrough +
+    ///      Flush(flushToDisk: true) + atomic File.Move that
+    ///      docs/05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-RECOVERY mandates for ALL disk saves.
+    ///   3. The serialisation happens inside SerializeGate, so the JSON string is a consistent
+    ///      snapshot taken before any lock on the filesystem is contended for.
+    ///
+    /// The mutex is held ONLY around the disk write — never around serialisation, and never across
+    /// a UI await — and uses the 2-second InteractiveMutexTimeout so a wedged sibling process can
+    /// never freeze a click.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
     public static bool Save()
     {
+        string json;
         try
         {
-            Instance.SchemaVersion = CurrentSchemaVersion;
+            // Snapshot under the gate: no other thread may mutate Instance mid-walk.
+            lock (SerializeGate)
+            {
+                Instance.SchemaVersion = CurrentSchemaVersion;
 
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            options.TypeInfoResolver = SettingsJsonContext.Default;
-            var json = JsonSerializer.Serialize(Instance, options);
-            string tempFile = SettingsPath + ".tmp";
-            File.WriteAllText(tempFile, json);
-            File.Move(tempFile, SettingsPath, overwrite: true);
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                options.TypeInfoResolver = SettingsJsonContext.Default;
+                json = JsonSerializer.Serialize(Instance, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Settings", $"Failed to serialize settings: {ex.Message}");
+            return false;
+        }
+
+        try
+        {
+            using FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex guard =
+                FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.Acquire(
+                    SettingsMutexName,
+                    FortniteVideoSoftware.Core.Ipc.StateTransferStore.InteractiveMutexTimeout,
+                    System.Threading.CancellationToken.None);
+
+            FortniteVideoSoftware.Core.Infrastructure.AtomicJsonFile.WriteText(SettingsPath, json);
             return true;
+        }
+        catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+        {
+            RuntimeLog.Fail("Settings",
+                "Settings save skipped: another Fortnite Video Software process is holding the settings lock. " +
+                "The in-memory settings are unchanged; the next save will retry.");
+            return false;
         }
         catch (Exception ex)
         {

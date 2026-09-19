@@ -65,6 +65,21 @@ public partial class MainWindow
         var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
         if (overlay != null)
         {
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // EXPORTSESSION_01 — CANCEL SIGNALS. IT DOES NOT DECLARE THE FLOOR CLEAR.
+            //
+            // This used to call Cancel() and then, in the same breath, StopOverlay() and
+            // btn.IsEnabled = true — telling the user the export was over while FFmpeg was still
+            // being killed, the reader pipes were still draining and a multi-gigabyte temp directory
+            // was still being deleted. That re-armed button is what let a SECOND pipeline start on
+            // top of the first. See the EXPORTSESSION_01 block on _exportRunning in
+            // MainWindow.axaml.cs for the full three-part failure chain.
+            //
+            // Cancel now only: (a) signals the token, (b) shows "CANCELLING..." so the click is
+            // acknowledged within a frame. The overlay is dismissed and the button re-armed in the
+            // ONE place that knows the pipeline has genuinely stopped — the finally in
+            // ProcessVideoAsync.
+            // ══════════════════════════════════════════════════════════════════════════════════
             overlay.CancelRequested += (s, e) =>
             {
                 if (_processCts != null && !_processCts.IsCancellationRequested)
@@ -72,15 +87,13 @@ public partial class MainWindow
                     try { _processCts.Cancel(); }
                     catch (ObjectDisposedException) { }
 
-                    overlay.StopOverlay();
-                    if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
                     var btn = this.FindControl<Button>("ProcessButton");
                     if (btn != null)
                     {
-                        btn.IsEnabled = true;
-                        btn.Content = "PROCESS";
+                        btn.IsEnabled = false;
+                        btn.Content = "CANCELLING...";
                     }
-                    ShowTacticalFeedback("Processing Cancelled");
+                    ShowTacticalFeedback("Cancelling — stopping the encoder");
                     PlayUiSound();
                 }
             };
@@ -243,13 +256,16 @@ public partial class MainWindow
 
         this.AddHandler(InputElement.PointerPressedEvent, (s, e) =>
         {
-            // THUMB_02 — the thumbnail marker was MISSING from this list. Every other marker drag
-            // suppresses the canvas rebuild while it is in flight, for exactly the reason the
-            // thumbnail one needed it most: UpdateTimelineMarkers clears and recreates the marker
-            // controls, so a rebuild during a gesture destroys the control holding pointer capture.
-            bool markerDragActive = _draggingStartMarker || _draggingEndMarker ||
-                                    _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock ||
-                                    _isDraggingThumbnailMarker;
+            // THUMB_02 — the thumbnail marker was MISSING from this hand-written list. Every other
+            // marker drag suppresses the canvas rebuild while it is in flight, for exactly the
+            // reason the thumbnail one needed it most: UpdateTimelineMarkers clears and recreates
+            // the marker controls, so a rebuild during a gesture destroys the control holding
+            // pointer capture.
+            // TIMELINEDRAW_01 — the list itself now lives in exactly one place, MainWindow's
+            // IsMarkerGestureActive, so it cannot be transcribed wrongly again. The checks below
+            // are kept (they still short-circuit the call) even though the render pass now enforces
+            // the same rule for all thirty call sites.
+            bool markerDragActive = IsMarkerGestureActive;
 
             if (_isMusicBlockFocused)
             {
@@ -336,9 +352,11 @@ public partial class MainWindow
         {
             processButton.Click += async (s, e) =>
             {
+                // EXPORTSESSION_01 — the single-flight guard lives inside ProcessVideoAsync so every
+                // entry point is covered, not just this one. Do NOT set the caption here: a click
+                // the guard rejects must leave the live caption ("CANCELLING...", "PROCESSING... 42%")
+                // untouched.
                 RuntimeLog.Info("UI", "User clicked PROCESS button.");
-                processButton.IsEnabled = false;
-                processButton.Content = "PROCESSING...";
                 await ProcessVideoAsync(processButton);
             };
         }
@@ -421,7 +439,11 @@ public partial class MainWindow
                     ? $"{zoomIpc.VideoWidth}x{zoomIpc.VideoHeight}"
                     : "1920x1080";
                 bool cutsChangedByEditor = false;
-                var editor = new GranularSpeedEditorWindow(
+                // GRANPROBE_01 — CreateAsync, not `new`. The duration probe this window needs before
+                // it can lay out a timeline used to run as a blocking Task.Wait inside the
+                // constructor, freezing the UI for up to half a second on every open. It now runs
+                // off the dispatcher and the window is constructed once the answer is in hand.
+                var editor = await GranularSpeedEditorWindow.CreateAsync(
                     _loadedVideoPath,
                     _trimStartMs,
                     _trimEndMs > 0 ? _trimEndMs : (zoomIpc?.Duration ?? 0) * 1000,
@@ -433,12 +455,11 @@ public partial class MainWindow
                     zoomSrcRes,
                     _voiceOverResult,
                     _cuts,           // CUT_02 — cuts are edited in the Granular editor now
-                    _memePlacements) // MEME_06 — and so are memes
-                {
-                    // MEME_06 — handed over rather than re-scanned: this window already scanned the
-                    // meme folder and probed every file's dimensions on startup.
-                    AvailableMemes = _memeItems
-                };
+                    _memePlacements); // MEME_06 — and so are memes
+
+                // MEME_06 — handed over rather than re-scanned: this window already scanned the
+                // meme folder and probed every file's dimensions on startup.
+                editor.AvailableMemes = _memeItems;
 
                 await editor.ShowDialog(this);
                 ReturnToTrimStartPaused();

@@ -19,9 +19,14 @@ public partial class PhaseOverlayControl : UserControl
     private List<int> _cpuHist = new();
     private List<int> _gpuHist = new();
     private List<int> _memHist = new();
-    private ulong _lastIdle;
-    private ulong _lastSys;
-    private int _lastGpu;
+    /// <summary>
+    /// TELEMETRY_01 — the CPU/memory/GPU sampling that used to be four loose fields and five
+    /// methods on this control. Extracted because sampling hardware has nothing to do with a
+    /// progress overlay, a log tail or a fighting-game easter egg, and because its state was
+    /// sharing this type's field bag with all three. Two real concurrency defects were fixed in
+    /// the move — see <see cref="HardwareTelemetrySampler"/>.
+    /// </summary>
+    private readonly HardwareTelemetrySampler _telemetry = new();
     private Random _rand = new();
 
     private Stopwatch _processStopwatch = new();
@@ -77,7 +82,6 @@ public partial class PhaseOverlayControl : UserControl
         }
     }
     
-    private Process? _smiProcess;
 
     /// <summary>
     /// IDEA_3 — the host window's Win32 handle, or zero when there is none. Resolved fresh each
@@ -105,47 +109,9 @@ public partial class PhaseOverlayControl : UserControl
         _memHist.Clear();
         _logLines.Clear();
         
-        try
-        {
-            if (_smiProcess != null)
-            {
-                var previous = _smiProcess;
-                _smiProcess = null;
-                try { if (!previous.HasExited) previous.Kill(entireProcessTree: true); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-                try { previous.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-            }
-
-            _smiProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "nvidia-smi",
-                    Arguments = "--query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -i 0 -l 1",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            _smiProcess.OutputDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                {
-                    var parts = e.Data.Trim().Split(',');
-                    if (parts.Length >= 2)
-                    {
-                        int core = int.TryParse(parts[0].Trim(), out int c) ? c : 0;
-                        int enc = int.TryParse(parts[1].Trim(), out int ex) ? ex : 0;
-                        _lastGpu = Math.Max(0, Math.Min(100, Math.Max(core, enc)));
-                    }
-                }
-            };
-            _smiProcess.Start();
-
-            try { FortniteVideoSoftware.Core.Infrastructure.ChildProcessTracker.AddProcess(_smiProcess); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
-
-            _smiProcess.BeginOutputReadLine();
-        }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        // TELEMETRY_01 — restart semantics unchanged: a previously running nvidia-smi child is
+        // stopped before a new one is started. Non-throwing, as before.
+        _telemetry.Start();
         
         var txt = this.FindControl<TextBox>("LiveLogTextBox");
         if (txt != null) txt.Text = "Backend log stream attached.\n";
@@ -314,16 +280,9 @@ public partial class PhaseOverlayControl : UserControl
 
         RuntimeLog.LogAppended -= AppendLog;
         
-        try
-        {
-            if (_smiProcess != null && !_smiProcess.HasExited)
-            {
-                _smiProcess.Kill();
-            }
-            _smiProcess?.Dispose();
-            _smiProcess = null;
-        }
-        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+        // TELEMETRY_01 — was a bare Kill() here and a Kill(entireProcessTree: true) at the start
+        // site: two different teardowns for the same child. One path now, bounded and confirmed.
+        _telemetry.Stop();
     }
     /// <summary>
     /// What the Windows taskbar button does when the overlay closes.
@@ -461,12 +420,20 @@ public partial class PhaseOverlayControl : UserControl
     /// closed while an export is still in flight. Detaching from the visual tree always happens,
     /// so releasing here as well makes the subscription impossible to strand.
     /// Unsubscribing twice is harmless.
+    ///
+    /// TELEMETRY_01 — the nvidia-smi child is released here for exactly the same reason, and it
+    /// was NOT before. It was stopped only in StopOverlay, so the very case ISSUE_7 exists to
+    /// cover — the host window closed mid-export — left an `nvidia-smi -l 1` polling once a second
+    /// for the rest of the session. The ChildProcessTracker job object would still have reaped it
+    /// at process exit, but that is the last-resort safeguard, not a teardown plan.
+    /// Stopping twice is harmless (StopSmiProcess claims the reference and nulls it).
     /// </summary>
     protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
         RuntimeLog.LogAppended -= AppendLog;
         DetachFightKeyHandler();
         _pendingLogs.Clear();
+        _telemetry.Stop();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -1028,7 +995,7 @@ public partial class PhaseOverlayControl : UserControl
     {
         var live = new List<string>();
         int prog = Math.Clamp(_lastFightProgress, 0, 100);
-        int gpu = Math.Clamp(_lastGpu, 0, 100);
+        int gpu = Math.Clamp(_telemetry.LastGpu, 0, 100);
         int cpu = _cpuHist.Count > 0 ? _cpuHist[_cpuHist.Count - 1] : 0;
         int mem = _memHist.Count > 0 ? _memHist[_memHist.Count - 1] : 0;
 
@@ -1199,7 +1166,7 @@ public partial class PhaseOverlayControl : UserControl
         _stanceA = ""; _stanceB = "";
 
         double prog = Math.Clamp(_lastFightProgress / 100.0, 0, 1);
-        double load = Math.Clamp(_lastGpu / 100.0, 0, 1);
+        double load = Math.Clamp(_telemetry.LastGpu / 100.0, 0, 1);
         double baseGap = 0.75 - 0.4 * prog - 0.2 * load;
         if (_isBossFight && _bossPhase == 2) baseGap -= 0.15;
         if (_comboLeft > 0) baseGap = 0.14;
@@ -2315,13 +2282,28 @@ public partial class PhaseOverlayControl : UserControl
 
     private void OnTick(object? sender, EventArgs e)
     {
-        Task.Run(() => 
+        // TELEMETRY_01 — SKIP THE TICK RATHER THAN OVERLAP IT. This fired Task.Run unguarded, and
+        // the CPU reading is a read-modify-write against the previous sample: two ticks in flight
+        // at once both measured against a baseline the other had already advanced, producing a
+        // nonsense percentage on the gauge. The pool is most likely to be busy enough to delay a
+        // tick during a heavy export — exactly when this overlay is on screen.
+        if (!_telemetry.TryBeginSample()) return;
+
+        Task.Run(() =>
         {
-            int cpu = GetCpuUsage();
-            int mem = GetMemUsage();
-            int gpu = GetGpuUsage();
-            
-            Dispatcher.UIThread.Post(() => 
+            int cpu, mem, gpu;
+            try
+            {
+                (cpu, mem, gpu) = _telemetry.Sample();
+            }
+            finally
+            {
+                // Released as soon as the SAMPLE is done. The UI update below only touches
+                // UI-thread state, so it is not part of what the gate protects.
+                _telemetry.EndSample();
+            }
+
+            Dispatcher.UIThread.Post(() =>
             {
                 _cpuHist.Add(cpu);
                 if (_cpuHist.Count > 200) _cpuHist.RemoveAt(0);
@@ -2361,70 +2343,9 @@ public partial class PhaseOverlayControl : UserControl
         });
     }
 
-    private int GetCpuUsage()
-    {
-        if (GetSystemTimes(out FILETIME idle, out FILETIME kernel, out FILETIME user))
-        {
-            ulong sysIdle = ((ulong)idle.dwHighDateTime << 32) | idle.dwLowDateTime;
-            ulong sysKernel = ((ulong)kernel.dwHighDateTime << 32) | kernel.dwLowDateTime;
-            ulong sysUser = ((ulong)user.dwHighDateTime << 32) | user.dwLowDateTime;
-            ulong sysTime = sysKernel + sysUser;
-            
-            if (_lastSys > 0)
-            {
-                ulong idlDiff = sysIdle - _lastIdle;
-                ulong sysDiff = sysTime - _lastSys;
-                if (sysDiff > 0)
-                {
-                    double dCpu = (sysDiff - idlDiff) * 100.0 / sysDiff;
-                    _lastIdle = sysIdle;
-                    _lastSys = sysTime;
-                    return Math.Max(0, Math.Min(100, (int)dCpu));
-                }
-            }
-            _lastIdle = sysIdle;
-            _lastSys = sysTime;
-        }
-        return 0;
-    }
-    
-    private int GetMemUsage()
-    {
-        MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
-        memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-        if (GlobalMemoryStatusEx(ref memStatus))
-        {
-            return (int)memStatus.dwMemoryLoad;
-        }
-        return 0;
-    }
-    
-    private int GetGpuUsage()
-    {
-        return _lastGpu;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool GetSystemTimes(out FILETIME lpIdleTime, out FILETIME lpKernelTime, out FILETIME lpUserTime);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct FILETIME { public uint dwLowDateTime; public uint dwHighDateTime; }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MEMORYSTATUSEX {
-        public uint dwLength;
-        public uint dwMemoryLoad;
-        public ulong ullTotalPhys;
-        public ulong ullAvailPhys;
-        public ulong ullTotalPageFile;
-        public ulong ullAvailPageFile;
-        public ulong ullTotalVirtual;
-        public ulong ullAvailVirtual;
-        public ulong ullAvailExtendedVirtual;
-    }
+    // TELEMETRY_01 — GetCpuUsage / GetMemUsage / GetGpuUsage, the two kernel32 P/Invokes and the
+    // FILETIME / MEMORYSTATUSEX structs moved verbatim into HardwareTelemetrySampler, which now
+    // owns the counters they mutate. Neither struct had a single reference outside this file.
 }
 
 public class HardwareGraphControl : Control

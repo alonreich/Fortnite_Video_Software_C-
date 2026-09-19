@@ -53,6 +53,28 @@ internal static class UpdateService
 {
     private const string LatestReleaseApiUrl = "https://api.github.com/repos/alonreich/Fortnite_Video_Software_C-/releases/latest";
     private const string ExpectedAssetName = "FortniteVideoSoftware.exe";
+
+    /// <summary>
+    /// UPDATETRUST_01 — the ONLY hosts an update asset may be fetched from.
+    ///
+    /// <para>The asset URL used to be taken from the release JSON verbatim and handed straight to
+    /// <c>HttpClient</c>. A response body that named any other host would have been fetched without
+    /// comment, and since the SHA-256 that "verifies" the download comes out of that SAME document,
+    /// nothing downstream would have objected either. Pinning the host removes the easiest half of
+    /// that pairing: an attacker now has to be GitHub, not merely be believed by us.</para>
+    ///
+    /// <para>⚠️ This gates the URL AS PUBLISHED IN THE JSON. HttpClient still follows GitHub's
+    /// redirect to its asset CDN without re-checking the hop, which is why the CDN hosts are listed
+    /// too and why this is a defence-in-depth control rather than the primary one — the re-hash and
+    /// the Authenticode check before <c>Process.Start</c> are what actually decide.</para>
+    /// </summary>
+    private static readonly string[] AllowedAssetHosts =
+    {
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+        "github-releases.githubusercontent.com"
+    };
     private const string UserAgent = "FortniteVideoSoftware-Updater";
     private const string DownloadFolderRootName = "FVS_AutoUpdate";
     private const string LastCheckFile = "update_last_check_utc.txt";
@@ -373,6 +395,21 @@ internal static class UpdateService
                 return null;
             }
 
+            // UPDATETRUST_01 — refuse an asset URL that is not HTTPS to a pinned GitHub host.
+            if (!IsAllowedAssetUrl(url!))
+            {
+                RuntimeLog.Fail("UPDATE", $"Release {tag} points its asset at an unexpected location; refusing to download it.");
+                return null;
+            }
+
+            // UPDATETRUST_01 — the tag becomes a directory name below. Reject it here, while we can
+            // still stay silent, rather than at download time.
+            if (!TrySanitizeTagForPath(tag!, out _))
+            {
+                RuntimeLog.Fail("UPDATE", $"Release tag '{tag}' is not usable as a folder name; staying silent.");
+                return null;
+            }
+
             // digest looks like "sha256:<hex>" — the publisher already trusts this exact value.
             string? digest = asset?["digest"]?.GetValue<string>();
             string? sha256 = null;
@@ -418,7 +455,41 @@ internal static class UpdateService
     {
         PurgeOldDownloadFolders();
 
-        string folder = Path.Combine(Path.GetTempPath(), DownloadFolderRootName, release.Tag);
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // UPDATETRUST_01 — THE TAG IS UNTRUSTED INPUT AND IT IS ABOUT TO BECOME A DIRECTORY NAME.
+        //
+        // WHAT WAS WRONG: this was Path.Combine(GetTempPath(), DownloadFolderRootName, release.Tag)
+        // with release.Tag straight out of the GitHub JSON. The only gate upstream is
+        // DeploymentLifecycle.TryParseVersion, which does TrimStart('v','V') then
+        // TakeWhile(IsDigit || '.') — it validates a PREFIX and silently discards the rest. So
+        // "9.9.9\..\..\Microsoft\Windows\Start Menu\Programs\Startup" parses happily as 9.9.9 and
+        // was then used verbatim as a folder name. Path.Combine does not reject "..", so the .exe
+        // landed wherever the tag pointed — a persistence primitive, one JSON field wide.
+        //
+        // The fix rejects rather than strips (a stripped traversal silently collides with another
+        // release's folder) and then ASSERTS containment on the resolved path, so even a sanitiser
+        // bug cannot put a file outside the download root.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        if (!TrySanitizeTagForPath(release.Tag, out string tagFolderName))
+        {
+            RuntimeLog.Fail("UPDATE", $"Refusing to download release '{release.Tag}': the tag is not a usable folder name.");
+            return;
+        }
+
+        string downloadRoot = Path.Combine(Path.GetTempPath(), DownloadFolderRootName);
+        string folder = Path.Combine(downloadRoot, tagFolderName);
+
+        string resolvedRoot = Path.GetFullPath(downloadRoot);
+        string resolvedFolder = Path.GetFullPath(folder);
+        if (!resolvedFolder.StartsWith(
+                resolvedRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            RuntimeLog.Fail("UPDATE", "Refusing to download: the resolved update folder escapes the download root.");
+            return;
+        }
+
+        folder = resolvedFolder;
         string finalPath = Path.Combine(folder, ExpectedAssetName);
         string partPath = finalPath + ".part";
         Directory.CreateDirectory(folder);
@@ -490,11 +561,65 @@ internal static class UpdateService
 
             File.Move(partPath, finalPath, overwrite: true);
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // UPDATETRUST_01 — RE-HASH THE PATH WE ARE ACTUALLY GOING TO EXECUTE.
+            //
+            // The hash above was computed over partPath; the file then got RENAMED and a DIFFERENT
+            // path is launched below. That rename window was a time-of-check/time-of-use gap: the
+            // bytes that were verified and the bytes that run were never proven to be the same
+            // bytes. Re-hashing finalPath costs one sequential read of a file already in the page
+            // cache and closes the gap completely.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            string finalHash;
+            await using (FileStream finalStream = File.OpenRead(finalPath))
+            {
+                finalHash = Convert.ToHexString(SHA256.HashData(finalStream)).ToLowerInvariant();
+            }
+
+            if (!string.Equals(finalHash, release.Sha256Hex, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The installer changed on disk after it was verified. Nothing was installed.");
+            }
+
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // UPDATETRUST_01 — PROVE THE PUBLISHER, NOT JUST THE BYTES.
+            //
+            // The SHA-256 above and the URL it validates come out of the SAME JSON document. That
+            // pair proves transport integrity and nothing more: whoever can produce that response
+            // controls both halves at once. This is the only check that asks "did WE sign this?",
+            // and it runs on the exact path about to be executed with elevation.
+            //
+            // See AuthenticodeVerifier for why the anchor is the running process rather than a
+            // hardcoded thumbprint, and why an unsigned running build degrades to hash-only
+            // LOUDLY instead of failing closed.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            var verdict = AuthenticodeVerifier.EvaluateUpdateCandidate(
+                finalPath, Environment.ProcessPath, out string trustDetail);
+
+            switch (verdict)
+            {
+                case AuthenticodeVerifier.TrustVerdict.Rejected:
+                    TryDeleteFile(finalPath);
+                    throw new InvalidOperationException(
+                        "The downloaded installer failed its signature check and was deleted. Nothing was installed." +
+                        Environment.NewLine + trustDetail);
+
+                case AuthenticodeVerifier.TrustVerdict.NoAnchor:
+                    RuntimeLog.Fail("UPDATE",
+                        "SIGNATURE CHECK SKIPPED — " + trustDetail +
+                        " The update was accepted on its published fingerprint alone. Set FVS_SIGN_PFX and ship a signed build to close this gap.");
+                    break;
+
+                default:
+                    RuntimeLog.Info("UPDATE", "Publisher check passed: " + trustDetail);
+                    break;
+            }
+
             // Honour a Cancel clicked during verification/handoff — never install past a cancel.
             cts.Token.ThrowIfCancellationRequested();
 
             Dispatcher.UIThread.Post(() => progressWindow?.MarkHandoffToInstaller());
-            RuntimeLog.Info("UPDATE", $"Download of {release.Tag} verified (sha256 {actualHash[..12]}…). Handing off to installer with --auto-update.");
+            RuntimeLog.Info("UPDATE", $"Download of {release.Tag} verified (sha256 {finalHash[..12]}…). Handing off to installer with --auto-update.");
 
             // --auto-update makes DeploymentLifecycle force the preserve-settings answer to YES
             // without asking, then relaunch the app. Windows will still show its own UAC consent
@@ -509,11 +634,16 @@ internal static class UpdateService
         {
             RuntimeLog.Info("UPDATE", "Update download cancelled by the user; current install untouched.");
             TryDeleteFile(partPath);
+            // UPDATETRUST_01 — a cancel after the rename must not leave a runnable installer behind.
+            TryDeleteFile(finalPath);
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("UPDATE", $"Update download/verify failed: {ex.Message}");
             TryDeleteFile(partPath);
+            // UPDATETRUST_01 — every rejection path removes the artifact, including one rejected
+            // AFTER the rename (bad re-hash, failed signature check).
+            TryDeleteFile(finalPath);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 NativeDialog.ShowError(
@@ -545,6 +675,79 @@ internal static class UpdateService
     /// Removes download leftovers from previous updates. Best-effort: a folder still locked by a
     /// running installer is left for the next attempt.
     /// </summary>
+    /// <summary>
+    /// UPDATETRUST_01 — true only for an HTTPS URL whose host is one of
+    /// <see cref="AllowedAssetHosts"/> (exact match or a subdomain of one).
+    /// </summary>
+    private static bool IsAllowedAssetUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)) return false;
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) return false;
+
+        string host = uri.Host;
+        foreach (string allowed in AllowedAssetHosts)
+        {
+            if (string.Equals(host, allowed, StringComparison.OrdinalIgnoreCase)) return true;
+            if (host.EndsWith("." + allowed, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// UPDATETRUST_01 — projects an untrusted release tag onto a filesystem-safe folder name, or
+    /// REFUSES.
+    ///
+    /// <para><b>It rejects; it does not strip.</b> Silently removing the offending characters would
+    /// map two different tags onto one folder, which is its own (quieter) correctness bug — and it
+    /// is exactly the "validate a prefix, discard the rest" mistake in
+    /// <c>DeploymentLifecycle.TryParseVersion</c> that let a traversal through in the first place.</para>
+    ///
+    /// <para>⚠️ The RAW tag stays authoritative everywhere else. <c>SkippedTagFile</c> persists and
+    /// compares the raw string, so a sanitised value must never be written there or a release the
+    /// user skipped would be offered again on the next start.</para>
+    /// </summary>
+    private static bool TrySanitizeTagForPath(string? tag, out string folderName)
+    {
+        folderName = string.Empty;
+        if (string.IsNullOrWhiteSpace(tag)) return false;
+
+        string candidate = tag!.Trim();
+        if (candidate.Length == 0 || candidate.Length > 64) return false;
+
+        // Leading/trailing dots and any ".." run are traversal or Windows-illegal names.
+        if (candidate.StartsWith('.') || candidate.EndsWith('.')) return false;
+        if (candidate.Contains("..", StringComparison.Ordinal)) return false;
+
+        foreach (char c in candidate)
+        {
+            bool ok = (c >= 'a' && c <= 'z')
+                   || (c >= 'A' && c <= 'Z')
+                   || (c >= '0' && c <= '9')
+                   || c == '.' || c == '-' || c == '_';
+            if (!ok) return false;
+        }
+
+        // Reserved Windows device names, with or without an extension.
+        string stem = candidate;
+        int dot = stem.IndexOf('.');
+        if (dot >= 0) stem = stem[..dot];
+        foreach (string reserved in ReservedDeviceNames)
+        {
+            if (string.Equals(stem, reserved, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+
+        folderName = candidate;
+        return true;
+    }
+
+    private static readonly string[] ReservedDeviceNames =
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
     private static void PurgeOldDownloadFolders()
     {
         try

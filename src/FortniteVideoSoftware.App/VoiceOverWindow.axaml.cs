@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -15,6 +15,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+
+// VOTOOLS_01 — helper types holding methods extracted verbatim from this class. Imported with
+// `using static` on purpose: every call site below keeps the exact unqualified spelling it
+// already had, so the extraction cannot change a single statement inside this file.
+using static FortniteVideoSoftware.App.Infrastructure.VoiceOverAudioTools;
 
 namespace FortniteVideoSoftware.App;
 
@@ -265,13 +270,10 @@ public partial class VoiceOverWindow : Window
     }
 
     /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
+    /// <summary>MEMESWAP_01 — was one of three byte-identical private copies; see
+    /// <see cref="Infrastructure.MemeSwapOverlay"/>.</summary>
     private void SetMemeSwapOverlay(bool visible, string message)
-    {
-        var overlay = this.FindControl<Border>("MemeSwapOverlay");
-        var text = this.FindControl<TextBlock>("MemeSwapOverlayText");
-        if (text != null && !string.IsNullOrEmpty(message)) text.Text = message;
-        if (overlay != null) overlay.IsVisible = visible;
-    }
+        => Infrastructure.MemeSwapOverlay.Set(this, visible, message);
     private double _baseSpeed = 1.0;
     private double _lastAppliedSpeed = 1.0;
     private bool _isCurrentlyFrozen;
@@ -754,7 +756,6 @@ public partial class VoiceOverWindow : Window
         }
         _previewPlayersBuiltForCount = -1;
     }
-
     private static void RetirePreviewPlayersAsync(List<PreviewPlayer> players)
     {
         if (players.Count == 0) return;
@@ -913,25 +914,17 @@ public partial class VoiceOverWindow : Window
     }
 
 
+    /// <summary>
+    /// BINPATH_01 — moved verbatim into <see cref="Infrastructure.BinaryPathProbe"/>.
+    ///
+    /// ⚠️ THIS WINDOW'S SEARCH ORDER IS NOT THE CROP TOOL'S. It roots the preferred probe at
+    /// AppContext.BaseDirectory; CropToolWindow roots it at Environment.ProcessPath's directory,
+    /// and for a self-contained single-file host those are different directories. The two are kept
+    /// as separate named methods so neither window's behaviour changes here. Unifying them is a
+    /// behaviour change that has to be verified against a real install.
+    /// </summary>
     private static string ResolveBinaryPath(string fileName, string preferredSubdirectory)
-    {
-        string processDir = System.IO.Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        string baseDir = AppContext.BaseDirectory;
-        string sourceRootCandidate = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "..", "binaries", fileName));
-        
-        string preferredPath = System.IO.Path.Combine(baseDir, preferredSubdirectory, fileName);
-        if (System.IO.File.Exists(preferredPath)) return preferredPath;
-        
-        string rootPath = System.IO.Path.Combine(baseDir, fileName);
-        if (System.IO.File.Exists(rootPath)) return rootPath;
-        
-        string debugPath = System.IO.Path.Combine(processDir, fileName);
-        if (System.IO.File.Exists(debugPath)) return debugPath;
-
-        if (System.IO.File.Exists(sourceRootCandidate)) return sourceRootCandidate;
-
-        return fileName;
-    }
+        => Infrastructure.BinaryPathProbe.ResolveForVoiceOver(fileName, preferredSubdirectory);
 
     private string CreateTempVoiceOverPath()
     {
@@ -1680,46 +1673,7 @@ public partial class VoiceOverWindow : Window
             }
         }
     }
-
-    /// <summary>
-    /// VOPROT_02 — stores the applied choices as the "last time" values, but ONLY for a checkbox
-    /// the user was actually allowed to set. Writing back a locked box would let an Always mode
-    /// quietly overwrite the preference the user would return to if they switched back to
-    /// Remember — the setting would appear to change itself.
-    /// </summary>
-    private static void RememberVoiceProtectionChoices(bool duckGame, bool duckMusic)
-    {
-        var settings = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance;
-        bool dirty = false;
-
-        if (settings.VoiceProtectGameMode == FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.RememberLastChoice &&
-            settings.VoiceProtectGameLast != duckGame)
-        {
-            settings.VoiceProtectGameLast = duckGame;
-            dirty = true;
-        }
-
-        if (settings.VoiceProtectMusicMode == FortniteVideoSoftware.App.Infrastructure.VoiceProtectionMode.RememberLastChoice &&
-            settings.VoiceProtectMusicLast != duckMusic)
-        {
-            settings.VoiceProtectMusicLast = duckMusic;
-            dirty = true;
-        }
-
-        if (!dirty) return;
-
-        try
-        {
-            FortniteVideoSoftware.App.Infrastructure.SettingsManager.Save();
-            RuntimeLog.Info("VoiceOver",
-                $"Voice-protection choices remembered: game={duckGame}, music={duckMusic}.");
-        }
-        catch (Exception ex)
-        {
-            // A preference that cannot be written is not worth failing an export over.
-            RuntimeLog.Fail("VoiceOver", $"Could not save the voice-protection choices: {ex.Message}");
-        }
-    }
+// VOTOOLS_01 — RememberVoiceProtectionChoices moved verbatim; see the extracted type.
 
     private void UpdateTransportState()
     {
@@ -1971,17 +1925,7 @@ public partial class VoiceOverWindow : Window
         if (_playIcon != null) _playIcon.IsVisible = isPaused;
         if (_pauseIcon != null) _pauseIcon.IsVisible = !isPaused;
     }
-
-    /// <summary>
-    /// VOTL_01 — formats a clock the same way the main screen's timeline does, so the two windows
-    /// read as one product. Always hh:mm:ss; a leading sign is the caller's business.
-    /// </summary>
-    private static string FormatClock(double seconds)
-    {
-        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
-        var ts = TimeSpan.FromSeconds(seconds);
-        return $"{(int)ts.TotalHours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
-    }
+// VOTOOLS_01 — FormatClock moved verbatim; see the extracted type.
 
     // ══════════════════════════════════════════════════════════════════════════════
     // VOTAKE_01 — THE VOICE ENVELOPE IS DECODED OFF THE INTERFACE THREAD.
@@ -2027,39 +1971,7 @@ public partial class VoiceOverWindow : Window
             });
         });
     }
-
-    /// <summary>
-    /// VOTAKE_01 — reduces a WAV to <paramref name="buckets"/> absolute peaks (0..1).
-    /// Runs on a worker thread; touches no interface state.
-    /// </summary>
-    private static float[] DecodePeaks(string path, int buckets)
-    {
-        if (buckets < 1) buckets = 1;
-        using var reader = new NAudio.Wave.AudioFileReader(path);
-
-        long totalSamples = reader.Length / (reader.WaveFormat.BitsPerSample / 8);
-        if (totalSamples <= 0) return Array.Empty<float>();
-
-        var peaks = new float[buckets];
-        var buffer = new float[8192];
-        long samplesPerBucket = Math.Max(1, totalSamples / buckets);
-
-        long read = 0;
-        int n;
-        while ((n = reader.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            for (int i = 0; i < n; i++)
-            {
-                int bucket = (int)Math.Min(buckets - 1, (read + i) / samplesPerBucket);
-                float v = buffer[i];
-                if (v < 0) v = -v;
-                if (v > peaks[bucket]) peaks[bucket] = v;
-            }
-            read += n;
-        }
-
-        return peaks;
-    }
+// VOTOOLS_01 — DecodePeaks moved verbatim; see the extracted type.
 
     private void UpdatePlayheadUI()
     {
@@ -3332,47 +3244,7 @@ public partial class VoiceOverWindow : Window
         StartMicMonitor();   // VOMON_01
         UpdateApplyState(message);
     }
-
-    /// <summary>
-    /// ISSUE_05 — deletes a temp take, tolerating a briefly-still-held file handle.
-    ///
-    /// The recorder now closes its WAV writer in an ordered shutdown, but Windows can hold a
-    /// handle open for a few more milliseconds after the last Dispose. A single attempt therefore
-    /// used to lose the race now and then and leave abandoned takes accumulating in the temp
-    /// folder forever, because every failure was swallowed by a bare `catch`.
-    /// </summary>
-    private static void TryDeleteFile(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return;
-
-        Task.Run(async () =>
-        {
-            for (int attempt = 0; attempt < 4; attempt++)
-            {
-                try
-                {
-                    if (!System.IO.File.Exists(path)) return;
-                    System.IO.File.Delete(path);
-                    return;
-                }
-                catch (System.IO.IOException) when (attempt < 3)
-                {
-                    await Task.Delay(60);
-                }
-                catch (UnauthorizedAccessException) when (attempt < 3)
-                {
-                    await Task.Delay(60);
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog.Debug("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
-                    return;
-                }
-            }
-
-            RuntimeLog.Debug("VoiceOver", $"Temp take '{System.IO.Path.GetFileName(path)}' is still locked; leaving it for temp cleanup.");
-        });
-    }
+// VOTOOLS_01 — TryDeleteFile moved verbatim; see the extracted type.
 
     private void StopRecordingAndPlayback()
     {
@@ -3687,31 +3559,7 @@ public partial class VoiceOverWindow : Window
             TryDeleteFile(_outputWavPath);
         }
     }
-
-    /// <summary>
-    /// LEAK_02 — cancel a superseded generation, then dispose it OFF the interface thread.
-    ///
-    /// ⚠️ NEVER call <c>CancellationTokenSource.Dispose()</c> directly from an event handler here.
-    /// Dispose BLOCKS until every callback raised by Cancel() has finished, and those callbacks
-    /// marshal back to the interface thread — so the interface thread ends up waiting for itself.
-    /// That is the exact deadlock that froze the Granular Speed Editor earlier (see CANCEL_01);
-    /// it is a real, reproduced bug in this codebase, not a theoretical one.
-    ///
-    /// Handing the disposal to a worker thread keeps the tidy-up without the wait: nothing on that
-    /// thread is holding the interface hostage, so Cancel's callbacks are free to complete.
-    /// </summary>
-    private static void RetireGenerationCts(System.Threading.CancellationTokenSource? cts)
-    {
-        if (cts == null) return;
-        try { cts.Cancel(); }
-        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-
-        _ = System.Threading.Tasks.Task.Run(() =>
-        {
-            try { cts.Dispose(); }
-            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-        });
-    }
+// VOTOOLS_01 — RetireGenerationCts moved verbatim; see the extracted type.
 
     protected override void OnClosing(Avalonia.Controls.WindowClosingEventArgs e)
     {

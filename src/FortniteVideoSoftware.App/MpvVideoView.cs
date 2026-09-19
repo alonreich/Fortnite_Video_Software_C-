@@ -65,7 +65,91 @@ public sealed class MpvVideoView : Control, IDisposable
     private readonly nint[] _renderTexturePtrs = new nint[SwapChainSize];
     private readonly nint[] _sharedTextureHandles = new nint[SwapChainSize];
     private readonly nint[] _dxInteropObjects = new nint[SwapChainSize];
-    private readonly ICompositionImportedGpuImage?[] _importedImages = new ICompositionImportedGpuImage?[SwapChainSize];
+    /// <summary>
+    /// GPUSLOT_01 — one imported GPU image plus the generation stamp that identifies it.
+    ///
+    /// The generation is what makes a stale UI-thread completion callback harmless: the callback
+    /// compares the slot it was handed against the slot that is there NOW, and if they differ it
+    /// knows a newer import has already replaced it and does nothing.
+    /// </summary>
+    private sealed class ImportedImageSlot
+    {
+        public ImportedImageSlot(ICompositionImportedGpuImage image, long generation)
+        {
+            Image = image;
+            Generation = generation;
+        }
+
+        public ICompositionImportedGpuImage Image { get; }
+        public long Generation { get; }
+    }
+
+    /// <summary>
+    /// GPUSLOT_01 — THE SWAP-CHAIN SLOTS. READ AND WRITTEN BY THREE THREADS. NEVER TOUCH AN ELEMENT
+    /// WITH A BARE ARRAY ASSIGNMENT.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// WHAT WAS WRONG: this was a plain ICompositionImportedGpuImage?[] with no lock, no volatile
+    /// and no Interlocked, and it was written from three places on three different threads:
+    ///
+    ///   • the RENDER thread, in EnsureImportedImage (import / replace a lost image),
+    ///   • the UI thread, inside ImportAndPresentTexture's fire-and-forget continuation, which on a
+    ///     failed present disposed "whatever is in the slot" and nulled it,
+    ///   • the teardown path (OnDetachedFromVisualTree / ReleaseRenderTexture).
+    ///
+    /// The catch blocks did not dispose the `image` they had actually failed on — they disposed
+    /// _importedImages[index], which by that point could be a DIFFERENT, newly imported object. So a
+    /// failed present could destroy the live image the render thread was about to draw with, and the
+    /// render thread could hand a freshly disposed import to UpdateWithKeyedMutexAsync. That is a
+    /// use-after-dispose across a COM boundary on the hot path, and the silent swallow of
+    /// COMException 0x80070057 (E_INVALIDARG) further down was the field evidence of it.
+    ///
+    /// THE RULE NOW:
+    ///   • The RENDER thread is the sole importer and the sole publisher (Interlocked.Exchange).
+    ///   • The UI thread is a pure observer. It may only remove a slot with
+    ///     Interlocked.CompareExchange against the EXACT slot it was given, and may dispose only if
+    ///     that CompareExchange proves the slot is still the one it failed on.
+    ///   • Teardown claims slots with Interlocked.Exchange too.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private readonly ImportedImageSlot?[] _importedImages = new ImportedImageSlot?[SwapChainSize];
+
+    /// <summary>GPUSLOT_01 — monotonic stamp; every successful import takes the next value.</summary>
+    private long _imageGeneration;
+
+    /// <summary>
+    /// GPUPRESENT_01 — one permit per swap-chain slot, so at most ONE UpdateWithKeyedMutexAsync is
+    /// ever in flight for a given slot.
+    ///
+    /// ImportAndPresentTexture posts to the UI thread and does NOT await the result, so the render
+    /// thread could issue present N+1 for a slot while present N was still running. Two overlapping
+    /// UpdateWithKeyedMutexAsync calls on the SAME IDXGIKeyedMutex with the same
+    /// (ConsumerKey, ProducerKey) pair produce an unordered AcquireSync/ReleaseSync sequence, and an
+    /// AcquireSync for a key no producer will release is an UNBOUNDED BLOCK — on the UI thread. That
+    /// is the one deadlock ZOOMHANG_01's render-thread timeout cannot save you from, because it is
+    /// the UI thread that stops.
+    ///
+    /// A frame that cannot take its slot's permit promptly is DROPPED, not queued: at 60fps the next
+    /// one is 16ms away and a queue here is latency the user sees as lag.
+    /// </summary>
+    private readonly System.Threading.SemaphoreSlim[] _presentGates = CreatePresentGates();
+
+    private static System.Threading.SemaphoreSlim[] CreatePresentGates()
+    {
+        var gates = new System.Threading.SemaphoreSlim[SwapChainSize];
+        for (int i = 0; i < SwapChainSize; i++) gates[i] = new System.Threading.SemaphoreSlim(1, 1);
+        return gates;
+    }
+
+    /// <summary>GPUPRESENT_01 — log the first drop only; count the rest.</summary>
+    private volatile bool _presentDropLogged;
+
+    /// <summary>GPUPRESENT_01 — INERT diagnostic. Frames skipped because a present was still in
+    /// flight for that slot. A number that climbs steadily means the UI thread is the bottleneck.</summary>
+    private long _droppedPresentCount;
+
+    /// <summary>GPUPRESENT_01 — exposed for diagnostics only; never used for control flow.</summary>
+    public long DroppedPresentCount => System.Threading.Interlocked.Read(ref _droppedPresentCount);
 
     /// <summary>FREEZEDIAG_03 — INERT diagnostic. Last coarse step seen on the UI thread.</summary>
     public static volatile string LastUiStep = "idle";
@@ -688,14 +772,12 @@ public sealed class MpvVideoView : Control, IDisposable
         _surfaceVisual = null;
         _gpuInterop = null;
         
+        // GPUSLOT_01 — claim each slot atomically before disposing it, so this can never race the
+        // render thread or a pending present completion into a double dispose.
         for (int i = 0; i < SwapChainSize; i++)
         {
-            if (_importedImages[i] != null)
-            {
-                if (_importedImages[i] is IAsyncDisposable ad) _ = ad.DisposeAsync();
-                else if (_importedImages[i] is IDisposable d) d.Dispose();
-                _importedImages[i] = null;
-            }
+            ImportedImageSlot? claimed = System.Threading.Interlocked.Exchange(ref _importedImages[i], null);
+            if (claimed != null) DisposeImportedImageOnUiThread(claimed.Image);
         }
     }
 
@@ -853,7 +935,7 @@ public sealed class MpvVideoView : Control, IDisposable
                 bool keyedMutexAcquired = false;
                 bool dxObjectLocked = false;
                 bool frameReady = false;
-                ICompositionImportedGpuImage? imageForAvalonia = null;
+                ImportedImageSlot? imageForAvalonia = null;   // GPUSLOT_01 — slot, not bare image.
                 CompositionDrawingSurface? surfaceForAvalonia = null;
 
                 var keyedMutex = _sharedTextureMutexes[_currentBufferIndex];
@@ -1131,62 +1213,158 @@ public sealed class MpvVideoView : Control, IDisposable
     }
 
 
-    private ICompositionImportedGpuImage? EnsureImportedImage(int index)
+    /// <summary>
+    /// GPUSLOT_01 — render thread only. The sole importer and the sole publisher for a slot.
+    /// Returns the slot (image + generation) rather than a bare image, because the present path must
+    /// be able to prove later that the slot has not been replaced underneath it.
+    /// </summary>
+    private ImportedImageSlot? EnsureImportedImage(int index)
     {
-        if (_importedImages[index] != null && _importedImages[index]!.IsLost)
+        // ONE read. The old code read _importedImages[index] four times across the null test, the
+        // IsLost test and the re-import, so the value could change between them.
+        ImportedImageSlot? current = System.Threading.Volatile.Read(ref _importedImages[index]);
+
+        if (current != null && current.Image.IsLost)
         {
-            var image = _importedImages[index];
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+            // Claim it ourselves before disposing: if anyone else already replaced it, the
+            // CompareExchange fails and the object is not ours to destroy.
+            if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _importedImages[index], null, current), current))
+            {
+                DisposeImportedImageOnUiThread(current.Image);
+            }
+            current = System.Threading.Volatile.Read(ref _importedImages[index]);
+        }
+
+        if (current != null) return current;
+
+        ICompositionImportedGpuImage? imported = TryImportSharedTexture(index);
+        if (imported == null) return null;
+
+        var slot = new ImportedImageSlot(imported, System.Threading.Interlocked.Increment(ref _imageGeneration));
+
+        ImportedImageSlot? replaced = System.Threading.Interlocked.Exchange(ref _importedImages[index], slot);
+        if (replaced != null)
+        {
+            // Should not happen (only this thread imports), but if a future edit ever adds a second
+            // importer, the displaced image must still be released exactly once.
+            DisposeImportedImageOnUiThread(replaced.Image);
+        }
+
+        return slot;
+    }
+
+    /// <summary>
+    /// GPUSLOT_01 — the single disposal funnel. Imported GPU images belong to the compositor, so the
+    /// release is posted to the UI thread; every call site goes through here so there is exactly one
+    /// place that can destroy one.
+    /// </summary>
+    private static void DisposeImportedImageOnUiThread(ICompositionImportedGpuImage image)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            try
             {
                 if (image is IAsyncDisposable ad) _ = ad.DisposeAsync();
                 else if (image is IDisposable d) d.Dispose();
-            });
-            _importedImages[index] = null;
-        }
-
-        if (_importedImages[index] == null)
-        {
-            _importedImages[index] = TryImportSharedTexture(index);
-        }
-
-        return _importedImages[index];
+            }
+            catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+        });
     }
 
-    private void ImportAndPresentTexture(int index, CompositionDrawingSurface surface, ICompositionImportedGpuImage image)
+    /// <summary>
+    /// GPUSLOT_01 — remove a slot ONLY if it is still the exact slot the caller was working with.
+    /// Returns true when this caller won the race and therefore owns the disposal.
+    /// </summary>
+    private bool TryRetireSlot(int index, ImportedImageSlot expected)
     {
+        if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _importedImages[index], null, expected), expected))
+        {
+            DisposeImportedImageOnUiThread(expected.Image);
+            return true;
+        }
+
+        // A newer import already replaced it. Disposing now would destroy a LIVE image.
+        RuntimeLog.Debug(InteropLogStep, $"Stale present completion for buffer {index} (generation {expected.Generation}); slot already replaced — not disposing.");
+        return false;
+    }
+
+    /// <summary>
+    /// GPUSLOT_01 / GPUPRESENT_01 — hand one slot's image to the compositor.
+    ///
+    /// Takes the SLOT, not a bare image, so the completion callback can prove the slot is still the
+    /// one it was given before it destroys anything. Serialised per slot by
+    /// <see cref="_presentGates"/>; a frame that cannot take its permit promptly is dropped.
+    /// </summary>
+    private void ImportAndPresentTexture(int index, CompositionDrawingSurface surface, ImportedImageSlot slot)
+    {
+        var gate = _presentGates[index];
+
+        // GPUPRESENT_01 — never queue. If the previous present for this slot is still running, this
+        // frame is already stale; drop it. Logged ONCE per control, not 60 times a second, and with
+        // no per-frame allocation — the same discipline as ZOOMHANG_01's _importTimeoutLogged.
+        if (!gate.Wait(0))
+        {
+            System.Threading.Interlocked.Increment(ref _droppedPresentCount);
+            if (!_presentDropLogged)
+            {
+                _presentDropLogged = true;
+                RuntimeLog.Debug(InteropLogStep,
+                    $"Dropped a frame for buffer {index}: the previous present had not completed. " +
+                    "Further drops are counted, not logged.");
+            }
+            return;
+        }
+
+        bool handedOff = false;
         try
         {
             Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 try
                 {
-                    await surface.UpdateWithKeyedMutexAsync(image, (uint)ConsumerKey, (uint)ProducerKey);
+                    await surface.UpdateWithKeyedMutexAsync(slot.Image, (uint)ConsumerKey, (uint)ProducerKey);
                 }
                 catch (Avalonia.Platform.PlatformGraphicsContextLostException)
                 {
-                    if (_importedImages[index] is IAsyncDisposable ad) _ = ad.DisposeAsync();
-                    else if (_importedImages[index] is IDisposable d) d.Dispose();
-                    _importedImages[index] = null;
+                    // The GPU context went away. Retire OUR slot — and only if it is still ours.
+                    TryRetireSlot(index, slot);
                 }
                 catch (Exception ex)
                 {
-                    if (_importedImages[index] is IAsyncDisposable ad) _ = ad.DisposeAsync();
-                    else if (_importedImages[index] is IDisposable d) d.Dispose();
-                    _importedImages[index] = null;
-                    
+                    TryRetireSlot(index, slot);
+
+                    // E_INVALIDARG used to be swallowed in total silence here, which is precisely how
+                    // the use-after-dispose stayed invisible. It is now logged (throttled), so the
+                    // residual rate after GPUSLOT_01 is measurable instead of assumed to be zero.
                     if (ex is System.Runtime.InteropServices.COMException comEx && (uint)comEx.ErrorCode == 0x80070057)
                     {
+                        RuntimeLog.SwallowedThrottled(ex);
                     }
                     else
                     {
                         RuntimeLog.Fail(InteropLogStep, ex);
                     }
                 }
+                finally
+                {
+                    try { gate.Release(); } catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+                }
             }, Avalonia.Threading.DispatcherPriority.Render);
+
+            handedOff = true;
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail(InteropLogStep, ex);
+        }
+        finally
+        {
+            // The post itself failed, so the continuation that would have released the permit will
+            // never run. Release it here or this slot is wedged for the life of the control.
+            if (!handedOff)
+            {
+                try { gate.Release(); } catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+            }
         }
     }
 
@@ -1324,16 +1502,10 @@ public sealed class MpvVideoView : Control, IDisposable
 
             _renderTexturePtrs[i] = nint.Zero;
             _sharedTextureHandles[i] = nint.Zero;
-            if (_importedImages[i] != null)
-            {
-                var image = _importedImages[i];
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-                {
-                    if (image is IAsyncDisposable ad) _ = ad.DisposeAsync();
-                    else if (image is IDisposable d) d.Dispose();
-                });
-                _importedImages[i] = null;
-            }
+
+            // GPUSLOT_01 — atomic claim, single disposal funnel.
+            ImportedImageSlot? claimed = System.Threading.Interlocked.Exchange(ref _importedImages[i], null);
+            if (claimed != null) DisposeImportedImageOnUiThread(claimed.Image);
         }
 
 

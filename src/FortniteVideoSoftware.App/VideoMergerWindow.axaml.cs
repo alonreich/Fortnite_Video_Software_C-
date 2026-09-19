@@ -730,29 +730,13 @@ public partial class VideoMergerWindow : Window
             : $"{ts.Minutes}:{ts.Seconds:00}";
     }
 
-    private void UpdateSpeedLabel()
-    {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-            var label = this.FindControl<TextBlock>("MainSpeedLabel");
-            if (label == null) return;
-
-            double speed = _baseSpeed;
-            string desc;
-            string color;
-
-            if (speed <= 0.5) { desc = "Slow Motion"; color = "#3498db"; }
-            else if (speed <= 0.8) { desc = "Cinematic"; color = "#3498db"; }
-            else if (speed < 1.05) { desc = "Normal"; color = "White"; }
-            else if (speed <= 1.2) { desc = "Slight Boost"; color = "#f1c40f"; }
-            else if (speed <= 1.5) { desc = "Fast"; color = "#f39c12"; }
-            else if (speed <= 2.0) { desc = "Very Fast"; color = "#e67e22"; }
-            else if (speed <= 3.0) { desc = "Turbo"; color = "#e74c3c"; }
-            else { desc = "Extreme"; color = "#e74c3c"; }
-
-            label.Text = $"{speed:F1}x — {desc}";
-            label.Foreground = Avalonia.Media.Brush.Parse(color);
-        });
-    }
+    /// <summary>
+    /// SPEEDLABEL_01 — the speed → description/colour ladder was duplicated BYTE FOR BYTE between
+    /// this window and the other one, control name included. It is a product decision the user
+    /// reads ("1.2x — Slight Boost"), so the two windows must never be able to disagree about it.
+    /// One ladder now, in <see cref="Infrastructure.SpeedLabel"/>.
+    /// </summary>
+    private void UpdateSpeedLabel() => Infrastructure.SpeedLabel.Apply(this, _baseSpeed);
 
     private void WireUpVolumeSlider()
     {
