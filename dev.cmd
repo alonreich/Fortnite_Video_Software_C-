@@ -341,6 +341,10 @@ for %%P in (
   "BATCHPARENS_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
   "BATCHPARENS_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
   "LISTCOMMENT_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  "REM --- Close-path save guard. PROJSESSION_08 dirty model, PROJSESSION_09 no-dialog exit save."
+  "PROJSESSION_08=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
+  "PROJSESSION_08=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "PROJSESSION_09=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
 ) do (
     REM ==================================================================
     REM LISTCOMMENT_01 - REM IS NOT A COMMENT INSIDE A FOR LIST.

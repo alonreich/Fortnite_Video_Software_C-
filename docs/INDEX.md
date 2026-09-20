@@ -461,6 +461,8 @@ PROJSESSION_04                               06 (mini-map only) | 07 (mini-map o
 PROJSESSION_05                               06 (mini-map only) | 05 §6 SYS-AUTOUPDATE
 PROJSESSION_06                               07 (mini-map only)
 PROJSESSION_07                               05 §3 SYS-WINSTATE
+PROJSESSION_08                               06 §9 PROJ-CLOSEGUARD
+PROJSESSION_09                               06 §9 PROJ-CLOSEGUARD
 SCRIM_01                                     04 §1 UI-THEME
 SIGNMANDATE_01                               05 §5 SYS-SIGNING
 TOOLNAV_01                                   05 (mini-map only) | 08 §4 COMP-FINDINGS

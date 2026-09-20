@@ -173,3 +173,35 @@ the feature is user-visible:
 2. `RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.
 3. `.fvsproj` shell association and icon (`ShellFileAssociation.cs`), plus open-with launch.
 4. Title-bar dirty indicator, per `04_UI_UX_AVALONIA_SPEC.md#UI-SETTINGS-ABOUT` title formatting.
+
+---
+
+## 9. The Close-Path Save Guard  {#PROJ-CLOSEGUARD}
+
+* **`PROJSESSION_08` — "dirty" is a CONJUNCTION, and the second half belongs to the application.**
+  A session-local dirty bit says *"an edit happened since the last save"*. Nothing about exporting
+  writes a `.fvsproj`, so that bit stays true forever after a render and the user was asked to save
+  a video they had just finished.
+  `MainWindow.HasUnsavedWork()` already answers the real question and answers it better: it returns
+  false when the clip has just been exported (`ExportedCleanSinceLastEdit`), when no clip is loaded,
+  and when every edit is still at its default. The tool-switch prompt has consulted it all along
+  (`SWITCHPROMPT_01`). The session now requires **both**, so a finished render prompts for nothing,
+  on close or on the way to the Merger and Crop Tools.
+  * ⚠️ Ignoring it reintroduced, one layer up, the exact wrong-state defect the
+    `_exportedCleanSinceLastEdit` flag was added to fix.
+
+* **`PROJSESSION_09` — THE GUARD MUST NEVER TRAP THE USER IN THEIR OWN APPLICATION.**
+  It runs from `OnClosing`, which has already set `e.Cancel = true`, and `OnClosing` is `async void`.
+  If the guard returns false or throws, `_isSafeToClose` is never set, `Close()` is never re-posted,
+  and the next click on X repeats the whole thing. **The application cannot be closed.**
+  Two ways that happened, both now closed:
+  1. **An interactive Save As on the close path.** A never-saved project fell through to the file
+     picker, and a picker cannot open on a window that is mid-close: it returns null, the guard
+     reported "not saved" and refused the close. The user pressed **Save** and the app would not shut
+     down. `SaveForExitAsync` never shows a dialog — it writes beside the source clip under a
+     non-colliding name derived from it, and says where it went.
+  2. **An unguarded throw.** The whole body is now wrapped, and the failure direction is deliberate:
+     a broken dialog lets the close **proceed**. Losing an unsaved `.fvsproj` is bad; an application
+     that needs Task Manager to quit is worse, and the crash-recovery snapshot (`05` §4 SYS-RECOVERY)
+     still holds the session either way.
+

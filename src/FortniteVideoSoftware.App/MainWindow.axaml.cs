@@ -335,7 +335,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             services.Faults,
             services.Clock,
             _viewModel,
-            ProbeVideoMetricsForProject);
+            ProbeVideoMetricsForProject,
+            // PROJSESSION_08 — the session defers to the window's own "is there anything to lose"
+            // test, which already returns false after a successful export
+            // (ExportedCleanSinceLastEdit) and is what SWITCHPROMPT_01 has always used. Without
+            // this the session prompted to save a render that was already finished.
+            HasUnsavedWork);
 
         _projectSession.StateChanged += (_, _) => RefreshProjectTitle();
         _projectSession.DocumentApplied += (_, _) => OnProjectDocumentApplied();

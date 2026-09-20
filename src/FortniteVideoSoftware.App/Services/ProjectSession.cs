@@ -76,6 +76,25 @@ public sealed class ProjectSession
     private readonly MainViewModel _viewModel;
     private readonly Func<(int Width, int Height, double Fps)> _probeVideoMetrics;
 
+    /// <summary>
+    /// PROJSESSION_08 — THE APPLICATION'S OWN NOTION OF "IS THERE ANYTHING TO LOSE".
+    ///
+    /// <para>
+    /// <c>MainWindow.HasUnsavedWork()</c> already answers this, and answers it better than a dirty
+    /// bit can: it returns false when the clip has just been exported
+    /// (<c>ExportedCleanSinceLastEdit</c>), when no clip is loaded, and when every edit is still at
+    /// its default. The suite's tool-switch prompt has consulted it all along (SWITCHPROMPT_01).
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ This session originally ignored it and prompted on its own <see cref="_dirty"/> flag,
+    /// which is set by the edit hook and never cleared by an export. The result was a save prompt
+    /// after a finished render — exactly the wrong-state defect the
+    /// <c>_exportedCleanSinceLastEdit</c> flag exists to prevent, reintroduced one layer up.
+    /// </para>
+    /// </summary>
+    private readonly Func<bool> _hasUnsavedWork;
+
     private UndoStack<ProjectDocument>? _history;
     private DateTimeOffset _lastAutosaveUtc;
 
@@ -95,7 +114,8 @@ public sealed class ProjectSession
         IFaultSink faults,
         IClock clock,
         MainViewModel viewModel,
-        Func<(int Width, int Height, double Fps)> probeVideoMetrics)
+        Func<(int Width, int Height, double Fps)> probeVideoMetrics,
+        Func<bool> hasUnsavedWork)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _picker = picker ?? throw new ArgumentNullException(nameof(picker));
@@ -104,14 +124,28 @@ public sealed class ProjectSession
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _probeVideoMetrics = probeVideoMetrics ?? throw new ArgumentNullException(nameof(probeVideoMetrics));
+        _hasUnsavedWork = hasUnsavedWork ?? throw new ArgumentNullException(nameof(hasUnsavedWork));
         _lastAutosaveUtc = _clock.UtcNow;
     }
 
     /// <summary>The <c>.fvsproj</c> this session is bound to, or null for a project never saved.</summary>
     public string? CurrentPath { get; private set; }
 
-    /// <summary>True when there are edits not yet written to <see cref="CurrentPath"/>.</summary>
-    public bool IsDirty { get; private set; }
+    /// <summary>Set by the edit hook, cleared by a successful write. Half of <see cref="IsDirty"/>.</summary>
+    private bool _dirty;
+
+    /// <summary>
+    /// PROJSESSION_08 — true only when there are edits not yet written AND the application agrees
+    /// there is something to lose.
+    ///
+    /// <para>
+    /// Both halves are required. <see cref="_dirty"/> alone says "an edit happened since the last
+    /// save", which stays true forever after a render because nothing about exporting writes a
+    /// <c>.fvsproj</c>. <see cref="_hasUnsavedWork"/> alone says "this project differs from a fresh
+    /// one", which is true the moment a clip is trimmed even if it was saved a second ago.
+    /// </para>
+    /// </summary>
+    public bool IsDirty => _dirty && HasUnsavedWorkSafely();
 
     public bool CanUndo => _history?.CanUndo == true;
     public bool CanRedo => _history?.CanRedo == true;
@@ -153,7 +187,7 @@ public sealed class ProjectSession
 
         if (_history.Apply(Capture(), label, gestureKey))
         {
-            IsDirty = true;
+            _dirty = true;
             Raise();
         }
     }
@@ -280,7 +314,7 @@ public sealed class ProjectSession
 
         Apply(document);
         CurrentPath = chosen;
-        IsDirty = false;
+        _dirty = false;
         _history = new UndoStack<ProjectDocument>(document);
         _history.Changed += (_, _) => Raise();
         Raise();
@@ -309,16 +343,116 @@ public sealed class ProjectSession
     /// </summary>
     public async Task<bool> ConfirmDiscardAsync(string action)
     {
-        if (!IsDirty) return true;
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_09 — THIS GUARD MUST NEVER TRAP THE USER IN THEIR OWN APPLICATION.
+        //
+        // It runs from MainWindow.OnClosing, BEFORE the try block that owns the rest of the
+        // teardown, and OnClosing is `async void`. Anything that throws in here therefore escapes
+        // to AppDomain.UnhandledException, the close is already cancelled, _isSafeToClose is never
+        // set, and Close() is never re-posted — the window stays open and the next click on X
+        // does exactly the same thing. That is an unclosable application, and it is what shipped:
+        // showing a file picker on a window that is mid-close can throw, and every throw landed
+        // in that hole.
+        //
+        // So: the whole body is guarded, and the failure direction is deliberate. A broken dialog
+        // or a failed picker lets the close PROCEED rather than blocking it. Losing an unsaved
+        // .fvsproj is bad; an application that cannot be closed without Task Manager is worse, and
+        // the crash-recovery snapshot (05 §4 SYS-RECOVERY) still holds the session either way.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        try
+        {
+            if (!IsDirty) return true;
 
-        bool save = await _notifier.ConfirmAsync(
-            "Unsaved changes",
-            $"You have changes that are not saved. {action} without saving them?",
-            "Save first",
-            "Discard changes");
+            bool save = await _notifier.ConfirmAsync(
+                "Unsaved changes",
+                $"You have changes that are not saved. {action} without saving them?",
+                "Save first",
+                "Discard changes");
 
-        if (!save) return true;           // user chose to discard
-        return await SaveAsync();          // saved -> proceed; save failed -> stay put
+            // ConfirmDialogWindow.AskAsync returns false for decline AND for a dialog that could
+            // not be shown at all. Both mean "do not save", and neither may block the exit.
+            if (!save) return true;
+
+            // ⚠️ NOT SaveAsync(). On the close path a never-saved project would fall through to
+            // SaveAsAsync and open a FILE PICKER on a window that is already mid-close. The picker
+            // does not come up, returns null, the guard reports "not saved" and refuses the close
+            // — and the next click on X does exactly the same. The user pressed Save and the
+            // application would not shut down. SaveForExitAsync never shows a dialog.
+            if (await SaveForExitAsync()) return true;
+
+            // The write itself failed and has already reported as Fatal. Let the close proceed:
+            // the user has been told, and holding the window open cannot un-fail the write.
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _faults.Recoverable("PROJECT",
+                $"The unsaved-changes prompt failed during '{action}'; allowing it to proceed rather than "
+              + $"blocking the window. {ex.GetType().Name}: {ex.Message}", ex);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// PROJSESSION_09 — a save that is guaranteed to finish without a dialog, for the close path.
+    ///
+    /// <para>
+    /// An interactive Save As cannot run while the window is closing, so a project that has never
+    /// been saved gets a filename derived from its source clip and written beside it. The user is
+    /// told exactly where it went, which is the part that makes this acceptable: a file appearing
+    /// somewhere they did not choose is only alarming if nobody says so.
+    /// </para>
+    ///
+    /// <para>
+    /// The name is made unique rather than overwriting. Two sessions closed on the same clip must
+    /// not have the second silently destroy the first.
+    /// </para>
+    /// </summary>
+    private Task<bool> SaveForExitAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentPath))
+            return Task.FromResult(WriteTo(CurrentPath!, announce: true));
+
+        string? video = _viewModel.LoadedVideoPath;
+        if (string.IsNullOrWhiteSpace(video))
+        {
+            // Nothing to derive a name from. IsDirty should already be false in this case
+            // (HasUnsavedWork returns false with no clip loaded), so this is belt and braces.
+            return Task.FromResult(true);
+        }
+
+        string? directory = Path.GetDirectoryName(video);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            directory = Path.GetDirectoryName(Environment.ProcessPath) ?? ".";
+
+        string stem = Path.GetFileNameWithoutExtension(video);
+        string path = Path.Combine(directory!, stem + ProjectDocument.FileExtension);
+
+        for (int i = 2; i <= 1000 && File.Exists(path); i++)
+            path = Path.Combine(directory!, $"{stem} ({i}){ProjectDocument.FileExtension}");
+
+        if (!WriteTo(path, announce: false)) return Task.FromResult(false);
+
+        _notifier.Notify($"Saved to {Path.GetFileName(path)} next to your video.", NoticeKind.Success);
+        return Task.FromResult(true);
+    }
+
+    /// <summary>
+    /// PROJSESSION_08 — asks the application whether anything is at stake, and treats a failure to
+    /// answer as "no". A predicate that throws must not be able to raise a save prompt, because
+    /// that prompt is on the close path.
+    /// </summary>
+    private bool HasUnsavedWorkSafely()
+    {
+        try
+        {
+            return _hasUnsavedWork();
+        }
+        catch (Exception ex)
+        {
+            _faults.Recoverable("PROJECT", $"HasUnsavedWork check failed, assuming nothing to save: {ex.Message}", ex);
+            return false;
+        }
     }
 
     // ── Document <-> view-model ─────────────────────────────────────────────────────────────
@@ -422,7 +556,7 @@ public sealed class ProjectSession
             _applying = false;
         }
 
-        IsDirty = true;
+        _dirty = true;
         DocumentApplied?.Invoke(this, document);
         Raise();
     }
@@ -443,7 +577,7 @@ public sealed class ProjectSession
         }
 
         CurrentPath = path;
-        IsDirty = false;
+        _dirty = false;
         _lastAutosaveUtc = _clock.UtcNow;
         Raise();
 
