@@ -11,8 +11,22 @@ namespace FortniteVideoSoftware.Core.Media;
 public class MergerWorker : IDisposable
 {
     private readonly ApplicationPaths _paths;
-    private Process? _currentProcess;
-    private bool _finishEmitted;
+    /// <summary>
+    /// PIPELIFE_01 / PIPELIFE_02 — process slot, cancel flag, single-flight finish and the
+    /// teardown ladder, shared with <see cref="ProcessWorker"/>.
+    ///
+    /// <para>
+    /// ⚠️ This replaces a PLAIN, UNSYNCHRONISED <c>Process? _currentProcess</c> field. PROCGATE_01
+    /// fixed a use-after-dispose race in the sibling pipeline — the field read twice, once to
+    /// null-test and once to act on, letting the worker thread run <c>_currentProcess = null;
+    /// proc.Dispose();</c> in between so teardown called Kill() on a disposed Process — and this
+    /// file never received that fix. Its <c>Cancel()</c> passed the raw field to the ladder and
+    /// its <c>Dispose()</c> did exactly the two-read pattern. Routing through the gate closes it.
+    /// </para>
+    /// </summary>
+    private readonly FfmpegJobLifetime _lifetime = new("Merger", "FFmpeg MERGE");
+    /// <summary>PIPELIFE_01 — alias over the shared lifetime's single-flight flag.</summary>
+    private bool _finishEmitted => _lifetime.FinishEmitted;
     private string _ffmpegPath;
     private string _ffprobePath;
 
@@ -29,7 +43,7 @@ public class MergerWorker : IDisposable
     /// in <see cref="CooperativeShutdownGate"/>; the members below are thin delegations kept at
     /// their original signatures so no call site in this file changes.
     /// </summary>
-    private readonly CooperativeShutdownGate _shutdown = new();
+    // PIPELIFE_01 — the shutdown ladder now lives in FfmpegJobLifetime.
 
     public event Action<int>? ProgressUpdate;
     public event Action<bool, string>? Finished;
@@ -144,23 +158,28 @@ public class MergerWorker : IDisposable
     /// </summary>
     public const string CancelledMessage = "Merge cancelled.";
 
-    private volatile bool _isCanceled;
+    /// <summary>
+    /// PIPELIFE_01 — private alias over the shared lifetime's flag, so every existing read and
+    /// write in this file compiles unchanged. Writing `false` is a deliberate no-op.
+    /// </summary>
+    private bool _isCanceled
+    {
+        get => _lifetime.WasCanceled;
+        set { if (value) _lifetime.MarkCanceled(); }
+    }
 
 
     /// <summary>True when this job ended because the user stopped it, not because it failed.</summary>
     public bool WasCanceled => _isCanceled;
 
-    public void Cancel()
-    {
-        _isCanceled = true;
-        CoreLogger.Info("Merger", "Merge cancelled by user.");
-
-        // Cooperative stop, fire-and-forget: the ladder ('q' quit command → 1500 ms grace →
-        // Kill(entireProcessTree) → 2000 ms exit confirmation) is strictly bounded and runs
-        // off the UI thread, so this call returns immediately while FFmpeg still gets the
-        // chance to finalize its output files cleanly instead of being shot mid-write.
-        BeginCooperativeShutdown(_currentProcess);
-    }
+    /// <summary>
+    /// PIPELIFE_02 — this used to pass the raw <c>_currentProcess</c> field to the ladder, which
+    /// is the exact two-read race PROCGATE_01 documents. The shared lifetime takes one consistent
+    /// read and acts on that single reference.
+    /// </summary>
+    public void Cancel() => _lifetime.Cancel(
+        stoppingMessage: "Merge cancelled by user. Stopping the FFmpeg process tree (cooperative quit, then hard kill).",
+        idleMessage: "Merge worker released on shutdown (no encode was running).");
 
     /// <summary>
     /// Starts the bounded cooperative shutdown ladder for <paramref name="proc"/> exactly once.
@@ -169,10 +188,10 @@ public class MergerWorker : IDisposable
     /// never surface as an unobserved task exception.
     /// </summary>
     private void BeginCooperativeShutdown(Process? proc)
-        => _shutdown.Begin(proc, "FFmpeg MERGE", attemptQuitCommand: true);
+        => _lifetime.BeginCooperativeShutdown(proc, attemptQuitCommand: true);
 
     /// <summary>Awaits the in-flight shutdown ladder, if any. Bounded by the ladder itself.</summary>
-    private Task AwaitActiveShutdownAsync() => _shutdown.AwaitActiveAsync();
+    private Task AwaitActiveShutdownAsync() => _lifetime.AwaitActiveShutdownAsync();
 
     /// <summary>
     /// ISSUE_04 — reads a child process's exit code without ever throwing.
@@ -1051,9 +1070,12 @@ public class MergerWorker : IDisposable
         Process proc;
         try
         {
-            _currentProcess?.Dispose();
+            // PIPELIFE_02 — atomic take-and-clear, then dispose the one we own. The previous
+            // `_currentProcess?.Dispose()` left the field pointing at a disposed Process until the
+            // next line replaced it, which is a window Cancel() could land in.
+            _lifetime.TakeCurrentProcess()?.Dispose();
             proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start process: {_ffmpegPath}");
-            _currentProcess = proc;
+            _lifetime.SetCurrentProcess(proc);
         }
         catch (Exception startEx)
         {
@@ -1302,11 +1324,7 @@ public class MergerWorker : IDisposable
     }
 
     private void EmitFinished(bool success, string message)
-    {
-        if (_finishEmitted) return;
-        _finishEmitted = true;
-        Finished?.Invoke(success, message);
-    }
+        => _lifetime.EmitFinished(Finished, success, message);
 
     /// genuinely nothing left to save.
     /// </summary>
@@ -1338,24 +1356,5 @@ public class MergerWorker : IDisposable
     /// progress window had already gone — the machine stayed hot and loud for a file nobody would
     /// ever receive. Killing the tree here makes the object's own teardown sufficient.
     /// </summary>
-    public void Dispose()
-    {
-        var proc = _currentProcess;
-        if (proc != null)
-        {
-            try
-            {
-                if (!proc.HasExited)
-                {
-                    _isCanceled = true;
-                    CoreLogger.Info("Merger", "Worker disposed while the encoder was still running — stopping the FFmpeg process tree (cooperative quit, then hard kill).");
-                    GracefulProcessTerminator.Terminate(proc, "FFmpeg MERGE", attemptQuitCommand: true);
-                }
-            }
-            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-
-            try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-            _currentProcess = null;
-        }
-    }
+    public void Dispose() => _lifetime.DisposeJob();
 }

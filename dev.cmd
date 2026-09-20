@@ -325,6 +325,12 @@ for %%P in (
   "TOOLNAV_04=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
   "TOOLNAV_04=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
   "TOOLNAV_04=src\FortniteVideoSoftware.App\VideoMergerWindow.axaml.cs"
+  REM --- Architecture remediation, phase 3. One FFmpeg job lifetime for both pipelines.
+  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\FfmpegJobLifetime.cs"
+  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
+  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
+  "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\FfmpegJobLifetime.cs"
+  "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

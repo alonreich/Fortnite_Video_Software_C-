@@ -25,12 +25,17 @@ public class ProcessWorker : IDisposable
     /// silently lost — AFTER the log had already announced "Terminating FFmpeg process tree."
     ///
     /// Access is now exclusively through <see cref="SetCurrentProcess"/>, <see cref="TakeCurrentProcess"/>
-    /// and <see cref="PeekCurrentProcess"/>, all of which hold <see cref="_procGate"/>. The gate is
+    /// and <see cref="PeekCurrentProcess"/>, all of which hold the shared FfmpegJobLifetime gate (PIPELIFE_01). The gate is
     /// held for a reference copy only — never across a Kill, a Dispose or any I/O — so it cannot
     /// deadlock against the export thread.
     /// </summary>
-    private Process? _currentProcess;
-    private readonly object _procGate = new();
+    /// <summary>
+    /// PIPELIFE_01 — process slot, cancel flag, single-flight finish and teardown ladder, shared
+    /// with <see cref="MergerWorker"/>. The members below keep their original names and delegate,
+    /// so none of this file's ~30 call sites change.
+    /// </summary>
+    private readonly FfmpegJobLifetime _lifetime = new("Process", "FFmpeg");
+    // PIPELIFE_01 — the gate itself moved into FfmpegJobLifetime, which now owns the process slot.
 
     /// <summary>
     /// FFMPEGSTOP_01 — single-flight gate for the cooperative shutdown ladder.
@@ -64,10 +69,20 @@ public class ProcessWorker : IDisposable
     /// <c>TryRescueFinishedRender</c> shipped the same race twice (RESCUE_01). One copy now lives
     /// in <see cref="CooperativeShutdownGate"/>; the members below are thin delegations kept at
     /// their original signatures so no call site in this file changes.
-    private readonly CooperativeShutdownGate _shutdown = new();
+    // PIPELIFE_01 — the shutdown ladder now lives in FfmpegJobLifetime.
 
-    private volatile bool _isCanceled;
-    private volatile bool _finishEmitted;
+    /// <summary>
+    /// PIPELIFE_01 — kept as a private alias over the shared lifetime's flag so every existing
+    /// read and write in this file compiles unchanged. Writing `false` is deliberately a no-op:
+    /// a cancelled job is never un-cancelled, and nothing in either pipeline ever tried to.
+    /// </summary>
+    private bool _isCanceled
+    {
+        get => _lifetime.WasCanceled;
+        set { if (value) _lifetime.MarkCanceled(); }
+    }
+    /// <summary>PIPELIFE_01 — alias over the shared lifetime's single-flight flag.</summary>
+    private bool _finishEmitted => _lifetime.FinishEmitted;
     private string _ffmpegPath;
     private string _ffprobePath;
 
@@ -329,26 +344,17 @@ public class ProcessWorker : IDisposable
     public string? CompletionWarning { get; private set; }
 
     /// <summary>PROCGATE_01 — publish the live child process. Export thread only.</summary>
-    private void SetCurrentProcess(Process? proc)
-    {
-        lock (_procGate) { _currentProcess = proc; }
-    }
+    private void SetCurrentProcess(Process? proc) => _lifetime.SetCurrentProcess(proc);
 
     /// <summary>
     /// PROCGATE_01 — claim the live child process AND clear the slot in one atomic step, so exactly
     /// one caller can ever be responsible for disposing it. Every teardown site uses this instead of
     /// the old `_currentProcess = null; proc.Dispose();` pair.
     /// </summary>
-    private Process? TakeCurrentProcess()
-    {
-        lock (_procGate) { Process? p = _currentProcess; _currentProcess = null; return p; }
-    }
+    private Process? TakeCurrentProcess() => _lifetime.TakeCurrentProcess();
 
     /// <summary>PROCGATE_01 — one consistent read for callers that only observe.</summary>
-    private Process? PeekCurrentProcess()
-    {
-        lock (_procGate) { return _currentProcess; }
-    }
+    private Process? PeekCurrentProcess() => _lifetime.PeekCurrentProcess();
 
     /// <summary>
     /// FFMPEGSTOP_01 — starts the bounded cooperative shutdown ladder for <paramref name="proc"/>
@@ -365,14 +371,14 @@ public class ProcessWorker : IDisposable
     /// may all race, but only one ladder ever runs per process.</para>
     /// </summary>
     private void BeginCooperativeShutdown(Process? proc, string logTag, bool attemptQuitCommand)
-        => _shutdown.Begin(proc, logTag, attemptQuitCommand);
+        => _lifetime.BeginCooperativeShutdown(proc, attemptQuitCommand);
 
     /// <summary>
     /// FFMPEGSTOP_01 — awaits the in-flight shutdown ladder, if any. Bounded by the ladder itself.
     /// Called before <see cref="ReadExitCodeSafely"/> so the exit code is read from a process that
     /// has actually finished finalizing its output, not one still writing its moov atom.
     /// </summary>
-    private Task AwaitActiveShutdownAsync() => _shutdown.AwaitActiveAsync();
+    private Task AwaitActiveShutdownAsync() => _lifetime.AwaitActiveShutdownAsync();
 
     /// <summary>
     /// PROCGATE_01 — best-effort cancellation. The authoritative mechanism is the CancellationToken
@@ -384,30 +390,9 @@ public class ProcessWorker : IDisposable
     /// call still returns immediately (the ladder runs off-thread), so a cancel can never hang the
     /// UI, but FFmpeg now gets the chance to finalize its container instead of being shot mid-write.
     /// </summary>
-    public void Cancel()
-    {
-        _isCanceled = true;
-
-        Process? proc = PeekCurrentProcess();
-
-        bool encoding = false;
-        if (proc != null)
-        {
-            try { encoding = !proc.HasExited; }
-            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-        }
-
-        CoreLogger.Info("Process", encoding
-            ? "Cancellation requested by user. Stopping the FFmpeg process tree (cooperative quit, then hard kill)."
-            : "Export worker released on shutdown (no encode was running).");
-
-        // ⚠️ The ObjectDisposedException / InvalidOperationException cases the old raw Kill caught
-        // by hand are handled inside the ladder: it re-checks HasExited and swallows everything.
-        if (proc != null && encoding)
-        {
-            BeginCooperativeShutdown(proc, "FFmpeg", attemptQuitCommand: true);
-        }
-    }
+    public void Cancel() => _lifetime.Cancel(
+        stoppingMessage: "Cancellation requested by user. Stopping the FFmpeg process tree (cooperative quit, then hard kill).",
+        idleMessage: "Export worker released on shutdown (no encode was running).");
 
     /// <summary>
     /// ISSUE_04 — reads a child process's exit code without ever throwing.
@@ -2476,11 +2461,7 @@ public class ProcessWorker : IDisposable
     private static string FormatForLog(IEnumerable<string> args) => ProcessArgs.FormatForLog(args);
 
     private void EmitFinished(bool success, string message)
-    {
-        if (_finishEmitted) return;
-        _finishEmitted = true;
-        Finished?.Invoke(success, message);
-    }
+        => _lifetime.EmitFinished(Finished, success, message);
 
 
     /// <summary>
@@ -3175,34 +3156,7 @@ public class ProcessWorker : IDisposable
     /// Killing the tree here makes teardown self-sufficient. Calling Cancel() first remains the
     /// correct, orderly path — this is the backstop, not a replacement for it.
     /// </summary>
-    public void Dispose()
-    {
-        // PROCGATE_01 — TakeCurrentProcess claims the reference AND clears the slot in one atomic
-        // step, so this can never race the export thread into a double Dispose of the same Process.
-        var proc = TakeCurrentProcess();
-        if (proc != null)
-        {
-            try
-            {
-                if (!proc.HasExited)
-                {
-                    _isCanceled = true;
-                    CoreLogger.Info("Process", "Worker disposed while the encoder was still running — stopping the FFmpeg process tree (cooperative quit, then hard kill).");
-
-                    // FFMPEGSTOP_01 — the SYNCHRONOUS ladder, matching MergerWorker.Dispose.
-                    // ⚠️ ISSUE_11's guarantee is unchanged: this still returns only once the tree
-                    // is dead or the bounded confirmation window has elapsed. Worst case it blocks
-                    // for CooperativeGraceMs + HardKillConfirmMs — the same ceiling every other
-                    // teardown in this solution accepts — and the ChildProcessTracker job object
-                    // remains the final safeguard beyond that.
-                    GracefulProcessTerminator.Terminate(proc, "FFmpeg", attemptQuitCommand: true);
-                }
-            }
-            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-
-            try { proc.Dispose(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
-        }
-    }
+    public void Dispose() => _lifetime.DisposeJob();
 }
 
 public record VoiceOverTake(string Path, double StartSec);
