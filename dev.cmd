@@ -305,6 +305,18 @@ for %%P in (
   "ARCHTEST_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
   "ASYNCUI_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
   "ASYNCUI_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  REM --- Architecture remediation, phase 1. Document model wired to the UI + one undo.
+  "PROJSESSION_01=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
+  "PROJSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
+  "PROJSESSION_02=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
+  "PROJSESSION_03=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
+  "PROJSESSION_04=src\FortniteVideoSoftware.App\MainWindow.Shortcuts.cs"
+  "PROJSESSION_05=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
+  "PROJSESSION_06=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "PROJSESSION_07=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "UNDO_11=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "UNDO_12=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
+  "UNDO_13=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

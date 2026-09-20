@@ -325,7 +325,12 @@ public sealed class ArchitectureRuleTests
     public void ServiceLocatorUsageDoesNotIncrease()
     {
         // Rises only when a legacy window is wired up; falls to 0 as each view-model is extracted.
-        const int Baseline = 0;
+        //
+        // 2 — both in MainWindow, wiring the ProjectSession (PROJSESSION_01) and its document-
+        // applied handler. MainWindow is constructed by Avalonia's desktop lifetime and cannot
+        // take constructor arguments, which is the entire reason the shim exists. Both sites go
+        // away when MainViewModel takes the session in its constructor.
+        const int Baseline = 2;
 
         var sites = new List<string>();
 

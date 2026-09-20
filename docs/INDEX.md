@@ -81,6 +81,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   ProjectStore.cs                            06
   RecentProjects.cs                          06
   AotJson.cs                                 06
+  UndoStack.cs                               07
 ⚠ SettingsManager.cs                         05 06 (AOTSAFETY_04)
   HardwareTelemetrySampler.cs                06 (AOTSAFETY_03)
 ⚠ AuthenticodeVerifier.cs                    05 06 (AOTSAFETY_05)
@@ -464,6 +465,16 @@ ZoomPreviewSimulator                         02 §4 AUD-VOICEOVER | 03 (mini-map
 ZoomRampRequiredGap                          03 (mini-map only)  [= 1.0]
 ZoomRampSeconds                              03 (mini-map only)  [= 0.5]
 AOTSAFETY_01                                 06 §4 PROJ-AOT
+EndGesture                                   07 §2 UNDO-RULES
+GestureIdleMs                                07 §2 UNDO-RULES  [= 900]
+U1                                           07 §2 UNDO-RULES
+U2                                           07 §2 UNDO-RULES
+U3                                           07 §2 UNDO-RULES
+U4                                           07 §2 UNDO-RULES
+UNDO_10                                      07 §1 UNDO-WHY
+UNDO_11                                      07 §2 UNDO-RULES
+UndoEntry                                    07 §4 UNDO-PERSIST
+UndoStack                                    07 §2 UNDO-RULES
 AOTSAFETY_02                                 06 §4 PROJ-AOT
 AOTSAFETY_03                                 06 §4 PROJ-AOT
 AOTSAFETY_04                                 06 §4 PROJ-AOT

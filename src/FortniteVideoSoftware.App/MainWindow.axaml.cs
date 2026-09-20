@@ -294,6 +294,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 /// </summary>
     private bool _isRestoring = false;
 
+    /// <summary>
+    /// PROJSESSION_01 — the document the user is editing, its undo history, and save/open.
+    /// Built in the constructor so Ctrl+S works before any video is loaded (it reports "load a
+    /// video first" rather than doing nothing, which is the difference between a disabled feature
+    /// and a broken one). Null only if construction itself failed.
+    /// </summary>
+    private Services.ProjectSession? _projectSession;
+
     private KineticScrubController? _kineticScrub;
 
 
@@ -309,6 +317,28 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         InitializeSizeEstimate();
 
         WireComponents();
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_01 — the document session. Takes its collaborators from the composition
+        // root (COMPOSITION_01). This is legacy window code-behind, so it reads AppServices.Current
+        // rather than receiving them; COMPOSITION_02 governs that shim and its removal.
+        //
+        // The metrics probe is a callback rather than a dependency because the video host is
+        // created later and can be swapped by the detach controller (DETACH_01) — capturing the
+        // live host here would pin the FIRST one for the window's whole life.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        var services = Infrastructure.AppServices.Current;
+        _projectSession = new Services.ProjectSession(
+            services.Projects,
+            services.FilePicker,
+            services.Notifier,
+            services.Faults,
+            services.Clock,
+            _viewModel,
+            ProbeVideoMetricsForProject);
+
+        _projectSession.StateChanged += (_, _) => RefreshProjectTitle();
+        _projectSession.DocumentApplied += (_, _) => OnProjectDocumentApplied();
 
         // AUTO-UPDATE — silent, fully-guarded background check a few seconds after the window
         // settles. Every guard (Settings toggle, dev mode, 24h throttle, strict newer-version
@@ -872,6 +902,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (timelineOverlay != null) timelineOverlay.IsVisible = true;
 
         EnableEditingControls();
+
+        // PROJSESSION_06 — a new clip starts a new history. Ordered BEFORE SaveRecoveryState
+        // because that call now pushes an undo entry, and pushing onto the previous clip's stack
+        // would leave one entry describing footage that is no longer open.
+        BeginProjectHistory();
+
         SaveRecoveryState();
 
 
@@ -2349,9 +2385,27 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
-        _recovery.MarkCleanShutdownIntent();
-
         e.Cancel = true;
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_07 — ASK BEFORE DISCARDING THE DOCUMENT.
+        //
+        // Placed after `e.Cancel = true` and BEFORE MarkCleanShutdownIntent and the teardown
+        // below, because all three are irreversible: the shutdown intent suppresses the next
+        // launch's crash-recovery prompt, and the teardown disposes the pipeline this window
+        // would need to keep working if the user says "stay".
+        //
+        // Returning here leaves the window cancelled-but-alive, which is exactly the state the
+        // deferred-close contract (05 §3) produces between its two turns — _isSafeToClose is
+        // never set, Close() is never re-posted, and the window simply carries on.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        if (!await ConfirmProjectDiscardOnCloseAsync())
+        {
+            RuntimeLog.Info("UI", "Close cancelled — the user chose to keep unsaved project work.");
+            return;
+        }
+
+        _recovery.MarkCleanShutdownIntent();
 
         RuntimeLog.Info("UI", "Closing MainWindow. Saving state and cleaning up asynchronously.");
 
@@ -2962,6 +3016,31 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         if (_isRestoring) return;
         if (isUserEdit) UpdateEstimatedQuality();
+
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // UNDO_11 / PROJSESSION_03 — ONE HOOK FOR THE WHOLE EDIT SURFACE.
+        //
+        // This method is already wired to ~25 UI events and already means exactly "the user
+        // changed something", already honours _isRestoring, and already distinguishes a genuine
+        // edit from a bookkeeping save via isUserEdit. Every one of those properties is a
+        // precondition the undo stack needs, so hooking here gives the main window undo across its
+        // whole surface in one place instead of 25 hand-placed PushEdit calls that the 26th edit
+        // would then forget.
+        //
+        // The label is generic because this hook cannot know which control fired. A specific label
+        // is better UX and belongs at the individual call sites; a generic label that works
+        // everywhere beats a specific one that covers a third of the surface.
+        //
+        // ⚠️ ORDER: push BEFORE the HasUnsavedWork early-return below. That return fires when the
+        // user has just UNDONE their way back to an empty project — which is itself a state the
+        // redo stack must be able to come back from.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        if (isUserEdit)
+        {
+            PushProjectEdit("edit");
+            ProjectAutosaveTick();
+        }
+
         try
         {
             if (isUserEdit && _exportedCleanSinceLastEdit)

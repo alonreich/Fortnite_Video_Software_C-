@@ -49,6 +49,52 @@ public partial class MainWindow
             return;
         }
 
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_04 — DOCUMENT SHORTCUTS. Ctrl+S / Ctrl+Shift+S / Ctrl+O / Ctrl+Z / Ctrl+Y.
+        //
+        // Until this block the main window had NO Ctrl+Z at all. Trims, cuts, memes and the music
+        // bed are all decided here, and none of them could be taken back — while the Granular
+        // editor and the Crop tool each had their own private undo. It also had no Save: the
+        // entire .fvsproj document model existed in Core, fully tested, and was unreachable from
+        // the UI, so closing the window discarded the session.
+        //
+        // Placed BEFORE the '?' sheet test so a modifier chord is never swallowed by a plain-key
+        // handler further down. Each arm sets e.Handled, because a Ctrl+S that also reaches the
+        // transport would toggle playback while saving.
+        // ══════════════════════════════════════════════════════════════════════════════════
+        if (_projectSession != null && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.S:
+                    e.Handled = true;
+                    _ = e.KeyModifiers.HasFlag(KeyModifiers.Shift)
+                        ? _projectSession.SaveAsAsync()
+                        : _projectSession.SaveAsync();
+                    return;
+
+                case Key.O:
+                    e.Handled = true;
+                    _ = _projectSession.OpenAsync();
+                    return;
+
+                case Key.Z when !e.KeyModifiers.HasFlag(KeyModifiers.Shift):
+                    e.Handled = true;
+                    _projectSession.Undo();
+                    return;
+
+                // Both spellings of redo. Ctrl+Y is the Windows convention and is what 04
+                // §6 UI-GRANULAR specifies; Ctrl+Shift+Z is what users arriving from other
+                // editors reach for first, and a shortcut that silently does nothing reads as
+                // a broken undo rather than a missing redo.
+                case Key.Y:
+                case Key.Z when e.KeyModifiers.HasFlag(KeyModifiers.Shift):
+                    e.Handled = true;
+                    _projectSession.Redo();
+                    return;
+            }
+        }
+
         bool questionPressed = e.Key == Key.OemQuestion;
         var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
         if (sheet != null)
