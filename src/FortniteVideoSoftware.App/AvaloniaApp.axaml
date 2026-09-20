@@ -69,6 +69,28 @@
         <SolidColorBrush x:Key="AppMemeBrush" Color="{StaticResource AppMemeColor}" />
         <SolidColorBrush x:Key="AppZoomDeepBorderBrush" Color="#15306b" />
         <SolidColorBrush x:Key="AppOverlayBrush" Color="#aa000000" />
+
+        <!-- ══════════════════════════════════════════════════════════════════════════════════
+             SCRIM_01 — THE THREE DIM LAYERS, AS TOKENS.
+
+             Six windows each carried their own black-with-alpha literal for "dim what is behind
+             this": #E6000000 four times (MemeSwapOverlay in Main, Granular, Music Wizard and
+             Voice Over), #F0000000 once (MemeRebuildOverlay) and #90000000 once (the Merger's
+             FlyoutScrim). Nothing enforced that the four identical ones stayed identical, and
+             Invariant #5 forbids the literal outright.
+
+             Deliberately theme-INVARIANT, exactly like AppOverlayBrush above: a scrim's job is to
+             push the content behind it away from the eye, and on a light ground a light scrim does
+             not do that. Black at three strengths, in both ThemeVariants.
+
+             Pick by intent, not by number:
+               Soft   — a flyout is open; the page behind is still legible context.
+               (base) — a blocking operation owns the window; the page behind is unavailable.
+               Strong — a rebuild is discarding and re-laying-out what is behind it.
+             ══════════════════════════════════════════════════════════════════════════════════ -->
+        <SolidColorBrush x:Key="AppScrimSoftBrush" Color="#90000000" />
+        <SolidColorBrush x:Key="AppScrimBrush" Color="#E6000000" />
+        <SolidColorBrush x:Key="AppScrimStrongBrush" Color="#F0000000" />
         <SolidColorBrush x:Key="AppVideoSurfaceBrush" Color="#000000" />
         <!-- Always-white text/icons for saturated colored buttons (theme-agnostic) -->
         <SolidColorBrush x:Key="AppOnAccentTextBrush" Color="#e8eaef" />
@@ -425,6 +447,25 @@
                 <SolidColorBrush x:Key="AppSelectedPresetBorder" Color="#22c55e" />
                 <SolidColorBrush x:Key="AppSelectedPresetForeground" Color="#86efac" />
 
+                <!-- ══════════════════════════════════════════════════════════════════════
+                     ZOOMCARD_01 — the "How should the zoom arrive?" cards.
+
+                     These four were hardcoded in GranularSpeedEditorWindow.axaml: #222234 rest,
+                     #181824 bullet well, #2f2f45 hover, #3a2b48 checked. Dark-theme values, in a
+                     suite that ships a Light variant — so in Light mode the dialog rendered as a
+                     block of near-black cards with light text around it. That is precisely the
+                     failure Invariant #5 exists to prevent, and it was invisible to anyone who
+                     never switched theme.
+
+                     The checked state is a desaturated tint of AppZoomBrush on purpose: the card's
+                     BORDER already carries the full accent, and two saturated accents stacked read
+                     as a rendering fault rather than a selection.
+                     ══════════════════════════════════════════════════════════════════════ -->
+                <SolidColorBrush x:Key="AppZoomCardBrush" Color="#222234" />
+                <SolidColorBrush x:Key="AppZoomCardWellBrush" Color="#181824" />
+                <SolidColorBrush x:Key="AppZoomCardHoverBrush" Color="#2f2f45" />
+                <SolidColorBrush x:Key="AppZoomCardCheckedBrush" Color="#3a2b48" />
+
                 <LinearGradientBrush x:Key="TitleBarBackground" StartPoint="0%,0%" EndPoint="100%,0%">
                     <GradientStop Offset="0.00" Color="#1e293b" />
                     <GradientStop Offset="0.50" Color="#334155" />
@@ -446,6 +487,14 @@
                 <SolidColorBrush x:Key="AppSurfaceAlpha80Brush" Color="#CCf8fafc" />
                 <SolidColorBrush x:Key="AppPanelBrush" Color="#e2e8f0" />
                 <SolidColorBrush x:Key="AppBorderBrush" Color="#cbd5e1" />
+
+                <!-- ZOOMCARD_01 — Light counterparts. Same four roles, same ordering of weight
+                     (rest < hover < checked), inverted ground. The well is pure white so the
+                     filled bullet still reads at 8px. -->
+                <SolidColorBrush x:Key="AppZoomCardBrush" Color="#eef1f7" />
+                <SolidColorBrush x:Key="AppZoomCardWellBrush" Color="#ffffff" />
+                <SolidColorBrush x:Key="AppZoomCardHoverBrush" Color="#dfe5f2" />
+                <SolidColorBrush x:Key="AppZoomCardCheckedBrush" Color="#ddd3ee" />
                 <!-- LIST_05 — see the dark-theme note. Dark ink on a light ground here, so the
                      hairline is a low-alpha BLACK rather than a low-alpha white. -->
                 <SolidColorBrush x:Key="AppTableHairlineBrush" Color="#0f172a" Opacity="0.12" />

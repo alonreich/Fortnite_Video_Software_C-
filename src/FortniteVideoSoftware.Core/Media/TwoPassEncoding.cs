@@ -1,4 +1,8 @@
-﻿using FortniteVideoSoftware.Core.Infrastructure;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using FortniteVideoSoftware.Core.Infrastructure;
 
 namespace FortniteVideoSoftware.Core.Media;
 

@@ -1,4 +1,8 @@
-﻿namespace FortniteVideoSoftware.Core.Infrastructure;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+namespace FortniteVideoSoftware.Core.Infrastructure;
 
 /// <summary>
 /// ISSUE_09 — the one accessor for small per-user UI state files (onboarding counters,

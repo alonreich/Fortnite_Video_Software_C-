@@ -1,3 +1,7 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.Core.Media;

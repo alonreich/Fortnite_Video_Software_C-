@@ -1,4 +1,8 @@
-﻿using System.Diagnostics;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;

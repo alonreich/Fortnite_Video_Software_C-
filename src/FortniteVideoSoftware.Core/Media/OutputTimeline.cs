@@ -1,3 +1,10 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;

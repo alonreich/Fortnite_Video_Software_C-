@@ -1,3 +1,10 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Text.Json;

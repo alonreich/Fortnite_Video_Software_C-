@@ -1,4 +1,8 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -40,13 +44,25 @@ namespace FortniteVideoSoftware.App.Services;
 /// </para>
 ///
 /// <para>
-/// <b>⚠️ UNSIGNED BUILDS.</b> <c>CodeSigning.cs</c> ships UNSIGNED when <c>FVS_SIGN_PFX</c> is not
-/// set. When the running process is itself unsigned there is no anchor to compare against, so
-/// <see cref="EvaluateUpdateCandidate"/> returns <see cref="TrustVerdict.NoAnchor"/> and the caller
-/// falls back to hash-only — the behaviour that shipped before this class existed, so nothing
-/// regresses for an unsigned distribution. That fallback is LOUD (one <c>RuntimeLog.Fail</c> line
-/// naming it) and it is NOT a silent catch-all: a signed anchor plus an unverifiable candidate is
-/// always a refusal.
+/// <b>⚠️ UNSIGNED BUILDS — UPDATETRUST_02.</b> When the running process is itself unsigned there
+/// is no anchor to compare against, so <see cref="EvaluateUpdateCandidate"/> returns
+/// <see cref="TrustVerdict.NoAnchor"/>.
+///
+/// <para>
+/// <b>That verdict is now a REFUSAL at the call site, not a fall-through.</b> It previously
+/// degraded to hash-only "so nothing regresses for an unsigned distribution" — but the unsigned
+/// distribution WAS production (see SIGNMANDATE_01 in <c>build/FvsBuild/CodeSigning.cs</c>), so the
+/// degraded path was the only path that ever ran and the attack described at the top of this file
+/// was never actually closed. <c>UpdateService</c> now deletes the download and tells the user to
+/// install the signed build once by hand. <c>FVS_ALLOW_UNSIGNED_UPDATE=1</c> restores the old
+/// behaviour for developers only.
+/// </para>
+///
+/// <para>
+/// This class's verdict is unchanged and deliberately stays a three-way classification rather than
+/// a bool: WHAT to do about a missing anchor is policy, and policy belongs with the caller that
+/// owns the consequence, not with the primitive that reads the signature.
+/// </para>
 /// </para>
 ///
 /// <para>

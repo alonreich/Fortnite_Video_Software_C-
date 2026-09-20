@@ -1,3 +1,7 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -604,10 +608,51 @@ internal static class UpdateService
                         "The downloaded installer failed its signature check and was deleted. Nothing was installed." +
                         Environment.NewLine + trustDetail);
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // UPDATETRUST_02 — NoAnchor IS A REFUSAL, NOT A WARNING.
+                //
+                // This branch used to log one line and fall through to Process.Start with
+                // --install --auto-update, i.e. it executed the downloaded binary elevated on the
+                // strength of a SHA-256 read out of the same GitHub JSON document that supplied
+                // the URL. That hash proves transport integrity and nothing else. Anyone able to
+                // produce that response body — a compromised repo or CI token, a TLS-terminating
+                // proxy, a mis-issued certificate — controls the payload AND the fingerprint that
+                // validates it, in one move.
+                //
+                // AuthenticodeVerifier's own class comment names this as the attack it exists to
+                // close. Keeping a fall-through for unsigned builds meant it was never closed in
+                // production, because production WAS the unsigned build (SIGNMANDATE_01).
+                //
+                // Refusing costs the one thing a warning was protecting: in-app auto-update for
+                // installs that are themselves unsigned. That is a real regression and it is the
+                // correct trade — the user is told exactly what happened and sent to the release
+                // page to install the signed build by hand, ONCE. From then on they have an
+                // anchor and auto-update works normally and verifiably.
+                //
+                // FVS_ALLOW_UNSIGNED_UPDATE=1 restores the old behaviour for developers testing
+                // the update path against unsigned local builds. It is read from the environment
+                // on purpose: it cannot be set by a downloaded payload, a settings file or a
+                // server response, so nothing an attacker controls can re-open this door.
+                // ══════════════════════════════════════════════════════════════════════════
                 case AuthenticodeVerifier.TrustVerdict.NoAnchor:
+                    if (!string.Equals(Environment.GetEnvironmentVariable("FVS_ALLOW_UNSIGNED_UPDATE"), "1", StringComparison.Ordinal))
+                    {
+                        TryDeleteFile(finalPath);
+                        RuntimeLog.Fail("UPDATE",
+                            "REFUSED — " + trustDetail +
+                            " The installer was deleted rather than executed with elevation on an unverifiable fingerprint (UPDATETRUST_02).");
+                        throw new InvalidOperationException(
+                            "This build is not digitally signed, so the downloaded update could not be checked against a publisher." +
+                            Environment.NewLine + Environment.NewLine +
+                            "Nothing was installed and the download was deleted. To update safely, download the latest release " +
+                            "manually from the project's releases page and run it once — after that, updates will verify and " +
+                            "install automatically.");
+                    }
+
                     RuntimeLog.Fail("UPDATE",
                         "SIGNATURE CHECK SKIPPED — " + trustDetail +
-                        " The update was accepted on its published fingerprint alone. Set FVS_SIGN_PFX and ship a signed build to close this gap.");
+                        " FVS_ALLOW_UNSIGNED_UPDATE=1 is set, so the update was accepted on its published fingerprint alone. " +
+                        "DEVELOPER OVERRIDE — never set this on an end-user machine.");
                     break;
 
                 default:

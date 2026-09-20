@@ -1,3 +1,7 @@
+// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using NAudio.Wave;
 using System;
 using FortniteVideoSoftware.Core.Infrastructure;

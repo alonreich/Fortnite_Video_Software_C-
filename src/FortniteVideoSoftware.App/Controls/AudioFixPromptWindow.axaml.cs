@@ -1,4 +1,8 @@
-﻿using Avalonia.Controls;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using FortniteVideoSoftware.App.Infrastructure;
 using FortniteVideoSoftware.Core.Media;

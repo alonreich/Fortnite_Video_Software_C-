@@ -1,4 +1,8 @@
-﻿using System.Text.Json.Nodes;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System.Text.Json.Nodes;
 using FortniteVideoSoftware.App;
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Ipc;
@@ -260,6 +264,21 @@ static async Task<int> RunUiAsync(string[] args)
 
     RuntimeLog.Info("RUN UI", "Running bootstrapper before UI.");
     await BootstrapAsync(showDialog: false);
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // COMPOSITION_01 — build the application service graph exactly once, here.
+    //
+    // Position is load-bearing. It is AFTER BootstrapAsync, which is what calls
+    // ApplicationPaths.EnsureWritableDirectories() — a graph built before that would hand every
+    // service paths to directories that do not exist yet. It is BEFORE Avalonia starts, so that
+    // the very first window constructed already finds a complete graph; AppServices.Current
+    // throws rather than lazily half-building one, because a half-built graph is how a fault sink
+    // ends up null at exactly the moment something faults.
+    //
+    // AvaloniaWindowProvider reads the desktop lifetime lazily, so constructing it before any
+    // window exists is safe and deliberate.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    FortniteVideoSoftware.App.Infrastructure.AppServices.Initialize(ApplicationPaths.CreateDefault());
 
     if (OperatingSystem.IsWindows())
         ShellFileAssociation.EnsureRegistered();

@@ -25,6 +25,11 @@ REM ======================================================================
 call :KILL_STALE
 call :WIPE_DEV_CONFIG
 call :VERIFY_PATCHES
+REM VERIFYHALT_01 - `exit /b` inside a CALLed subroutine returns from the SUBROUTINE, not
+REM from the script. Without this line the halt above would set an errorlevel nobody reads
+REM and the build would carry straight on - the same class of bug as the unread MISSING
+REM variable it was written to fix.
+if errorlevel 1 exit /b 1
 
 if "%~1"=="" goto WATCH
 if /I "%~1"=="run" goto RUN
@@ -144,7 +149,13 @@ for %%P in (
   "SEEKSTORM_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
   "EDGEGUARD_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
   "DRAGCOST_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "STRIPCOST_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
+  REM STRIPCOST_01 is RETIRED, not lost. It guarded "scale with a RenderTransform, never with
+  REM Width" on the per-slot filmstrip Image. Commit ad0b7bd deleted that whole code path and
+  REM replaced it with Controls\TimelineFilmstrip, which draws via context.DrawImage with an
+  REM explicit source and destination rect - so there is no layout box to oversize and no
+  REM 32768px bitmap for Skia to rasterise. The defect is structurally unreachable, so there is
+  REM no fix left for a sentinel to protect. Found by ArchitectureRuleTests.
+  REM EveryDevCmdSentinelStillResolves once VERIFYHALT_01 made the check able to speak.
   "TRACEFLOOD_01=src\FortniteVideoSoftware.App\Program.cs"
   "THUMB_02=src\FortniteVideoSoftware.App\MainWindow.Canvas.cs"
   "MAINEND_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
@@ -272,6 +283,28 @@ for %%P in (
   REM Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe.
   "GRANPROBE_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
   "GRANPROBE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
+  REM --- Architecture remediation, phase 0 (foundation). docs/08_APPLICATION_COMPOSITION.md.
+  REM --- Composition root, fault tiers, signing mandate and the executable spec rules.
+  "COMPOSITION_01=src\FortniteVideoSoftware.App\Infrastructure\AppServices.cs"
+  "COMPOSITION_01=src\FortniteVideoSoftware.App\Program.cs"
+  "COMPOSITION_02=src\FortniteVideoSoftware.App\Infrastructure\AppServices.cs"
+  "FAULTTIER_01=src\FortniteVideoSoftware.Core\Abstractions\Fault.cs"
+  "FAULTTIER_01=src\FortniteVideoSoftware.Core\Abstractions\IFaultSink.cs"
+  "FAULTTIER_01=src\FortniteVideoSoftware.App\Services\UserFacingFaultSink.cs"
+  "FAULTSTORM_01=src\FortniteVideoSoftware.App\Services\UserFacingFaultSink.cs"
+  "SEAM_01=src\FortniteVideoSoftware.Core\Abstractions\IProjectStore.cs"
+  "SEAM_02=src\FortniteVideoSoftware.Core\Abstractions\IClock.cs"
+  "SEAM_03=src\FortniteVideoSoftware.App\Abstractions\IUserNotifier.cs"
+  "SEAM_04=src\FortniteVideoSoftware.App\Abstractions\IFilePickerService.cs"
+  "PICKERMEMORY_01=src\FortniteVideoSoftware.App\Services\StorageProviderFilePicker.cs"
+  "SIGNMANDATE_01=build\FvsBuild\CodeSigning.cs"
+  "UPDATETRUST_02=src\FortniteVideoSoftware.App\Services\UpdateService.cs"
+  "UPDATETRUST_02=src\FortniteVideoSoftware.App\Services\AuthenticodeVerifier.cs"
+  "SCRIM_01=src\FortniteVideoSoftware.App\AvaloniaApp.axaml"
+  "ZOOMCARD_01=src\FortniteVideoSoftware.App\AvaloniaApp.axaml"
+  "ARCHTEST_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  "ASYNCUI_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  "ASYNCUI_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (
@@ -283,6 +316,44 @@ for %%P in (
             if errorlevel 1 set "MISSING=!MISSING! %%A"
         )
     )
+)
+
+REM ======================================================================
+REM VERIFYHALT_01 - ACT ON THE RESULT. THIS BLOCK DID NOT EXIST.
+REM
+REM VERIFY_PATCHES built the MISSING list correctly and then... returned.
+REM `MISSING` was assigned in two places and read in NONE, so every sentinel
+REM in the list above - 134 of them - was being checked and the answer thrown
+REM away. The subroutine SYS-DEVBUILD describes as the thing that "halts
+REM loudly if one is absent" has been a no-op.
+REM
+REM This is not hypothetical damage. STRIPCOST_01 sat in the list pointing at
+REM a tag that no longer existed in GranularSpeedEditorWindow.axaml.cs (the
+REM code path was rewritten in ad0b7bd, superseding the fix rather than
+REM reverting it) and nothing ever said so. A guard that cannot fail is a
+REM guard that cannot be trusted, which is worse than no guard at all -
+REM VERIFYLOOP_01 above learned exactly this lesson once already, about two
+REM skipped entries, and the fix for it left the reporting half unwritten.
+REM
+REM A missing sentinel HALTS. It means either the fix it guards was reverted
+REM (test cycle about to be wasted) or the sentinel is stale (retire it with
+REM a REM, as WIZPROGRESS_01 and STRIPCOST_01 are). Both need a human.
+REM ======================================================================
+if defined MISSING (
+    echo.
+    echo [DEV] ==================================================================
+    echo [DEV] FIX SENTINEL CHECK FAILED - BUILD HALTED.
+    echo [DEV]
+    echo [DEV] These tags are listed in VERIFY_PATCHES but were NOT found in
+    echo [DEV] their files:
+    echo [DEV]   !MISSING!
+    echo [DEV]
+    echo [DEV] Either the fix was reverted - restore it - or the fix was
+    echo [DEV] superseded and the sentinel is stale - retire it with a REM
+    echo [DEV] saying why, next to its entry in the list above.
+    echo [DEV] ==================================================================
+    echo.
+    exit /b 1
 )
 
 goto :EOF

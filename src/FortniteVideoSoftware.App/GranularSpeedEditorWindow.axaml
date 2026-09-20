@@ -129,7 +129,7 @@
                             <Border.Styles>
                                 <Style Selector="RadioButton">
                                     <Setter Property="Cursor" Value="Hand" />
-                                    <Setter Property="Background" Value="#222234" />
+                                    <Setter Property="Background" Value="{DynamicResource AppZoomCardBrush}" />
                                     <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
                                     <Setter Property="BorderThickness" Value="1.5" />
                                     <Setter Property="CornerRadius" Value="6" />
@@ -146,7 +146,7 @@
                                                     <Panel Grid.Column="0" Width="18" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
                                                         <Ellipse Name="OuterBullet" Width="18" Height="18"
                                                                  Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2"
-                                                                 Fill="#181824" />
+                                                                 Fill="{DynamicResource AppZoomCardWellBrush}" />
                                                         <Ellipse Name="InnerBullet" Width="8" Height="8"
                                                                  Fill="{DynamicResource AppZoomBrush}" IsVisible="False" />
                                                     </Panel>
@@ -160,11 +160,11 @@
                                     </Setter>
                                 </Style>
                                 <Style Selector="RadioButton:pointerover /template/ Border#CardBorder">
-                                    <Setter Property="Background" Value="#2f2f45" />
+                                    <Setter Property="Background" Value="{DynamicResource AppZoomCardHoverBrush}" />
                                     <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
                                 </Style>
                                 <Style Selector="RadioButton:checked /template/ Border#CardBorder">
-                                    <Setter Property="Background" Value="#3a2b48" />
+                                    <Setter Property="Background" Value="{DynamicResource AppZoomCardCheckedBrush}" />
                                     <Setter Property="BorderBrush" Value="{DynamicResource AppZoomBrush}" />
                                     <Setter Property="BorderThickness" Value="2" />
                                 </Style>
@@ -220,7 +220,7 @@
                              picture goes black for a few hundred milliseconds at each end of the
                              meme. Unannounced that reads as a stutter or a crash, so it is said out
                              loud. ZIndex 72 sits above the zoom busy overlay (70). -->
-                        <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="72" Background="#E6000000" CornerRadius="6">
+                        <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="72" Background="{DynamicResource AppScrimBrush}" CornerRadius="6">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                                 <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
                                 <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
@@ -672,7 +672,7 @@
              purpose: a half-rebuilt timeline that still accepts clicks is how a user ends up
              dragging a marker onto a position that no longer exists. It cannot be missed and it
              cannot be clicked through. -->
-        <Border Name="MemeRebuildOverlay" IsVisible="False" ZIndex="9998" Background="#F0000000">
+        <Border Name="MemeRebuildOverlay" IsVisible="False" ZIndex="9998" Background="{DynamicResource AppScrimStrongBrush}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="520">
                 <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
                 <TextBlock Text="PLEASE WAIT" Foreground="{DynamicResource AppMemeBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold" HorizontalAlignment="Center"/>

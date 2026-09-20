@@ -1,4 +1,8 @@
-﻿using System.Diagnostics;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 

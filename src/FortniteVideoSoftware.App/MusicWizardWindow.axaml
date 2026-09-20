@@ -412,7 +412,7 @@
                                     <!-- MEME_07: the preview plays each meme where it will actually
                                          appear by swapping the file in the one mpv host. That costs
                                          a black moment at each end, so it is announced. -->
-                                    <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="900" Background="#E6000000" CornerRadius="6">
+                                    <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="900" Background="{DynamicResource AppScrimBrush}" CornerRadius="6">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                                             <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
                                             <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>

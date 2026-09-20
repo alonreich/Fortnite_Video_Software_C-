@@ -5,8 +5,8 @@ Fortnite Video Software is a specialized, hardware-accelerated desktop video edi
 
 ---
 
-## 2. The 7 North Star Architectural Invariants
-All subsystems, controls, and rendering components across `src/` must strictly enforce these seven non-negotiable architectural pillars:
+## 2. The 9 North Star Architectural Invariants
+All subsystems, controls, and rendering components across `src/` must strictly enforce these nine non-negotiable architectural pillars:
 
 1. **Single Binary Executable Mandate:** Zero loose companion assets (`.gif`, `.png`, `.wav`, `.ico`) alongside the output binary. All UI overlays, guide indicators, brand icons, and animations must be generated dynamically via code or vector path geometry (`PathGeometry`) in memory.
 2. **Absolute Authority for Time:** `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` is the sole mathematical model for output durations and frame-to-output conversions across both live preview playback and FFmpeg rendering.
@@ -15,6 +15,8 @@ All subsystems, controls, and rendering components across `src/` must strictly e
 5. **Zero Raw Hex Styling:** All Avalonia styles, controls, and dynamic templates must resolve colors exclusively through named `DynamicResource` tokens in `AvaloniaApp.axaml`. Hardcoded hex values in shared styling are strictly prohibited.
 6. **Thread-Bound Safety Contracts:** UI dispatchers must never block on native audio/video subsystem calls. WASAPI audio capture lifecycles run on an isolated serialized worker thread; SkiaSharp snapshot encoding and heavy image decodes execute off the UI thread.
 7. **Monotonic Progress Guarantee:** Render progress tracking must be cost-weighted and mathematically monotonic (P(n+1) >= P(n)). Progress bars may never snap, stutter, or lerp backward across multi-pass operations.
+8. **Every Rule That Can Be A Test Is A Test:** A specification paragraph only protects the codebase if the next person reads it. Where a rule can be mechanically asserted — one activation path per control, no raw hex in styling, no `zoompan`, no unexplained empty catch — it lives in `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` and the prose explains *why*. A sentinel proves a fix has not been deleted; a test proves it has not been broken.
+9. **No Failure Is Silent:** Every caught exception is classified through `IFaultSink` as Recoverable, Degraded or Fatal (`08_APPLICATION_COMPOSITION.md` §2). `catch { }` and `catch (Exception ex) { Log(ex); }` are not error handling — they leave the user to guess whether they mis-clicked.
 
 ---
 
@@ -71,6 +73,20 @@ FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.c
 ```
 ⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠OutputTimeline.cs  ProjectDocument.cs
 ProjectSerializer.cs  ProjectStore.cs  RecentProjects.cs
+```
+
+**[`07_UNDO_AND_HISTORY.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/07_UNDO_AND_HISTORY.md)** — Undo, redo & edit history — the four inherited rules (gesture coalescing, ceiling on push, redo invalidation, no-op rejection), immutable state contract, re-entrancy guard, persistence.
+
+```
+⚠GranularSpeedEditorWindow.axaml.cs  ⚠ProjectDocument.cs  UndoStack.cs
+```
+
+**[`08_APPLICATION_COMPOSITION.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/08_APPLICATION_COMPOSITION.md)** — Application composition, seams & fault reporting — the composition root, the service interfaces, fault tiers (Recoverable/Degraded/Fatal), and the architecture tests that enforce the other specs' rules.
+
+```
+AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  Fault.cs  ⚠IClock.cs
+⚠IFaultSink.cs  ⚠IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs
+⚠StorageProviderFilePicker.cs  UserFacingFaultSink.cs
 ```
 
 ---

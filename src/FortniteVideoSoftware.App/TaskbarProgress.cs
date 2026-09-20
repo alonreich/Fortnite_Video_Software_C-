@@ -1,4 +1,8 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 

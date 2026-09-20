@@ -1,4 +1,8 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;

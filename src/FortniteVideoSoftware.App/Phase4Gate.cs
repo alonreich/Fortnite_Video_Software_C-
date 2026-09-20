@@ -1,4 +1,8 @@
-﻿using FortniteVideoSoftware.Core.Media;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
+using FortniteVideoSoftware.Core.Media;
 using System.Text.Json.Nodes;
 
 namespace FortniteVideoSoftware.App;

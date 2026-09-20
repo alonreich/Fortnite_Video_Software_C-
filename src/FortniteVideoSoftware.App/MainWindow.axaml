@@ -117,7 +117,7 @@
                     <!-- MEME_07: the preview plays each meme where it will actually appear by
                          swapping the file in the one mpv host. That costs a black moment at each
                          end of the meme, so it is announced instead of looking like a stutter. -->
-                    <Border Name="MemeSwapOverlay" IsVisible="False" Grid.RowSpan="2" ZIndex="900" Background="#E6000000">
+                    <Border Name="MemeSwapOverlay" IsVisible="False" Grid.RowSpan="2" ZIndex="900" Background="{DynamicResource AppScrimBrush}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                             <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
                             <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>

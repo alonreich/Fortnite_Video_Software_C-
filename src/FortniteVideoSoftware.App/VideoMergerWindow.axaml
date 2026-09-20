@@ -536,7 +536,7 @@
                 </Grid>
 
                 <!-- Modal Scrim for Flyout Confirmations -->
-                <Border Name="FlyoutScrim" Grid.RowSpan="3" Grid.ColumnSpan="2" Background="#90000000" IsVisible="False" ZIndex="98"/>
+                <Border Name="FlyoutScrim" Grid.RowSpan="3" Grid.ColumnSpan="2" Background="{DynamicResource AppScrimSoftBrush}" IsVisible="False" ZIndex="98"/>
 
                 <!-- Processing Overlay -->
                 <controls:PhaseOverlayControl x:Name="OverlayLayer" Grid.RowSpan="3" Grid.ColumnSpan="2" IsVisible="False" />
