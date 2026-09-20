@@ -8,7 +8,7 @@ using FortniteVideoSoftware.App.Controls;   // NoticeKind
 namespace FortniteVideoSoftware.App.Abstractions;
 
 /// <summary>
-/// SEAM_03 — "say something to the user", behind an interface.
+/// INJSEAM_03 — "say something to the user", behind an interface.
 ///
 /// <para>
 /// <c>FloatingNotice</c> and <c>NativeDialog</c> are static classes that require a live Avalonia
@@ -38,7 +38,7 @@ public interface IUserNotifier
 }
 
 /// <summary>
-/// SEAM_03 — the window the notifier currently targets.
+/// INJSEAM_03 — the window the notifier currently targets.
 ///
 /// <para>
 /// A suite of six top-level windows, three of which can be the active one, means "which window

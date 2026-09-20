@@ -63,7 +63,7 @@ public partial class MainWindow
     /// everything derived from them has to be rebuilt.
     ///
     /// <para>
-    /// ⚠️ UNDO_13 — the PLAYHEAD IS NOT MOVED. 04 §6 (UI-GRANULAR) states it for the granular
+    /// ⚠️ UNDO_22 — the PLAYHEAD IS NOT MOVED. 04 §6 (UI-GRANULAR) states it for the granular
     /// editor's stack and the rule generalises: undo restores the EDIT, not the viewing position.
     /// Seeking on undo makes a sequence of undos feel like the video is being scrubbed by someone
     /// else, and it costs an mpv seek per step (SEEKSTORM_01).
@@ -112,7 +112,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// UNDO_11 — records an edit. The single call the rest of the window uses.
+    /// UNDO_20 — records an edit. The single call the rest of the window uses.
     ///
     /// <para>
     /// <paramref name="gestureKey"/> coalesces a continuous gesture into one undo step. Pass the

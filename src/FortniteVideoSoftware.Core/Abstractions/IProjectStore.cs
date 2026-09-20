@@ -7,7 +7,7 @@ using FortniteVideoSoftware.Core.Project;
 namespace FortniteVideoSoftware.Core.Abstractions;
 
 /// <summary>
-/// SEAM_01 / PROJ_08 — reading and writing <c>.fvsproj</c>, behind an interface.
+/// INJSEAM_01 / PROJ_08 — reading and writing <c>.fvsproj</c>, behind an interface.
 ///
 /// <para>
 /// ══════════════════════════════════════════════════════════════════════════════════════════════

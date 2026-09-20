@@ -74,13 +74,13 @@ public sealed class AppServices
     /// <summary>ProgramData, temp and log path resolution (05 §SYS-MUTEX / GOV).</summary>
     public ApplicationPaths Paths { get; }
 
-    /// <summary>The wall clock, behind a seam (SEAM_02).</summary>
+    /// <summary>The wall clock, behind a seam (INJSEAM_02).</summary>
     public IClock Clock { get; }
 
-    /// <summary>Which window a notice or dialog belongs to (SEAM_03).</summary>
+    /// <summary>Which window a notice or dialog belongs to (INJSEAM_03).</summary>
     public IActiveWindowProvider Windows { get; }
 
-    /// <summary>Pills, alerts and questions (SEAM_03).</summary>
+    /// <summary>Pills, alerts and questions (INJSEAM_03).</summary>
     public IUserNotifier Notifier { get; }
 
     /// <summary>
@@ -89,10 +89,10 @@ public sealed class AppServices
     /// </summary>
     public IFaultSink Faults { get; }
 
-    /// <summary>Reading and writing <c>.fvsproj</c> (SEAM_01 / PROJ_08).</summary>
+    /// <summary>Reading and writing <c>.fvsproj</c> (INJSEAM_01 / PROJ_08).</summary>
     public IProjectStore Projects { get; }
 
-    /// <summary>Native save/open dialogs plus their directory memory (SEAM_04).</summary>
+    /// <summary>Native save/open dialogs plus their directory memory (INJSEAM_04).</summary>
     public IFilePickerService FilePicker { get; }
 
     private AppServices(
@@ -173,7 +173,7 @@ public sealed class AppServices
 }
 
 /// <summary>
-/// SEAM_03 — resolves "the window a message belongs to" from Avalonia's desktop lifetime.
+/// INJSEAM_03 — resolves "the window a message belongs to" from Avalonia's desktop lifetime.
 ///
 /// <para>
 /// Preference order, and the reason for each:

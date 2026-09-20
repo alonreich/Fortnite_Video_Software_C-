@@ -4,7 +4,7 @@
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
 | `src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs` | `ProjectDocument`, `SourceClip`, `ProjectAudio`, `ProjectExport`, `SourceIntegrity` | `SchemaVersion`, `MinimumReadableSchemaVersion`, `BuildTimeline`, `CheckSource`, `EffectiveDurationMs`, `UnknownFields` | The saveable document |
-| `src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs` | `ProjectSerializer` | `Write`, `Read`, `KnownKeys` | AOT-safe JSON mapping |
+| `src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs` | `ProjectSerializer` | `Write`, `Read`, `KnownKeys`, `ProjectSerializer` | AOT-safe JSON mapping |
 | `src/FortniteVideoSoftware.Core/Project/ProjectStore.cs` | `ProjectStore`, `ProjectIoResult` | `Save`, `Load`, `NormalizeExtension`, `BackupSuffix` | Disk persistence |
 | `src/FortniteVideoSoftware.Core/Project/RecentProjects.cs` | `RecentProjects`, `RecentProject` | `Read`, `Touch`, `Prune`, `MaxEntries` | Recent list |
 | ⚠ `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` | `OutputTimeline` | `Create`, `Chunk`, `Cut`, `Insertion` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |

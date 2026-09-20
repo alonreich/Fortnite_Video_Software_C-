@@ -15,7 +15,7 @@ using FortniteVideoSoftware.Core.Infrastructure;
 namespace FortniteVideoSoftware.App.Services;
 
 /// <summary>
-/// SEAM_04 — the shipping <see cref="IFilePickerService"/>, over Avalonia's
+/// INJSEAM_04 — the shipping <see cref="IFilePickerService"/>, over Avalonia's
 /// <see cref="IStorageProvider"/>.
 ///
 /// <para>

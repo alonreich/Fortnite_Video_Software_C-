@@ -166,7 +166,7 @@ public sealed class UserFacingFaultSink : IFaultSink
 }
 
 /// <summary>
-/// SEAM_03 — the shipping <see cref="IUserNotifier"/>: a thin adapter over the existing
+/// INJSEAM_03 — the shipping <see cref="IUserNotifier"/>: a thin adapter over the existing
 /// <c>FloatingNotice</c> and <c>NativeDialog</c>, resolving the target window at call time through
 /// <see cref="IActiveWindowProvider"/>.
 /// </summary>

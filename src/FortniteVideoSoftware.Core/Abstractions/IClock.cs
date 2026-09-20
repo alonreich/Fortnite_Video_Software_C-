@@ -5,7 +5,7 @@
 namespace FortniteVideoSoftware.Core.Abstractions;
 
 /// <summary>
-/// SEAM_02 — the wall clock, behind an interface.
+/// INJSEAM_02 — the wall clock, behind an interface.
 ///
 /// <para>
 /// Small, but it is the difference between a test and a stopwatch. Three pieces of shipped logic

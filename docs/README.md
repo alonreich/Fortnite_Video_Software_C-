@@ -45,9 +45,10 @@ MicLevelMonitor.cs  MpvIpcClient.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPre
 **[`03_FFMPEG_EXPORT_PIPELINE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/03_FFMPEG_EXPORT_PIPELINE.md)** — FFmpeg export pipeline — encoder discovery, zoom filtergraph, concat/bitrate, meme concat & cutaway preview, fades, progress, binary paths, meme library.
 
 ```
-ExportViewModel.cs  FfmpegDiagnosticCollector.cs  GpuCapabilityProbe.cs  GranularSpeedBuilder.cs
+ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  GpuCapabilityProbe.cs
+GranularSpeedBuilder.cs
 HardwareScanner.cs  QualityLadder.cs  MainWindow.SizeEstimate.cs  OutputFileSize.cs  OutputSizeEstimator.cs
-MemePreviewDirector.cs  MergerWorker.cs  MobileFilterBuilder.cs  ProcessWorker.cs
+MemePreviewDirector.cs  ⚠MergerWorker.cs  MobileFilterBuilder.cs  ⚠ProcessWorker.cs
 TextOverlayGenerator.cs  ZoomPreviewSimulator.cs
 ```
 
@@ -65,28 +66,32 @@ FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.c
 ```
 ⚠ApplicationPaths.cs  AtomicJsonFile.cs  Build.cmd  DeploymentLifecycle.cs  dev.cmd
 ⚠GranularSpeedEditorWindow.axaml.cs  MaskOverlayManager.cs  ProjectRecoveryService.cs
-⚠RecoveryManager.cs  RuntimeLog.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs  LatestEstimateWorker.cs
+⚠RecoveryManager.cs  RuntimeLog.cs  ⚠ToolNavigator.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs
+LatestEstimateWorker.cs
 ```
 
 **[`06_PROJECT_DOCUMENT_MODEL.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/06_PROJECT_DOCUMENT_MODEL.md)** — Project document model — the saveable `.fvsproj`, schema versioning & the amputation rule, AOT-safe JSON, atomic persistence & backup, source integrity, recent projects, trim/AOT analyser policy.
 
 ```
-⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠OutputTimeline.cs  ProjectDocument.cs
-ProjectSerializer.cs  ProjectStore.cs  RecentProjects.cs
+⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠IProjectStore.cs  ⚠MainWindow.Project.cs
+⚠OutputTimeline.cs  ProjectDocument.cs  ⚠ProjectSession.cs  ProjectSerializer.cs  ProjectStore.cs
+RecentProjects.cs
 ```
 
 **[`07_UNDO_AND_HISTORY.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/07_UNDO_AND_HISTORY.md)** — Undo, redo & edit history — the four inherited rules (gesture coalescing, ceiling on push, redo invalidation, no-op rejection), immutable state contract, re-entrancy guard, persistence.
 
 ```
-⚠GranularSpeedEditorWindow.axaml.cs  ⚠ProjectDocument.cs  UndoStack.cs
+⚠GranularSpeedEditorWindow.axaml.cs  ⚠MainWindow.Project.cs  ⚠ProjectDocument.cs
+⚠ProjectSession.cs  UndoStack.cs
 ```
 
 **[`08_APPLICATION_COMPOSITION.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/08_APPLICATION_COMPOSITION.md)** — Application composition, seams & fault reporting — the composition root, the service interfaces, fault tiers (Recoverable/Degraded/Fatal), and the architecture tests that enforce the other specs' rules.
 
 ```
-AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  Fault.cs  ⚠IClock.cs
-⚠IFaultSink.cs  ⚠IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs
-⚠StorageProviderFilePicker.cs  UserFacingFaultSink.cs
+AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  Fault.cs  FfmpegJobLifetime.cs
+IClock.cs  IFaultSink.cs  ⚠IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs
+⚠MainWindow.Project.cs  ⚠ProjectSession.cs  ⚠StorageProviderFilePicker.cs
+⚠ToolNavigator.cs  UserFacingFaultSink.cs
 ```
 
 ---

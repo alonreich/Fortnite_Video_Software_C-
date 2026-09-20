@@ -5,21 +5,21 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Media/AudioFilterChain.cs` | `AudioFilterChain` | `BuildSidechainGraph`, `ApplyCrossover`, `BuildLoudnormFilter`, `BuildAtempoFilter` | Authoritative audio filtergraph generation for export and mastering. |
-| `src/FortniteVideoSoftware.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe` | `QuietBoostReductionFactor = 0.70`, `TargetLufs = -14.0`, `MeasureLoudness` | EBU R128 integrated loudness measurement and quiet boost attenuation. |
-| `src/FortniteVideoSoftware.Core/Media/VoiceRecorder.cs` | `VoiceRecorder` | `StartRecordingAsync`, `StopRecordingAsync`, `WorkerThread`, `WasapiCapture` | Low-latency WASAPI audio capture lifecycle on serialized worker thread. |
-| `src/FortniteVideoSoftware.Core/Media/MicLevelMonitor.cs` | `MicLevelMonitor` | `StartMonitoring`, `StopMonitoring`, `AudioLevelChanged`, `SampleRate = 44100` | Idle microphone level polling with proactive endpoint release before recording. |
-| `src/FortniteVideoSoftware.App/Controls/VoiceOverPreviewPlayer.cs` | `VoiceOverPreviewPlayer` | `SyncPlayback`, `ApplyTimeMapping`, `Reload`, `RenderWaveform` | Timeline-synchronized voiceover take preview and vector waveform rendering. |
-| `src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetMasterVolume`, `ObserveProperty`, `TimePos`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and OS PID volume management. |
-| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `_muteCache`, `OnVolumeChanged`, `SaveRecoveryState` | Master preview volume scaling and proportional mute vector caching. **⚠ CO-GOVERNED BY: 01, 04, GOV**|
-| `src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `PerformFFTAnalysis`, `OnArmingTimeout`, `UpdateVisualizer`, `VoiceProtectionSystem`, `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, demographic frequency analysis, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `ApplyMusicBed`, `CalculateEndFit`, `MeasureColumns`, `FitByEndOfVideo` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider`, `Tactile` | `OnPointerMoved`, `VolumeChanged`, `AppTubeBrush`, `EnableGlobalRipple` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
+| `src/FortniteVideoSoftware.Core/Media/AudioFilterChain.cs` | `AudioFilterChain` | `MusicTrack`, `AudioFilterChain` | Authoritative audio filtergraph generation for export and mastering. |
+| `src/FortniteVideoSoftware.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe` | `TargetLufs`, `PeakCeilingDbtp`, `QuietBoostReductionFactor`, `MusicBedLufs` | EBU R128 integrated loudness measurement and quiet boost attenuation. |
+| `src/FortniteVideoSoftware.Core/Media/VoiceRecorder.cs` | `VoiceRecorder` | `StartRecording`, `StopRecording`, `GetInputDeviceNames`, `Dispose` | Low-latency WASAPI audio capture lifecycle on serialized worker thread. |
+| `src/FortniteVideoSoftware.Core/Media/MicLevelMonitor.cs` | `MicLevelMonitor` | `Start`, `Stop`, `Dispose`, `MicLevelMonitor` | Idle microphone level polling with proactive endpoint release before recording. |
+| `src/FortniteVideoSoftware.App/Controls/VoiceOverPreviewPlayer.cs` | `VoiceOverPreviewPlayer` | `Reload`, `Dispose`, `UpdatePlayback`, `DisposeTakes` | Timeline-synchronized voiceover take preview and vector waveform rendering. |
+| `src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetGlobalMasterVolume`, `ObserveProperty`, `TimePos`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and OS PID volume management. |
+| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `OnGlobalMasterVolumeChanged`, `SaveRecoveryState`, `AttachPreviewMonitor` | Master preview volume scaling and proportional mute vector caching. **⚠ CO-GOVERNED BY: 01, 04, GOV**|
+| `src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, demographic frequency analysis, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
+| `src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `Name`, `FilePath`, `Title`, `Artist` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
+| `src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider` | `OnPointerMoved`, `Render`, `IsInteracting`, `FluidVolumeSlider` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
 
 ---
 
 ## 1. Master Application Volume Control  {#AUD-MASTERVOL}
-* **Strict Process Isolation:** The vertical master volume slider controls OS process (PID) volume for preview playback only via Windows audio session APIs (`MpvIpcClient.SetMasterVolume`). It has zero impact on FFmpeg export filtergraphs.
+* **Strict Process Isolation:** The vertical master volume slider controls OS process (PID) volume for preview playback only via Windows audio session APIs (`MpvIpcClient.SetGlobalMasterVolume`). It has zero impact on FFmpeg export filtergraphs.
 * **Proportional Scaling:** Master volume acts as a scalar multiplier over the relative balance between gameplay and music tracks:
   $$V_{\text{preview, game}} = V_{\text{master}} \times V_{\text{game}}, \quad V_{\text{preview, music}} = V_{\text{master}} \times V_{\text{music}}$$
 * **Zero-Scaling Mute Cache:** Dragging volume to 0% caches the active balance vector:

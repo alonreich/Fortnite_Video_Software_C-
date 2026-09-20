@@ -6,9 +6,9 @@
 | `docs/SPEC_GOVERNANCE.md` | Governance Protocol | `Zero-Leakage`, `Proof-of-Read`, `In-Code Sentinel` | Master Governance Contract |
 | `docs/README.md` | Master Architectural Router | `7 North Star Invariants`, `Domain Routing` | Architectural Entry Point |
 | `docs/INDEX.md` | Flat Symbol & File Lookup | `Symbol -> Spec Section`, `Stable {#ANCHOR} ids`, `CO-GOVERNED marks` | Zero-Cost Routing Lookup |
-| `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile` | System Path Governance |
+| `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `AppDirectoryName` | System Path Governance |
 | `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Session State & Fault Governance |
-| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `SaveRecoveryState`, `RestoreRecoveryStateAsync`, `CheckFault` | Main Process Governance Root |
+| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `SaveRecoveryState`, `CheckFault`, `AttachPreviewMonitor`, `OnSuccessAction` | Main Process Governance Root |
 
 ---
 

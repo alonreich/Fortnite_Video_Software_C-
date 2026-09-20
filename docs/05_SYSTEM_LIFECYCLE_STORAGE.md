@@ -5,18 +5,18 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.App/DeploymentLifecycle.cs` | `DeploymentLifecycle` | `AcquireMutex`, `ClaimOrphanedMutex`, `ExecuteInstall`, `Uninstall` | OS installation/uninstallation mutex and single-instance lifecycle guard. |
-| `src/FortniteVideoSoftware.App/RuntimeLog.cs` | `RuntimeLog`, `CoreLogger` | `BlockingCollection<string>`, `LogMutex`, `RotateLogs`, `RetentionDays = 14` | Decoupled asynchronous producer-consumer logging pipeline. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive`, `SchemaVersion = 1` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
-| `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `FileOptions.WriteThrough`, `File.Move`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
-| `src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `SETTINGSATOMIC_01`, `CurrentSchemaVersion = 7` | Cross-process settings persistence under a named mutex and the atomic write protocol. |
-| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `FlushDebounceMs = 500`, `FlushMaxWaitMs = 3000`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
+| `src/FortniteVideoSoftware.App/DeploymentLifecycle.cs` | `DeploymentLifecycle` | `Uninstall`, `ShouldHandle`, `RunAsync`, `ExtractAvaloniaDependencies` | OS installation/uninstallation mutex and single-instance lifecycle guard. |
+| `src/FortniteVideoSoftware.App/RuntimeLog.cs` | `RuntimeLog`, `CoreLogger` | `LogMutex`, `InitializeAppName`, `ResetForProcess`, `Info` | Decoupled asynchronous producer-consumer logging pipeline. |
+| `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
+| `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
+| `src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `SETTINGSATOMIC_01` | Cross-process settings persistence under a named mutex and the atomic write protocol. |
+| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
 | `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
-| `src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `ReadString`, `WriteString` | Lightweight persistent key-value configuration and coach tour launch counts. |
-| `src/FortniteVideoSoftware.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `RestoreBounds`, `SaveBoundsSync`, `DebounceMs = 700` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
+| `src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `MigrateLegacyFilesOnce`, `ReadText` | Lightweight persistent key-value configuration and coach tour launch counts. |
+| `src/FortniteVideoSoftware.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `SaveBoundsSync`, `SaveBoundsAsync`, `Capture` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
 | `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs` | `GranularSpeedEditorWindow` | `OnClosing`, `OnClosed`, `_isSafeToClose`, `ResultSegments` | Deferred-close dispatcher contract governing dialog resolution and edit hand-off. **⚠ CO-GOVERNED BY: 01, 04**|
-| `src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs` | `MaskOverlayManager` | `ApplyProfile`, `EnsureDefaults`, `RotateBackups`, `CascadeBak` | 5-tier `.bak` rotation cascade and HUD profile configuration. |
-| `src/FortniteVideoSoftware.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService` | `SerializeState`, `SaveState`, `HasUnsavedWork`, `RestoreRecoveryState` | Main App state serialization bridge for project recovery. |
+| `src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs` | `MaskOverlayManager` | `ApplyProfile`, `EnsureDefaults`, `IsNoMask`, `SanitizeProfileName` | 5-tier `.bak` rotation cascade and HUD profile configuration. |
+| `src/FortniteVideoSoftware.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService` | `SerializeState`, `SaveState`, `HasUnsavedWork`, `LoadState` | Main App state serialization bridge for project recovery. |
 | `src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs` | `LatestEstimateWorker` | `Request`, `RunAsync`, `Dispose`, `Completion` | Bounded background estimates, cancellation and stale UI result rejection. |
 | `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `RunStartupCheckAsync`, `CheckManualAsync`, `GetSkippedVersion`, `ClearSkippedVersion` | Background GitHub release query, 24h throttle, SHA-256 verification, and quiet updater. |
 | `build/FvsBuild/Program.cs` | `FvsBuild` | `SynchronizeVersionFiles`, `RunPipeline`, `Publish` | Unified build pipeline synchronizing version.txt, Directory.Build.props, and project files. |
@@ -112,13 +112,13 @@
 
 * **Every fix that costs a test cycle to re-diagnose earns a sentinel.** Add a `CHECK_TAG` line for its tag when the fix lands, in the same change — not later.
 * **`VERIFYHALT_01` — THIS SUBROUTINE WAS A NO-OP AND HAD TO BE TAUGHT TO SPEAK.**
-  `VERIFY_PATCHES` built its `MISSING` list correctly and then returned. The variable was **assigned in two places and read in none**, so all 133 sentinels were checked every run and the answer thrown away. The guarantee stated above — *"halts loudly if one is absent"* — could neither halt nor be loud, for as long as the list has existed.
+  `VERIFY_PATCHES` built its `MISSING` list correctly and then returned. The variable was **assigned in two places and read in none**, so every sentinel in the list (133 at the time it was found) was checked on every run and the answer thrown away. The guarantee stated above — *"halts loudly if one is absent"* — could neither halt nor be loud, for as long as the list has existed.
   Two defects, both now closed:
   1. The unread `MISSING` variable. A missing sentinel now prints the offending tags and exits non-zero.
   2. `exit /b 1` inside a `call`ed subroutine returns from the **subroutine**, not the script. The call site therefore tests `if errorlevel 1` immediately after `call :VERIFY_PATCHES`.
   **The damage was not hypothetical.** `STRIPCOST_01` pointed at a tag that no longer existed in `GranularSpeedEditorWindow.axaml.cs` and nothing ever said so. It was not a revert — commit `ad0b7bd` replaced the per-slot `Image` path with `Controls/TimelineFilmstrip`, which draws via `DrawingContext.DrawImage` with explicit source/destination rects, making the oversized-bitmap defect structurally unreachable. The sentinel is retired with a note, per the `WIZPROGRESS_01` precedent.
   ⚠️ `VERIFYLOOP_01` had already learned this lesson once, about two silently skipped entries, and its fix left the reporting half unwritten. **A guard that cannot fail is worse than no guard at all, because it is trusted.**
-* **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Where a rule can be asserted, prefer `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` (`08_APPLICATION_COMPOSITION.md` §3). `EveryDevCmdSentinelStillResolves` re-checks this whole list from CI, on any platform, naming the file and tag.
+* **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Where a rule can be asserted, prefer `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` (`08_APPLICATION_COMPOSITION.md` §3). `EveryDevCmdSentinelStillResolves` re-checks this whole list from CI, on any platform, naming the file and tag. It is the authority on the current count, not this paragraph.
 * **`dev.cmd trace` — a log that can leave the machine (TRANSPORT_TRACE_01).** Identical to the default watch mode except `FVS_DEV_LOG_DIR` points at `.devlogs\` inside the repo instead of `%TMP%`. The rule that dev logs never land in the project tree exists so an ordinary run cannot litter it and so a log can never be committed; this mode is opt-in, announces itself, and `.devlogs/` is gitignored, so neither risk applies.
   It exists because **a log nobody can reach is a log nobody can read.** A fault that cannot be reproduced from source is diagnosed from a log, and a log sitting in a temp folder on one machine is unavailable to whoever is helping.
 * **Instrument before the third guess.** The main window writes one `TRANSPORT` line for every play and pause it issues — who issued it, and the player state at that instant (`t`, `dur`, `eof`, `pausedBefore`, `frozen`, `freezeAt`, `freezeArmed`, `endParked`, `seeking`). It is per transport change, not per tick, so it is cheap enough to leave in permanently. A transport fault that survives two source-level fixes is not a reading problem; ship the trace and let the log name the line.
@@ -169,14 +169,36 @@
   * Worst case is therefore bounded at one write per 3 s during sustained editing, and coalescing is
     preserved everywhere else. Write amplification is the reason the debounce exists; do not remove
     either half.
-* **`IPCLEASE_01` — the single-server lease is a SEMAPHORE, not a MUTEX.** A Win32 mutex is
-  thread-affine: the lease was taken on the startup thread and released in `Dispose` on another, so
-  `ReleaseMutex` threw on **every clean shutdown**, was swallowed, and the handle was closed while
-  still owned — marking the mutex abandoned and making the next launch log the permanently false
-  *"Prior server process exited abruptly"*. A semaphore has no thread affinity, and the lease **is**
-  the open handle: no `Release()` is called, and a crashed server frees the name automatically.
-  `IpcProtocol.ServerLeaseName` is deliberately distinct from the retired `ServerMutexName`, because a
-  `Mutex` and a `Semaphore` cannot share a name across an in-place upgrade.
+* **`IPCLEASE_01` — the single-server lease is a mutex that is NEVER OWNED.**
+  A Win32 mutex is thread-affine: only the thread that acquired it may release it. The lease was
+  taken on the startup thread and released in `Dispose` on another, so `ReleaseMutex` threw
+  *"Object synchronization method was called from an unsynchronized block of code"* on **every
+  clean shutdown**, was swallowed by a bare catch, and the handle was then closed while still
+  owned — which marks the mutex **abandoned**. The next launch hit the `AbandonedMutexException`
+  branch and logged the permanently false *"Prior server process exited abruptly"* after a
+  completely normal exit.
+  * **The fix is to stop owning it.** A named kernel object lives exactly as long as one handle to
+    it remains open, so *holding a handle* is already a perfect lease.
+    `new Mutex(initiallyOwned: false, name, out createdNew)` — `createdNew` is true only for the
+    process that created it, which is the one that becomes the server. Nothing is ever acquired, so
+    there is nothing to release, no thread affinity, and no abandoned state that can exist at all.
+    A crashed server closes its handle with the process and the name frees itself.
+  * ⚠️ **The NAME is deliberately UNCHANGED** (`IpcProtocol.ServerMutexName`). A pre-fix build still
+    running OWNS this mutex, and because `initiallyOwned` is ignored when the object already exists,
+    old and new builds still see each other's lease and exactly one of them serves. Renaming it
+    would let two servers bind the same pipe and silently diverge the session state.
+  * ⚠️ **Do not substitute a Semaphore.** `Mutex` is the only named primitive .NET implements on
+    every platform; named `Semaphore` and `EventWaitHandle` are Windows-only and throw
+    `PlatformNotSupportedException` elsewhere, which takes the IPC test suite with them. A semaphore
+    also cannot share a name with a mutex, so it would break the in-place upgrade above.
+
+  > **Correction (docs audit).** This section previously stated the opposite — that the lease *is*
+  > a semaphore, and that `IpcProtocol.ServerLeaseName` was "deliberately distinct from the retired
+  > `ServerMutexName`". No such symbol has ever existed; the code kept the mutex and kept the name,
+  > for the two reasons above. The spec described an approach the implementation had considered and
+  > explicitly rejected, and an agent following it would have broken the cross-platform test suite
+  > and split the pipe.
+
 * **`IPCTEARDOWN_01` — signal, then WAIT, then dispose.** `Dispose` previously cancelled and disposed
   its `CancellationTokenSource` while `ListenLoopAsync` was still inside `WaitForConnectionAsync`, so
   the in-flight `NamedPipeServerStream` was not deterministically closed; a restart inside that window

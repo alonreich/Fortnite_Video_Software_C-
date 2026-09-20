@@ -3030,7 +3030,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (isUserEdit) UpdateEstimatedQuality();
 
         // ══════════════════════════════════════════════════════════════════════════════════════
-        // UNDO_11 / PROJSESSION_03 — ONE HOOK FOR THE WHOLE EDIT SURFACE.
+        // UNDO_20 / PROJSESSION_03 — ONE HOOK FOR THE WHOLE EDIT SURFACE.
         //
         // This method is already wired to ~25 UI events and already means exactly "the user
         // changed something", already honours _isRestoring, and already distinguishes a genuine

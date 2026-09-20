@@ -6,20 +6,20 @@
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
 | `src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs` | `QualityLadder`, `Tier` | `Tiers`, `TargetMbFor`, `DefaultIndex`, `OriginalIndex`, `ColorFor` | The quality dial's tiers and the tier -> target-megabytes model. |
-| `src/FortniteVideoSoftware.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `EstimatedFileSizeText`, `EstimatedFileSizeDescription` | Quality selection and bound output-size readout. |
-| `src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs` | `MainWindow` | `CaptureSizeRequest`, `RequestSizeEstimate` | Immutable estimate inputs and UI publication. |
+| `src/FortniteVideoSoftware.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `EstimatedFileSizeText`, `EstimatedFileSizeDescription`, `ResolveHardwareMode` | Quality selection and bound output-size readout. |
+| `src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs` | `MainWindow` | `CaptureSizeRequest`, `RequestSizeEstimate`, `MainWindow` | Immutable estimate inputs and UI publication. |
 | `src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs` | `OutputSizeEstimator` | `EstimateMainAsync`, `EstimateMergerAsync`, `CalculateMain`, `CalculateMerger`, `ReadMediaAsync` | Shared estimates and bounded media metadata cache. |
-| `src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps` | MB/GB/TB formatting and shared merger encoder settings. |
-| `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `ExportPayload`, `ProgressInfo` | `ExecuteAsync`, `BuildFilterGraph`, `UpdateMonotonicProgress`, `ParseProgress`, `AppContext.BaseDirectory` + `backend/` probe | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
-| `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `ProbeEncoders`, `HasNvenc`, `HasAmf`, `FallbackToCpu` | Hardware GPU encoder detection and automated fallback logic. |
-| `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanGpu`, `IsRdpSession`, `FixRdpWddmRegistry` | Hardware capability enumeration, RDP session detection, and registry auto-fix. |
-| `src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `ZoomRampSeconds = 0.5`, `ZoomRampRequiredGap = 1.0` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
-| `src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `Apply23Crop`, `ApplyExtrudedBorders`, `BuildWatermarkFilter` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
-| `src/FortniteVideoSoftware.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `ZoomCropResult` | `Compute`, `ApplySlowRamp`, `ClearLiveZoomCrop` | CPU/GPU live zoom simulation matching export filtergraph parity. |
-| `src/FortniteVideoSoftware.App/Infrastructure/MemePreviewDirector.cs` | `MemePreviewDirector` | `AttachHost`, `ExecuteCutaway`, `IsActive`, `MemeSwapOverlay`, `MemeRebuildOverlay` | Live preview cutaway playback coordination and libmpv loadfile director. |
-| `src/FortniteVideoSoftware.Core/Media/MergerWorker.cs` | `MergerWorker` | `ExecuteMergeAsync`, `BuildMergeConcatGraph`, `ResampleTo60Fps` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
-| `src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `RenderTextBitmap`, `WrapText`, `GeneratePng` | High-DPI title text bitmap generation for top-void rendering. |
-| `src/FortniteVideoSoftware.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `CaptureStderr`, `AnalyzeFailure`, `FormatDiagnosticReport` | Export failure classification and diagnostic report generation. |
+| `src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps`, `FromBitrate` | MB/GB/TB formatting and shared merger encoder settings. |
+| `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `VoiceOverTake` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
+| `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | Hardware GPU encoder detection and automated fallback logic. |
+| `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Hardware capability enumeration, RDP session detection, and registry auto-fix. |
+| `src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `HighChunkCountWarnThreshold`, `SpliceFadeSec` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
+| `src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `LayerSpec`, `MobileFilterBuilder` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
+| `src/FortniteVideoSoftware.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `Result` | `Compute`, `ZoomPreviewSimulator`, `struct` | CPU/GPU live zoom simulation matching export filtergraph parity. |
+| `src/FortniteVideoSoftware.App/Infrastructure/MemePreviewDirector.cs` | `MemePreviewDirector` | `IsActive`, `SetMemes`, `NotifySeek`, `Tick` | Live preview cutaway playback coordination and libmpv loadfile director. |
+| `src/FortniteVideoSoftware.Core/Media/MergerWorker.cs` | `MergerWorker` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
+| `src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
+| `src/FortniteVideoSoftware.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
 
 ---
 

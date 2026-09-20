@@ -80,7 +80,7 @@ public sealed class ProjectSession
     private DateTimeOffset _lastAutosaveUtc;
 
     /// <summary>
-    /// UNDO_12 — re-entrancy guard. Applying an undone document writes ~20 view-model properties,
+    /// UNDO_21 — re-entrancy guard. Applying an undone document writes ~20 view-model properties,
     /// and several of those setters are wired to handlers that call <see cref="PushEdit"/>. Without
     /// this flag an undo pushes its own result onto the stack, which makes redo unreachable and the
     /// history grow while the user is trying to shrink it. 07 §2 names this as one of the four
@@ -142,7 +142,7 @@ public sealed class ProjectSession
     }
 
     /// <summary>
-    /// UNDO_11 — records the state AFTER an edit, with a label the user will read in the notice.
+    /// UNDO_20 — records the state AFTER an edit, with a label the user will read in the notice.
     /// <paramref name="gestureKey"/> coalesces a continuous gesture (a drag, a slider sweep) into a
     /// single undo step; pass the same key for the duration of the gesture and call
     /// <see cref="EndGesture"/> on release.
@@ -372,7 +372,7 @@ public sealed class ProjectSession
     /// <summary>
     /// Writes a document back into the view-models, then tells the window to redraw.
     ///
-    /// <para>⚠️ UNDO_12 — the whole body runs under <see cref="_applying"/>. Several of the setters
+    /// <para>⚠️ UNDO_21 — the whole body runs under <see cref="_applying"/>. Several of the setters
     /// below are wired to change handlers that call <see cref="PushEdit"/>; without the guard an
     /// undo would push its own result and redo would be unreachable.</para>
     /// </summary>
