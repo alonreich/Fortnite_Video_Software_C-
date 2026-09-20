@@ -7,6 +7,7 @@
 // Invariants, constants, and threading models must match spec bit-for-bit.
 
 using System;
+using FortniteVideoSoftware.Core.Abstractions;   // IFaultSink + the Guard/Degraded/Fatal extensions
 using FortniteVideoSoftware.Core.Project;
 
 namespace FortniteVideoSoftware.App;
