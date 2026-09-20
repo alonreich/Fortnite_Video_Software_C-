@@ -1,3 +1,56 @@
+﻿# ══════════════════════════════════════════════════════════════════════════════════════════════
+# EOL_01 — LINE ENDING POLICY. THIS FILE DECIDES, NOT EACH DEVELOPER'S core.autocrlf.
+#
+# WHY THIS EXISTS: until this block, the repository had no text policy, so every clone's line
+# endings were whatever that machine's core.autocrlf happened to be. The repo accumulated a MIX of
+# CRLF-stored and LF-stored blobs, and the first `git add .` from a machine with autocrlf=true
+# normalised 91 previously-CRLF files in one go — 24,143 lines of pure whitespace churn landing in
+# the same commit as real work, burying a 17-file change inside a 108-file diff.
+#
+# `text=auto` moves the decision into the repository: every text file is stored LF, and each
+# working copy gets the endings its platform wants on checkout. Nobody's local setting can move a
+# file's stored form again, so this class of churn cannot recur.
+#
+# ⚠️ WINDOWS SCRIPTS ARE PINNED TO CRLF IN THE WORKING TREE. cmd.exe parses .bat/.cmd byte by byte,
+#    and a label or `goto` in an LF-only batch file can be misread or silently skipped. dev.cmd and
+#    Build.cmd are the only supported ways to build this product (05_SYSTEM_LIFECYCLE_STORAGE.md
+#    §4a SYS-DEVBUILD), so a clone on a machine with autocrlf=false must NOT receive them LF-only.
+#    `eol=crlf` guarantees CRLF on checkout everywhere, independent of any user setting.
+#
+# ⚠️ AFTER CHANGING THIS FILE, RUN `git add --renormalize .` ONCE and commit the result ALONE.
+#    A renormalisation touches hundreds of files; mixed into a feature commit it makes that commit
+#    unreviewable, which is exactly the failure this policy exists to prevent.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Default: git decides what is text, stores it LF, checks it out native.
+* text=auto
+
+# Source and markup — text, normalised.
+*.cs        text diff=csharp
+*.axaml     text
+*.xaml      text
+*.csproj    text
+*.sln       text eol=crlf
+*.props     text
+*.targets   text
+*.json      text
+*.md        text
+*.txt       text
+*.yml       text
+*.yaml      text
+*.manifest  text
+*.resx      text
+*.config    text
+
+# Windows scripts — MUST arrive CRLF in the working tree. See the warning above.
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+
+# Unix scripts — MUST arrive LF, even on Windows.
+*.sh        text eol=lf
+
+# Binary via Git LFS — never touched by the text filters (`-text` below already says so).
 *.dll filter=lfs diff=lfs merge=lfs -text
 *.exe filter=lfs diff=lfs merge=lfs -text
 *.com filter=lfs diff=lfs merge=lfs -text
