@@ -283,7 +283,10 @@ for %%P in (
   REM Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe.
   "GRANPROBE_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
   "GRANPROBE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
-  REM --- Architecture remediation, phase 0 (foundation). docs/08_APPLICATION_COMPOSITION.md.
+  REM --- Architecture remediation, phase 0 - foundation. docs/08_APPLICATION_COMPOSITION.md
+  REM --- NOTE: NO ROUND BRACKETS IN REM LINES INSIDE THIS LIST. cmd.exe counts them even
+  REM --- inside a REM, so one in here closes the FOR list early and the next word is run
+  REM --- as a command. That is the '. was unexpected at this time.' failure.
   REM --- Composition root, fault tiers, signing mandate and the executable spec rules.
   "COMPOSITION_01=src\FortniteVideoSoftware.App\Infrastructure\AppServices.cs"
   "COMPOSITION_01=src\FortniteVideoSoftware.App\Program.cs"
@@ -334,6 +337,9 @@ for %%P in (
   REM --- Architecture remediation, phase 4. View-model extraction ratchets.
   "MVVM_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
   "MVVM_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  REM --- dev.cmd parse guards. See BATCHPARENS_01 - no brackets in REMs in this list.
+  "BATCHPARENS_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  "BATCHPARENS_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (
@@ -357,16 +363,16 @@ REM away. The subroutine SYS-DEVBUILD describes as the thing that "halts
 REM loudly if one is absent" has been a no-op.
 REM
 REM This is not hypothetical damage. STRIPCOST_01 sat in the list pointing at
-REM a tag that no longer existed in GranularSpeedEditorWindow.axaml.cs (the
+REM a tag that no longer existed in GranularSpeedEditorWindow.axaml.cs - the
 REM code path was rewritten in ad0b7bd, superseding the fix rather than
-REM reverting it) and nothing ever said so. A guard that cannot fail is a
+REM reverting it - and nothing ever said so. A guard that cannot fail is a
 REM guard that cannot be trusted, which is worse than no guard at all -
 REM VERIFYLOOP_01 above learned exactly this lesson once already, about two
 REM skipped entries, and the fix for it left the reporting half unwritten.
 REM
 REM A missing sentinel HALTS. It means either the fix it guards was reverted
-REM (test cycle about to be wasted) or the sentinel is stale (retire it with
-REM a REM, as WIZPROGRESS_01 and STRIPCOST_01 are). Both need a human.
+REM - a test cycle is about to be wasted - or the sentinel is stale and must be
+REM retired with a REM, as WIZPROGRESS_01 and STRIPCOST_01 are. Both need a human.
 REM ======================================================================
 if defined MISSING (
     echo.

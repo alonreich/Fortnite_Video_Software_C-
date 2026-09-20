@@ -492,6 +492,76 @@ public sealed class ArchitectureRuleTests
           + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // RULE 12 — BATCHPARENS_01. No round brackets in a REM inside VERIFY_PATCHES' sentinel list.
+    //
+    // cmd.exe counts ( and ) while scanning a parenthesised block EVEN INSIDE A REM. A comment
+    // such as
+    //     REM --- phase 0 (foundation). docs/08_APPLICATION_COMPOSITION.md
+    // closes the `for %%P in (` list early, and the next token — here a bare "." — is then run as
+    // a command. The whole script dies at parse time with:
+    //     . was unexpected at this time.
+    // before a single sentinel is checked. It cost a dev.cmd launch to find, which is exactly the
+    // bar SYS-DEVBUILD sets for earning a guard.
+    //
+    // This rule is cheap and absolute: inside the sentinel list, REM lines carry no brackets.
+    // The whole-file balance check below catches the general case.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    [Fact]
+    public void DevCmdSentinelListHasNoBracketsInComments()
+    {
+        string devCmd = Path.Combine(RepoRoot.Path, "dev.cmd");
+        string text = File.ReadAllText(devCmd);
+
+        int start = text.IndexOf("for %%P in (", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Could not find the VERIFY_PATCHES sentinel list in dev.cmd.");
+
+        int end = text.IndexOf(") do (", start, StringComparison.Ordinal);
+        Assert.True(end > start, "Could not find the end of the VERIFY_PATCHES sentinel list.");
+
+        var offenders = new List<string>();
+        string[] lines = text[(start + "for %%P in (".Length)..end].Split('\n');
+
+        foreach (string raw in lines)
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.Contains('(') || line.Contains(')'))
+                offenders.Add(line.Trim());
+        }
+
+        Assert.True(offenders.Count == 0,
+            "BATCHPARENS_01 — these lines inside the VERIFY_PATCHES sentinel list contain a round "
+          + "bracket. cmd.exe counts brackets inside REM too, so one of these closes the FOR list "
+          + "early and dev.cmd dies at parse time with '. was unexpected at this time.'. Rewrite "
+          + "the comment without brackets:"
+          + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // RULE 13 — BATCHPARENS_02. dev.cmd's round brackets balance outside quoted strings.
+    // The general form of the rule above. An unbalanced bracket anywhere makes the script fail
+    // at parse time, which reads as "the build is broken" rather than "the script is malformed".
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    [Fact]
+    public void DevCmdBracketsBalance()
+    {
+        string text = File.ReadAllText(Path.Combine(RepoRoot.Path, "dev.cmd"));
+
+        int depth = 0;
+        int line = 1;
+        foreach (string raw in text.Split('\n'))
+        {
+            string stripped = Regex.Replace(raw, "\"[^\"]*\"", string.Empty);
+            depth += stripped.Count(c => c == '(') - stripped.Count(c => c == ')');
+            Assert.True(depth >= 0, $"BATCHPARENS_02 — dev.cmd has an unmatched ')' by line {line}.");
+            line++;
+        }
+
+        Assert.True(depth == 0,
+            $"BATCHPARENS_02 — dev.cmd's round brackets do not balance (net {depth:+#;-#;0} open). "
+          + "cmd.exe will fail to parse the script.");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────────────
 
 

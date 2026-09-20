@@ -118,6 +118,18 @@
   2. `exit /b 1` inside a `call`ed subroutine returns from the **subroutine**, not the script. The call site therefore tests `if errorlevel 1` immediately after `call :VERIFY_PATCHES`.
   **The damage was not hypothetical.** `STRIPCOST_01` pointed at a tag that no longer existed in `GranularSpeedEditorWindow.axaml.cs` and nothing ever said so. It was not a revert — commit `ad0b7bd` replaced the per-slot `Image` path with `Controls/TimelineFilmstrip`, which draws via `DrawingContext.DrawImage` with explicit source/destination rects, making the oversized-bitmap defect structurally unreachable. The sentinel is retired with a note, per the `WIZPROGRESS_01` precedent.
   ⚠️ `VERIFYLOOP_01` had already learned this lesson once, about two silently skipped entries, and its fix left the reporting half unwritten. **A guard that cannot fail is worse than no guard at all, because it is trusted.**
+* **`BATCHPARENS_01` — NO ROUND BRACKETS IN A `REM` INSIDE THE SENTINEL LIST.**
+  `cmd.exe` counts `(` and `)` while scanning a parenthesised block **even inside a `REM`**. A
+  comment added to the `for %%P in (` list reading *"phase 0 (foundation). docs/08_…"* closed the
+  list at `(foundation)`, and the next token — a bare `.` — was then run as a command. The whole
+  script died at parse time with `. was unexpected at this time.` **before a single sentinel was
+  checked**, so the guard that had just been taught to halt could not even start.
+  * ⚠️ This is `VERIFYLOOP_01`'s lesson a third time: that section already records the list being
+    fragile to edits, and the failure mode is always the same shape — the check silently does not
+    run. A comment is not inert inside a block.
+  * `ArchitectureRuleTests.DevCmdSentinelListHasNoBracketsInComments` (`BATCHPARENS_01`) and
+    `DevCmdBracketsBalance` (`BATCHPARENS_02`) now assert both the specific and the general case
+    from CI, on any platform, without launching the script.
 * **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Where a rule can be asserted, prefer `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` (`08_APPLICATION_COMPOSITION.md` §3). `EveryDevCmdSentinelStillResolves` re-checks this whole list from CI, on any platform, naming the file and tag. It is the authority on the current count, not this paragraph.
 * **`dev.cmd trace` — a log that can leave the machine (TRANSPORT_TRACE_01).** Identical to the default watch mode except `FVS_DEV_LOG_DIR` points at `.devlogs\` inside the repo instead of `%TMP%`. The rule that dev logs never land in the project tree exists so an ordinary run cannot litter it and so a log can never be committed; this mode is opt-in, announces itself, and `.devlogs/` is gitignored, so neither risk applies.
   It exists because **a log nobody can reach is a log nobody can read.** A fault that cannot be reproduced from source is diagnosed from a log, and a log sitting in a temp folder on one machine is unavailable to whoever is helping.

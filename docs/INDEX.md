@@ -438,6 +438,8 @@ UnknownFields                                06 §3 PROJ-SCHEMA
 ARCHTEST_01                                  08 §3 COMP-ARCHTEST
 ASYNCUI_01                                   08 §3 COMP-ARCHTEST
 ASYNCUI_02                                   08 §3 COMP-ARCHTEST
+BATCHPARENS_01                               05 §4a SYS-DEVBUILD
+BATCHPARENS_02                               05 §4a SYS-DEVBUILD
 COMPOSITION_01                               08 §1 COMP-ROOT
 COMPOSITION_02                               08 §1 COMP-ROOT
 FAULTSTORM_01                                08 §2 COMP-FAULTS
