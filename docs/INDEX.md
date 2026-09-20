@@ -1,4 +1,4 @@
-# SYMBOL & FILE INDEX (routing lookup)
+﻿# SYMBOL & FILE INDEX (routing lookup)
 
 Flat lookup. Grep for a filename, symbol, constant or engineering tag; read ONLY the spec it names.
 Notation: `03 §9 FFM-BINPATH` = `03_FFMPEG_EXPORT_PIPELINE.md`, section 9, stable anchor `FFM-BINPATH`.
@@ -13,7 +13,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ```
   AmbientBubblesBackground.cs                04
 ⚠ ApplicationPaths.cs                        05 GOV
-  AtomicJsonFile.cs                          05
+⚠ AtomicJsonFile.cs                          05 06
   AudioFilterChain.cs                        02
   AudioLoudnessProbe.cs                      02
   AvaloniaApp.axaml                          04
@@ -50,7 +50,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   MpvVideoView.cs                            04
   NamedPipeStateServer.cs                    05
 ⚠ MusicWizardWindow.axaml.cs                 01 02
-  OutputTimeline.cs                          01
+⚠ OutputTimeline.cs                          01 06
   OutputFileSize.cs                          03
   OutputSizeEstimator.cs                     03
 ⚠ PhoneFrameMockup.axaml.cs                  01 04
@@ -76,6 +76,15 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ WindowBoundsHelper.cs                      04 05
   ZoomPreviewSimulator.cs                    03
   FvsBuild (Program.cs / Staging.cs)         05
+  ProjectDocument.cs                         06
+  ProjectSerializer.cs                       06
+  ProjectStore.cs                            06
+  RecentProjects.cs                          06
+  AotJson.cs                                 06
+⚠ SettingsManager.cs                         05 06 (AOTSAFETY_04)
+  HardwareTelemetrySampler.cs                06 (AOTSAFETY_03)
+⚠ AuthenticodeVerifier.cs                    05 06 (AOTSAFETY_05)
+  FortniteVideoSoftware.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
 ```
 
 Full paths: see each spec's Code Mini-Map.
@@ -438,6 +447,11 @@ WriteString                                  05 (mini-map only)
 ZoomCropResult                               03 (mini-map only)
 ZOOMLIVE_07                                  04 §6 UI-GRANULAR
 ZOOMCARD_01                                  04 §6 UI-GRANULAR
+ZOOMANTS_01                                  04 §6 UI-GRANULAR
+ZOOMANTS_02                                  04 §6 UI-GRANULAR
+ZoomBandThicknessPx                          04 §6 UI-GRANULAR  [= 2.5]
+ZoomAntsBrush                                04 §6 UI-GRANULAR
+_marchingAntsOffset                          04 §6 UI-GRANULAR
 ZOOMSTYLE_02                                 04 §6 UI-GRANULAR
 ZOOMPREVIEW_01                               04 §6 UI-GRANULAR
 ZOOMCOMMIT_01                                04 §6 UI-GRANULAR
@@ -449,5 +463,36 @@ SynchronizeVersionFiles                      05 §6 SYS-AUTOUPDATE
 ZoomPreviewSimulator                         02 §4 AUD-VOICEOVER | 03 (mini-map only)
 ZoomRampRequiredGap                          03 (mini-map only)  [= 1.0]
 ZoomRampSeconds                              03 (mini-map only)  [= 0.5]
+AOTSAFETY_01                                 06 §4 PROJ-AOT
+AOTSAFETY_02                                 06 §4 PROJ-AOT
+AOTSAFETY_03                                 06 §4 PROJ-AOT
+AOTSAFETY_04                                 06 §4 PROJ-AOT
+AOTSAFETY_05                                 06 §4 PROJ-AOT | 05 §5 SYS-SIGNING
+AddNode                                      06 §4 PROJ-AOT
+AotJson                                      06 §4 PROJ-AOT
+IndentedContext                              06 §4 PROJ-AOT
+BackupSuffix                                 06 §5 PROJ-DISK
+BuildTimeline                                06 §2 PROJ-INPUTS
+CheckSource                                  06 §6 PROJ-INTEGRITY
+EffectiveDurationMs                          06 §2 PROJ-INPUTS
+MinimumReadableSchemaVersion                 06 §3 PROJ-SCHEMA
+PROJ_01                                      06 §2 PROJ-INPUTS
+PROJ_02                                      06 §3 PROJ-SCHEMA | 06 §4 PROJ-AOT
+PROJ_03                                      06 §3 PROJ-SCHEMA
+PROJ_04                                      06 §2 PROJ-INPUTS
+PROJ_05                                      06 §6 PROJ-INTEGRITY
+PROJ_08                                      06 §5 PROJ-DISK
+PROJ_09                                      06 §7 PROJ-RECENT
+ProjectDocument                              06 §2 PROJ-INPUTS
+ProjectIoResult                              06 §5 PROJ-DISK
+ProjectSerializer                            06 §4 PROJ-AOT
+ProjectStore                                 06 §5 PROJ-DISK
+RecentProjects                               06 §7 PROJ-RECENT
+SchemaVersion                                06 §3 PROJ-SCHEMA
+SourceClip                                   06 §6 PROJ-INTEGRITY
+SourceIntegrity                              06 §6 PROJ-INTEGRITY
+SuppressAotAnalysisWarnings                  06 §4 PROJ-AOT
+SuppressTrimAnalysisWarnings                 06 §4 PROJ-AOT
+UnknownFields                                06 §3 PROJ-SCHEMA
 ```
 

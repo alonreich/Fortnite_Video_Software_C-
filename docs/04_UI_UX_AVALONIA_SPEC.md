@@ -1,4 +1,4 @@
-# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
+﻿# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -158,6 +158,10 @@
 * **Full-Card Clickable RadioButton Hitbox (ZOOMCARD_01):** The "How should the zoom arrive?" dialog replaces stock Avalonia RadioButton layout with a full-surface card `ControlTemplate`. The entire card area (padding, badges, text headers, descriptions) serves as the click target with visual hover elevation, eliminating narrow bullet hitboxes.
 * **Persistent Style Dialog & Playhead Exit Dismissal (ZOOMSTYLE_02):** The zoom arrival dialog remains open while aiming, resizing, or dragging the rubberband box. The dialog and rubberband box cleanly unbind and disappear the moment the playhead exits the active zoom segment across all transport actions (timeline click-to-seek, scrubbing, and continuous playback).
 * **Live GPU Crop & Slow Glide Preview (ZOOMPREVIEW_01):** Real-time preview coordinates in `UpdateLiveZoomCrop` calculate off the exact timeline playhead position during pause and respect dynamic hardware resolution, rendering instantaneous snappy crops and smooth slow glides directly in mpv.
+* **Marching-Ants Rubber-Band (ZOOMANTS_01):** The zoom rubber-band is a LIVE animated outline, not a static dash, and it rides the SAME `_marchingAntsOffset` as the freeze markers and the selected-segment border so every outline in the window crawls in step. It is yellow (`AppZoomAntsColor`) as a deliberate exception to IDEA_6, which had removed yellow because users could not tell zoom from a speed segment; what makes the exception safe is the MOTION — a moving hairline is identified by its animation, which no static block has. The corner handles wear the same yellow, because IDEA_6's surviving half is that zoom may not speak in two colours at once; their white edging stays, or the grab points vanish over pale video.
+  ⚠ **DASH PERIOD MUST DIVIDE THE OFFSET WRAP.** `_marchingAntsOffset` advances as `(offset + 1) % 8`. The `{2,2}` dash has period 4, and 4 divides 8, so the loop is seamless. The earlier `{4,3}` pattern has period 7 and visibly jumped every eighth tick. Never change one without the other.
+* **Rubber-Band Weight (ZOOMANTS_02):** `ZoomBandThicknessPx` (currently `2.5`) is the single tunable for the band's stroke width; the original 1px hairline was hard to see against bright gameplay and nearly invisible mid-drag.
+  ⚠ **DASHES ARE MEASURED IN MULTIPLES OF THE STROKE THICKNESS, NOT IN PIXELS.** Avalonia scales both `StrokeDashArray` and `StrokeDashOffset` by the thickness, so raising this value lengthens dashes and gaps by the same factor — intended, because a thick line wearing 1px dashes reads as a smudge rather than as ants. The ZOOMANTS_01 invariant SURVIVES any thickness change, because both the dash period and the offset wrap are expressed in thickness units: `{2,2}` keeps its period of 4 units and 4 keeps dividing 8. Changing the thickness is safe; changing the dash array is not.
 * **Export Auto-Commit Guard (ZOOMCOMMIT_01):** Default placed zoom boxes are auto-committed prior to zoom mode toggle, Accept button click, seek-exit, and transport play, ensuring placed zoom boxes are never omitted from exported FFmpeg scripts.
 
 ---

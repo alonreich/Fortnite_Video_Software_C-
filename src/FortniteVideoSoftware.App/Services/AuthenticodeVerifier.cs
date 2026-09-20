@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -167,7 +167,15 @@ internal static unsafe partial class AuthenticodeVerifier
         {
             try
             {
+                // AOTSAFETY_05 / SYSLIB0057: the obsoletion directs callers to
+                // X509CertificateLoader, which loads certificate FILES. It has no equivalent for
+                // extracting an embedded signer certificate from a signed PE, which is what this
+                // call does and what SYS-SIGNING needs. Suppressed for this one statement, with
+                // the reason recorded, rather than project-wide — revisit if .NET ships a
+                // replacement for reading Authenticode signers.
+#pragma warning disable SYSLIB0057
                 using X509Certificate signer = X509Certificate.CreateFromSignedFile(filePath);
+#pragma warning restore SYSLIB0057
                 subject = signer.Subject ?? string.Empty;
                 thumbprint = signer.GetCertHashString(HashAlgorithmName.SHA256) ?? string.Empty;
             }

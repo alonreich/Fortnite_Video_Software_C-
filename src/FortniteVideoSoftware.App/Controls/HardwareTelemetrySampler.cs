@@ -1,4 +1,4 @@
-// [SPEC CONTRACT] STRICT GOVERNANCE:
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
 // Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
 // Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
@@ -198,7 +198,10 @@ internal sealed class HardwareTelemetrySampler : IDisposable
     private int GetMemUsage()
     {
         MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
-        memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+        // AOTSAFETY_03: Marshal.SizeOf(Type) asks the runtime to build marshalling code for a
+        // type it only knows reflectively — unavailable after AOT compilation. The generic
+        // overload is computed at compile time and yields the identical size.
+        memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
         if (GlobalMemoryStatusEx(ref memStatus))
         {
             return (int)memStatus.dwMemoryLoad;

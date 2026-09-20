@@ -1,4 +1,4 @@
-// [SPEC CONTRACT] STRICT GOVERNANCE:
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
 // Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
 // Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
@@ -638,6 +638,14 @@ public static class SettingsManager
     }
 
     /// <summary>
+    /// AOTSAFETY_04 — the source-generated context, bound once to the indented options Save()
+    /// writes with. A JsonSerializerContext is immutable and thread-safe after construction, so
+    /// one static instance serves every save.
+    /// </summary>
+    private static readonly SettingsJsonContext IndentedContext =
+        new(new JsonSerializerOptions { WriteIndented = true });
+
+    /// <summary>
     /// SETTINGSATOMIC_01 — cross-process, power-outage-safe settings persistence.
     ///
     /// ══════════════════════════════════════════════════════════════════════════════════════════
@@ -689,9 +697,14 @@ public static class SettingsManager
             {
                 Instance.SchemaVersion = CurrentSchemaVersion;
 
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                options.TypeInfoResolver = SettingsJsonContext.Default;
-                json = JsonSerializer.Serialize(Instance, options);
+                // AOTSAFETY_04: JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)
+                // carries RequiresUnreferencedCode/RequiresDynamicCode even when a source-generated
+                // resolver is attached, because the OVERLOAD cannot prove which resolver arrives at
+                // run time. Handing it the generated JsonTypeInfo instead removes the reflection
+                // path entirely — the same metadata SettingsJsonContext already emits, selected at
+                // compile time. IndentedContext is cached because constructing a context allocates
+                // a full options graph, and Save() runs on every settings change.
+                json = JsonSerializer.Serialize(Instance, IndentedContext.AppSettings);
             }
         }
         catch (Exception ex)

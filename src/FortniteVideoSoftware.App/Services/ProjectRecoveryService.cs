@@ -1,4 +1,4 @@
-// [SPEC CONTRACT] STRICT GOVERNANCE:
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
 // Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
 // Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
@@ -141,7 +141,7 @@ public sealed class ProjectRecoveryService
                 {
                     if (take != null && !string.IsNullOrWhiteSpace(take.Path) && File.Exists(take.Path))
                     {
-                        voiceTakeArray.Add(new JsonObject
+                        voiceTakeArray.AddNode(new JsonObject   // AOTSAFETY_02
                         {
                             ["path"] = take.Path,
                             ["startSec"] = take.StartSec
@@ -172,14 +172,14 @@ public sealed class ProjectRecoveryService
                 if (seg.ZoomStartMs.HasValue) segObj["zoomStartMs"] = seg.ZoomStartMs.Value;
                 if (seg.ZoomEndMs.HasValue) segObj["zoomEndMs"] = seg.ZoomEndMs.Value;
             }
-            segArray.Add(segObj);
+            segArray.AddNode(segObj);   // AOTSAFETY_02
         }
         state["speedSegments"] = segArray;
 
         var cutArray = new JsonArray();
         foreach (var c in timelineVm.Cuts)
         {
-            cutArray.Add(new JsonObject
+            cutArray.AddNode(new JsonObject   // AOTSAFETY_02
             {
                 ["startMs"] = c.StartMs,
                 ["endMs"] = c.EndMs
@@ -190,7 +190,7 @@ public sealed class ProjectRecoveryService
         var memeArray = new JsonArray();
         foreach (var m in timelineVm.MemePlacements)
         {
-            memeArray.Add(new JsonObject
+            memeArray.AddNode(new JsonObject   // AOTSAFETY_02
             {
                 ["path"] = m.FilePath,
                 ["atSourceSec"] = m.AtSourceSecRelative,
@@ -207,7 +207,7 @@ public sealed class ProjectRecoveryService
             {
                 foreach (var path in mainVm.MusicWizardResult.MusicFilePaths)
                 {
-                    pathsArray.Add(JsonValue.Create(path));
+                    pathsArray.AddNode(JsonValue.Create(path));   // AOTSAFETY_02
                 }
             }
             var durationsArray = new JsonArray();
@@ -215,7 +215,7 @@ public sealed class ProjectRecoveryService
             {
                 foreach (var durationSec in mainVm.MusicWizardResult.MusicDurationsSeconds)
                 {
-                    durationsArray.Add(JsonValue.Create(durationSec));
+                    durationsArray.AddNode(JsonValue.Create(durationSec));   // AOTSAFETY_02
                 }
             }
             state["musicResult"] = new JsonObject

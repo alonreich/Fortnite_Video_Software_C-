@@ -66,6 +66,13 @@ FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.c
 ⚠RecoveryManager.cs  RuntimeLog.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs  LatestEstimateWorker.cs
 ```
 
+**[`06_PROJECT_DOCUMENT_MODEL.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/06_PROJECT_DOCUMENT_MODEL.md)** — Project document model — the saveable `.fvsproj`, schema versioning & the amputation rule, AOT-safe JSON, atomic persistence & backup, source integrity, recent projects, trim/AOT analyser policy.
+
+```
+⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠OutputTimeline.cs  ProjectDocument.cs
+ProjectSerializer.cs  ProjectStore.cs  RecentProjects.cs
+```
+
 ---
 ## 4. Agent Navigation & Entry Protocol
 1. **Entry Rule:** Always read [`SPEC_GOVERNANCE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/SPEC_GOVERNANCE.md) before performing any code generation or inspection.

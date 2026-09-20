@@ -1,4 +1,4 @@
-// [SPEC CONTRACT] STRICT GOVERNANCE:
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
 // Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/04_UI_UX_AVALONIA_SPEC.md, docs/05_SYSTEM_LIFECYCLE_STORAGE.md
 // Invariants, constants, and threading models must match spec bit-for-bit.
 using Avalonia;
@@ -4175,6 +4175,29 @@ public partial class GranularSpeedEditorWindow : Window
     private DispatcherTimer? _zoomTutorialTimer;
     private const double ZoomHandlePx = 16;
     private const double ZoomHandleVisualPx = 13.6;
+
+    /// <summary>
+    /// ZOOMANTS_02 — stroke width of the zoom rubber-band, in pixels. Raised from the original 1px
+    /// hairline, which was hard to see against bright gameplay and nearly invisible while dragging.
+    /// This is the ONE place to tune the band's weight.
+    ///
+    /// <para>
+    /// ⚠️ STROKE DASHES ARE MEASURED IN MULTIPLES OF THIS VALUE, NOT IN PIXELS. Avalonia scales
+    /// both <c>StrokeDashArray</c> and <c>StrokeDashOffset</c> by the stroke thickness, so raising
+    /// this number lengthens the dashes and the gaps by the same factor. That is intentional here:
+    /// a thick line wearing 1px dashes reads as a smudge rather than as marching ants.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ THE ANIMATION INVARIANT SURVIVES THIS, AND HERE IS WHY. ZOOMANTS_01 requires the dash
+    /// period to divide the offset wrap, because <c>_marchingAntsOffset</c> advances as
+    /// <c>(offset + 1) % 8</c>. Both quantities are expressed in THICKNESS UNITS, so the {2,2} dash
+    /// keeps its period of 4 units and 4 keeps dividing 8 no matter what this value is. Changing
+    /// the thickness is therefore safe; changing the DASH ARRAY is not.
+    /// </para>
+    /// </summary>
+    private const double ZoomBandThicknessPx = 2.5;
+
     private const double MaxZoomUpscale = 8.0;
 
     /// <summary>ZOOM_02 — how tight the auto-placed box starts. 2x = half the usable width.</summary>
@@ -5097,7 +5120,8 @@ public partial class GranularSpeedEditorWindow : Window
             _zoomDim[i] = new Avalonia.Controls.Shapes.Rectangle { Fill = dimBrush, IsHitTestVisible = false };
             canvas.Children.Add(_zoomDim[i]);
         }
-        // ZOOMANTS_01 — the rubber-band is a LIVE 1px marching-ants hairline, not a static dash.
+        // ZOOMANTS_01 — the rubber-band is a LIVE marching-ants outline, not a static dash.
+        // Its weight is ZoomBandThicknessPx (ZOOMANTS_02); it was a 1px hairline originally.
         //
         // ⚠️ THIS IS A DELIBERATE EXCEPTION TO IDEA_6 (see AvaloniaApp.axaml). IDEA_6 unified every
         // zoom visual onto AppZoomColor and explicitly removed yellow #fde047 from the zoom box
@@ -5113,7 +5137,7 @@ public partial class GranularSpeedEditorWindow : Window
         _zoomBoxRect = new Avalonia.Controls.Shapes.Rectangle
         {
             Stroke = ZoomAntsBrush(),
-            StrokeThickness = 1,
+            StrokeThickness = ZoomBandThicknessPx,   // ZOOMANTS_02
             StrokeDashArray = new Avalonia.Collections.AvaloniaList<double> { 2, 2 },
             StrokeDashOffset = _marchingAntsOffset,
             Fill = Avalonia.Media.Brushes.Transparent,
@@ -7706,7 +7730,7 @@ public partial class GranularSpeedEditorWindow : Window
         var segments = new JsonArray();
         foreach (var s in _segments)
         {
-            segments.Add(new JsonObject
+            segments.AddNode(new JsonObject   // AOTSAFETY_02
             {
                 ["start_ms"] = s.StartMs,
                 ["end_ms"] = s.EndMs,
@@ -7725,13 +7749,13 @@ public partial class GranularSpeedEditorWindow : Window
         var cuts = new JsonArray();
         foreach (var c in _cuts)
         {
-            cuts.Add(new JsonObject { ["start_ms"] = c.StartMs, ["end_ms"] = c.EndMs });
+            cuts.AddNode(new JsonObject { ["start_ms"] = c.StartMs, ["end_ms"] = c.EndMs });   // AOTSAFETY_02
         }
 
         var memes = new JsonArray();
         foreach (var m in _memes)
         {
-            memes.Add(new JsonObject
+            memes.AddNode(new JsonObject   // AOTSAFETY_02
             {
                 ["file_path"] = m.FilePath,
                 ["at_source_sec_relative"] = m.AtSourceSecRelative,

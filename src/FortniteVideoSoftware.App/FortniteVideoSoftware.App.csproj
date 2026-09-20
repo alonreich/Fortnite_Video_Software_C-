@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\FortniteVideoSoftware.Core\FortniteVideoSoftware.Core.csproj" />
@@ -83,12 +83,33 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>false</InvariantGlobalization>
     <TrimMode>full</TrimMode>
-    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
-    <SuppressAotAnalysisWarnings>true</SuppressAotAnalysisWarnings>
+    <!-- ══════════════════════════════════════════════════════════════════════════════════════════
+         AOTSAFETY_01 — THE TRIM AND AOT ANALYSERS ARE ON. DO NOT SET THESE BACK TO true.
+         These two properties used to be true, which did not make the app AOT-safe; it made the app
+         SILENT about not being AOT-safe. A trim warning is the compiler predicting "this reflection
+         call has no metadata left after trimming and will throw at run time". Suppressed, the
+         prediction still comes true — it just arrives as a NotSupportedException on a user's
+         machine, in the published single .exe only, where it cannot be reproduced from a Debug run.
+         Mandate #1 makes that one .exe the entire product, so the analyser that guards it may not
+         be muted.
+         Warnings here are WARNINGS, not errors: the build still succeeds. Each one is either fixed
+         (usually by moving to a source-generated JsonSerializerContext, as Ipc/IpcProtocol.cs
+         already does) or explicitly annotated at the call site with a comment saying why it is
+         provably safe. Silencing the whole category to clear the build log is how this got here.
+         ══════════════════════════════════════════════════════════════════════════════════════════ -->
+    <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
+    <SuppressAotAnalysisWarnings>false</SuppressAotAnalysisWarnings>
+    <!-- AOTSAFETY_01: IlcTrimMetadata stays false. It is a SIZE/behaviour switch that keeps
+         metadata the app needs at run time, not an analyser mute, and turning it on would change
+         what the shipped binary can do. Unrelated to the two properties above. -->
     <IlcTrimMetadata>false</IlcTrimMetadata>
     <ApplicationIcon>..\..\assets\icons\Video_Icon_File.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <NoWarn>$(NoWarn);CS1998;CS0414;IL2104</NoWarn>
+    <!-- AOTSAFETY_01: IL2104 ("assembly produced trim warnings") removed from NoWarn. It is the
+       summary line that names which assembly is unsafe; muting it while re-enabling the detailed
+       warnings would hide the headline and keep the noise. CS1998/CS0414 are unrelated style
+       warnings and stay suppressed. -->
+  <NoWarn>$(NoWarn);CS1998;CS0414</NoWarn>
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 

@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 
 using Avalonia.Interactivity;
 
@@ -2917,7 +2917,7 @@ public partial class MusicWizardWindow : Window
 
             var recentArray = new System.Text.Json.Nodes.JsonArray();
             foreach (string path in orderedPaths)
-                recentArray.Add(System.Text.Json.Nodes.JsonValue.Create(path));
+                recentArray.AddNode(System.Text.Json.Nodes.JsonValue.Create(path));   // AOTSAFETY_02
 
             new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)
                 .UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject
