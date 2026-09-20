@@ -331,6 +331,9 @@ for %%P in (
   "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
   "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\FfmpegJobLifetime.cs"
   "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
+  REM --- Architecture remediation, phase 4. View-model extraction ratchets.
+  "MVVM_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
+  "MVVM_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

@@ -109,6 +109,49 @@
 
 ---
 
+## 3a. View-Model Extraction  {#COMP-MVVM}
+
+* **`MVVM_01` — the measured problem.** The App layer resolves controls by name **973 times**
+  (`FindControl<T>` / `this.Get<T>`) against **69** `{Binding}` expressions and **2** classes
+  implementing `INotifyPropertyChanged`. The `ViewModels/` folder exists but is vestigial:
+  `MainViewModel` is 434 lines against `MainWindow.axaml.cs`'s 3,420 plus four partials, and
+  `GranularSpeedEditorWindow`, `CropToolWindow`, `MusicWizardWindow`, `VoiceOverWindow` and
+  `VideoMergerWindow` have **no view-model at all** — between them they hold ~1,270 private fields
+  of application state in code-behind.
+
+  This is WinForms written in Avalonia. It is why those five files are 8,062 / 6,496 / 5,715 /
+  3,647 / 2,251 lines, and it is the mechanical reason the App layer has no unit tests: there is
+  nothing to construct without a live visual tree.
+
+* **It is also a correctness problem, not only a tidiness one.** `QUALITY_04` records a named
+  control declared `Text=""` with no writer: the value behind it was computed correctly on every
+  edit and went nowhere, so the feature *"looked missing rather than broken, which is the harder
+  failure to spot"*. A binding fails loudly. A `FindControl` that nobody writes to fails silently.
+
+* **THE LINE. Not all of it moves.** A conversion is a judgement, and the judgement is:
+  * **Moves to a view-model:** anything the user would expect to survive — a value, a selection, a
+    mode, a toggle, a list of segments. Anything an export reads. Anything a test would want to
+    assert.
+  * **Stays in code-behind:** genuine view concerns — canvas geometry, pointer capture, drag
+    deltas, hit-testing, render transforms, animation clocks. Forcing those into a view-model buys
+    nothing and costs the clarity that `04_UI_UX_AVALONIA_SPEC.md` §6 depends on.
+
+* **`MVVM_02` — the ceilings.** The five oversized files are grandfathered at their current length
+  and may only shrink. A window created after this specification is capped at **1,000 lines**,
+  because by the time anyone notices a new one has passed four figures, extracting it is the
+  multi-week job the existing five already represent.
+
+* **Both rules are RATCHETS, enforced by `ArchitectureRuleTests`.** 973 call sites cannot be
+  converted without a compiler in the loop, and a sweep that cannot be built and run is a sweep
+  that ships a broken editor. The numbers may only fall; lower the baseline in the same change
+  that lowers the count.
+
+* **`COMPOSITION_02` is the finish line.** Each window that gains a real view-model takes its
+  collaborators as constructor parameters and stops reading `AppServices.Current`. When the
+  service-locator ratchet reaches zero, the shim is deleted.
+
+---
+
 ## 4. Findings Closed By This Specification  {#COMP-FINDINGS}
 
 * **`SPEC_GOVERNANCE.md` §4 was unenforced: 121 of 188 source files carried no `[SPEC CONTRACT]` sentinel** — 64% of the codebase was invisible to the routing protocol that governs it. All 188 now carry it, mapped to the governing spec via `docs/README.md` §3; co-governed files list every binding spec and say that reading one is not compliance.

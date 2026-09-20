@@ -398,6 +398,100 @@ public sealed class ArchitectureRuleTests
           + Environment.NewLine + string.Join(Environment.NewLine, missing));
     }
 
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // RULE 10 — MVVM_01. Imperative control lookups may not grow.
+    //
+    // The App layer resolves controls by name 976 times (FindControl / this.Get<T>) against 69
+    // {Binding} expressions and 2 classes implementing INotifyPropertyChanged. That is WinForms
+    // written in Avalonia: state lives in whichever window owns the control that produced it,
+    // which is why GranularSpeedEditorWindow.axaml.cs is 8,061 lines, CropToolWindow 6,484 and
+    // MusicWizardWindow 5,707, and why the App layer has no unit tests — there is nothing to
+    // construct without a live visual tree.
+    //
+    // It is also how QUALITY_04 happened: a named control with a literal value and no writer is
+    // invisible to the compiler, so a dead readout looked MISSING rather than broken. A binding
+    // would have failed loudly.
+    //
+    // A ratchet, because 976 sites cannot be converted without a compiler in the loop, and each
+    // conversion is a judgement about whether the state belongs in a view-model or is genuinely
+    // view-local (canvas geometry, pointer capture, drag state — those stay). The number may only
+    // fall. Lower the baseline in the same change that lowers the count.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    [Fact]
+    public void ImperativeControlLookupsDoNotIncrease()
+    {
+        // Measured with comments and string literals blanked, so prose about the rule
+        // cannot inflate it.
+        const int Baseline = 973;
+
+        int count = 0;
+        var perFile = new List<string>();
+
+        foreach (string file in RepoRoot.SourceFiles(".cs"))
+        {
+            string code = BlankCommentsAndStrings(File.ReadAllText(file));
+            int n = Regex.Matches(code, @"\bFindControl\s*<|\bthis\s*\.\s*Get\s*<").Count;
+            if (n == 0) continue;
+
+            count += n;
+            perFile.Add($"{n,5}  {RepoRoot.Relative(file)}");
+        }
+
+        perFile.Sort((a, b) => string.CompareOrdinal(b, a));
+
+        Assert.True(count <= Baseline,
+            $"MVVM_01 — imperative control lookups went UP: {count} found, baseline {Baseline}. New "
+          + "state belongs in a view-model with a binding, not in a FindControl against a named "
+          + "control. If you reduced the count, lower the baseline in this test:"
+          + Environment.NewLine + string.Join(Environment.NewLine, perFile));
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // RULE 11 — MVVM_02. No NEW thousand-line window code-behind.
+    //
+    // The five existing offenders are grandfathered at their current size and may only shrink.
+    // The rule that matters is the one about files that do not exist yet: a window created after
+    // this test cannot reach four figures, because by the time anyone notices, extracting it is
+    // the multi-week job the existing five already represent.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    [Fact]
+    public void WindowCodeBehindDoesNotGrow()
+    {
+        // Grandfathered maxima, measured. These may be lowered, never raised.
+        var ceilings = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["GranularSpeedEditorWindow.axaml.cs"] = 8062,
+            ["CropToolWindow.axaml.cs"]            = 6496,
+            ["MusicWizardWindow.axaml.cs"]         = 5715,
+            ["VoiceOverWindow.axaml.cs"]           = 3647,
+            ["MainWindow.axaml.cs"]                = 3420,
+            ["VideoMergerWindow.axaml.cs"]         = 2251,
+            ["PhaseOverlayControl.axaml.cs"]       = 2417,
+            ["SettingsWindow.axaml.cs"]            = 1041,
+        };
+
+        // Anything not grandfathered gets the real limit.
+        const int LimitForNewFiles = 1000;
+
+        var offenders = new List<string>();
+
+        foreach (string file in RepoRoot.SourceFiles(".axaml.cs"))
+        {
+            string name = Path.GetFileName(file);
+            int lines = File.ReadAllLines(file).Length;
+            int ceiling = ceilings.TryGetValue(name, out int c) ? c : LimitForNewFiles;
+
+            if (lines > ceiling)
+                offenders.Add($"{name}: {lines} lines (ceiling {ceiling})");
+        }
+
+        Assert.True(offenders.Count == 0,
+            "MVVM_02 — window code-behind grew past its ceiling. Move the new state into a "
+          + "view-model and bind to it; if you legitimately shrank a grandfathered file, lower its "
+          + "ceiling in this test in the same change:"
+          + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────────────
 
 
