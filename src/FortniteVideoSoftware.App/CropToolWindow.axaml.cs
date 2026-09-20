@@ -5365,6 +5365,17 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             });
             _recovery.ReleaseLockOnly();
             RuntimeLog.Info("CROP", "Returning to Main app.");
+
+            // TOOLNAV_04 — when this window was opened in-process the editor is alive and hidden
+            // behind us, so returning is just closing. Relaunching the exe here would start a
+            // SECOND application while the first still holds the user's unsaved document.
+            if (Services.ToolNavigator.OpenedInProcess)
+            {
+                RuntimeLog.Info("CROP", "Opened in-process — closing to reveal the editor (TOOLNAV_04).");
+                Close();
+                return;
+            }
+
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
 
             // RELAUNCHARG_01 — "run-ui" is NOT decoration. This line used to start the exe with NO

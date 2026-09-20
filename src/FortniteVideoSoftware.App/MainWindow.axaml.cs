@@ -2894,25 +2894,37 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             SelectedClipEndMs = _trimEndMs
         };
 
-        var companionService = new CompanionAppService(_paths);
-        bool launched = await companionService.SwitchToCompanionAppAsync(
-            argument,
-            toolDisplayName,
-            payload,
-            () =>
-            {
-                _recovery.MarkCleanShutdownIntent();
-                ShutdownVideoPipeline();
-            });
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // TOOLNAV_01 — IN-PROCESS. This used to be CompanionAppService.SwitchToCompanionAppAsync,
+        // which ended with Environment.Exit(0): the application killed itself and relaunched its
+        // own executable with a different flag. The user saw the app disappear from the taskbar
+        // and a different window appear, and everything not in the handoff payload — the loaded
+        // clip's undo history, the document session, window focus and z-order — was gone.
+        //
+        // Now the tool opens as a window in this process and the editor is HIDDEN behind it
+        // (TOOLNAV_03), so the session is exactly where the user left it when they come back.
+        //
+        // MarkCleanShutdownIntent is NO LONGER CALLED here, and that is the point: the process is
+        // not shutting down. Marking it would suppress the next launch's crash-recovery prompt for
+        // a session that is still running, which is the same wrong-state defect the flag beside
+        // _exportedCleanSinceLastEdit was added to fix.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        var navigator = new Services.ToolNavigator(_paths, Infrastructure.AppServices.Current.Faults);
 
-        if (launched)
-        {
-            Close();
-        }
-        else
-        {
-            HideCompanionHandoffOverlay();
-        }
+        bool opened = await navigator.OpenAsync(
+            argument.Equals("--crop-tool", StringComparison.OrdinalIgnoreCase)
+                ? Services.ToolNavigator.Tool.CropTool
+                : Services.ToolNavigator.Tool.VideoMerger,
+            this,
+            payload,
+            shutdownVideoPipeline: ShutdownVideoPipeline,
+            restoreVideoPipeline: null);
+
+        // The overlay is a "we are leaving" card. We are not leaving any more, so it comes down
+        // either way — on success the tool window is already in front of it.
+        HideCompanionHandoffOverlay();
+
+        if (!opened) RuntimeLog.Info("UI", $"{toolDisplayName} was not opened; the editor is unchanged.");
     }
     private void ShowCompanionHandoffOverlay(string toolName)
     {

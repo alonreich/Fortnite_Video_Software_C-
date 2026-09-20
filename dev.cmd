@@ -317,6 +317,14 @@ for %%P in (
   "UNDO_11=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
   "UNDO_12=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
   "UNDO_13=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
+  REM --- Architecture remediation, phase 2. Companion tools open in-process.
+  "TOOLNAV_01=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
+  "TOOLNAV_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
+  "TOOLNAV_02=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
+  "TOOLNAV_03=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
+  "TOOLNAV_04=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
+  "TOOLNAV_04=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
+  "TOOLNAV_04=src\FortniteVideoSoftware.App\VideoMergerWindow.axaml.cs"
 ) do (
     for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
         if not exist "%%B" (

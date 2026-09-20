@@ -1817,6 +1817,16 @@ public partial class VideoMergerWindow : Window
 
         _recovery.ReleaseLockOnly();
         ShutdownVideoPipeline();
+
+        // TOOLNAV_04 — see CropToolWindow. Opened in-process, the editor is hidden behind this
+        // window; relaunching the exe would produce a second application alongside it.
+        if (Services.ToolNavigator.OpenedInProcess)
+        {
+            RuntimeLog.Info("MERGER", "Opened in-process — closing to reveal the editor (TOOLNAV_04).");
+            Close();
+            return;
+        }
+
         string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "FortniteVideoSoftware.exe";
         var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath, "run-ui") { UseShellExecute = false });
         if (p != null)

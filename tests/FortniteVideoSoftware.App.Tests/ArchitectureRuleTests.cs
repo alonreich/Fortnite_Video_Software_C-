@@ -330,7 +330,9 @@ public sealed class ArchitectureRuleTests
         // applied handler. MainWindow is constructed by Avalonia's desktop lifetime and cannot
         // take constructor arguments, which is the entire reason the shim exists. Both sites go
         // away when MainViewModel takes the session in its constructor.
-        const int Baseline = 2;
+        //
+        // 3 — plus the ToolNavigator construction in SwitchToCompanionAppAsync (TOOLNAV_01).
+        const int Baseline = 3;
 
         var sites = new List<string>();
 
