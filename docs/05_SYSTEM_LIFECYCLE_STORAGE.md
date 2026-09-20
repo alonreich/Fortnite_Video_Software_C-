@@ -118,6 +118,22 @@
   2. `exit /b 1` inside a `call`ed subroutine returns from the **subroutine**, not the script. The call site therefore tests `if errorlevel 1` immediately after `call :VERIFY_PATCHES`.
   **The damage was not hypothetical.** `STRIPCOST_01` pointed at a tag that no longer existed in `GranularSpeedEditorWindow.axaml.cs` and nothing ever said so. It was not a revert — commit `ad0b7bd` replaced the per-slot `Image` path with `Controls/TimelineFilmstrip`, which draws via `DrawingContext.DrawImage` with explicit source/destination rects, making the oversized-bitmap defect structurally unreachable. The sentinel is retired with a note, per the `WIZPROGRESS_01` precedent.
   ⚠️ `VERIFYLOOP_01` had already learned this lesson once, about two silently skipped entries, and its fix left the reporting half unwritten. **A guard that cannot fail is worse than no guard at all, because it is trusted.**
+* **`LISTCOMMENT_01` — `REM` IS NOT A COMMENT INSIDE A `FOR` LIST.**
+  `cmd.exe` tokenises everything between a list's brackets on whitespace. An unquoted
+  `REM --- Crop Tools rework, phase 3 ---` inside `for %%P in ( … )` is **not skipped** — it
+  becomes the list items `REM`, `---`, `Crop`, `Tools`, `rework`, `---`, and each is checked as
+  though it were a sentinel. The 37 annotation lines in this list were producing roughly 400 bogus
+  `[no-file]` entries.
+  * ⚠️ **They had been mis-parsed for as long as they had existed.** It was invisible only because
+    `MISSING` was never read (`VERIFYHALT_01`). Fixing the reporting is what surfaced it — which is
+    the whole argument for guards that can actually fail.
+  * Annotations are now **quoted**, so each is a single token, and the loop skips them by their
+    `REM` prefix. They must contain no double quote (it would end the token) and no `=` (it would
+    parse as a `TAG=path` entry).
+  * `ArchitectureRuleTests.DevCmdSentinelListContainsOnlyQuotedTokens` asserts the whole invariant:
+    every non-blank line in the list is one quoted token, annotations start with `REM` and carry no
+    `=`, sentinels match `TAG=path`, and nothing carries a round bracket.
+
 * **`BATCHPARENS_01` — NO ROUND BRACKETS IN A `REM` INSIDE THE SENTINEL LIST.**
   `cmd.exe` counts `(` and `)` while scanning a parenthesised block **even inside a `REM`**. A
   comment added to the `for %%P in (` list reading *"phase 0 (foundation). docs/08_…"* closed the

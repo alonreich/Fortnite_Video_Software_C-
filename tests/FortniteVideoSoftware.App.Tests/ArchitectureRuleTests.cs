@@ -493,25 +493,30 @@ public sealed class ArchitectureRuleTests
     }
 
     // ════════════════════════════════════════════════════════════════════════════════════════
-    // RULE 12 — BATCHPARENS_01. No round brackets in a REM inside VERIFY_PATCHES' sentinel list.
+    // RULE 12 — LISTCOMMENT_01 / BATCHPARENS_01. The VERIFY_PATCHES list holds only quoted tokens.
     //
-    // cmd.exe counts ( and ) while scanning a parenthesised block EVEN INSIDE A REM. A comment
-    // such as
-    //     REM --- phase 0 (foundation). docs/08_APPLICATION_COMPOSITION.md
-    // closes the `for %%P in (` list early, and the next token — here a bare "." — is then run as
-    // a command. The whole script dies at parse time with:
-    //     . was unexpected at this time.
-    // before a single sentinel is checked. It cost a dev.cmd launch to find, which is exactly the
-    // bar SYS-DEVBUILD sets for earning a guard.
+    // Two distinct defects, both of which made the sentinel check silently wrong, and both of
+    // which only became visible once VERIFYHALT_01 taught the subroutine to report at all:
     //
-    // This rule is cheap and absolute: inside the sentinel list, REM lines carry no brackets.
-    // The whole-file balance check below catches the general case.
+    //   BATCHPARENS_01 — cmd.exe counts ( and ) while scanning a parenthesised block EVEN INSIDE
+    //   A REM. A comment reading "phase 0 (foundation)." closed the `for %%P in (` list early and
+    //   the next token, a bare ".", was run as a command. The script died at parse time with
+    //   ". was unexpected at this time." before a single sentinel was checked.
+    //
+    //   LISTCOMMENT_01 — REM IS NOT A COMMENT INSIDE A FOR LIST. cmd tokenises everything between
+    //   the brackets on whitespace, so an unquoted `REM --- Crop Tools rework ---` becomes the
+    //   list items REM, ---, Crop, Tools, rework, --- and every one is checked as if it were a
+    //   sentinel. 37 such lines produced ~400 bogus [no-file] entries. They had been mis-parsed
+    //   for as long as they had existed; nobody saw it because MISSING was never read.
+    //
+    // The invariant that kills both: every non-blank line in the list is ONE double-quoted token,
+    // annotations are quoted and start with REM, and nothing in there carries a round bracket.
+    // Annotations additionally carry no '=' , which would make them parse as a TAG=path entry.
     // ════════════════════════════════════════════════════════════════════════════════════════
     [Fact]
-    public void DevCmdSentinelListHasNoBracketsInComments()
+    public void DevCmdSentinelListContainsOnlyQuotedTokens()
     {
-        string devCmd = Path.Combine(RepoRoot.Path, "dev.cmd");
-        string text = File.ReadAllText(devCmd);
+        string text = File.ReadAllText(Path.Combine(RepoRoot.Path, "dev.cmd"));
 
         int start = text.IndexOf("for %%P in (", StringComparison.Ordinal);
         Assert.True(start >= 0, "Could not find the VERIFY_PATCHES sentinel list in dev.cmd.");
@@ -520,20 +525,44 @@ public sealed class ArchitectureRuleTests
         Assert.True(end > start, "Could not find the end of the VERIFY_PATCHES sentinel list.");
 
         var offenders = new List<string>();
-        string[] lines = text[(start + "for %%P in (".Length)..end].Split('\n');
+        int sentinels = 0, annotations = 0;
 
-        foreach (string raw in lines)
+        foreach (string raw in text[(start + "for %%P in (".Length)..end].Split('\n'))
         {
-            string line = raw.TrimEnd('\r');
+            string line = raw.Trim();
+            if (line.Length == 0) continue;
+
             if (line.Contains('(') || line.Contains(')'))
-                offenders.Add(line.Trim());
+            {
+                offenders.Add($"BATCHPARENS_01 — round bracket closes the list early: {line}");
+                continue;
+            }
+
+            if (!line.StartsWith('"') || !line.EndsWith('"') || line.Count(c => c == '"') != 2)
+            {
+                offenders.Add($"LISTCOMMENT_01 — not a single quoted token, every word becomes a list item: {line}");
+                continue;
+            }
+
+            string token = line.Trim('"');
+
+            if (token.StartsWith("REM", StringComparison.OrdinalIgnoreCase))
+            {
+                annotations++;
+                if (token.Contains('='))
+                    offenders.Add($"LISTCOMMENT_01 — annotation contains '=' and will parse as a TAG=path entry: {line}");
+                continue;
+            }
+
+            sentinels++;
+            if (!Regex.IsMatch(token, @"^[A-Z0-9_]+=[^=]+$"))
+                offenders.Add($"Not a well-formed TAG=path sentinel: {line}");
         }
 
+        Assert.True(sentinels > 0, "Parsed zero sentinels — the VERIFY_PATCHES list format changed.");
+
         Assert.True(offenders.Count == 0,
-            "BATCHPARENS_01 — these lines inside the VERIFY_PATCHES sentinel list contain a round "
-          + "bracket. cmd.exe counts brackets inside REM too, so one of these closes the FOR list "
-          + "early and dev.cmd dies at parse time with '. was unexpected at this time.'. Rewrite "
-          + "the comment without brackets:"
+            $"VERIFY_PATCHES list is malformed ({sentinels} sentinels, {annotations} annotations):"
           + Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 

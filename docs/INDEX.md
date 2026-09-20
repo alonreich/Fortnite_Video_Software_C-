@@ -439,6 +439,7 @@ ARCHTEST_01                                  08 §3 COMP-ARCHTEST
 ASYNCUI_01                                   08 §3 COMP-ARCHTEST
 ASYNCUI_02                                   08 §3 COMP-ARCHTEST
 BATCHPARENS_01                               05 §4a SYS-DEVBUILD
+LISTCOMMENT_01                               05 §4a SYS-DEVBUILD
 BATCHPARENS_02                               05 §4a SYS-DEVBUILD
 COMPOSITION_01                               08 §1 COMP-ROOT
 COMPOSITION_02                               08 §1 COMP-ROOT
