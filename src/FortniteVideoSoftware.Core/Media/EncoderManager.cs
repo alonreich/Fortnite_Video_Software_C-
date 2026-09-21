@@ -14,9 +14,12 @@ public class EncoderManager
 
     public static readonly Dictionary<string, string> HardwareByStrategy = new()
     {
-        { "NVIDIA", "h264_nvenc" },
-        { "AMD", "h264_amf" },
-        { "INTEL", "h264_qsv" },
+        {
+            "NVIDIA", "h264_nvenc" },
+        {
+            "AMD", "h264_amf" },
+        {
+            "INTEL", "h264_qsv" },
     };
 
     public const int MaxBitrateKbps = 100000;
@@ -148,7 +151,11 @@ public class EncoderManager
             Frac max60 = new(60, 1);
             return fps > max60 ? max60 : fps;
         }
-        catch { return Frac.FromString(defaultFps); }
+        catch (System.Exception swallowed)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            return Frac.FromString(defaultFps);
+        }
     }
 
     private static HashSet<string> DetectAvailableEncoders(string ffmpegPath)
@@ -194,7 +201,11 @@ public class EncoderManager
                 CoreLogger.Info("GPU DETECT", "No supported hardware encoders found. CPU fallback necessary.");
             return found;
         }
-        catch { return []; }
+        catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return [];
+        }
     }
 
     public string GetInitialEncoder(bool useCuda)

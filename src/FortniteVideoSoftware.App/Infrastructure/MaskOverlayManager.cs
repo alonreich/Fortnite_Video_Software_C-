@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Ipc;
 using FortniteVideoSoftware.Core.Media;
+using FortniteVideoSoftware.Core.Project;
 
 namespace FortniteVideoSoftware.App.Infrastructure;
 
@@ -168,6 +169,38 @@ public static class MaskOverlayManager
         {
             RuntimeLog.Fail("MASK PROFILE", $"ApplyProfile('{profileName}') failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// PROJ_11 — THE LIVE HUD MASK, AS A VALUE A PROJECT CAN STORE.
+    ///
+    /// <para>
+    /// The active profile name plus the crop configuration that name currently resolves to, with a
+    /// content fingerprint over the configuration. This is what <c>ProjectSession.Capture</c>
+    /// records so a <c>.fvsproj</c> knows which mask it was built with — see
+    /// <see cref="FortniteVideoSoftware.Core.Project.ProjectMask"/> for why the name alone is not
+    /// enough.
+    /// </para>
+    ///
+    /// <para>
+    /// Returns <see langword="null"/> when the live configuration cannot be read at all. The caller
+    /// treats that as "no mask recorded", never as "no mask applied" — the two are different and
+    /// conflating them would write a project claiming an unmasked export that was in fact masked.
+    /// </para>
+    /// </summary>
+    public static ProjectMask? ReadLiveMask()
+    {
+        JsonObject? config;
+        using (AcquireConfigLock())
+        {
+            config = AtomicJsonFile.ReadObject(ApplicationPaths.CreateDefault().CropCoordinatesFile);
+        }
+
+        if (config is null) return null;
+
+        string profile = SanitizeProfileName(SettingsManager.Instance.ActiveMaskOverlay) ?? NoMaskProfileName;
+
+        return new ProjectMask(profile, ProjectMask.ComputeFingerprint(config), (JsonObject)config.DeepClone());
     }
 
     public static bool SyncActiveProfileFromCurrentConfig()

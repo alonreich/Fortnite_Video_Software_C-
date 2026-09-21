@@ -171,7 +171,8 @@ internal static unsafe partial class AuthenticodeVerifier
         {
             // A missing wintrust.dll or a blocked entry point is NOT a pass.
             return new SignatureInfo(false, false, string.Empty, string.Empty,
-                $"Trust provider unavailable ({ex.GetType().Name}: {ex.Message}).");
+            $"Trust provider unavailable ({ex.GetType().Name}: {ex.Message}).");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
 
         bool hasSignature = trustResult != TRUST_E_NOSIGNATURE;
@@ -202,7 +203,8 @@ internal static unsafe partial class AuthenticodeVerifier
                 // we can compare.
                 chainValid = false;
                 return new SignatureInfo(false, true, string.Empty, string.Empty,
-                    $"Signature present but the signer certificate could not be read ({ex.GetType().Name}: {ex.Message}).");
+                $"Signature present but the signer certificate could not be read ({ex.GetType().Name}: {ex.Message}).");
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
         }
 
@@ -302,7 +304,10 @@ internal static unsafe partial class AuthenticodeVerifier
             {
                 data.dwStateAction = WTD_STATEACTION_CLOSE;
                 Guid closeAction = GenericVerifyV2;
-                try { WinVerifyTrust(nint.Zero, ref closeAction, ref data); } catch { /* nothing left to do */ }
+                try { WinVerifyTrust(nint.Zero, ref closeAction, ref data); } catch (System.Exception swallowed)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                }
             }
 
             return result;

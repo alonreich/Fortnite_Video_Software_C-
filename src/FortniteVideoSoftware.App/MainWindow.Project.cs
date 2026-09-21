@@ -70,9 +70,16 @@ public partial class MainWindow
     /// else, and it costs an mpv seek per step (SEEKSTORM_01).
     /// </para>
     /// </summary>
-    private void OnProjectDocumentApplied()
+    private void OnProjectDocumentApplied(Core.Project.ProjectDocument document)
     {
         var services = Infrastructure.AppServices.Current;
+
+        // PROJ_11 — the merge queue is part of the document now, so restoring a document restores
+        // it. Done FIRST and outside the redraw guard: it is a data restore, not a repaint, and it
+        // must happen even if the timeline redraw below fails. Before this, opening a project left
+        // whatever queue happened to be in this process from the last time the Merger was used —
+        // so an opened project could silently inherit another project's clips.
+        Services.ToolNavigator.RestoreMergeQueue(document.Merge);
 
         services.Faults.Guard("PROJECT",
             "The timeline could not be redrawn after that change. Your edits are intact — switching " +

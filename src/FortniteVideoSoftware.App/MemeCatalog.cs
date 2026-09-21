@@ -257,9 +257,10 @@ public static class MemeCatalog
                 length = fi.Length;
                 mtimeTicks = fi.LastWriteTimeUtc.Ticks;
             }
-            catch
+            catch (System.Exception swallowed2)
             {
                 // Unreadable metadata — same disposition as the original zero-byte guard: skip.
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 continue;
             }
 
@@ -298,7 +299,11 @@ public static class MemeCatalog
             int n = r.Read(buf, 0, buf.Length);
             return n > 0 && new string(buf, 0, n).StartsWith("version https://git-lfs.github.com/spec", StringComparison.Ordinal);
         }
-        catch { return false; }
+        catch (System.Exception swallowed3)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
     }
 
     /// <summary>ISSUE_10 — downloads missing MEME assets (mp4 + jpeg folders).</summary>

@@ -47,12 +47,14 @@ public static class NamedPipeStateClient
 
             return null;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed3)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
-        catch (TimeoutException)
+        catch (TimeoutException swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (Exception ex)
@@ -275,8 +277,9 @@ public static class NamedPipeStateClient
 
             return response != null && response.Value.Opcode == IpcOpcode.Pong;
         }
-        catch
+        catch (System.Exception swallowed2)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

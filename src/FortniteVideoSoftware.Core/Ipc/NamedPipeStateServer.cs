@@ -141,7 +141,10 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
     private void Start()
     {
         _listenTask = Task.Run(() => ListenLoopAsync(_cts.Token));
-        try { _readyEvent.Wait(TimeSpan.FromSeconds(1)); } catch { }
+        try { _readyEvent.Wait(TimeSpan.FromSeconds(1)); } catch (System.Exception swallowed6)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+        }
         CoreLogger.Info("IpcServer", $"In-memory state server listening on {IpcProtocol.PipeName}.");
     }
 
@@ -179,23 +182,29 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                     }
                 }, ct);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException swallowed2)
             {
                 serverStream?.Dispose();
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 break;
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException swallowed5)
             {
                 // IPCTEARDOWN_01 — the source or a stream was disposed underneath us. That is a
                 // shutdown, not a fault: stop, do not spin.
                 serverStream?.Dispose();
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
                 break;
             }
             catch (Exception ex)
             {
                 serverStream?.Dispose();
                 CoreLogger.Debug("IpcServer", $"Error in IPC server listener: {ex.Message}");
-                try { await Task.Delay(100, ct).ConfigureAwait(false); } catch { break; }
+                try { await Task.Delay(100, ct).ConfigureAwait(false); } catch (System.Exception swallowed)
+                {
+                    global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                    break;
+                }
             }
         }
     }
@@ -366,7 +375,10 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
         {
             // The ceiling has been reached. Stop restarting the clock and get it on disk NOW —
             // off this thread, because callers include the UI thread via the in-process path.
-            try { _debounceTimer?.Stop(); } catch (ObjectDisposedException) { }
+            try { _debounceTimer?.Stop(); } catch (ObjectDisposedException swallowed3)
+            {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            }
             _ = Task.Run(FlushToDiskSafe);
             return;
         }
@@ -376,7 +388,10 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             _debounceTimer?.Stop();
             _debounceTimer?.Start();
         }
-        catch (ObjectDisposedException) { /* torn down between the null check and here. */ }
+        catch (ObjectDisposedException swallowed4)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     public void FlushToDiskSafe()

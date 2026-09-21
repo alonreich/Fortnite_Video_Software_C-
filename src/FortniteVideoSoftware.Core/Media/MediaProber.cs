@@ -71,9 +71,10 @@ public class MediaProber
                 return new JsonObject();
             }
         }
-        catch
+        catch (System.Exception swallowed)
         {
             _probeData = new JsonObject();
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {

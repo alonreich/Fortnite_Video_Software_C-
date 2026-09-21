@@ -341,8 +341,14 @@ public partial class VoiceOverWindow : Window
 
         public void Dispose()
         {
-            try { Player.Stop(); Player.Dispose(); } catch (System.Exception) { }
-            try { Reader.Dispose(); } catch (System.Exception) { }
+            try { Player.Stop(); Player.Dispose(); } catch (System.Exception swallowed6)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+            }
+            try { Reader.Dispose(); } catch (System.Exception swallowed4)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+            }
         }
     }
     private List<PreviewPlayer> _previewPlayers = new();
@@ -701,7 +707,10 @@ public partial class VoiceOverWindow : Window
                                     if (System.IO.File.Exists(t.Path))
                                     {
                                         double dur = 0.1;
-                                        try { using var af = new NAudio.Wave.AudioFileReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch {}
+                                        try { using var af = new NAudio.Wave.AudioFileReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch (System.Exception swallowed)
+                                        {
+                                            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                                        }
                                         _sessions.Add(new VoiceOverSession { WavPath = t.Path, StartSec = t.StartSec, EndSec = t.StartSec + dur });
                                         _renderedSessionCount = -1;
                                         EnsureTakePeaksAsync(t.Path);   // VOTAKE_01
@@ -1371,9 +1380,10 @@ public partial class VoiceOverWindow : Window
         {
             _ = _videoHost.IpcClient.SendCommandAsync("seek", seconds, "absolute");
         }
-        catch
+        catch (System.Exception swallowed3)
         {
             _isSeeking = false;
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -1834,7 +1844,11 @@ public partial class VoiceOverWindow : Window
                     onFrame: () => _thumbnailLaneImage?.InvalidateVisual(),
                     logTag: "VoiceOver");
             }
-            catch (OperationCanceledException) { return false; }
+            catch (OperationCanceledException swallowed2)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                return false;
+            }
             catch (Exception ex)
             {
                 CoreLogger.Fail("VoiceOver", $"Thumbnail lane generation failed: {ex.Message}");
@@ -1870,7 +1884,11 @@ public partial class VoiceOverWindow : Window
                     ffmpeg, localVideoPath, thumbTempDir, localTrimStart, durationSec, token,
                     logTag: "VoiceOver");
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException swallowed5)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+                return;
+            }
             catch (Exception ex)
             {
                 CoreLogger.Fail("VoiceOver", $"Thumbnail lane fallback failed: {ex.Message}");

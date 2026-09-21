@@ -174,7 +174,11 @@ public static class HardwareCapability
             if (node.GetValueKind() == System.Text.Json.JsonValueKind.False) return false;
             return bool.TryParse(node.ToString(), out bool parsed) ? parsed : fallback;
         }
-        catch { return fallback; }
+        catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return fallback;
+        }
     }
 
 
@@ -275,7 +279,11 @@ public static class HardwareCapability
             return string.Create(CultureInfo.InvariantCulture,
                 $"{info.FullName.ToLowerInvariant()}|{info.Length}|{info.LastWriteTimeUtc.Ticks}");
         }
-        catch { return ""; }
+        catch (System.Exception swallowed)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            return "";
+        }
     }
 
     /// <summary>
@@ -291,6 +299,10 @@ public static class HardwareCapability
             bool remote = sessionName.StartsWith("RDP-", StringComparison.OrdinalIgnoreCase);
             return string.Create(CultureInfo.InvariantCulture, $"{sessionId}|{(remote ? "remote" : "local")}");
         }
-        catch { return ""; }
+        catch (System.Exception swallowed3)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            return "";
+        }
     }
 }

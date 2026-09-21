@@ -58,7 +58,12 @@ public sealed record ProjectDocument
     /// field changes; adding a new optional field does not need a bump, because
     /// <see cref="ProjectSerializer"/> tolerates missing keys on read.
     /// </summary>
-    public const int SchemaVersion = 1;
+    /// <remarks>
+    /// <b>2 — PROJ_11.</b> Added <see cref="Mask"/> and <see cref="Merge"/>. Both are optional on
+    /// read, so a v1 file loads unchanged; the bump records that a v2 writer stores information a
+    /// v1 reader will park in <see cref="UnknownFields"/> rather than lose.
+    /// </remarks>
+    public const int SchemaVersion = 2;
 
     /// <summary>
     /// PROJ_02 — the oldest schema this build can still READ. A file below this is refused with an
@@ -100,6 +105,47 @@ public sealed record ProjectDocument
     public ProjectAudio Audio { get; init; } = new();
 
     public ProjectExport Export { get; init; } = new();
+
+    /// <summary>
+    /// PROJ_11 — WHICH HUD MASK THIS MONTAGE WAS BUILT AGAINST. Null means "no mask was applied".
+    ///
+    /// <para>
+    /// ⚠️ THE DEFECT THIS CLOSES: the mask was a machine-wide setting, not a property of the work.
+    /// The active profile name lived in <c>SettingsManager.ActiveMaskOverlay</c> and the rectangles
+    /// lived in one shared <c>crop_coordinates.json</c>. Neither was in the project file. So a
+    /// project saved in March and reopened in May was exported through whatever mask happened to be
+    /// active THEN — different rectangles, different overlays, a different finished video — and
+    /// nothing anywhere said so. The user's own record of their edit did not include the single
+    /// setting that decides what the frame looks like.
+    /// </para>
+    ///
+    /// <para>
+    /// The snapshot is stored, not just the name, because a profile is editable. Naming "Fortnite"
+    /// and trusting the machine to still mean the same thing by it is the same bug one level down.
+    /// </para>
+    /// </summary>
+    public ProjectMask? Mask { get; init; }
+
+    /// <summary>
+    /// PROJ_11 — the Video Merger's queue. Null means this project is a single-clip edit.
+    ///
+    /// <para>
+    /// ⚠️ THE DEFECT THIS CLOSES: merge state lived nowhere. A user could queue eight clips, trim
+    /// each of them, close the Merger — and the queue existed only in that window's
+    /// <c>ObservableCollection&lt;string&gt;</c>. Saving the project recorded none of it, so
+    /// reopening produced a single-clip document with no indication that seven clips had been
+    /// dropped on the floor.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ THIS IS ALSO THE DOCUMENT'S ROUTE OUT OF BEING SINGLE-SOURCE. <see cref="Source"/> is one
+    /// clip because the main editor edits one clip; a montage of several is what the Merger is for,
+    /// and until now those were two unrelated features sharing an application. Storing the ordered
+    /// list here makes the merge a property of the project, which is the precondition for ever
+    /// treating a multi-clip edit as one document rather than two workflows.
+    /// </para>
+    /// </summary>
+    public ProjectMerge? Merge { get; init; }
 
     /// <summary>Free-text name shown in the title bar and the recent list. Never used as a file path.</summary>
     public string Title { get; init; } = "Untitled";
@@ -210,8 +256,9 @@ public sealed record ProjectDocument
             string name = Path.GetFileNameWithoutExtension(path);
             return string.IsNullOrWhiteSpace(name) ? "Untitled" : name;
         }
-        catch (ArgumentException)
+        catch (ArgumentException swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return "Untitled";
         }
     }
@@ -287,6 +334,112 @@ public sealed record SourceClip
             ModifiedUtcSeconds = modified,
         };
     }
+}
+
+/// <summary>
+/// PROJ_11 — THE HUD MASK, AS A PROPERTY OF THE PROJECT RATHER THAN OF THE MACHINE.
+/// </summary>
+/// <param name="ProfileName">
+/// The profile the user chose, as shown in the Crop Tool's picker. Kept so the UI can say
+/// "this project was built with <i>Apex Legends</i>" rather than showing an anonymous blob.
+/// </param>
+/// <param name="Fingerprint">
+/// A stable hash of <paramref name="Config"/>. Comparing hashes answers "is the profile on this
+/// machine still the one this project was built with" in one line, and answers it correctly even
+/// when the profile was edited without being renamed — which renaming-based checks cannot do.
+/// </param>
+/// <param name="Config">
+/// The resolved crop configuration itself: rectangles, scales, overlay positions and z-orders.
+/// Stored verbatim so the project reproduces its own export on a machine that has never seen the
+/// named profile. A few kilobytes of JSON against the alternative of an unreproducible render.
+/// </param>
+public sealed record ProjectMask(string ProfileName, string Fingerprint, JsonObject? Config)
+{
+    /// <summary>
+    /// The hash stored in <see cref="Fingerprint"/>. Content-addressed, whitespace-insensitive:
+    /// two configs that would produce the same filtergraph must produce the same fingerprint, or
+    /// the mismatch warning fires on formatting and is promptly ignored by everyone.
+    /// </summary>
+    public static string ComputeFingerprint(JsonObject? config)
+    {
+        if (config is null) return string.Empty;
+
+        // Serialise with a canonical key order so a reordered-but-identical document matches.
+        string canonical = Canonicalise(config);
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(hash, 0, 8);   // 16 hex chars: plenty to notice an edit, short enough to print.
+    }
+
+    private static string Canonicalise(JsonNode? node)
+    {
+        switch (node)
+        {
+            case null:
+                return "null";
+
+            case JsonObject o:
+            {
+                var keys = new List<string>();
+                foreach (KeyValuePair<string, JsonNode?> kvp in o) keys.Add(kvp.Key);
+                keys.Sort(StringComparer.Ordinal);
+
+                var sb = new System.Text.StringBuilder("{");
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(keys[i]).Append(':').Append(Canonicalise(o[keys[i]]));
+                }
+                return sb.Append('}').ToString();
+            }
+
+            case JsonArray a:
+            {
+                var sb = new System.Text.StringBuilder("[");
+                for (int i = 0; i < a.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(Canonicalise(a[i]));
+                }
+                return sb.Append(']').ToString();
+            }
+
+            default:
+                return node.ToJsonString();
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="liveConfig"/> is the same mask this project was built with.
+    /// A false answer is a Degraded fault, not a silent re-render: the user is about to export a
+    /// different video than the one they saved.
+    /// </summary>
+    public bool MatchesLive(JsonObject? liveConfig)
+        => string.Equals(Fingerprint, ComputeFingerprint(liveConfig), StringComparison.Ordinal);
+}
+
+/// <summary>
+/// PROJ_11 — one clip in the merge queue, with the trim the user set on it.
+/// </summary>
+/// <param name="FilePath">Absolute path to the source file, as the user picked it.</param>
+/// <param name="StartSec">Trim-in, seconds from the start of THAT file. Zero means untrimmed.</param>
+/// <param name="EndSec">Trim-out, seconds from the start of THAT file. Zero means "to the end".</param>
+public readonly record struct MergeClip(string FilePath, double StartSec, double EndSec);
+
+/// <summary>
+/// PROJ_11 — the Video Merger's queue, in order.
+/// </summary>
+public sealed record ProjectMerge
+{
+    /// <summary>The clips, in the order they are concatenated. Order is meaning here, not presentation.</summary>
+    public IReadOnlyList<MergeClip> Clips { get; init; } = Array.Empty<MergeClip>();
+
+    /// <summary>
+    /// Speed applied to the merged result, mirroring the main editor's <see cref="ProjectDocument.BaseSpeed"/>.
+    /// </summary>
+    public double BaseSpeed { get; init; } = 1.0;
+
+    /// <summary>True when the queue holds anything worth restoring.</summary>
+    public bool HasClips => Clips.Count > 0;
 }
 
 /// <summary>

@@ -349,7 +349,11 @@ public sealed class MpvVideoView : Control, IDisposable
             while (_renderThreadRunning && !_swDisposing)
             {
                 try { _renderSignal.WaitOne(66); }
-                catch (ObjectDisposedException) { break; }
+                catch (ObjectDisposedException swallowed5)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+                    break;
+                }
 
                 if (!_renderThreadRunning || _swDisposing) break;
 
@@ -727,7 +731,10 @@ public sealed class MpvVideoView : Control, IDisposable
         _disposing = true;
         _swDisposing = true;
         _renderThreadRunning = false;
-        try { _renderSignal.Set(); } catch (ObjectDisposedException) { }
+        try { _renderSignal.Set(); } catch (ObjectDisposedException swallowed2)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+        }
         var gpu = _renderThread;
         var cpu = _swThread;
         await Task.Run(() =>
@@ -870,7 +877,11 @@ public sealed class MpvVideoView : Control, IDisposable
             while (_renderThreadRunning && !_disposing)
             {
                 try { _renderSignal.WaitOne(_retryPending ? 66 : System.Threading.Timeout.Infinite); }
-                catch (ObjectDisposedException) { break; }
+                catch (ObjectDisposedException swallowed4)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+                    break;
+                }
 
                 if (!_renderThreadRunning || _disposing) break;
                 try { UpdateSurface(); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
@@ -878,7 +889,10 @@ public sealed class MpvVideoView : Control, IDisposable
         }
         catch (Exception ex)
         {
-            try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch (System.Exception) { }
+            try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch (System.Exception swallowed9)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
+            }
         }
         finally
         {
@@ -1324,10 +1338,11 @@ public sealed class MpvVideoView : Control, IDisposable
                 {
                     await surface.UpdateWithKeyedMutexAsync(slot.Image, (uint)ConsumerKey, (uint)ProducerKey);
                 }
-                catch (Avalonia.Platform.PlatformGraphicsContextLostException)
+                catch (Avalonia.Platform.PlatformGraphicsContextLostException swallowed10)
                 {
                     // The GPU context went away. Retire OUR slot — and only if it is still ours.
                     TryRetireSlot(index, slot);
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
                 }
                 catch (Exception ex)
                 {
@@ -1508,7 +1523,6 @@ public sealed class MpvVideoView : Control, IDisposable
             if (claimed != null) DisposeImportedImageOnUiThread(claimed.Image);
         }
 
-
     }
 
     ~MpvVideoView()
@@ -1580,7 +1594,11 @@ public sealed class MpvVideoView : Control, IDisposable
         bool swThreadStopped = true;
         if (_swThread != null)
         {
-            try { swThreadStopped = _swThread.Join(TimeSpan.FromSeconds(3)); } catch { swThreadStopped = false; }
+            try { swThreadStopped = _swThread.Join(TimeSpan.FromSeconds(3)); } catch (System.Exception swallowed8)
+            {
+                swThreadStopped = false;
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
+            }
             if (!swThreadStopped)
             {
                 RuntimeLog.Fail(InteropLogStep, "SW render thread did not stop within 3s.");
@@ -1593,7 +1611,11 @@ public sealed class MpvVideoView : Control, IDisposable
         {
             renderGateAcquired = System.Threading.Monitor.TryEnter(_swRenderGate, TimeSpan.FromSeconds(2));
         }
-        catch { renderGateAcquired = false; }
+        catch (System.Exception swallowed3)
+        {
+            renderGateAcquired = false;
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+        }
         finally
         {
             if (renderGateAcquired) System.Threading.Monitor.Exit(_swRenderGate);
@@ -1603,7 +1625,11 @@ public sealed class MpvVideoView : Control, IDisposable
         if (_renderThread != null)
         {
             try { gpuThreadStopped = _renderThread.Join(TimeSpan.FromSeconds(3)); }
-            catch { gpuThreadStopped = false; }
+            catch (System.Exception swallowed7)
+            {
+                gpuThreadStopped = false;
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
+            }
             if (!gpuThreadStopped)
             {
                 RuntimeLog.Fail(InteropLogStep, "GPU render thread did not stop within 3s.");
@@ -1637,7 +1663,11 @@ public sealed class MpvVideoView : Control, IDisposable
 
         bool renderLockAcquired = false;
         try { renderLockAcquired = System.Threading.Monitor.TryEnter(_renderLock, TimeSpan.FromSeconds(2)); }
-        catch { renderLockAcquired = false; }
+        catch (System.Exception swallowed6)
+        {
+            renderLockAcquired = false;
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+        }
 
         if (!renderLockAcquired)
         {

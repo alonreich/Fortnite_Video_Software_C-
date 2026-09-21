@@ -203,18 +203,24 @@ public sealed class UndoStack<T> where T : class
         // would reapply.
         _redo.Add(new UndoEntry<T>(Current, entry.Label, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
 
+        // UNDO_23 — THE GUARD MUST COVER THE NOTIFICATION, NOT JUST THE ASSIGNMENT.
+        // Changed is the whole point of the guard: the handler is what repopulates the controls,
+        // and a control raising its own change event calls Apply straight back into this stack.
+        // Resetting _restoring in a finally that runs BEFORE the invoke left the re-entrant Apply
+        // unguarded, so every Ctrl+Z pushed the echoed state back onto the history and undo could
+        // never reach the beginning. UndoStackTests.RestoringDoesNotRecordHistory proves it.
         _restoring = true;
         try
         {
             Current = entry.State;
             EndGesture();   // an undo always breaks the gesture; the next edit is a new entry.
+            Changed?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
             _restoring = false;
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
         return Current;
     }
 
@@ -228,18 +234,19 @@ public sealed class UndoStack<T> where T : class
         _undo.Add(new UndoEntry<T>(Current, entry.Label, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
         while (_undo.Count > MaxDepth) _undo.RemoveAt(0);
 
+        // UNDO_23 — same guard, same reason as Undo above.
         _restoring = true;
         try
         {
             Current = entry.State;
             EndGesture();
+            Changed?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
             _restoring = false;
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
         return Current;
     }
 
@@ -255,11 +262,21 @@ public sealed class UndoStack<T> where T : class
     public void Reset(T state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        Current = state;
-        _undo.Clear();
-        _redo.Clear();
-        EndGesture();
-        Changed?.Invoke(this, EventArgs.Empty);
+        // UNDO_23 — a Changed handler firing from Reset is repopulating controls for a DIFFERENT
+        // document. Anything it echoes back is not an edit of that document and must not be one.
+        _restoring = true;
+        try
+        {
+            Current = state;
+            _undo.Clear();
+            _redo.Clear();
+            EndGesture();
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _restoring = false;
+        }
     }
 
     /// <summary>Oldest-first history, for persistence and for a history panel. Excludes <see cref="Current"/>.</summary>
@@ -286,6 +303,10 @@ public sealed class UndoStack<T> where T : class
             while (_redo.Count > MaxDepth) _redo.RemoveAt(0);
         }
         EndGesture();
-        Changed?.Invoke(this, EventArgs.Empty);
+
+        // UNDO_23 — see Reset. Restoring persisted history is not an edit either.
+        _restoring = true;
+        try { Changed?.Invoke(this, EventArgs.Empty); }
+        finally { _restoring = false; }
     }
 }

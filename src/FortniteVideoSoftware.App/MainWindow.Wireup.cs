@@ -30,7 +30,7 @@ public partial class MainWindow
         this.AddHandler(DragDrop.DragLeaveEvent, OnVideoDragLeave);
         this.AddHandler(DragDrop.DropEvent, OnVideoDrop);
 
-        var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+        var radialMenu = RadialMenuCtl;
         if (radialMenu != null)
         {
             radialMenu.AddItem("meme", "Meme", Avalonia.Media.SolidColorBrush.Parse("#2094f3"));
@@ -62,7 +62,7 @@ public partial class MainWindow
 
         Win32FileDropInterop.Attach(this, paths => _ = HandleExternalFileDropAsync(paths));
 
-        var overlay = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
+        var overlay = OverlayLayerCtl;
         if (overlay != null)
         {
             // ══════════════════════════════════════════════════════════════════════════════════
@@ -85,9 +85,12 @@ public partial class MainWindow
                 if (_processCts != null && !_processCts.IsCancellationRequested)
                 {
                     try { _processCts.Cancel(); }
-                    catch (ObjectDisposedException) { }
+                    catch (ObjectDisposedException swallowed)
+                    {
+                        global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                    }
 
-                    var btn = this.FindControl<Button>("ProcessButton");
+                    var btn = ProcessButtonCtl;
                     if (btn != null)
                     {
                         btn.IsEnabled = false;
@@ -136,14 +139,14 @@ public partial class MainWindow
         var menuUploadVideo = this.FindControl<MenuItem>("MenuUploadVideo");
         if (menuUploadVideo != null) menuUploadVideo.Click += OnUploadVideoClicked;
 
-        var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
+        var menuTogglePreview = MenuTogglePreviewMonitorCtl;
         if (menuTogglePreview != null) menuTogglePreview.Click += async (s, e) =>
         {
             if (!IsPreviewDetached) await DetachPreviewMonitor();
             else await AttachPreviewMonitor();
         };
 
-        var detachOverlayBtn = this.FindControl<Button>("DetachOverlayButton");
+        var detachOverlayBtn = DetachOverlayButtonCtl;
         if (detachOverlayBtn != null) detachOverlayBtn.Click += async (s, e) =>
         {
             if (!IsPreviewDetached) await DetachPreviewMonitor();
@@ -170,7 +173,7 @@ public partial class MainWindow
         var menuShowShortcuts = this.FindControl<MenuItem>("MenuShowShortcuts");
         if (menuShowShortcuts != null) menuShowShortcuts.Click += (s, e) =>
         {
-            var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+            var sheet = ShortcutSheetOverlayCtl;
             if (sheet == null) return;
             if (!sheet.IsVisible) BuildShortcutSheetRows();
             sheet.IsVisible = !sheet.IsVisible;
@@ -215,7 +218,7 @@ public partial class MainWindow
         {
             menuHelpShortcuts.Click += (s, e) =>
             {
-                var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+                var sheet = ShortcutSheetOverlayCtl;
                 if (sheet == null) return;
                 if (!sheet.IsVisible) BuildShortcutSheetRows();
                 sheet.IsVisible = !sheet.IsVisible;
@@ -229,7 +232,7 @@ public partial class MainWindow
         var shortcutSheetClose = this.FindControl<Button>("ShortcutSheetCloseButton");
         if (shortcutSheetClose != null) shortcutSheetClose.Click += (s, e) =>
         {
-            var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+            var sheet = ShortcutSheetOverlayCtl;
             if (sheet != null) sheet.IsVisible = false;
         };
 
@@ -248,7 +251,7 @@ public partial class MainWindow
 
         AttachTitleBarDrag();
 
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        var canvas = TimelineMarkersCanvasCtl;
         if (canvas != null)
         {
             canvas.SizeChanged += (s, e) => UpdateTimelineMarkers();
@@ -309,9 +312,9 @@ public partial class MainWindow
         };
         _marchingAntsTimer.Start();
 
-        var slider = this.FindControl<Slider>("TimelineSlider");
+        var slider = TimelineSliderCtl;
 
-        var cancelButton = this.FindControl<Button>("CancelButton");
+        var cancelButton = CancelButtonCtl;
         if (cancelButton != null)
         {
             cancelButton.Click += (s, e) =>
@@ -330,7 +333,7 @@ public partial class MainWindow
         {
             keepWorkingButton.Click += (s, e) =>
             {
-                this.FindControl<Button>("CancelButton")?.Flyout?.Hide();
+                CancelButtonCtl?.Flyout?.Hide();
                 RuntimeLog.Info("UI", "User backed out of the Cancel button and kept working.");
             };
         }
@@ -340,14 +343,14 @@ public partial class MainWindow
         {
             confirmCancelButton.Click += (s, e) =>
             {
-                var btn = this.FindControl<Button>("CancelButton");
+                var btn = CancelButtonCtl;
                 btn?.Flyout?.Hide();
                 RuntimeLog.Info("UI", "User confirmed Cancel button, closing app.");
                 Close();
             };
         }
 
-        var processButton = this.FindControl<Button>("ProcessButton");
+        var processButton = ProcessButtonCtl;
         if (processButton != null)
         {
             processButton.Click += async (s, e) =>
@@ -362,7 +365,7 @@ public partial class MainWindow
         }
 
 
-        var granularButton = this.FindControl<Button>("GranularButton");
+        var granularButton = GranularButtonCtl;
         if (granularButton != null)
         {
             granularButton.Click += async (s, e) =>
@@ -433,7 +436,7 @@ public partial class MainWindow
 
                 SetTimelinePopupsVisible(false);
 
-                bool isMobileForZoom = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+                bool isMobileForZoom = PortraitModeCheckboxCtl?.IsChecked == true;
                 var zoomIpc = ActiveVideoHost?.IpcClient;
                 string zoomSrcRes = (zoomIpc != null && zoomIpc.VideoWidth > 0 && zoomIpc.VideoHeight > 0)
                     ? $"{zoomIpc.VideoWidth}x{zoomIpc.VideoHeight}"
@@ -579,7 +582,7 @@ public partial class MainWindow
         // makes a recurrence loud instead of silent.
         // ══════════════════════════════════════════════════════════════════════════════════════
 
-        var setThumbnailButton = this.FindControl<Button>("SetThumbnailButton");
+        var setThumbnailButton = SetThumbnailButtonCtl;
         if (setThumbnailButton != null)
         {
             // ══════════════════════════════════════════════════════════════════════════
@@ -631,7 +634,7 @@ public partial class MainWindow
             };
         }
 
-        var voiceOverButton = this.FindControl<Button>("VoiceOverButton");
+        var voiceOverButton = VoiceOverButtonCtl;
         if (voiceOverButton != null)
         {
             voiceOverButton.Click += async (s, e) =>
@@ -680,7 +683,7 @@ public partial class MainWindow
                 // ZOOMLIVE_06 — the studio simulates the zoom now, and portrait changes what the
                 // usable area is, exactly as it does for the Music Wizard's copy of this line.
                 dialog.IsPortraitPreview =
-                    this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+                    PortraitModeCheckboxCtl?.IsChecked == true;
                 try
                 {
                     await dialog.ShowDialog(this);
@@ -708,7 +711,7 @@ public partial class MainWindow
 
         // KEYFOCUS_01 — MARK END wiring moved to _markEndCommand (MainWindow.Shortcuts.ExecuteMarkEnd).
 
-        var timelineSlider = this.FindControl<Slider>("TimelineSlider");
+        var timelineSlider = TimelineSliderCtl;
         if (timelineSlider != null)
         {
             timelineSlider.ValueChanged += (s, e) =>
@@ -725,7 +728,7 @@ public partial class MainWindow
                 }
             };
 
-            var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
+            var timelineOverlay = TimelineOverlayCtl;
             if (timelineOverlay != null && canvas != null)
             {
                 Controls.TimelineKnob.Attach(timelineOverlay, timelineSlider);
@@ -779,7 +782,7 @@ public partial class MainWindow
             UpdateSpeedLabel();
         }
 
-        var volumeSlider = this.FindControl<Slider>("VolumeSlider");
+        var volumeSlider = VolumeSliderCtl;
         var volumeBadgeText = this.FindControl<TextBlock>("VolumeBadgeText");
         var volumeSpeakerIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("VolumeSpeakerIcon");
         if (volumeSlider != null && volumeBadgeText != null)
@@ -825,7 +828,7 @@ public partial class MainWindow
             };
         }
 
-        var qualitySlider = this.FindControl<SpinningWheelSlider>("QualitySlider");
+        var qualitySlider = QualitySliderCtl;
         if (qualitySlider != null)
         {
             // QUALITY_01 — the dial's stops ARE the quality words. It used to read "5MB", "10MB"
@@ -856,7 +859,7 @@ public partial class MainWindow
         }
 
 
-        var addMusicButton = this.FindControl<Button>("AddMusicButton");
+        var addMusicButton = AddMusicButtonCtl;
         if (addMusicButton != null)
         {
             addMusicButton.Click += async (s, e) =>
@@ -912,7 +915,7 @@ public partial class MainWindow
                     _voiceOverResult,
                     _cuts,          // CUTS_02 — music is laid against the video's REAL length
                     _memePlacements); // MEME_06 — which memes make LONGER, not shorter
-                wizard.IsPortraitPreview = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+                wizard.IsPortraitPreview = PortraitModeCheckboxCtl?.IsChecked == true;
 
                 // EDIT3_01 — hand the existing placement over so the wizard opens on it. Must be
                 // set before ShowDialog: the wizard consumes it in its Loaded handler.
@@ -941,8 +944,8 @@ public partial class MainWindow
 
                     SetMusicButtonActive(true);
 
-                    var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
-                    var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+                    var addMemeCb = AddMemeCheckboxCtl;
+                    var memeCb = MemeComboBoxCtl;
                     if (addMemeCb?.IsChecked == true && memeCb?.SelectedItem != null)
                     {
                         _keepMusicDuringMeme = NativeDialog.ShowQuestion(
@@ -962,7 +965,7 @@ public partial class MainWindow
             };
         }
 
-        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)this.FindControl<CheckBox>("MobileCheckbox") ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)MobileCheckboxCtl ?? PortraitModeCheckboxCtl;
 
         if (mobileCheckbox != null)
         {
@@ -975,31 +978,31 @@ public partial class MainWindow
             };
         }
 
-        var teammatesCb = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+        var teammatesCb = TeammatesCheckboxCtl;
         if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
-        var spectatingCb = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        var spectatingCb = SpectatingCheckboxCtl;
         if (spectatingCb != null) spectatingCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
-        var enableFadeCb = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        var enableFadeCb = EnableFadeCheckboxCtl;
         if (enableFadeCb != null) enableFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
 
-        var portraitTextInput = this.FindControl<TextBox>("PortraitTextInput");
+        var portraitTextInput = PortraitTextInputCtl;
         if (portraitTextInput != null) portraitTextInput.TextChanged += (s, e) => { UpdatePortraitOverlay(); ScheduleRecoveryStateSave(); };
 
-        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        var addMemeCb = AddMemeCheckboxCtl;
         if (addMemeCb != null)
         {
             addMemeCb.IsCheckedChanged += (s, e) => {
                 if (addMemeCb.IsChecked == true) {
-                    var cb = this.FindControl<ComboBox>("MemeComboBox");
+                    var cb = MemeComboBoxCtl;
                     if (cb != null) cb.IsDropDownOpen = true;
                 }
                 SaveRecoveryState();
             };
         }
         
-        var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+        var memeCb = MemeComboBoxCtl;
         WireMemePlacementCombo();
 
         if (memeCb != null) memeCb.SelectionChanged += (s, e) => {
@@ -1029,7 +1032,7 @@ public partial class MainWindow
             }
         };
 
-        var volSliderForRecovery = this.FindControl<Slider>("VolumeSlider");
+        var volSliderForRecovery = VolumeSliderCtl;
         if (volSliderForRecovery != null) volSliderForRecovery.PropertyChanged += (s, e) =>
         {
             if (e.Property == Slider.ValueProperty) ScheduleRecoveryStateSave();
@@ -1146,7 +1149,7 @@ public partial class MainWindow
         {
             if (_suppressMemePlacementEvent) return;
 
-            var memeCb = this.FindControl<ComboBox>("MemeComboBox");
+            var memeCb = MemeComboBoxCtl;
             if (memeCb?.SelectedItem is not MemeItem sel || sel.IsDownloadAction) return;
 
             var chosen = combo.SelectedIndex == 1

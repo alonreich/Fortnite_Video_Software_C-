@@ -79,11 +79,36 @@ them forty snapshots of how it was made. It belongs in a sidecar keyed to the pr
 
 ## 5. Open Work Bound To This Spec  {#UNDO-TODO}
 `UndoStack<T>` exists and is unit-tested (`tests/FortniteVideoSoftware.Core.Tests/UndoStackTests.cs`,
-covering U1–U4, re-entrancy, reset and restore). NOT yet done:
+covering U1–U4, re-entrancy, reset and restore).
 
-1. The sidecar store described in §4, and its wiring to project open/close.
-2. Migrating `GranularSpeedEditorWindow.PushUndo` onto `UndoStack<ProjectDocument>` — the editor
-   keeps its own stack until then, and until it moves, closing that window still discards history.
-3. Ctrl+Z / Ctrl+Y and Undo/Redo buttons in the main window, Crop Tool, Music Wizard, meme placement
-   and the Video Merger, all bound to the one stack.
-4. Undo/Redo menu labels driven by `NextUndoLabel` / `NextRedoLabel`.
+**Closed since this list was written:**
+
+1. **`UNDO_23` — the re-entrancy guard did not cover the notification, which is the only part that
+   mattered.** `_restoring` was reset in a `finally` that ran BEFORE `Changed` was raised. `Changed`
+   is the handler that repopulates the controls, and a control raising its own change event calls
+   `Apply` straight back in — so every Ctrl+Z recorded the echo as a fresh edit and undo could never
+   reach the beginning. The guard now spans the invoke, in `Undo`, `Redo`, `Reset` and `Restore`.
+   ⚠️ `UndoStackTests.RestoringDoesNotRecordHistory` was RED and had been for long enough that
+   nobody looked — see `08` §3 and `CITEST_01` for why.
+2. **`UNDO_24` — the sidecar from §4 exists** (`UndoSidecarStore`), keyed by a hash of the
+   project's full path, fingerprinted against the document it describes, capped at `MaxEntries` on
+   write as well as on restore, and wired to project open and save. A history that belongs to a
+   different version of the project is discarded rather than replayed: replaying it walks the user
+   into a document that never existed on this timeline, silently.
+3. **`UNDO_25` — the Granular editor's history now survives closing the window.** `OnClosed` called
+   `ClearUndoHistory("editor closed")`, reasoning that "nothing survives the window that owned
+   them". That is true of native handles and false of the user's work: snapshots are plain data
+   (U1). Ten minutes of speed ramps died whenever someone closed the editor to glance at the main
+   timeline. The history is now parked, keyed by clip path — restoring it into a DIFFERENT clip
+   would apply segment boundaries measured against another video's duration.
+4. ~~Ctrl+Z / Ctrl+Y in the main window~~ — done (`PROJSESSION_04`).
+
+**Still not done:**
+
+1. Migrating `GranularSpeedEditorWindow.PushUndo` onto `UndoStack<ProjectDocument>`. The editor
+   keeps its own stack over `EditorSnapshot`, which carries editor-local state (the freeze, the
+   selected segment) that `ProjectDocument` does not model. `UNDO_25` closes the user-visible half
+   of this — history no longer dies with the window — but there are still two implementations.
+2. Undo/Redo in the Crop Tool, Music Wizard and Video Merger. None of them have any.
+3. Undo/Redo menu labels driven by `NextUndoLabel` / `NextRedoLabel` in the main window. The
+   Granular editor already does this.

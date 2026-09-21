@@ -124,8 +124,9 @@ internal static class CropConfigJson
                 return Frac.FromDouble(d);
             return fallback;
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return fallback;
         }
     }

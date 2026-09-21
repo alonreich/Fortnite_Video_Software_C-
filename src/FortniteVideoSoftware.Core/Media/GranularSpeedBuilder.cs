@@ -852,6 +852,10 @@ public class GranularSpeedBuilder
             if (frac <= Frac.Zero) return 60.0;
             return Math.Min(60.0, frac.ToDouble());
         }
-        catch { return 60.0; }
+        catch (System.Exception swallowed)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            return 60.0;
+        }
     }
 }

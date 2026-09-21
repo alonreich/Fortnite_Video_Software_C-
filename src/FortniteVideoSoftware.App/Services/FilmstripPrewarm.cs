@@ -183,7 +183,11 @@ internal static class FilmstripPrewarm
                     logTag: "Prewarm",
                     yieldWhile: () => MpvIpcClient.AnyPlaybackActive).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException swallowed)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                return;
+            }
             catch (Exception ex) { RuntimeLog.Swallowed(ex); return; }
 
             lock (_gate)

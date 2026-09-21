@@ -129,7 +129,10 @@ internal static class DeploymentFootprint
         {
             if (string.Equals(dir, TempAppFolder, StringComparison.OrdinalIgnoreCase)) continue;
             try { if (Directory.Exists(dir)) return true; }
-            catch (System.Exception) { /* unreadable is not the same as absent; keep looking */ }
+            catch (System.Exception swallowed)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            }
         }
         return false;
     }
@@ -173,7 +176,11 @@ internal static class DeploymentFootprint
 
             string normalized;
             try { normalized = Path.GetFullPath(candidate!).TrimEnd('\\', '/'); }
-            catch { continue; }
+            catch (System.Exception swallowed2)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                continue;
+            }
 
             if (seen.Add(normalized))
             {

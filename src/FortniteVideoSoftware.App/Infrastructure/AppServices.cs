@@ -147,6 +147,16 @@ public sealed class AppServices
             projects:   FileProjectStore.Instance,
             filePicker: new StorageProviderFilePicker(windows, faults));
 
+        // FAULTTIER_02 — make the sink reachable from the ~900 catch blocks that cannot be handed
+        // one: static helpers, window code-behind Avalonia constructs, worker threads with no
+        // object graph in scope. Installed HERE, immediately after the graph is built, because
+        // every line of startup after this point can now report a classified failure instead of
+        // writing a log line nobody opens.
+        //
+        // ⚠️ This is a diagnostic channel, not a collaborator. See the note on Faults for why that
+        // distinction is what keeps it from being the service locator COMPOSITION_02 retires.
+        Core.Abstractions.Faults.Install(faults);
+
         RuntimeLog.Info("COMPOSITION", "Application service graph constructed.");
         return _current;
     }
@@ -165,11 +175,22 @@ public sealed class AppServices
         IFilePickerService filePicker)
     {
         _current = new AppServices(paths, clock, windows, notifier, faults, projects, filePicker);
+
+        // FAULTTIER_02 — a test that installs a recording sink must also receive the faults raised
+        // through the ambient channel, or half the code under test reports into a void and the
+        // test passes while proving nothing.
+        Core.Abstractions.Faults.ResetForTests();
+        Core.Abstractions.Faults.Install(faults);
+
         return _current;
     }
 
     /// <summary>Test teardown. Never called in production — the graph lives as long as the process.</summary>
-    public static void ResetForTests() => _current = null;
+    public static void ResetForTests()
+    {
+        _current = null;
+        Core.Abstractions.Faults.ResetForTests();
+    }
 }
 
 /// <summary>

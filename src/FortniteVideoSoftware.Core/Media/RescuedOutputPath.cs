@@ -106,9 +106,10 @@ internal static class RescuedOutputPath
                     {
                     }
                 }
-                catch (IOException)
+                catch (IOException swallowed)
                 {
                     // Taken by an existing file, or lost the race to a sibling rescue. Next index.
+                    global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                     continue;
                 }
 

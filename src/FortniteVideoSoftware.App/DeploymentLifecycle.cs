@@ -62,9 +62,10 @@ internal static class DeploymentLifecycle
         {
             await DeploymentReporter.AppendFatalAsync("LIFECYCLE", ex).ConfigureAwait(false);
             NativeDialog.ShowError(
-                "Deployment failed before it could complete." + Environment.NewLine +
-                $"Reason: {ex.Message}" + Environment.NewLine +
-                $"Report: {DeploymentFootprint.InstallReportPath}");
+            "Deployment failed before it could complete." + Environment.NewLine +
+            $"Reason: {ex.Message}" + Environment.NewLine +
+            $"Report: {DeploymentFootprint.InstallReportPath}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return 1;
         }
     }
@@ -539,6 +540,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("CLEANUP RETRY", $"Fast delete failed for {directory}: {ex.Message}. Deleting contents one by one.", null).ConfigureAwait(false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
 
         foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).ToArray())
@@ -586,8 +588,9 @@ internal static class DeploymentLifecycle
                 }
                 else
                 {
-                    await Task.Delay(250).ConfigureAwait(false);
+                await Task.Delay(250).ConfigureAwait(false);
                 }
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
         }
     }
@@ -631,7 +634,11 @@ internal static class DeploymentLifecycle
 
             string normalized;
             try { normalized = Path.GetFullPath(folder).TrimEnd('\\', '/'); }
-            catch { continue; }
+            catch (System.Exception swallowed)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                continue;
+            }
 
             if (!swept.Add(normalized))
             {
@@ -727,6 +734,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("REGISTRY SKIP", $"{hive} {view}\\{path}: {ex.Message}", null).ConfigureAwait(false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -869,8 +877,9 @@ internal static class DeploymentLifecycle
             string path = Environment.GetFolderPath(folder);
             return string.IsNullOrWhiteSpace(path) ? null : path;
         }
-        catch
+        catch (System.Exception swallowed2)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -911,6 +920,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             DeploymentReporter.AppendFatalAsync("EXTRACT PAYLOAD", ex).GetAwaiter().GetResult();
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -938,6 +948,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             DeploymentReporter.AppendFatalAsync("EXTRACT DEPENDENCIES", ex).GetAwaiter().GetResult();
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -968,6 +979,7 @@ internal static class DeploymentLifecycle
             catch (Exception ex)
             {
                 await DeploymentReporter.StepAsync("LAUNCH RETRY", $"Attempt {attempt} failed: {ex.Message}", 98).ConfigureAwait(false);
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
 
             await Task.Delay(200).ConfigureAwait(false);
@@ -1065,6 +1077,7 @@ internal static class DeploymentLifecycle
         {
             await DeploymentReporter.StepAsync("PROCESS TASKKILL", $"Falling back to taskkill for PID {process.Id}: {ex.Message}", null).ConfigureAwait(false);
             await RunHiddenProcessAsync("taskkill.exe", $"/F /PID {process.Id} /T", 3000).ConfigureAwait(false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -1161,9 +1174,9 @@ internal static class DeploymentLifecycle
                 }
             }
         }
-        catch
+        catch (System.Exception swallowed3)
         {
-            // Fall through
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
 
         try
@@ -1206,8 +1219,9 @@ internal static class DeploymentLifecycle
 
             return asmVer?.ToString() ?? "1.0.0.0";
         }
-        catch
+        catch (System.Exception swallowed5)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return "1.0.0.0";
         }
     }
@@ -1343,8 +1357,9 @@ internal static class DeploymentLifecycle
                     string full = Path.GetFullPath(candidate);
                     return Directory.Exists(full) ? full : null;
                 }
-                catch
+                catch (System.Exception swallowed6)
                 {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
                     return null;
                 }
             }
@@ -1378,8 +1393,9 @@ internal static class DeploymentLifecycle
             });
             return true;
         }
-        catch
+        catch (System.Exception swallowed7)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -1441,21 +1457,22 @@ internal static class DeploymentLifecycle
                 output = await outputTask.ConfigureAwait(false);
                 error = await errorTask.ConfigureAwait(false);
             }
-            catch (TimeoutException)
+            catch (TimeoutException swallowed4)
             {
                 // Deployment helpers are non-interactive, so the stdin quit command is skipped
                 // and the grace period is zero: hard kill the tree immediately — but WITH the
                 // bounded exit confirmation, so the output reads below never race a process
                 // that is still dying. Never throws.
                 await GracefulProcessTerminator.TerminateAsync(
-                    process,
-                    "PROCESS TIMEOUT",
-                    attemptQuitCommand: false,
-                    cooperativeGraceMs: 0).ConfigureAwait(false);
+                process,
+                "PROCESS TIMEOUT",
+                attemptQuitCommand: false,
+                cooperativeGraceMs: 0).ConfigureAwait(false);
                 output = outputTask.IsCompletedSuccessfully ? outputTask.Result : string.Empty;
                 error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
                 await DeploymentReporter.StepAsync("PROCESS TIMEOUT",
-                    $"{command}; killed after {timeoutMilliseconds} ms; output={output}; error={error}", null).ConfigureAwait(false);
+                $"{command}; killed after {timeoutMilliseconds} ms; output={output}; error={error}", null).ConfigureAwait(false);
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                 return -1;
             }
 
@@ -1465,6 +1482,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("PROCESS ERROR", $"{exe} {args}: {ex.Message}", null).ConfigureAwait(false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return -1;
         }
     }

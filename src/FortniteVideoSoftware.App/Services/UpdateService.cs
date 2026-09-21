@@ -59,6 +59,40 @@ internal static class UpdateService
     private const string ExpectedAssetName = "FortniteVideoSoftware.exe";
 
     /// <summary>
+    /// SYS-PAYLOADSPLIT — the app-only update package, when a release publishes one.
+    ///
+    /// <para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// <b>WHY A SECOND ASSET EXISTS.</b> <see cref="ExpectedAssetName"/> is a 322 MB NativeAOT
+    /// installer carrying FFmpeg and libmpv as an embedded payload. Downloading it to deliver a
+    /// one-line fix costs every user 322 MB, over a 30-minute timeout, to reinstall codec DLLs that
+    /// did not change. On a metered connection that is a reason to turn updates off — which turns
+    /// every shipped fix into a fix most users never get.
+    /// </para>
+    ///
+    /// <para>
+    /// This asset carries the application only. It is used when, and only when, the runtime already
+    /// installed on this machine is the one the release expects — proven by comparing
+    /// <c>RuntimePayloadManifest</c> fingerprints. Anything else, including "I could not read the
+    /// manifest", falls back to the full installer: a bigger download is always safe, a smaller one
+    /// is not.
+    /// </para>
+    ///
+    /// <para>⚠️ The size decision is the ONLY thing the fingerprint controls. Whatever is
+    /// downloaded is still SHA-256 verified and still Authenticode-checked before it is run
+    /// (UPDATETRUST_02). A fingerprint is a hint about what to fetch, never a reason to trust it.
+    /// </para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private const string AppOnlyAssetName = "FortniteVideoSoftware.App.update.zip";
+
+    /// <summary>
+    /// SYS-PAYLOADSPLIT — the release's runtime fingerprint, published as a tiny sidecar asset so
+    /// the updater can read it without downloading either package.
+    /// </summary>
+    private const string RuntimeManifestAssetName = "runtime.manifest.json";
+
+    /// <summary>
     /// UPDATETRUST_01 — the ONLY hosts an update asset may be fetched from.
     ///
     /// <para>The asset URL used to be taken from the release JSON verbatim and handed straight to
@@ -92,7 +126,25 @@ internal static class UpdateService
     private static readonly HttpClient Http = CreateHttpClient();
     private static int _checkInProgress;
 
-    private sealed record UpdateRelease(string Tag, string DownloadUrl, string? Sha256Hex, long Size, string? ReleaseNotes);
+    private sealed record UpdateRelease(
+        string Tag,
+        string DownloadUrl,
+        string? Sha256Hex,
+        long Size,
+        string? ReleaseNotes,
+        string? AppOnlyUrl = null,
+        string? AppOnlySha256Hex = null,
+        long AppOnlySize = 0,
+        string? RuntimeManifestUrl = null)
+    {
+        /// <summary>SYS-PAYLOADSPLIT — true when this release published a small app-only package.</summary>
+        public bool HasAppOnlyPackage => !string.IsNullOrWhiteSpace(AppOnlyUrl) && AppOnlySize > 0;
+
+        /// <summary>What the user is about to spend, in the units they think in.</summary>
+        public string DescribeDownloadSize(bool appOnly)
+            => FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FormatBytes(
+                   appOnly ? AppOnlySize : Size);
+    }
 
     private static HttpClient CreateHttpClient()
     {
@@ -129,8 +181,9 @@ internal static class UpdateService
         {
             await Task.Delay(StartupGracePeriod).ConfigureAwait(false);
         }
-        catch
+        catch (System.Exception swallowed4)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return;
         }
 
@@ -181,7 +234,11 @@ internal static class UpdateService
             Dispatcher.UIThread.Post(async () =>
             {
                 try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag, release.ReleaseNotes)); }
-                catch (Exception ex) { choiceReady.SetException(ex); }
+                catch (Exception ex)
+                {
+                    choiceReady.SetException(ex);
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+                }
             });
             UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
 
@@ -273,7 +330,11 @@ internal static class UpdateService
             Dispatcher.UIThread.Post(async () =>
             {
                 try { choiceReady.SetResult(await UpdateAvailableWindow.AskAsync(owner, local, release.Tag, release.ReleaseNotes)); }
-                catch (Exception ex) { choiceReady.SetException(ex); }
+                catch (Exception ex)
+                {
+                    choiceReady.SetException(ex);
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+                }
             });
             UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
 
@@ -321,7 +382,11 @@ internal static class UpdateService
     public static string GetSkippedVersion()
     {
         try { return UiStateStore.ReadText(SkippedTagFile).Trim(); }
-        catch { return string.Empty; }
+        catch (System.Exception swallowed6)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+            return string.Empty;
+        }
     }
 
     public static void ClearSkippedVersion()
@@ -383,13 +448,20 @@ internal static class UpdateService
             }
 
             JsonNode? asset = null;
+            JsonNode? appOnlyAsset = null;
+            string? runtimeManifestUrl = null;
+
             foreach (JsonNode? candidate in root?["assets"]?.AsArray() ?? [])
             {
-                if (candidate?["name"]?.GetValue<string>()?.Equals(ExpectedAssetName, StringComparison.OrdinalIgnoreCase) == true)
-                {
+                string? name = candidate?["name"]?.GetValue<string>();
+                if (name is null) continue;
+
+                if (name.Equals(ExpectedAssetName, StringComparison.OrdinalIgnoreCase))
                     asset = candidate;
-                    break;
-                }
+                else if (name.Equals(AppOnlyAssetName, StringComparison.OrdinalIgnoreCase))
+                    appOnlyAsset = candidate;          // SYS-PAYLOADSPLIT
+                else if (name.Equals(RuntimeManifestAssetName, StringComparison.OrdinalIgnoreCase))
+                    runtimeManifestUrl = candidate?["browser_download_url"]?.GetValue<string>();
             }
 
             string? url = asset?["browser_download_url"]?.GetValue<string>();
@@ -424,7 +496,36 @@ internal static class UpdateService
             }
 
             long size = asset?["size"]?.GetValue<long>() ?? 0;
-            return new UpdateRelease(tag, url, sha256, size, releaseNotes);
+
+            // SYS-PAYLOADSPLIT — the small package is optional. A release that does not publish one
+            // behaves exactly as before, which is what makes this safe to ship ahead of the build
+            // change that starts producing it.
+            string? appOnlyUrl = appOnlyAsset?["browser_download_url"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(appOnlyUrl) && !IsAllowedAssetUrl(appOnlyUrl!))
+            {
+                RuntimeLog.Fail("UPDATE",
+                    $"Release {tag} points its app-only package at an unexpected location; ignoring it "
+                  + "and using the full installer.");
+                appOnlyUrl = null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(runtimeManifestUrl) && !IsAllowedAssetUrl(runtimeManifestUrl!))
+                runtimeManifestUrl = null;
+
+            string? appOnlyDigest = appOnlyAsset?["digest"]?.GetValue<string>();
+            string? appOnlySha = null;
+            if (!string.IsNullOrEmpty(appOnlyDigest))
+            {
+                int c2 = appOnlyDigest.IndexOf(':');
+                appOnlySha = c2 >= 0 ? appOnlyDigest[(c2 + 1)..].ToLowerInvariant() : null;
+            }
+
+            return new UpdateRelease(
+                tag, url, sha256, size, releaseNotes,
+                appOnlyUrl,
+                appOnlySha,
+                appOnlyAsset?["size"]?.GetValue<long>() ?? 0,
+                runtimeManifestUrl);
         }
         catch (Exception ex)
         {
@@ -449,8 +550,72 @@ internal static class UpdateService
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe)) return false;
             return DeploymentLifecycle.TryParseVersion(FileVersionInfo.GetVersionInfo(exe).FileVersion, out version);
         }
-        catch
+        catch (System.Exception swallowed3)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// SYS-PAYLOADSPLIT — DECIDES WHETHER THIS MACHINE NEEDS THE 322 MB INSTALLER OR JUST THE APP.
+    ///
+    /// <para>
+    /// Returns true only when the release published an app-only package AND advertised a runtime
+    /// fingerprint AND that fingerprint matches what is installed here. Every other path — no small
+    /// package, no advertised fingerprint, an unreadable local manifest, a network failure reading
+    /// the sidecar, or a genuine mismatch — returns false and the user gets the full installer.
+    /// </para>
+    ///
+    /// <para>⚠️ THE ASYMMETRY IS THE WHOLE DESIGN. Wrongly choosing the big download costs
+    /// bandwidth. Wrongly choosing the small one installs an application against codec binaries it
+    /// was not built for, which fails at export time, on the user's machine, after they have done
+    /// the work. So every uncertainty resolves to the installer.</para>
+    /// </summary>
+    private static async Task<bool> RuntimeAlreadyMatchesAsync(UpdateRelease release)
+    {
+        if (!release.HasAppOnlyPackage || string.IsNullOrWhiteSpace(release.RuntimeManifestUrl))
+            return false;
+
+        try
+        {
+            var installed = FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.Read(
+                AppContext.BaseDirectory);
+            if (installed is null)
+            {
+                RuntimeLog.Info("UPDATE",
+                    "No local runtime manifest, so the installed runtime cannot be proven current; "
+                  + "using the full installer.");
+                return false;
+            }
+
+            using var cts = new CancellationTokenSource(ProbeTimeout);
+            string json = await Http.GetStringAsync(release.RuntimeManifestUrl!, cts.Token).ConfigureAwait(false);
+
+            var advertised = FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FromJson(
+                JsonNode.Parse(json)?.AsObject());
+            if (advertised is null) return false;
+
+            bool match = string.Equals(installed.Fingerprint, advertised.Fingerprint, StringComparison.Ordinal);
+
+            RuntimeLog.Info("UPDATE", match
+                ? $"Runtime already matches release {release.Tag} ({installed.Fingerprint}); downloading the "
+                + $"app only ({release.DescribeDownloadSize(appOnly: true)} instead of "
+                + $"{release.DescribeDownloadSize(appOnly: false)})."
+                : $"Runtime differs from release {release.Tag} (local {installed.Fingerprint}, release "
+                + $"{advertised.Fingerprint}); the full installer is required.");
+
+            return match;
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancel is not a fault (FAULTTIER_01) and is not a reason to pick the small package.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Info("UPDATE",
+                $"Could not compare runtime fingerprints ({ex.GetType().Name}); using the full installer.");
             return false;
         }
     }
@@ -458,6 +623,16 @@ internal static class UpdateService
     private static async Task DownloadVerifyLaunchAsync(Window owner, UpdateRelease release)
     {
         PurgeOldDownloadFolders();
+
+        // SYS-PAYLOADSPLIT — resolved here, once, before anything is fetched, so the size the user
+        // is told about below is the size that is actually downloaded.
+        bool appOnly = await RuntimeAlreadyMatchesAsync(release).ConfigureAwait(false);
+        if (appOnly)
+        {
+            RuntimeLog.Info("UPDATE",
+                $"Update {release.Tag}: app-only package selected "
+              + $"({release.DescribeDownloadSize(true)} rather than {release.DescribeDownloadSize(false)}).");
+        }
 
         // ══════════════════════════════════════════════════════════════════════════════════════
         // UPDATETRUST_01 — THE TAG IS UNTRUSTED INPUT AND IT IS ABOUT TO BECOME A DIRECTORY NAME.
@@ -511,7 +686,11 @@ internal static class UpdateService
                 dialogTask = progressWindow.ShowDialog(owner);
                 dialogShown.SetResult(null);
             }
-            catch (Exception ex) { dialogShown.SetException(ex); }
+            catch (Exception ex)
+            {
+                dialogShown.SetException(ex);
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
         });
         await dialogShown.Task.ConfigureAwait(false);
 
@@ -700,7 +879,10 @@ internal static class UpdateService
         }
         finally
         {
-            Dispatcher.UIThread.Post(() => { try { progressWindow?.Close(); } catch { /* already closed */ } });
+            Dispatcher.UIThread.Post(() => { try { progressWindow?.Close(); } catch (System.Exception swallowed5)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+            } });
         }
 
         await dialogTask.ConfigureAwait(false);
@@ -808,6 +990,9 @@ internal static class UpdateService
 
     private static void TryDeleteFile(string path)
     {
-        try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
+        try { if (File.Exists(path)) File.Delete(path); } catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 }

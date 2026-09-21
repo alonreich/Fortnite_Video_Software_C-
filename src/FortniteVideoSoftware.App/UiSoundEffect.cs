@@ -200,9 +200,10 @@ public static class UiSoundEffect
                 PlayOnWorker(s.CueIndex, s.Gain);
             }), new WorkItem(i, gain));
         }
-        catch
+        catch (System.Exception swallowed)
         {
             Interlocked.Decrement(ref _activeVoices);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -231,8 +232,9 @@ public static class UiSoundEffect
             gain = v / 100f;
             return true;
         }
-        catch
+        catch (System.Exception swallowed2)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return true;
         }
     }
@@ -258,6 +260,7 @@ public static class UiSoundEffect
         catch (Exception ex)
         {
             SafeLog("UI sound playback failed: " + ex.Message);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -291,6 +294,7 @@ public static class UiSoundEffect
         catch (Exception ex)
         {
             SafeLog($"UI sound decode failed for {ResourceNames[cueIndex]}: {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -325,6 +329,7 @@ public static class UiSoundEffect
             _engineFailed = true;
             TearDownLocked();
             SafeLog("UI sound engine could not start - UI sounds disabled for this session: " + ex.Message);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

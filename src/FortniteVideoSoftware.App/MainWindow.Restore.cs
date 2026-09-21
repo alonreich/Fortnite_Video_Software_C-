@@ -55,10 +55,10 @@ public partial class MainWindow
             // frame it had just restored.
             UpdateThumbnailButtonState();
 
-            var markStartBtn = this.FindControl<Button>("MarkStartButton");
+            var markStartBtn = MarkStartButtonCtl;
             if (markStartBtn != null && _trimStartSet)
                 markStartBtn.Content = $"START: {FormatTime(TimeSpan.FromMilliseconds(_trimStartMs))}";
-            var markEndBtn = this.FindControl<Button>("MarkEndButton");
+            var markEndBtn = MarkEndButtonCtl;
             if (markEndBtn != null && _trimEndMs > 0)
                 markEndBtn.Content = $"END: {FormatTime(TimeSpan.FromMilliseconds(_trimEndMs))}";
 
@@ -70,7 +70,7 @@ public partial class MainWindow
                 restoredSpeed = SpeedPresetButtons.NativeDefaultSpeed;
             }
             _baseSpeed = restoredSpeed;
-            var speedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+            var speedSlider = MainSpeedSliderCtl;
             if (speedSlider != null) speedSlider.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
 
             // QUALITY_01 — the stored index means a TIER now. An index written by an older build
@@ -79,7 +79,7 @@ public partial class MainWindow
             int qualityVal = state["qualitySliderValue"]?.GetValue<int>()
                              ?? FortniteVideoSoftware.App.ViewModels.QualityLadder.DefaultIndex;
             qualityVal = FortniteVideoSoftware.App.ViewModels.QualityLadder.ClampIndex(qualityVal);
-            var qualitySliderRestore = this.FindControl<SpinningWheelSlider>("QualitySlider");
+            var qualitySliderRestore = QualitySliderCtl;
             if (qualitySliderRestore != null) qualitySliderRestore.Value = qualityVal;
 
             _freezeTimeMs = state["freezeTimeMs"]?.GetValue<double>() ?? -1;
@@ -305,31 +305,31 @@ public partial class MainWindow
             SetMusicButtonActive(state["isMusicActive"]?.GetValue<bool>() ?? false);
 
             double vol = state["volume"]?.GetValue<double>() ?? 100;
-            var volSliderRestore = this.FindControl<Slider>("VolumeSlider");
+            var volSliderRestore = VolumeSliderCtl;
             if (volSliderRestore != null) volSliderRestore.Value = vol;
 
             bool portraitMode = state["portraitMode"]?.GetValue<bool>() ?? true;
-            var portraitCbRestore = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+            var portraitCbRestore = PortraitModeCheckboxCtl;
             if (portraitCbRestore != null) portraitCbRestore.IsChecked = portraitMode;
 
             bool showTeammates = state["showTeammates"]?.GetValue<bool>() ?? false;
-            var teammatesCbRestore = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+            var teammatesCbRestore = TeammatesCheckboxCtl;
             if (teammatesCbRestore != null) teammatesCbRestore.IsChecked = showTeammates;
 
             bool showSpectating = state["showSpectating"]?.GetValue<bool>() ?? true;
-            var spectatingCbRestore = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+            var spectatingCbRestore = SpectatingCheckboxCtl;
             if (spectatingCbRestore != null) spectatingCbRestore.IsChecked = showSpectating;
 
-            var enableFadeCbRestore = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+            var enableFadeCbRestore = EnableFadeCheckboxCtl;
             if (enableFadeCbRestore != null && state.ContainsKey("enableFade"))
                 enableFadeCbRestore.IsChecked = state["enableFade"]?.GetValue<bool>() ?? true;
 
             string portraitText = (string?)state["portraitText"] ?? "";
-            var portraitTextRestore = this.FindControl<TextBox>("PortraitTextInput");
+            var portraitTextRestore = PortraitTextInputCtl;
             if (portraitTextRestore != null) portraitTextRestore.Text = portraitText;
 
             bool addMeme = state["addMeme"]?.GetValue<bool>() ?? false;
-            var addMemeCbRestore = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+            var addMemeCbRestore = AddMemeCheckboxCtl;
             if (addMemeCbRestore != null) addMemeCbRestore.IsChecked = addMeme;
 
             string memeFilePath = (string?)state["memeFilePath"] ?? "";
@@ -341,7 +341,7 @@ public partial class MainWindow
                 if (File.Exists(restoreTarget))
                 {
                     _pendingMemeRestorePath = restoreTarget;
-                    var memeCbRestore = this.FindControl<ComboBox>("MemeComboBox");
+                    var memeCbRestore = MemeComboBoxCtl;
                     var immediate = _memeItems.FirstOrDefault(m =>
                         string.Equals(m.FullPath, restoreTarget, StringComparison.OrdinalIgnoreCase));
                     if (memeCbRestore != null && immediate != null)
@@ -378,7 +378,7 @@ public partial class MainWindow
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             UpdatePortraitOverlay();
 
-            var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+            var uploadOverlay = UploadOverlayCtl;
             if (uploadOverlay != null) uploadOverlay.IsVisible = false;
 
             _ = Task.Run(async () =>

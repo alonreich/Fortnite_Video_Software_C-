@@ -18,6 +18,7 @@ namespace FortniteVideoSoftware.App.Controls;
 
 public partial class PhaseOverlayControl : UserControl
 {
+
     private DispatcherTimer? _timer;
     private List<string> _logLines = new();
     private List<int> _cpuHist = new();
@@ -97,7 +98,11 @@ public partial class PhaseOverlayControl : UserControl
         get
         {
             try { return GetParentWindow()?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero; }
-            catch { return IntPtr.Zero; }
+            catch (System.Exception swallowed)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                return IntPtr.Zero;
+            }
         }
     }
 
@@ -117,7 +122,7 @@ public partial class PhaseOverlayControl : UserControl
         // stopped before a new one is started. Non-throwing, as before.
         _telemetry.Start();
         
-        var txt = this.FindControl<TextBox>("LiveLogTextBox");
+        var txt = LiveLogTextBoxCtl;
         if (txt != null) txt.Text = "Backend log stream attached.\n";
         
         RuntimeLog.LogAppended -= AppendLog;
@@ -126,7 +131,7 @@ public partial class PhaseOverlayControl : UserControl
 
         _barTarget = 0;
         _barValue = 0;
-        var pbar0 = this.FindControl<ProgressBar>("PhaseProgressBar");
+        var pbar0 = PhaseProgressBarCtl;
         if (pbar0 != null) pbar0.Value = 0;
         var ptxt0 = this.FindControl<TextBlock>("PhaseProgressText");
         if (ptxt0 != null) ptxt0.Text = "0%";
@@ -173,7 +178,7 @@ public partial class PhaseOverlayControl : UserControl
 
         _loserIsA = _isBossFight ? false : _rand.Next(2) == 0;
 
-        var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+        var bar = HypeMeterBarCtl;
         if (bar != null) bar.Value = 0;
         var bossLbl = this.FindControl<TextBlock>("BossLabel");
         if (bossLbl != null) bossLbl.IsVisible = _isBossFight;
@@ -187,10 +192,10 @@ public partial class PhaseOverlayControl : UserControl
         SetHealth("HealthBarA", 100);
         SetHealth("HealthBarB", 100);
 
-        var canvas = this.FindControl<Canvas>("FightCanvas");
+        var canvas = FightCanvasCtl;
         if (canvas != null) { canvas.IsVisible = true; canvas.RenderTransform = null; }
-        var fA = this.FindControl<Canvas>("FighterA");
-        var fB = this.FindControl<Canvas>("FighterB");
+        var fA = FighterACtl;
+        var fB = FighterBCtl;
         if (fA != null) { fA.RenderTransform = null; fA.Opacity = 1; }
         if (fB != null)
         {
@@ -215,7 +220,7 @@ public partial class PhaseOverlayControl : UserControl
         _koA = _koB = false; _skitKind = "";
         _projActive = _projDouble = false; _moveKind = ""; _hitResolved = false;
         ClearLogStrands();
-        var glassR = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+        var glassR = BulbGlassCtl;
         if (glassR != null) glassR.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
         foreach (var n in new[] { "Projectile", "Projectile2", "SuperFlash", "UltBeam", "ImpactBurst", "ComicBubble",
                                    "ComicText", "TitleFlash", "DustA", "DustB", "Mushroom", "ShockRing",
@@ -236,8 +241,8 @@ public partial class PhaseOverlayControl : UserControl
 
     private void ApplyFighterGlow()
     {
-        var fA = this.FindControl<Canvas>("FighterA");
-        var fB = this.FindControl<Canvas>("FighterB");
+        var fA = FighterACtl;
+        var fB = FighterBCtl;
         if (fA != null)
             fA.Effect = new Avalonia.Media.DropShadowEffect { Color = TokenColor("AppInfoColor", Color.Parse("#38bdf8")), BlurRadius = 14, OffsetX = 0, OffsetY = 0, Opacity = 0.8 };
         if (fB != null)
@@ -379,7 +384,7 @@ public partial class PhaseOverlayControl : UserControl
         _barTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _barTimer.Tick += (_, __) =>
         {
-            var phaseBar = this.FindControl<ProgressBar>("PhaseProgressBar");
+            var phaseBar = PhaseProgressBarCtl;
             var phaseText = this.FindControl<TextBlock>("PhaseProgressText");
             double delta = _barTarget - _barValue;
             if (Math.Abs(delta) < 0.4) _barValue = _barTarget;
@@ -478,8 +483,8 @@ public partial class PhaseOverlayControl : UserControl
             window.PropertyChanged += OnWindowPropertyChanged;
         }
 
-        var pbar = this.FindControl<ProgressBar>("PhaseProgressBar")?.Parent as Control;
-        var log = this.FindControl<TextBox>("LiveLogTextBox");
+        var pbar = PhaseProgressBarCtl?.Parent as Control;
+        var log = LiveLogTextBoxCtl;
         var graph = this.FindControl<HardwareGraphControl>("GraphCanvas")?.Parent as Control;
 
         if (pbar != null) _anchorProgressBar = pbar.Bounds;
@@ -512,7 +517,7 @@ public partial class PhaseOverlayControl : UserControl
         if (e.Property.Name != "WindowState" && e.Property.Name != "Bounds") return;
         if (!_easterEggActive) return;
 
-        var canvas = this.FindControl<Canvas>("FightCanvas");
+        var canvas = FightCanvasCtl;
         if (canvas == null) return;
 
         if (!canvas.IsVisible) canvas.IsVisible = true;
@@ -523,7 +528,6 @@ public partial class PhaseOverlayControl : UserControl
             EndSkit(_processStopwatch.Elapsed.TotalSeconds);
         }
     }
-
 
     private DispatcherTimer? _vectorAnimTimer;
     private double _animTime = 0.0;
@@ -606,26 +610,34 @@ public partial class PhaseOverlayControl : UserControl
     private const double FootOffset = 120;
 
     private static readonly string[] s_taunts =
-        { "Encoding!", "Hold still!", "2x speed!", "Almost!", "Rendering!", "Take that!",
+        {
+            "Encoding!", "Hold still!", "2x speed!", "Almost!", "Rendering!", "Take that!",
           "Get shorty!", "Frame by frame!", "Compressing!", "Eat pixels!", "Too slow!", "Final boss!" };
     private static readonly string[] s_impacts =
-        { "POW!", "BAM!", "WHAM!", "BIFF!", "KAPOW!", "THWACK!", "CRUNCH!", "SMACK!", "BOOM!" };
+        {
+            "POW!", "BAM!", "WHAM!", "BIFF!", "KAPOW!", "THWACK!", "CRUNCH!", "SMACK!", "BOOM!" };
     private static readonly string[] s_moves =
-        { "throw", "throw", "dash", "dash", "uppercut", "kick", "feint", "leap", "hide", "super", "mushroom" };
+        {
+            "throw", "throw", "dash", "dash", "uppercut", "kick", "feint", "leap", "hide", "super", "mushroom" };
     private static readonly string[] s_bossMoves =
-        { "stomp", "stomp", "dash", "throw", "kick", "super" };
+        {
+            "stomp", "stomp", "dash", "throw", "kick", "super" };
     private static readonly string[] s_projBrush =
-        { "AppWarningBrush", "AppInfoBrush", "AppAccentBrush", "AppDangerBrush", "AppSuccessBrush" };
+        {
+            "AppWarningBrush", "AppInfoBrush", "AppAccentBrush", "AppDangerBrush", "AppSuccessBrush" };
     private static readonly string[] s_skits =
-        { "door", "bulb", "logtangle", "logtangle", "banana", "tunnel", "piano", "buzzer", "tug", "snooze" };
+        {
+            "door", "bulb", "logtangle", "logtangle", "banana", "tunnel", "piano", "buzzer", "tug", "snooze" };
     private static readonly string[] s_fakeLogLines =
-        { "[ffmpeg] frame=1042 fps=61 q=23", "[enc] nvenc_h264 preset=p5", "[mux] writing packet 88421",
+        {
+            "[ffmpeg] frame=1042 fps=61 q=23", "[enc] nvenc_h264 preset=p5", "[mux] writing packet 88421",
           "[scale] 2560x1440 -> 1920x1080", "[audio] aac 192k lufs -14.0", "[io] flush 32 MiB to disk",
           "[gpu] session 1/2 busy", "[probe] stream 0 ok", "[filter] fps=60 applied" };
 
     /// <summary>Props that must be hidden between skits / at reset.</summary>
     private static readonly string[] s_skitProps =
-        { "Door", "Ladder", "Bulb", "ZapBolt", "LogTangle", "BananaPeel", "FakeTunnel",
+        {
+            "Door", "Ladder", "Bulb", "ZapBolt", "LogTangle", "BananaPeel", "FakeTunnel",
           "Piano", "TugRope", "SleepZzz", "FaceDoodle" };
 
     private void PlaySequence(string sequenceName)
@@ -662,7 +674,6 @@ public partial class PhaseOverlayControl : UserControl
     private Canvas? _fightCanvasCached;
     private Canvas? _fighterACached;
     private Canvas? _fighterBCached;
-
 
     /// <summary>
     /// While an export is running the overlay owns the spacebar. Previously Space fell through
@@ -714,10 +725,9 @@ public partial class PhaseOverlayControl : UserControl
     private void AddHype(double amount)
     {
         _hypeLevel = Math.Min(100, _hypeLevel + amount);
-        var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+        var bar = HypeMeterBarCtl;
         if (bar != null) bar.Value = _hypeLevel;
     }
-
 
     private void OnVectorAnimTick(object? sender, EventArgs e)
     {
@@ -756,7 +766,7 @@ public partial class PhaseOverlayControl : UserControl
             {
                 _hypeLevel = Math.Max(0, _hypeLevel - 0.45);
             }
-            var bar = this.FindControl<Avalonia.Controls.ProgressBar>("HypeMeterBar");
+            var bar = HypeMeterBarCtl;
             if (bar != null) bar.Value = _hypeLevel;
         }
 
@@ -806,7 +816,6 @@ public partial class PhaseOverlayControl : UserControl
         if (now >= _ultFlashUntil) SetVisible("UltBeam", false);
     }
 
-
     private void DrawGround(Canvas canvas, double w, double groundY)
     {
         var line = this.FindControl<Avalonia.Controls.Shapes.Line>("GroundLine");
@@ -839,7 +848,6 @@ public partial class PhaseOverlayControl : UserControl
         Canvas.SetLeft(sh, fx + 15 * scale - wdt / 2.0);
         Canvas.SetTop(sh, groundY - hgt / 2.0);
     }
-
 
     private void LayoutHud(double w)
     {
@@ -895,7 +903,6 @@ public partial class PhaseOverlayControl : UserControl
         bar.Foreground = Infrastructure.ThemeResources.Brush(this, key, new SolidColorBrush(Color.Parse("#22c55e")));
     }
 
-
     private void Shake(double now, double seconds, double magnitude)
     {
         _camShakeUntil = Math.Max(_camShakeUntil, now + seconds);
@@ -914,7 +921,6 @@ public partial class PhaseOverlayControl : UserControl
         double mag = _camShakeMag * Math.Clamp(left / 0.5, 0, 1);
         canvas.RenderTransform = new TranslateTransform(Math.Sin(now * 71) * mag, Math.Cos(now * 53) * mag * 0.6);
     }
-
 
     private void TickFight(double now, double midX, double fightY, double w, double h)
     {
@@ -994,7 +1000,6 @@ public partial class PhaseOverlayControl : UserControl
         if (now >= _tauntUntil) { SetVisible("ComicBubble", false); SetVisible("ComicText", false); }
     }
 
-
     private string NextTaunt()
     {
         var live = new List<string>();
@@ -1032,7 +1037,6 @@ public partial class PhaseOverlayControl : UserControl
         if (s.Length > max) s = s.Substring(0, max).TrimEnd() + "...";
         return s.Length == 0 ? "..." : s;
     }
-
 
     private void StartMove(double now, double midX, double fightY, double w, double h)
     {
@@ -1178,7 +1182,6 @@ public partial class PhaseOverlayControl : UserControl
         _nextMoveTime = now + Math.Max(0.12, baseGap);
     }
 
-
     private void StartUltBeam(double now, double fightY)
     {
         _ultFlashUntil = now + 0.9;
@@ -1239,7 +1242,6 @@ public partial class PhaseOverlayControl : UserControl
         }
     }
 
-
     private void AdvanceStomp(double now, double t, double fightY)
     {
         if (t < 0.55)
@@ -1272,7 +1274,6 @@ public partial class PhaseOverlayControl : UserControl
             }
         }
     }
-
 
     private void AdvanceMushroom(double now, double t, double fightY)
     {
@@ -1318,7 +1319,6 @@ public partial class PhaseOverlayControl : UserControl
         }
     }
 
-
     private double GetX(bool isA) => isA ? _ax : _bx;
     private double GetY(bool isA) => isA ? _ay : _by;
     private void SetX(bool isA, double v) { if (isA) _ax = v; else _bx = v; }
@@ -1338,7 +1338,6 @@ public partial class PhaseOverlayControl : UserControl
         if (f != null) f.Opacity = Math.Clamp(o, 0, 1);
     }
 
-
     private void StartSkit(double now, double midX, double fightY, double w, double h)
     {
         _moveKind = "skit"; _skitStart = now; _skitPhase = 0; _hitResolved = false;
@@ -1354,7 +1353,7 @@ public partial class PhaseOverlayControl : UserControl
             case "door":
             {
                 _skitDur = 3.4;
-                var door = this.FindControl<Canvas>("Door");
+                var door = DoorCtl;
                 if (door != null) { door.IsVisible = true; door.RenderTransform = null; Canvas.SetLeft(door, midX - 30); Canvas.SetTop(door, fightY - 20); }
                 break;
             }
@@ -1435,7 +1434,7 @@ public partial class PhaseOverlayControl : UserControl
             else if (!_hitResolved)
             {
                 _hitResolved = true;
-                var door = this.FindControl<Canvas>("Door");
+                var door = DoorCtl;
                 if (door != null) { door.RenderTransformOrigin = new Avalonia.RelativePoint(0, 0.5, Avalonia.RelativeUnit.Relative); door.RenderTransform = new RotateTransform(prankIsA ? 72 : -72); }
                 SetVX(victimIsA, 11 * dir);
                 SetSquash(victimIsA, 0.5);
@@ -1465,7 +1464,7 @@ public partial class PhaseOverlayControl : UserControl
                 double vx = GetX(victimIsA);
                 var zap = this.FindControl<Avalonia.Controls.Shapes.Path>("ZapBolt");
                 if (zap != null) { zap.IsVisible = true; Canvas.SetLeft(zap, vx + 8); Canvas.SetTop(zap, fightY - 42); }
-                var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+                var glass = BulbGlassCtl;
                 if (glass != null) glass.Fill = Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", new SolidColorBrush(Color.Parse("#facc15")));
                 ShowImpact("BZZT!", vx + 15, fightY - 22);
                 _impactUntil = now + 0.6;
@@ -1483,11 +1482,14 @@ public partial class PhaseOverlayControl : UserControl
             AdvanceLogStrands(t, GetX(victimIsA), fightY);
 
             if (_skitPhase == 0 && t > 0.06)
-            { _skitPhase = 1; ShowTaunt("HELP! I'm buried in the logs!", GetX(victimIsA) + 15, fightY - 32); _tauntUntil = now + 2.4; }
+            {
+                _skitPhase = 1; ShowTaunt("HELP! I'm buried in the logs!", GetX(victimIsA) + 15, fightY - 32); _tauntUntil = now + 2.4; }
             else if (_skitPhase == 1 && t > 0.34)
-            { _skitPhase = 2; ShowTaunt("So much green text!!", GetX(victimIsA) + 15, fightY - 32); _tauntUntil = now + 2.0; }
+            {
+                _skitPhase = 2; ShowTaunt("So much green text!!", GetX(victimIsA) + 15, fightY - 32); _tauntUntil = now + 2.0; }
             else if (_skitPhase == 2 && t > 0.56)
-            { _skitPhase = 3; SetStance(prankIsA, "reach"); ShowTaunt("Hold still - untangling!", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 2.0; }
+            {
+                _skitPhase = 3; SetStance(prankIsA, "reach"); ShowTaunt("Hold still - untangling!", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 2.0; }
             else if (_skitPhase == 3 && !_hitResolved && t > 0.88)
             {
                 _hitResolved = true;
@@ -1497,7 +1499,8 @@ public partial class PhaseOverlayControl : UserControl
                 _impactUntil = now + 0.6;
             }
             else if (_hitResolved && _skitPhase < 4 && t > 0.94)
-            { _skitPhase = 4; ShowTaunt("Never trust a log.", GetX(victimIsA) + 15, fightY - 26); _tauntUntil = now + 1.5; }
+            {
+                _skitPhase = 4; ShowTaunt("Never trust a log.", GetX(victimIsA) + 15, fightY - 26); _tauntUntil = now + 1.5; }
         }
         else if (_skitKind == "banana")
         {
@@ -1519,7 +1522,8 @@ public partial class PhaseOverlayControl : UserControl
                 KnockOut(victimIsA, now, 1.9);
             }
             else if (t > 0.74 && _skitPhase < 2)
-            { _skitPhase = 2; ShowTaunt("Classic.", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 1.5; }
+            {
+                _skitPhase = 2; ShowTaunt("Classic.", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 1.5; }
         }
         else if (_skitKind == "tunnel")
         {
@@ -1596,7 +1600,8 @@ public partial class PhaseOverlayControl : UserControl
                 {
                     SetSquash(victimIsA, 0.8);
                     if (_skitPhase < 2 && t > 0.74)
-                    { _skitPhase = 2; ShowTaunt("Where'd that come from?", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 1.8; }
+                    {
+                        _skitPhase = 2; ShowTaunt("Where'd that come from?", GetX(prankIsA) + 15, fightY - 26); _tauntUntil = now + 1.8; }
                 }
             }
         }
@@ -1659,7 +1664,8 @@ public partial class PhaseOverlayControl : UserControl
                 KnockOut(true, now, 1.5); KnockOut(false, now, 1.5);
             }
             else if (_hitResolved && _skitPhase < 3 && t > 0.80)
-            { _skitPhase = 3; ShowTaunt("My back...", _ax + 15, fightY - 26); _tauntUntil = now + 1.5; }
+            {
+                _skitPhase = 3; ShowTaunt("My back...", _ax + 15, fightY - 26); _tauntUntil = now + 1.5; }
         }
         else if (_skitKind == "snooze")
         {
@@ -1713,9 +1719,9 @@ public partial class PhaseOverlayControl : UserControl
 
     private void EndSkit(double now)
     {
-        var door = this.FindControl<Canvas>("Door");
+        var door = DoorCtl;
         if (door != null) door.RenderTransform = null;
-        var glass = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("BulbGlass");
+        var glass = BulbGlassCtl;
         if (glass != null) glass.Fill = Infrastructure.ThemeResources.Brush(this, "AppPanelBrush", new SolidColorBrush(Color.Parse("#334155")));
         foreach (var n in s_skitProps) SetVisible(n, false);
         ClearLogStrands();
@@ -1726,7 +1732,6 @@ public partial class PhaseOverlayControl : UserControl
         _nextMoveTime = now + 0.5;
     }
 
-
     /// <summary>
     /// Where the green log box actually sits, expressed in FightCanvas coordinates, so the
     /// strands leave from the real control rather than a guessed screen position. Falls back to
@@ -1736,7 +1741,7 @@ public partial class PhaseOverlayControl : UserControl
     {
         try
         {
-            var box = this.FindControl<TextBox>("LiveLogTextBox");
+            var box = LiveLogTextBoxCtl;
             if (box != null && box.Bounds.Width > 20 && box.Bounds.Height > 20)
             {
                 var p = box.TranslatePoint(new Point(0, 0), canvas);
@@ -1765,7 +1770,7 @@ public partial class PhaseOverlayControl : UserControl
 
     private void BuildLogStrands(Canvas canvas, double midX, double fightY)
     {
-        var host = this.FindControl<Canvas>("LogTangle");
+        var host = LogTangleCtl;
         if (host == null) return;
 
         ClearLogStrands();
@@ -1814,7 +1819,7 @@ public partial class PhaseOverlayControl : UserControl
 
     private void AdvanceLogStrands(double t, double victimX, double fightY)
     {
-        var host = this.FindControl<Canvas>("LogTangle");
+        var host = LogTangleCtl;
         if (host == null || _logStrands.Count == 0) return;
         host.IsVisible = true;
 
@@ -1853,12 +1858,11 @@ public partial class PhaseOverlayControl : UserControl
 
     private void ClearLogStrands()
     {
-        var host = this.FindControl<Canvas>("LogTangle");
+        var host = LogTangleCtl;
         if (host != null) { host.Children.Clear(); host.IsVisible = false; }
         _logStrands.Clear();
         _logStrandPlan.Clear();
     }
-
 
     private void KnockOut(bool isA, double now, double holdSec)
     {
@@ -2078,7 +2082,6 @@ public partial class PhaseOverlayControl : UserControl
             _impactUntil = now + 3.0;
         }
     }
-
 
     /// <summary>
     /// IDEA_2: <paramref name="facing"/> is +1 for "looking right" and -1 for "looking left".
@@ -2336,7 +2339,7 @@ public partial class PhaseOverlayControl : UserControl
                 }
                 if (hasLogs)
                 {
-                    var txtLog = this.FindControl<TextBox>("LiveLogTextBox");
+                    var txtLog = LiveLogTextBoxCtl;
                     if (txtLog != null)
                     {
                         txtLog.Text = string.Join("\n", _logLines) + "\n";
@@ -2413,5 +2416,4 @@ public class HardwareGraphControl : Control
         
         ctx.DrawLine(SeparatorPen, new Point(0, yOffset + 55), new Point(width, yOffset + 55));
     }
-    
 }

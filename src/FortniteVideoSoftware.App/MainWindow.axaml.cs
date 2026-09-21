@@ -27,6 +27,7 @@ namespace FortniteVideoSoftware.App;
 
 public partial class MainWindow : Window
 {
+
     private MpvVideoView? _videoHost;
 
     private PreviewDetachController? _previewDetach;
@@ -43,7 +44,6 @@ public partial class MainWindow : Window
     }
     private bool _isSeeking = false;
     private double? _nextSeekTarget = null;
-
 
     private readonly MainViewModel _viewModel;
     private readonly ProjectRecoveryService _recoveryService;
@@ -115,7 +115,6 @@ public partial class MainWindow : Window
     private bool _isCurrentlyFrozen = false;
     private DateTime _freezeStartTime;
     private double _previousVolume = 100;
-
 
     private string FormatTime(TimeSpan time, bool includeMilliseconds = false)
     {
@@ -304,7 +303,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private KineticScrubController? _kineticScrub;
 
-
     public MainWindow()
     {
         RuntimeLog.Info("UI", "Initializing MainWindow");
@@ -340,10 +338,18 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             // test, which already returns false after a successful export
             // (ExportedCleanSinceLastEdit) and is what SWITCHPROMPT_01 has always used. Without
             // this the session prompted to save a render that was already finished.
-            HasUnsavedWork);
+            HasUnsavedWork,
+            // PROJ_11 — the mask and the merge queue are captured on every edit boundary so the
+            // .fvsproj records the work the user actually did. Both are callbacks for the same
+            // reason the metrics probe is: they read state that outlives and predates this window.
+            Infrastructure.MaskOverlayManager.ReadLiveMask,
+            Services.ToolNavigator.ReadMergeQueue);
 
         _projectSession.StateChanged += (_, _) => RefreshProjectTitle();
-        _projectSession.DocumentApplied += (_, _) => OnProjectDocumentApplied();
+        // PROJ_11 — the document is carried through now. It has to be: restoring a project has to
+        // restore the merge queue it recorded, and the handler cannot read that from the
+        // view-models because the queue never lived there.
+        _projectSession.DocumentApplied += (_, document) => OnProjectDocumentApplied(document);
 
         // AUTO-UPDATE — silent, fully-guarded background check a few seconds after the window
         // settles. Every guard (Settings toggle, dev mode, 24h throttle, strict newer-version
@@ -438,7 +444,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private async Task PopulateMemeComboBoxAsync()
     {
-        var cb = this.FindControl<ComboBox>("MemeComboBox");
+        var cb = MemeComboBoxCtl;
         if (cb == null) return;
 
         // MEMECOMBO_01 — claimed BEFORE the await, checked after it.
@@ -479,7 +485,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
-        var cb = this.FindControl<ComboBox>("MemeComboBox");
+        var cb = MemeComboBoxCtl;
         if (cb == null) return;
 
         cb.ItemTemplate = MemeManagementService.CreateMemeItemTemplate(this, () => IsPortraitMode);
@@ -565,7 +571,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ToggleMuteFromSpeakerIcon()
     {
-        var volumeSlider = this.FindControl<Slider>("VolumeSlider");
+        var volumeSlider = VolumeSliderCtl;
         if (volumeSlider != null)
         {
             if (volumeSlider.Value > 0)
@@ -614,7 +620,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var badge = this.FindControl<Avalonia.Controls.Border>("PlayheadBadge");
         var text = this.FindControl<Avalonia.Controls.TextBlock>("PlayheadBadgeText");
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        var canvas = TimelineMarkersCanvasCtl;
 
         if (badge != null && text != null && canvas != null)
         {
@@ -642,25 +648,24 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var kb = SettingsManager.Instance.KeyBinds;
 
-        var playPauseBtn = this.FindControl<Button>("PlayPauseButton");
+        var playPauseBtn = PlayPauseButtonCtl;
         if (playPauseBtn != null) ToolTip.SetTip(playPauseBtn, $"Play or pause the video ({kb.PlayPause})");
 
-        var markStartBtn = this.FindControl<Button>("MarkStartButton");
+        var markStartBtn = MarkStartButtonCtl;
         if (markStartBtn != null) ToolTip.SetTip(markStartBtn, $"Mark the beginning of your clip ({kb.MarkStart})");
 
-        var markEndBtn = this.FindControl<Button>("MarkEndButton");
+        var markEndBtn = MarkEndButtonCtl;
         if (markEndBtn != null) ToolTip.SetTip(markEndBtn, $"Mark the end of your clip ({kb.MarkEnd})");
     }
-
 
     private void OnVideoDragEnter(object? sender, DragEventArgs e)
     {
         if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.Contains(Avalonia.Input.DataFormats.FileNames) || e.Data.GetFiles()?.Any() == true)
         {
             e.DragEffects = DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link;
-            var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+            var dropzone = AmbientDropzoneCtl;
             dropzone?.Activate();
-            var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+            var uploadOverlay = UploadOverlayCtl;
             if (uploadOverlay != null && uploadOverlay.IsVisible)
             {
                 uploadOverlay.Opacity = 0.15;
@@ -675,9 +680,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void OnVideoDragLeave(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+        var dropzone = AmbientDropzoneCtl;
         dropzone?.Deactivate();
-        var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+        var uploadOverlay = UploadOverlayCtl;
         if (uploadOverlay != null && uploadOverlay.IsVisible)
         {
             uploadOverlay.Opacity = 0.95;
@@ -699,9 +704,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private async void OnVideoDrop(object? sender, DragEventArgs e)
     {
-        var dropzone = this.FindControl<Controls.AmbientDropzoneControl>("AmbientDropzone");
+        var dropzone = AmbientDropzoneCtl;
         dropzone?.Deactivate();
-        var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+        var uploadOverlay = UploadOverlayCtl;
         if (uploadOverlay != null && uploadOverlay.IsVisible)
         {
             uploadOverlay.Opacity = 0.95;
@@ -818,7 +823,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             string selectedPath = files
                 .Select(f => f.Path.LocalPath)
                 .Where(File.Exists)
-                .OrderByDescending(p => { try { return File.GetLastWriteTimeUtc(p); } catch { return DateTime.MinValue; } })
+                .OrderByDescending(p => { try { return File.GetLastWriteTimeUtc(p); } catch (System.Exception swallowed5)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+                    return DateTime.MinValue;
+                } })
                 .FirstOrDefault() ?? files[0].Path.LocalPath;
 
             if (files.Count > 1)
@@ -900,10 +909,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         UpdateEstimatedQuality();
         UpdatePortraitOverlay();
 
-        var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+        var uploadOverlay = UploadOverlayCtl;
         if (uploadOverlay != null) uploadOverlay.IsVisible = false;
 
-        var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
+        var timelineOverlay = TimelineOverlayCtl;
         if (timelineOverlay != null) timelineOverlay.IsVisible = true;
 
         EnableEditingControls();
@@ -915,10 +924,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         SaveRecoveryState();
 
-
         _ = RunAudioLoudnessCheckAsync(path);
     }
-
 
     /// <summary>The user's answer for THIS video. Null until the probe has finished, in which
     /// case the export falls back to the stored preference.</summary>
@@ -934,8 +941,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private async Task RunAudioLoudnessCheckAsync(string path)
     {
-        try { _loudnessProbeCts?.Cancel(); } catch (System.ObjectDisposedException) { }
-        try { _loudnessProbeCts?.Dispose(); } catch (System.ObjectDisposedException) { }
+        try { _loudnessProbeCts?.Cancel(); } catch (System.ObjectDisposedException swallowed8)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
+        }
+        try { _loudnessProbeCts?.Dispose(); } catch (System.ObjectDisposedException swallowed)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+        }
         var cts = new CancellationTokenSource();
         _loudnessProbeCts = cts;
 
@@ -1004,7 +1017,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 }
             });
         }
-        catch (OperationCanceledException) { /* superseded by a newer upload */ }
+        catch (OperationCanceledException swallowed3)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+        }
         catch (Exception ex)
         {
             RuntimeLog.Debug("AudioLoudness", $"Loudness check skipped: {ex.Message}");
@@ -1040,16 +1056,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         ResetEditingStateForNewVideo();
         UpdateTimelineMarkers();
 
-        var uploadOverlay = this.FindControl<Border>("UploadOverlay");
+        var uploadOverlay = UploadOverlayCtl;
         if (uploadOverlay != null) { uploadOverlay.IsVisible = true; uploadOverlay.Opacity = 0.95; }
 
-        var detachBtnReset = this.FindControl<Button>("DetachOverlayButton");
+        var detachBtnReset = DetachOverlayButtonCtl;
         if (detachBtnReset != null) detachBtnReset.IsVisible = false;
         SetDetachMenuAvailable(false);
         var unlockHintReset = this.FindControl<TextBlock>("TrimUnlockHint");
         if (unlockHintReset != null) unlockHintReset.IsVisible = true;
 
-        var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
+        var timelineOverlay = TimelineOverlayCtl;
         if (timelineOverlay != null) timelineOverlay.IsVisible = false;
 
         var qualityPanel = this.FindControl<StackPanel>("QualityPanel");
@@ -1058,21 +1074,21 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var speedPanel = this.FindControl<Grid>("SpeedPanel");
         if (speedPanel != null) speedPanel.IsVisible = false;
 
-        var process = this.FindControl<Button>("ProcessButton");
+        var process = ProcessButtonCtl;
         if (process != null) process.IsEnabled = false;
-        var playPause = this.FindControl<Button>("PlayPauseButton");
+        var playPause = PlayPauseButtonCtl;
         if (playPause != null) playPause.IsEnabled = false;
-        var markStart = this.FindControl<Button>("MarkStartButton");
+        var markStart = MarkStartButtonCtl;
         if (markStart != null) markStart.IsEnabled = false;
-        var markEnd = this.FindControl<Button>("MarkEndButton");
+        var markEnd = MarkEndButtonCtl;
         if (markEnd != null) markEnd.IsEnabled = false;
-        var thumb = this.FindControl<Button>("SetThumbnailButton");
+        var thumb = SetThumbnailButtonCtl;
         if (thumb != null) thumb.IsEnabled = false;
-        var addMusic = this.FindControl<Button>("AddMusicButton");
+        var addMusic = AddMusicButtonCtl;
         if (addMusic != null) addMusic.IsEnabled = false;
-        var gran = this.FindControl<Button>("GranularButton");
+        var gran = GranularButtonCtl;
         if (gran != null) gran.IsEnabled = false;
-        var voBtn = this.FindControl<Button>("VoiceOverButton");
+        var voBtn = VoiceOverButtonCtl;
         if (voBtn != null) voBtn.IsEnabled = false;
         // CUT_02 — cuts belong to the Granular editor now, so there are no buttons to disable
         // here; the list itself still has to be cleared with the rest of the project state.
@@ -1148,16 +1164,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _freezeDurationS = 1.0;
         ApplyVoiceOverState(null, isRestore: true);
 
-        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        var addMemeCb = AddMemeCheckboxCtl;
         if (addMemeCb != null) addMemeCb.IsChecked = false;
 
         // THUMB_01 — the reset three lines above already put this button back through its one
         // owner; the hand-rolled duplicate that stood here is gone. Its label also lacked the
         // surrounding spaces the real one uses, so a reset button sat a few pixels narrower than
         // the same button in every other state.
-        var markStartReset = this.FindControl<Button>("MarkStartButton");
+        var markStartReset = MarkStartButtonCtl;
         if (markStartReset != null) markStartReset.Content = "MARK START";
-        var markEndReset = this.FindControl<Button>("MarkEndButton");
+        var markEndReset = MarkEndButtonCtl;
         if (markEndReset != null) markEndReset.Content = "MARK END";
         SetGranularButtonActive(false);
     }
@@ -1187,12 +1203,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var d = SettingsManager.Instance.Defaults;
         _baseSpeed = d.DefaultSpeed;
-        var speedSliderReset = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        var speedSliderReset = MainSpeedSliderCtl;
         if (speedSliderReset != null) speedSliderReset.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
         if (ActiveVideoHost?.IpcClient != null)
             _ = ActiveVideoHost.IpcClient.SetPropertyAsync("speed", _baseSpeed.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
 
-        var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
+        var qs = QualitySliderCtl;
         if (qs != null && !_qualitySliderInitialized) 
         {
             // QUALITY_01 — a NEW video starts on the Settings default tier, never on whatever the
@@ -1202,7 +1218,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             _qualitySliderInitialized = true;
         }
 
-        var vol = this.FindControl<Slider>("VolumeSlider");
+        var vol = VolumeSliderCtl;
         if (vol != null) 
         {
             try
@@ -1219,19 +1235,23 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     vol.Value = 100.0;
                 }
             }
-            catch { vol.Value = 100.0; }
+            catch (System.Exception swallowed9)
+            {
+                vol.Value = 100.0;
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
+            }
         }
 
-        var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+        var portrait = PortraitModeCheckboxCtl;
         if (portrait != null) portrait.IsChecked = d.PortraitMode;
 
-        var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+        var teammates = TeammatesCheckboxCtl;
         if (teammates != null) teammates.IsChecked = d.ShowTeammates;
 
-        var spectating = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        var spectating = SpectatingCheckboxCtl;
         if (spectating != null) spectating.IsChecked = true; // SPECTATINGDEFAULT_01
 
-        var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        var enableFade = EnableFadeCheckboxCtl;
         if (enableFade != null) enableFade.IsChecked = d.EnableFade;
 
         // NOMASK_01 — MUST run last. The lines above restore HUD toggle
@@ -1249,7 +1269,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private void SetDetachMenuAvailable(bool available)
     {
-        var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
+        var menuTogglePreview = MenuTogglePreviewMonitorCtl;
         if (menuTogglePreview == null) return;
         menuTogglePreview.IsEnabled = available;
         ToolTip.SetTip(menuTogglePreview, available
@@ -1259,51 +1279,50 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void EnableEditingControls()
     {
-        var detachBtn = this.FindControl<Button>("DetachOverlayButton");
+        var detachBtn = DetachOverlayButtonCtl;
         if (detachBtn != null) detachBtn.IsVisible = true;
         SetDetachMenuAvailable(true);
 
         var unlockHint = this.FindControl<TextBlock>("TrimUnlockHint");
         if (unlockHint != null) unlockHint.IsVisible = false;
 
-        var gb = this.FindControl<Button>("GranularButton");
+        var gb = GranularButtonCtl;
         if (gb != null) gb.IsEnabled = true;
 
-        var thumbnail = this.FindControl<Button>("SetThumbnailButton");
+        var thumbnail = SetThumbnailButtonCtl;
         if (thumbnail != null) thumbnail.IsEnabled = true;
 
-        var markStart = this.FindControl<Button>("MarkStartButton");
+        var markStart = MarkStartButtonCtl;
         if (markStart != null) markStart.IsEnabled = true;
 
-
-        var playPause = this.FindControl<Button>("PlayPauseButton");
+        var playPause = PlayPauseButtonCtl;
         if (playPause != null) playPause.IsEnabled = true;
         
-        var voiceOver = this.FindControl<Button>("VoiceOverButton");
+        var voiceOver = VoiceOverButtonCtl;
         if (voiceOver != null) voiceOver.IsEnabled = true;
 
-        var markEnd = this.FindControl<Button>("MarkEndButton");
+        var markEnd = MarkEndButtonCtl;
         if (markEnd != null) markEnd.IsEnabled = true;
 
-        var process = this.FindControl<Button>("ProcessButton");
+        var process = ProcessButtonCtl;
         if (process != null) process.IsEnabled = true;
 
-        var addMusic = this.FindControl<Button>("AddMusicButton");
+        var addMusic = AddMusicButtonCtl;
         if (addMusic != null) addMusic.IsEnabled = true;
 
-        var portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+        var portrait = PortraitModeCheckboxCtl;
         if (portrait != null) portrait.IsEnabled = true;
 
-        var teammates = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+        var teammates = TeammatesCheckboxCtl;
         if (teammates != null) teammates.IsEnabled = true;
 
-        var spectatingToggle = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+        var spectatingToggle = SpectatingCheckboxCtl;
         if (spectatingToggle != null) spectatingToggle.IsEnabled = true;
 
-        var enableFade = this.FindControl<ToggleSwitch>("EnableFadeCheckbox");
+        var enableFade = EnableFadeCheckboxCtl;
         if (enableFade != null) enableFade.IsEnabled = true;
 
-        var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+        var addMemeCb = AddMemeCheckboxCtl;
         if (addMemeCb != null) addMemeCb.IsEnabled = true;
 
         var qualityPanel = this.FindControl<StackPanel>("QualityPanel");
@@ -1311,7 +1330,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var speedPanel = this.FindControl<Grid>("SpeedPanel");
         if (speedPanel != null) speedPanel.IsVisible = true;
 
-        var qs = this.FindControl<SpinningWheelSlider>("QualitySlider");
+        var qs = QualitySliderCtl;
         if (qs != null)
         {
             qs.IsEnabled = true;
@@ -1319,7 +1338,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             Avalonia.Controls.ToolTip.SetTip(qs, "Target maximum file size in MB");
         }
 
-        var ss = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        var ss = MainSpeedSliderCtl;
         if (ss != null)
         {
             ss.IsEnabled = true;
@@ -1333,15 +1352,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void UpdatePortraitOverlay()
     {
-        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)this.FindControl<CheckBox>("MobileCheckbox") ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
-        var portraitTextInput = this.FindControl<TextBox>("PortraitTextInput");
+        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)MobileCheckboxCtl ?? PortraitModeCheckboxCtl;
+        var portraitTextInput = PortraitTextInputCtl;
 
         bool isPortrait = mobileCheckbox?.IsChecked == true;
 
         if (portraitTextInput != null)
             portraitTextInput.IsVisible = isPortrait;
 
-        var previewPortraitImage = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame")?.PortraitImageControl;
+        var previewPortraitImage = PhoneFrameCtl?.PortraitImageControl;
         if (previewPortraitImage != null && portraitTextInput != null && isPortrait)
         {
             try
@@ -1369,7 +1388,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ApplyPortraitModeToActiveHost()
     {
-        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)this.FindControl<CheckBox>("MobileCheckbox") ?? this.FindControl<ToggleSwitch>("PortraitModeCheckbox");
+        var mobileCheckbox = (Avalonia.Controls.Primitives.ToggleButton?)MobileCheckboxCtl ?? PortraitModeCheckboxCtl;
         bool isPortrait = mobileCheckbox?.IsChecked == true;
         bool isVideoLoaded = !string.IsNullOrEmpty(_loadedVideoPath);
         RuntimeLog.Info("UI", $"ApplyPortraitModeToActiveHost: evaluated isPortrait={isPortrait}, isVideoLoaded={isVideoLoaded}");
@@ -1380,7 +1399,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             mainContainer.Height = isPortrait ? 1280 : 1080;
         }
 
-        var phoneFrame = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame");
+        var phoneFrame = PhoneFrameCtl;
         if (phoneFrame != null)
         {
             phoneFrame.IsVisible = isPortrait && !IsPreviewDetached && isVideoLoaded;
@@ -1396,7 +1415,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             detached.TogglePortraitOverlay(isPortrait && isVideoLoaded);
 
-            var previewPortraitImage = this.FindControl<FortniteVideoSoftware.App.Controls.PhoneFrameMockup>("PhoneFrame")?.PortraitImageControl;
+            var previewPortraitImage = PhoneFrameCtl?.PortraitImageControl;
             if (isPortrait && isVideoLoaded && previewPortraitImage != null)
             {
                 detached.SetSkiaTextPlaceholder(previewPortraitImage.Source as Avalonia.Media.Imaging.Bitmap);
@@ -1507,9 +1526,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             var watermark = this.FindControl<Border>("PreviewDetachedWatermark");
             if (watermark != null) watermark.IsVisible = detached;
 
-            controller.SyncButton(this.FindControl<Button>("DetachOverlayButton"));
+            controller.SyncButton(DetachOverlayButtonCtl);
 
-            var menuTogglePreview = this.FindControl<MenuItem>("MenuTogglePreviewMonitor");
+            var menuTogglePreview = MenuTogglePreviewMonitorCtl;
             if (menuTogglePreview != null) menuTogglePreview.Header = detached ? "Attach Preview Monitor" : "Detach Preview Monitor";
 
             if (!detached && _videoHost != null) _videoHost.IsVisible = true;
@@ -1532,7 +1551,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         PreviewDetach.Detach();
         return Task.CompletedTask;
     }
-
 
     private double CalculateEffectiveDurationMs()
     {
@@ -1559,7 +1577,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ApplyMainSpeedPreset(double speed)
     {
-        var speedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        var speedSlider = MainSpeedSliderCtl;
         SpeedPresetButtons.SetSpinningWheelValue(speedSlider, speed);
 
         double previousSpeed = _baseSpeed;
@@ -1666,7 +1684,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void AdjustPreviewMasterVolume(int delta)
     {
-        var slider = this.FindControl<Slider>("VolumeSlider");
+        var slider = VolumeSliderCtl;
         if (slider != null)
             slider.Value = Math.Clamp(slider.Value + delta, slider.Minimum, slider.Maximum);
     }
@@ -1712,9 +1730,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 _trimEndMs = dur * 1000.0;
                 _prewarmArmed = false;
                 FortniteVideoSoftware.App.Services.FilmstripPrewarm.Clear();
-                var markStartBtn = this.FindControl<Button>("MarkStartButton");
+                var markStartBtn = MarkStartButtonCtl;
                 if (markStartBtn != null) markStartBtn.Content = "MARK START [" + FormatTime(TimeSpan.Zero) + "]";
-                var markEndBtn = this.FindControl<Button>("MarkEndButton");
+                var markEndBtn = MarkEndButtonCtl;
                 if (markEndBtn != null) markEndBtn.Content = $"MARK END [{FormatTime(TimeSpan.FromSeconds(dur))}]";
                 UpdateTimelineMarkers();
                 SaveRecoveryState();
@@ -1723,7 +1741,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     }
 
     private bool _tickFaultLogged;
-
 
     /// <summary>Last crop pushed to mpv, so an unchanged value is never re-sent every tick.</summary>
     private string _lastLiveCrop = "";
@@ -1738,7 +1755,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         double durSec = Math.Max(0.1, ((_trimEndMs > 0 ? _trimEndMs : ipc.Duration * 1000.0) - _trimStartMs) / 1000.0);
         double tSec = Math.Max(0, (ipc.CurrentTime * 1000.0) - _trimStartMs) / 1000.0;
 
-        bool portrait = this.FindControl<ToggleSwitch>("PortraitModeCheckbox")?.IsChecked == true;
+        bool portrait = PortraitModeCheckboxCtl?.IsChecked == true;
         var result = FortniteVideoSoftware.Core.Media.ZoomPreviewSimulator.Compute(
             _speedSegments, tSec, durSec, portrait, ipc.VideoWidth, ipc.VideoHeight, trimStartSec: _trimStartMs / 1000.0);
 
@@ -1808,7 +1825,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         UpdateLiveZoomCrop();
 
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        var canvas = TimelineMarkersCanvasCtl;
         if (canvas != null && canvas.Children.Count == 0)
         {
             UpdateTimelineMarkers();
@@ -1970,7 +1987,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var timeElapsed = this.FindControl<TextBlock>("TimeElapsed");
         if (timeElapsed != null) timeElapsed.Text = FormatTime(TimeSpan.FromSeconds(displayTime));
 
-        var timelineSlider = this.FindControl<Slider>("TimelineSlider");
+        var timelineSlider = TimelineSliderCtl;
         if (timelineSlider != null && dur > 0)
         {
             if (!_isTimelineDrawn)
@@ -2081,7 +2098,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
         }
     }
-
 
     private void OnSeekCompleted()
     {
@@ -2362,7 +2378,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         if (needsUpdate)
         {
-            try { pointer?.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
+            try { pointer?.Capture(null); } catch (System.Exception swallowed10)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
+            }
             UpdateTimelineMarkers();
             SaveRecoveryState();
         }
@@ -2419,7 +2438,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (_processCts != null && !_processCts.IsCancellationRequested)
             {
                 try { _processCts.Cancel(); }
-                catch (ObjectDisposedException) { }
+                catch (ObjectDisposedException swallowed4)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+                }
             }
 
             // EXPORTSESSION_01 — give the pipeline a bounded moment to actually stop before the
@@ -2429,7 +2451,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 await Task.WhenAny(_exportInFlight, Task.Delay(3000));
             }
-
 
             if (_mainSizeWorker != null)
                 await Task.WhenAny(_mainSizeWorker.Completion, Task.Delay(1000));
@@ -2513,7 +2534,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
-
     /// <summary>
     /// ══════════════════════════════════════════════════════════════════════════════
     /// EDIT3_02 — "REMOVE SPEEDS" IS NOW "EDIT SPEEDS", AND IT IS NO LONGER RED.
@@ -2532,7 +2552,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private void SetGranularButtonActive(bool active)
     {
-        var btn = this.FindControl<Button>("GranularButton");
+        var btn = GranularButtonCtl;
         if (btn == null) return;
         _isGranularSpeedActive = active;
         if (active)
@@ -2553,7 +2573,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ToolTip.SetTip(btn, "Adjust granular speed settings");
         }
 
-        var mainSpeedSlider = this.FindControl<SpinningWheelSlider>("MainSpeedSlider");
+        var mainSpeedSlider = MainSpeedSliderCtl;
         var presetsPanel = this.FindControl<Grid>("MainSpeedPresetsPanel");
         if (mainSpeedSlider != null)
         {
@@ -2581,7 +2601,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private void SetMusicButtonActive(bool active)
     {
-        var btn = this.FindControl<Button>("AddMusicButton");
+        var btn = AddMusicButtonCtl;
         if (btn == null) return;
         var txt = this.FindControl<TextBlock>("AddMusicText");
         
@@ -2605,7 +2625,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
         SaveRecoveryState();
     }
-
 
     /// <summary>
     /// Serializes all editing-session state to the crash-recovery file
@@ -2658,8 +2677,14 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         foreach (var take in _voiceOverPreviewTakes)
         {
-            try { take.Player.Dispose(); } catch (System.Exception) { }
-            try { take.Reader.Dispose(); } catch (System.Exception) { }
+            try { take.Player.Dispose(); } catch (System.Exception swallowed2)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            }
+            try { take.Reader.Dispose(); } catch (System.Exception swallowed7)
+            {
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
+            }
         }
         _voiceOverPreviewTakes.Clear();
     }
@@ -2708,7 +2733,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         var oldResult = _voiceOverResult;
         _voiceOverResult = HasVoiceOverEffect(result) ? result : null;
-        var btn = this.FindControl<Button>("VoiceOverButton");
+        var btn = VoiceOverButtonCtl;
         var text = this.FindControl<TextBlock>("VoiceOverText");
 
         _voiceOverPlayer?.Dispose();
@@ -2722,7 +2747,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             if (!string.IsNullOrEmpty(oldResult.VoiceOverWavPath))
             {
-                try { System.IO.File.Delete(oldResult.VoiceOverWavPath); } catch {}
+                try { System.IO.File.Delete(oldResult.VoiceOverWavPath); } catch (System.Exception swallowed6)
+                {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+                }
             }
             if (oldResult.VoiceOverTakes != null)
             {
@@ -2730,7 +2758,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 {
                     if (!string.IsNullOrEmpty(take.Path))
                     {
-                        try { System.IO.File.Delete(take.Path); } catch {}
+                        try { System.IO.File.Delete(take.Path); } catch (System.Exception swallowed11)
+                        {
+                            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed11);   // FAULTTIER_02 — no failure is silent.
+                        }
                     }
                 }
             }
@@ -2821,7 +2852,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _recoveryDebounceTimer.Stop();
         _recoveryDebounceTimer.Start();
     }
-
 
     /// <summary>
     /// ══════════════════════════════════════════════════════════════════════════════════════════
@@ -3155,10 +3185,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
             if (noMask)
             {
-                var team = this.FindControl<ToggleSwitch>("TeammatesCheckbox");
+                var team = TeammatesCheckboxCtl;
                 if (team != null) team.IsChecked = false;
 
-                var spec = this.FindControl<ToggleSwitch>("SpectatingCheckbox");
+                var spec = SpectatingCheckboxCtl;
                 if (spec != null) spec.IsChecked = false;
             }
 
@@ -3311,8 +3341,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             memeWall.MemeSelected += (path) =>
             {
-                var cb = this.FindControl<ComboBox>("MemeComboBox");
-                var addMemeCb = this.FindControl<ToggleSwitch>("AddMemeCheckbox");
+                var cb = MemeComboBoxCtl;
+                var addMemeCb = AddMemeCheckboxCtl;
                 if (cb != null)
                 {
                     var match = _memeItems.FirstOrDefault(m =>
@@ -3338,7 +3368,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 double duration = ActiveVideoHost.IpcClient.Duration;
                 if (duration > 0)
                 {
-                    var slider = this.FindControl<Slider>("TimelineSlider");
+                    var slider = TimelineSliderCtl;
                     if (slider != null)
                     {
                         _isTimerUpdatingSlider = true;
@@ -3378,7 +3408,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
-
     #endregion
 
     private bool _isRadialOpen = false;
@@ -3387,7 +3416,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
-            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            var radialMenu = RadialMenuCtl;
             if (radialMenu != null)
             {
                 radialMenu.Open(e.GetPosition(this));
@@ -3401,7 +3430,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         if (_isRadialOpen)
         {
-            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            var radialMenu = RadialMenuCtl;
             if (radialMenu != null)
             {
                 var pos = e.GetPosition(radialMenu);
@@ -3415,7 +3444,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         if (_isRadialOpen && e.InitialPressMouseButton == Avalonia.Input.MouseButton.Right)
         {
-            var radialMenu = this.FindControl<Controls.RadialMenuControl>("RadialMenu");
+            var radialMenu = RadialMenuCtl;
             radialMenu?.Close();
             _isRadialOpen = false;
             e.Handled = true;

@@ -1080,16 +1080,17 @@ public class MergerWorker : IDisposable
         catch (Exception startEx)
         {
             var startFailure = FfmpegErrorClassifier.Classify(
-                ExportStage.Encoding,
-                attemptId,
-                processExitCode: null,
-                processStartException: startEx,
-                isTimeout: false,
-                isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
-                collector: null,
-                earlierAttempts: earlierAttempts);
+            ExportStage.Encoding,
+            attemptId,
+            processExitCode: null,
+            processStartException: startEx,
+            isTimeout: false,
+            isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
+            collector: null,
+            earlierAttempts: earlierAttempts);
 
             FailureDetail = startFailure.FormatDiagnosticReport();
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(startEx);   // FAULTTIER_02 — no failure is silent.
             return (false, startFailure);
         }
 
@@ -1149,12 +1150,13 @@ public class MergerWorker : IDisposable
         {
             await proc.WaitForExitAsync(cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed7)
         {
             // The registration above already started the cooperative ladder; await its bounded
             // completion (≤ ~3.5 s worst case) so the exit code below is read from a process
             // that is actually dead rather than one that is still dying.
             await AwaitActiveShutdownAsync();
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
         }
 
         try
@@ -1177,8 +1179,9 @@ public class MergerWorker : IDisposable
                     TaskScheduler.Default);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed5)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -1270,13 +1273,15 @@ public class MergerWorker : IDisposable
                 CoreLogger.Info(logTag, $"Removed partial output '{Path.GetFileName(path)}' after cancellation.");
                 return;
             }
-            catch (IOException)
+            catch (IOException swallowed3)
             {
-                // Handle still held by the dying encoder — retry after a short backoff.
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException swallowed4)
             {
-                return; // Permissions will not improve by retrying.
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+                return;
+                // Permissions will not improve by retrying.
             }
             catch (System.Exception ex)
             {
@@ -1303,13 +1308,15 @@ public class MergerWorker : IDisposable
                 Directory.Delete(path, recursive: true);
                 return;
             }
-            catch (IOException)
+            catch (IOException swallowed6)
             {
-                // A child handle inside the tree is still being released — retry.
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException swallowed2)
             {
-                return; // Permissions will not improve by retrying.
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                return;
+                // Permissions will not improve by retrying.
             }
             catch (System.Exception ex)
             {

@@ -273,3 +273,59 @@
   * Last startup probe timestamp is recorded in `update_last_check_utc.txt` under `UiStateStore` enforcing a 24-hour rate limit.
   * Explicit version skips write the release tag to `update_skipped_tag.txt`. Users can inspect or clear this filter at any time via the About tab in Settings.
 
+---
+
+## SYS-VERIFYTOOL — The Fix-Sentinel Check Is Code Now  {#SYS-VERIFYTOOL}
+
+`VERIFY_PATCHES` no longer parses anything. The list lives in `build/sentinels.txt` and the checker
+is `build/FvsVerify`, with its own tests in `tests/FvsVerify.Tests`. `dev.cmd` runs it and reads the
+exit code; the script went from 29KB to 10KB and contains no list at all.
+
+⚠️ **Why it moved.** As a batch `FOR` list this check broke three separate times and every failure
+was silent — `VERIFYLOOP_01` (byte-offset label seeks skipped two entries and reported a clean
+pass), `LISTCOMMENT_01` (`REM` is not a comment inside a FOR list, so each annotation became six or
+seven bogus sentinels), `BATCHPARENS_01/02` (one round bracket closed the list early and the next
+word was executed as a command) — on top of `VERIFYHALT_01`, where the result was assigned and never
+read, so for its entire existence the subroutine could not fail.
+
+None of those are sentinel bugs. They are what a list of 201 strings, a comment syntax and a file
+search cost in a language with no list type, no comments inside a list, no escaping and — decisively
+— no way to write a test against the result. Invariant #8 says every rule that can be a test is a
+test; this one now is, twice over: `FvsVerify.Tests` unit-tests the parser and checker, and
+`ArchitectureRuleTests.EveryFixSentinelStillResolves` runs the same functions over the same file in
+CI. `DevCmdDelegatesTheSentinelCheckRatherThanParsingIt` fails if the list is ever moved back.
+
+**To add a sentinel: add one `TAG=path` line to `build/sentinels.txt`.** That is the whole procedure.
+
+---
+
+## SYS-DIAGREPORT — A Bundle The User Can Actually Send  {#SYS-DIAGREPORT}
+
+The fault tiers route every classified failure to a rotating log under `%ProgramData%`. That is the
+right destination for the failure and the wrong one for the DIAGNOSIS: nobody navigates there, finds
+the right file among the rotation, and attaches it to a report.
+
+⚠️ **This matters more here than in most applications.** The central risk in this product is
+hardware it has never run on: `HardwareScanner` chooses between NVENC, AMF, QSV and d3d11va at
+runtime against a matrix validated on one machine. "Export fails on some AMD cards" is unactionable.
+
+`DiagnosticReport` (Core) builds a plain-text bundle — machine profile, the chosen encoder, the tail
+of the log, the recovery state — and `DiagnosticBundle` (App) writes it under
+`%ProgramData%\...\Diagnostics`.
+
+* **Nothing uploads.** There is deliberately no network code. Auto-upload is a consent problem, a
+  privacy problem and a hosting problem, and none of those need solving before the diagnosis problem
+  is. A file the user can read in full and choose to send is the honest version of telemetry.
+* **The user can read every byte, and that constrains what goes in.** `Redact` rewrites
+  `C:\Users\someone\` to `C:\Users\<user>\`. No user name, no machine name. The log tail is a
+  ring buffer of the last 400 lines, because a 40MB report is the same as no report.
+
+---
+
+## SYS-PAYLOADSPLIT — See `09_DISTRIBUTION_AND_RELEASE.md`  {#SYS-PAYLOADSPLIT}
+
+The update path is bound by `09` §3 (DIST-SPLIT): a release may publish an app-only package beside
+the full installer, and `UpdateService` takes it only when the installed runtime fingerprint matches
+what the release advertises. Every uncertainty resolves to the full installer.
+
+⚠️ `UpdateService.cs` is CO-GOVERNED by this spec and `09`. Reading one is not compliance.

@@ -58,8 +58,9 @@ public static class CanvasMath
         {
             return CoordinateMath.ScaleRound(Frac.FromString(crop[index]?.ToString() ?? "0"));
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return 0;
         }
     }

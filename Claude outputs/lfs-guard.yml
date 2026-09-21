@@ -1,0 +1,70 @@
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# SYS-REPOWEIGHT — GIT-LFS IS DECLARED. THIS PROVES IT IS ALSO WORKING.
+#
+# ⚠️ WHY THIS EXISTS. .gitattributes routes *.dll, *.exe, *.zip, *.mp3, *.mp4 and friends through
+# git-lfs. That declaration does nothing on a machine where git-lfs is not installed — the filter
+# simply fails, and `git status` dies with:
+#
+#     git-lfs filter-process: 1: git-lfs: not found
+#     fatal: the remote end hung up unexpectedly
+#
+# which is what a working tree in this repository was actually doing when this file was added. A
+# clone in that state does not fetch the real binaries; it fetches pointer files, and the build
+# then fails somewhere far away with a missing codec rather than with "LFS is not installed".
+#
+# Worse, an ADD in that state can commit a large file directly into git history, which is how a
+# repository ends up at 2.7 GB with LFS configured. The declaration and the reality have to be
+# checked together or the declaration is decoration.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+name: LFS guard
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  lfs:
+    name: LFS pointers resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: git-lfs is installed
+        run: git lfs version
+
+      - name: Every LFS-tracked file is a real file, not a pointer
+        # A pointer left on disk means the smudge filter did not run. Catch it here rather than as
+        # a mystery codec failure three jobs later.
+        run: |
+          set -euo pipefail
+          bad=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            if head -c 40 "$f" | grep -q "version https://git-lfs"; then
+              echo "::error file=$f::LFS pointer was not resolved — git-lfs is not working here."
+              bad=1
+            fi
+          done < <(git lfs ls-files -n)
+          exit $bad
+
+      - name: No large file committed OUTSIDE LFS
+        # SYS-REPOWEIGHT. The repository is ~2.7 GB because media was committed to history before
+        # LFS was configured; LFS only helps going forward. This stops the same thing happening
+        # again, which is the half of the problem that a history rewrite cannot fix.
+        run: |
+          set -euo pipefail
+          limit=$((5 * 1024 * 1024))
+          bad=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            size=$(stat -c%s "$f")
+            if [ "$size" -gt "$limit" ] && ! git check-attr filter "$f" | grep -q "filter: lfs"; then
+              echo "::error file=$f::$(($size / 1024 / 1024)) MB committed outside LFS. Add its extension to .gitattributes."
+              bad=1
+            fi
+          done < <(git ls-files)
+          exit $bad

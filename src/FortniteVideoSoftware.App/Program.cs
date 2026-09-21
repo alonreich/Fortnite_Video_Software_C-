@@ -367,8 +367,9 @@ static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
             using var p = System.Diagnostics.Process.GetProcessById(pid);
             return string.Equals(p.ProcessName, currentName, StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

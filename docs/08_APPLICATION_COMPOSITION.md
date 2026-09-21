@@ -81,6 +81,50 @@
 
 ---
 
+### `FAULTTIER_02` — THE SINK HAD TO BE REACHABLE BEFORE ANY OF THIS COULD HAPPEN  {#COMP-FAULTCHANNEL}
+
+⚠️ **The measurement that forced this.** A year of `FAULTTIER_01` produced **three** call sites
+reaching `IFaultSink`, out of roughly 900 catch blocks. That is not negligence, it is arithmetic.
+Reporting required an `IFaultSink` INSTANCE, and the code that catches exceptions is overwhelmingly
+static helpers and window code-behind that Avalonia constructs — neither of which has a constructor
+anyone can pass one to. Every conversion therefore needed a plumbing change first, and a 900-site
+plumbing change does not happen. The vocabulary was right and the route was missing.
+
+* **`Faults` is an ambient sink, installed once from the composition root.** `Faults.Recoverable` /
+  `.Degraded` / `.Fatal` work from anywhere, including a static utility and a thread with no object
+  graph in scope.
+
+* **⚠️ WHY THIS IS NOT A BACKDOOR AROUND `COMPOSITION_02`.** That rule retires the service locator
+  for **collaborators** — things a class does its work *with*, which a test must substitute to
+  exercise that work. A fault sink is not a collaborator, it is a **diagnostic channel**, in the
+  same category as `RuntimeLog` and `CoreLogger`, both already static by deliberate decision and on
+  nobody's list to inject. New code still takes `IFaultSink` in its constructor; this is for the
+  places that cannot.
+
+* **`CoreLogger.Swallowed` / `RuntimeLog.Swallowed` route through it.** Those two had **337** call
+  sites between them — far and away the most common way this codebase handled a caught exception,
+  and entirely invisible to the fault system. Routing them converted all of them in one edit instead
+  of 337. Nothing the user sees changes, because `Recoverable` is log-only by definition. What
+  changes is that the failures now EXIST: classified, counted, in the diagnostic bundle, and
+  reclassifiable to `Degraded` by a one-line edit at the call site.
+
+  ⚠️ "Swallowed" asserts `Recoverable`, and that is a CLAIM the caller is making. The bar is "the
+  user's outcome is unchanged", not "we kept running". The 337 inherited sites are grandfathered
+  because that is what they already did; they are not thereby blessed.
+
+* **The sweep, measured.** 276 catch blocks reported *nothing* — no log, no fault, no rethrow, no
+  notice. After the sweep: **3**, all of them cancellation or retry guards. Unexplained empty
+  catches went 59 → 20. `ArchitectureRuleTests.EveryCatchBlockReportsSomewhere` holds the line, with
+  the seven files of the reporting path named individually rather than waved through by a pattern —
+  "the logger may not log its own failure" is a real exemption and "I could not think of a message"
+  is not, and a rule that cannot tell them apart is a rule that gets widened.
+
+* **`OperationCanceledException` is exempt by type, not by baseline.** `FAULTTIER_01` already says a
+  cancel is the user getting what they asked for. A rule that pushed anyone into logging one would
+  be actively harmful.
+
+---
+
 ## 3. Executable Rules — Tests Instead Of Paragraphs  {#COMP-ARCHTEST}
 
 * **`ARCHTEST_01` — why this exists.** `docs/` holds ~2,000 lines of specification, and most of it is a post-mortem diary: `DOUBLEFIRE_01` ("invisible to reading"), `SLIDER_09` ("invisible in code review"), `QUALITY_04` ("looked missing rather than broken"), `SEEKSTORM_01` (310 seeks in 1.74s). Each was found by a human running the app, sometimes over several diagnosis cycles, then fenced off with a paragraph.
@@ -153,6 +197,25 @@
 * **`COMPOSITION_02` is the finish line.** Each window that gains a real view-model takes its
   collaborators as constructor parameters and stops reading `AppServices.Current`. When the
   service-locator ratchet reaches zero, the shim is deleted.
+
+---
+
+### `CITEST_01` / `SYS-CI` — NONE OF THESE RULES RAN ANYWHERE  {#COMP-CI}
+
+⚠️ **Fifteen ratchets, 201 fix sentinels and ~215 behavioural tests, and nothing executed them
+except a developer remembering to.** There was no CI of any kind. A ratchet nobody pulls is a
+comment.
+
+The cost was not theoretical. When `.github/workflows/ci.yml` was added the suite was **red on two
+platform-independent tests, both genuine shipped product bugs** — `UNDO_23` (undo re-entrancy) and
+`PROJ_10` (the project fingerprint reading back as zero). Both had been red long enough that nobody
+looked, because five Windows-only tests were *also* permanently red beside them: they FAILED rather
+than skipped off Windows, so "the suite is red" was the normal state. `CITEST_01` makes the
+inapplicable ones skip, which is what lets a red result mean "something broke".
+
+CI runs the sentinels on Linux first (~40s, fails fast), then builds and tests on `windows-latest`,
+then proves the NativeAOT publish links on `main` — AOT failures do not appear in `dotnet build`,
+only at publish, in the linker.
 
 ---
 

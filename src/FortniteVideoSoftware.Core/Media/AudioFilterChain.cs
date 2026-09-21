@@ -456,7 +456,11 @@ public class AudioFilterChain
     {
         if (obj == null) return defaultValue;
         try { return obj[key]?.GetValue<double>() ?? defaultValue; }
-        catch { return defaultValue; }
+        catch (System.Exception swallowed)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            return defaultValue;
+        }
     }
 }
 

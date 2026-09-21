@@ -38,6 +38,7 @@ namespace FortniteVideoSoftware.App;
 
 public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataErrorInfo
 {
+
     public static readonly StyledProperty<string> RoleNameProperty =
         AvaloniaProperty.Register<CropToolWindow, string>(nameof(RoleName), defaultValue: "");
 
@@ -520,7 +521,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         };
     }
 
-
     /// <summary>
     /// TONE_01 — the HUD ghost fill, at the caller's alpha.
     ///
@@ -728,8 +728,8 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             }
             else
             {
-                var btn = this.FindControl<Button>("DeleteMenuButton");
-                var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+                var btn = DeleteMenuButtonCtl;
+                var pnl = DeleteConfirmPanelCtl;
                 if (btn != null && pnl != null) { btn.IsVisible = false; pnl.IsVisible = true; }
             }
         });
@@ -737,15 +737,15 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         ButtonClick("ConfirmDeleteButton", (_, _) =>
         {
             DeleteSelectedItem();
-            var btn = this.FindControl<Button>("DeleteMenuButton");
-            var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+            var btn = DeleteMenuButtonCtl;
+            var pnl = DeleteConfirmPanelCtl;
             if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
 
         ButtonClick("CancelDeleteButton", (_, _) =>
         {
-            var btn = this.FindControl<Button>("DeleteMenuButton");
-            var pnl = this.FindControl<StackPanel>("DeleteConfirmPanel");
+            var btn = DeleteMenuButtonCtl;
+            var pnl = DeleteConfirmPanelCtl;
             if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
         
@@ -760,7 +760,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         // is type-and-press without reaching for the mouse; the ADD button is there for people who
         // do not expect Enter to mean anything.
         ButtonClick("RolePopupNewOk", async (_, _) => await CommitNewRoleAsync());
-        var newNameBox = this.FindControl<TextBox>("RolePopupNewName");
+        var newNameBox = RolePopupNewNameCtl;
         if (newNameBox != null)
         {
             newNameBox.KeyDown += async (_, ke) =>
@@ -781,8 +781,8 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             }
             else
             {
-                var btn = this.FindControl<Button>("ResetMenuButton");
-                var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+                var btn = ResetMenuButtonCtl;
+                var pnl = ResetConfirmPanelCtl;
                 if (btn != null && pnl != null) { btn.IsVisible = false; pnl.IsVisible = true; }
             }
         });
@@ -790,15 +790,15 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         ButtonClick("ConfirmResetButton", (_, _) =>
         {
             ResetWorkingState(tombstonePlacedElements: true);
-            var btn = this.FindControl<Button>("ResetMenuButton");
-            var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+            var btn = ResetMenuButtonCtl;
+            var pnl = ResetConfirmPanelCtl;
             if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
 
         ButtonClick("CancelResetButton", (_, _) =>
         {
-            var btn = this.FindControl<Button>("ResetMenuButton");
-            var pnl = this.FindControl<StackPanel>("ResetConfirmPanel");
+            var btn = ResetMenuButtonCtl;
+            var pnl = ResetConfirmPanelCtl;
             if (btn != null && pnl != null) { btn.IsVisible = true; pnl.IsVisible = false; }
         });
         ButtonClick("ReturnButton", async (_, _) => await ReturnToMainAppAsync());
@@ -1311,7 +1311,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         return Math.Clamp(fit, MinZoom, 1.0);
     }
 
-
     /// <summary>ISSUE_04 — stops the walkthrough timer when this window goes away.</summary>
     protected override void OnClosed(EventArgs e)
     {
@@ -1587,7 +1586,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         // BACKTOVIDEO_01 - while a frozen frame is on screen, PLAY means "back to the video".
         // Checked before the pause state, because what the user is looking at decides what the
         // button means: pressing play at a still frame cannot sensibly mean anything else.
-        bool frozen = this.FindControl<Grid>("SnapshotPanel")?.IsVisible == true;
+        bool frozen = SnapshotPanelCtl?.IsVisible == true;
         if (frozen)
         {
             ShowVideoPanel();
@@ -1795,8 +1794,9 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
                         return;
                     }
                 }
-                catch (IOException)
+                catch (IOException swallowed)
                 {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 }
             }
 
@@ -3120,7 +3120,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         // ROLEPOPUP_01 - the popup is anchored to the box, so any change to the box's geometry or
         // to the zoom moves it. UpdateSelectionRect is the single funnel every such change goes
         // through, which is why the call belongs here rather than at a dozen call sites.
-        if (this.FindControl<Border>("RolePopup")?.IsVisible == true)
+        if (RolePopupCtl?.IsVisible == true)
         {
             PositionRolePopup();
         }
@@ -3188,7 +3188,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         }
     }
 
-
     // ==================================================================================
     // ROLEPOPUP_01 — naming a HUD element happens AT the box.
     //
@@ -3219,7 +3218,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     /// </summary>
     private void ShowRolePopup()
     {
-        var popup = this.FindControl<Border>("RolePopup");
+        var popup = RolePopupCtl;
         var list = this.FindControl<StackPanel>("RolePopupList");
         if (popup == null || list == null || _sourceSelection is not { } sel) return;
 
@@ -3373,7 +3372,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
 
     private void PositionRolePopup()
     {
-        var popup = this.FindControl<Border>("RolePopup");
+        var popup = RolePopupCtl;
         var host = this.FindControl<ScrollViewer>("SnapshotScroll");
         if (popup == null || host == null || _sourceCanvas == null || _sourceSelection is not { } sel) return;
 
@@ -3543,7 +3542,6 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         popup.Margin = new Thickness(x, y, 0, 0);
     }
 
-
     /// <summary>
     /// ISSUE_09 (audit round 6) — the RolePopup drop shadow, in the theme's colour.
     ///
@@ -3561,7 +3559,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     /// </summary>
     private void ApplyRolePopupShadow()
     {
-        var popup = this.FindControl<Border>("RolePopup");
+        var popup = RolePopupCtl;
         if (popup == null) return;
 
         Color shadow = Infrastructure.ThemeResources.Colour(
@@ -3579,7 +3577,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
 
     private void HideRolePopup()
     {
-        var popup = this.FindControl<Border>("RolePopup");
+        var popup = RolePopupCtl;
         if (popup != null) popup.IsVisible = false;
         if (_rolePopupScrim != null) _rolePopupScrim.IsVisible = false;   // ISSUE_08
         CloseRolePopupNewRow();
@@ -3588,7 +3586,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     private void OpenRolePopupNewRow()
     {
         var row = this.FindControl<StackPanel>("RolePopupNewRow");
-        var box = this.FindControl<TextBox>("RolePopupNewName");
+        var box = RolePopupNewNameCtl;
         if (row == null || box == null) return;
 
         _rolePopupNewOpen = true;
@@ -3614,7 +3612,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     /// </summary>
     private async Task CommitNewRoleAsync()
     {
-        var box = this.FindControl<TextBox>("RolePopupNewName");
+        var box = RolePopupNewNameCtl;
         string name = box?.Text?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -4875,18 +4873,19 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
             SetStatusSuccess($"Found {candidates.Count} HUD piece{(candidates.Count == 1 ? "" : "s")}. " +
                              "Click a pink box to label it, or press MAGIC WAND again to step through them.");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed2)
         {
             // Three ways to land here and they deserve different sentences: the user pressed STOP,
             // the run hit HudAutoDetector.MaxSeconds, or the window is closing. Telling someone who
             // just cancelled that "it took too long and gave up" blames the tool for their decision
             // and makes them wonder whether the button worked.
             bool elapsedPastCeiling = (DateTime.UtcNow - _wandStartedUtc).TotalSeconds
-                                      >= FortniteVideoSoftware.Core.Media.HudAutoDetector.MaxSeconds - 1;
+            >= FortniteVideoSoftware.Core.Media.HudAutoDetector.MaxSeconds - 1;
 
             SetWizardState(3, "Refine Box", elapsedPastCeiling
-                ? "The Magic Wand ran out of time on this clip. Drag a box round a HUD piece yourself."
-                : "Magic Wand stopped. Drag a box round a HUD piece yourself.");
+            ? "The Magic Wand ran out of time on this clip. Drag a box round a HUD piece yourself."
+            : "Magic Wand stopped. Drag a box round a HUD piece yourself.");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -6186,7 +6185,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         // refinement finishable without touching the mouse again.
         if (e.Key is Key.Enter or Key.Return
             && _sourceSelection != null
-            && this.FindControl<Grid>("SnapshotPanel")?.IsVisible == true)
+            && SnapshotPanelCtl?.IsVisible == true)
         {
             ShowRolePopup();
             e.Handled = true;
@@ -6228,7 +6227,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
 
         if (e.Key == Key.Escape
             && _sourceSelection != null
-            && this.FindControl<Grid>("SnapshotPanel")?.IsVisible == true)
+            && SnapshotPanelCtl?.IsVisible == true)
         {
             CancelSourceSelection();
             e.Handled = true;
@@ -6262,7 +6261,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
         // whichever one the user is actually looking at must win. SnapshotPanel is only visible
         // during the draw/refine step, so this cannot steal nudges from the portrait composer.
         if (_sourceSelection != null
-            && this.FindControl<Grid>("SnapshotPanel")?.IsVisible == true
+            && SnapshotPanelCtl?.IsVisible == true
             && e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
         {
             if (NudgeSourceSelection(e.Key, e.KeyModifiers))
@@ -6490,6 +6489,5 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     {
         TopLeft,
         BottomRight
-    
 }
 }

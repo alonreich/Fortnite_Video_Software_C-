@@ -180,11 +180,12 @@ public sealed class ExportViewModel : ViewModelBase
                 HardwareStatusColor = "#00783C";
             }
         }
-        catch
+        catch (System.Exception swallowed)
         {
             _hardwareMode = HardwareScanner.ScanFailed;
             HardwareStatusText = "HW: Detecting…";
             HardwareStatusColor = "#daa520";
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -215,7 +216,11 @@ public sealed class ExportViewModel : ViewModelBase
                 return true;
             }
         }
-        catch { return true; }
+        catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return true;
+        }
         return false;
     }
 

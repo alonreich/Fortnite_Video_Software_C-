@@ -33,6 +33,7 @@ namespace FortniteVideoSoftware.App;
 /// </summary>
 public partial class GranularSpeedEditorWindow : Window
 {
+
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
     private long _lastSeekTimestamp = 0;
@@ -442,7 +443,6 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private const double LaneZoomMarkerY = 34.0;
 
-
     /// <summary>
     /// LANES_01 — playhead position in ms relative to the trim start.
     ///
@@ -474,7 +474,6 @@ public partial class GranularSpeedEditorWindow : Window
     /// </para>
     /// </summary>
     private double? _holdCaretOutSec;
-
 
     /// <summary>Pointer travel (px) before an armed press counts as a drag rather than a click.</summary>
     private const double CreateDragThresholdPx = 4.0;
@@ -773,7 +772,11 @@ public partial class GranularSpeedEditorWindow : Window
         bool restoredGranularSession = TryRehydrateGranularRecovery();
 
         try { _gpuLiveZoomPreview = FortniteVideoSoftware.Core.Media.VideoRenderMode.Current.UseHardwareAcceleration; }
-        catch { _gpuLiveZoomPreview = false; }
+        catch (System.Exception swallowed3)
+        {
+            _gpuLiveZoomPreview = false;
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+        }
         RuntimeLog.Info("Granular", $"Live zoom preview path: {(_gpuLiveZoomPreview ? "GPU (mpv video-crop simulation)" : "CPU (yellow box overlay only)")}");
 
         InitializeComponent();
@@ -925,9 +928,9 @@ public partial class GranularSpeedEditorWindow : Window
         _pendingSpeed = _baseSpeed;       // RECOVERY_03 — _baseSpeed may come from a restored snapshot
         _lastAppliedSpeed = _baseSpeed;
 
-        var initialSpeedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"); if(initialSpeedSlider!=null)initialSpeedSlider.SetRange(1, 40);
+        var initialSpeedSlider = PendingSpeedSliderCtl; if(initialSpeedSlider!=null)initialSpeedSlider.SetRange(1, 40);
         SpeedPresetButtons.SetSpinningWheelValue(initialSpeedSlider, _pendingSpeed);
-        var initialSpeedLabel = this.FindControl<TextBlock>("PendingSpeedLabel");
+        var initialSpeedLabel = PendingSpeedLabelCtl;
         if (initialSpeedLabel != null) initialSpeedLabel.Text = $"{_pendingSpeed:0.0}x";
         
         if (!restoredGranularSession && existingSegments != null)   // RECOVERY_03 — seeds are stale when a snapshot was restored
@@ -973,15 +976,21 @@ public partial class GranularSpeedEditorWindow : Window
         // here supersedes any capture armed by the PushUndo calls while seeding above.
         ScheduleGranularRecoverySave();
 
+        // UNDO_25 — take back the history this clip had when its editor was last closed. Ordered
+        // AFTER the seeding above on purpose: seeding pushes its own entries, and adopting before
+        // that would leave the restored stack buried under them, so the user's first Ctrl+Z would
+        // undo the window opening rather than their last real edit.
+        AdoptParkedHistory();
+
         if (_freezeTimeMs >= 0)
         {
-            var toggle = this.FindControl<Button>("FreezeImageToggle");
+            var toggle = FreezeImageToggleCtl;
             if (toggle != null)
             {
                 toggle.Classes.Remove("Primary");
                 toggle.Classes.Add("Danger");
-                var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
-                var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+                var icon = FreezeImageToggleIconCtl;
+                var txt = FreezeImageToggleTextCtl;
                 if (icon != null) icon.Text = "🔓";
                 if (txt != null) txt.Text = " UNFREEZE IMAGE ";
             }
@@ -1827,9 +1836,11 @@ public partial class GranularSpeedEditorWindow : Window
                 {
                     double sS = NearestSnap(newStart), sE = NearestSnap(newEnd);
                     if (Math.Abs(sS - newStart) <= Math.Abs(sE - newEnd) && sS != newStart)
-                        { newStart = Math.Clamp(sS, lowerBound, Math.Max(lowerBound, upperBound - segWidth)); newEnd = newStart + segWidth; }
+                        {
+                            newStart = Math.Clamp(sS, lowerBound, Math.Max(lowerBound, upperBound - segWidth)); newEnd = newStart + segWidth; }
                     else if (sE != newEnd)
-                        { newEnd = Math.Clamp(sE, Math.Min(upperBound, lowerBound + segWidth), upperBound); newStart = newEnd - segWidth; }
+                        {
+                            newEnd = Math.Clamp(sE, Math.Min(upperBound, lowerBound + segWidth), upperBound); newStart = newEnd - segWidth; }
                 }
                 else if (_segDragMode == SegDragMode.ResizeStart)
                     newStart = Math.Clamp(NearestSnap(newStart), lowerBound, Math.Max(lowerBound, newEnd - SegMinWidthMs));
@@ -1883,10 +1894,8 @@ public partial class GranularSpeedEditorWindow : Window
             };
         }
 
-
         // KEYFOCUS_01 — GranularPlayPause now binds through a Command + KeyBinding
         // (RefreshTransportKeyBindings); the click behaviour lives in TogglePlayPause().
-
 
         WireDeletePartsButton();
         WireMemeButtons();          // MEME_06
@@ -1896,13 +1905,13 @@ public partial class GranularSpeedEditorWindow : Window
 
         // KEYFOCUS_01 — MARK END wiring moved to _markEndCommand (ExecuteMarkEnd).
 
-        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
+        var speedSlider = PendingSpeedSliderCtl;
         if (speedSlider != null)
         {
             speedSlider.ValueChanged += (_, e) =>
             {
                 _pendingSpeed = Math.Round(e / 10.0, 2);
-                var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+                var lbl = PendingSpeedLabelCtl;
                 if (lbl != null) lbl.Text = $"{_pendingSpeed:0.0}x";
 
                 if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
@@ -1920,14 +1929,13 @@ public partial class GranularSpeedEditorWindow : Window
 
         WireUpFreezeImage();
 
-        var deleteSegBtn = this.FindControl<Button>("DeleteSegmentBtn");
+        var deleteSegBtn = DeleteSegmentBtnCtl;
         deleteSegBtn?.AddHandler(Button.ClickEvent, (_, _) =>
         {
             ExecuteDeleteSelectedSegment();
         });
 
-
-        var clearBtn = this.FindControl<Button>("ClearAllSegmentsBtn");
+        var clearBtn = ClearAllSegmentsBtnCtl;
         clearBtn?.AddHandler(Button.ClickEvent, (_, _) =>
         {
             UpdateClearAllPromptText();
@@ -1941,14 +1949,14 @@ public partial class GranularSpeedEditorWindow : Window
         var confirmClearAll = this.FindControl<Button>("ConfirmClearAllSegmentsBtn");
         confirmClearAll?.AddHandler(Button.ClickEvent, (_, _) =>
         {
-            this.FindControl<Button>("ClearAllSegmentsBtn")?.Flyout?.Hide();
+            ClearAllSegmentsBtnCtl?.Flyout?.Hide();
             ExecuteClearAllSegments();
         });
 
         var keepAll = this.FindControl<Button>("KeepAllSegmentsBtn");
         keepAll?.AddHandler(Button.ClickEvent, (_, _) =>
         {
-            this.FindControl<Button>("ClearAllSegmentsBtn")?.Flyout?.Hide();
+            ClearAllSegmentsBtnCtl?.Flyout?.Hide();
             RuntimeLog.Info("UI", "User backed out of Clear All in Granular Speed Editor.");
         });
 
@@ -1966,7 +1974,7 @@ public partial class GranularSpeedEditorWindow : Window
             Close();
         };
 
-        var cancelBtn = this.FindControl<Button>("CancelGranularBtn");
+        var cancelBtn = CancelGranularBtnCtl;
         if (cancelBtn != null)
         {
             _cancelConfirmFlyout = cancelBtn.Flyout;
@@ -1982,7 +1990,7 @@ public partial class GranularSpeedEditorWindow : Window
         var confirmCancel = this.FindControl<Button>("ConfirmCancelGranularBtn");
         confirmCancel?.AddHandler(Button.ClickEvent, (_, _) =>
         {
-            var btn = this.FindControl<Button>("CancelGranularBtn");
+            var btn = CancelGranularBtnCtl;
             btn?.Flyout?.Hide();
             RuntimeLog.Info("UI", "User confirmed Cancel in Granular Speed Editor.");
             Avalonia.Threading.Dispatcher.UIThread.Post(Close, Avalonia.Threading.DispatcherPriority.Background);
@@ -1995,7 +2003,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void WireUpFreezeImage()
     {
-        var freezeImageToggle = this.FindControl<Button>("FreezeImageToggle");
+        var freezeImageToggle = FreezeImageToggleCtl;
 
         var freezePresets = new[] {
             this.FindControl<Button>("FreezePreset05"), this.FindControl<Button>("FreezePreset10"), this.FindControl<Button>("FreezePreset15"),
@@ -2043,8 +2051,8 @@ public partial class GranularSpeedEditorWindow : Window
             stepperIndex = (stepperIndex + 1) % freezePresets.Length;
             _freezePulseCount++;
 
-            var hint1 = this.FindControl<TextBlock>("FreezeHintLabel");
-            var hint2 = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+            var hint1 = FreezeHintLabelCtl;
+            var hint2 = FreezeHintLabelBottomCtl;
             double newOpacity = (stepperIndex % 2 == 0) ? 1.0 : 0.0;
             if (hint1 != null) hint1.Opacity = newOpacity;
             if (hint2 != null) hint2.Opacity = newOpacity;
@@ -2094,9 +2102,9 @@ public partial class GranularSpeedEditorWindow : Window
 
                     SetFreezePresetSelection(presetIndex);
 
-                    var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+                    var hint = FreezeHintLabelCtl;
                     if (hint != null) hint.IsVisible = false;
-                    var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+                    var hintBottom = FreezeHintLabelBottomCtl;
                     if (hintBottom != null) hintBottom.IsVisible = false;
 
                     SetFreezePromptControlsEnabled(true);
@@ -2133,9 +2141,9 @@ public partial class GranularSpeedEditorWindow : Window
                         _freezePulseCount = 0;
                         _freezePulseTimer?.Start();
 
-                        var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+                        var hint = FreezeHintLabelCtl;
                         if (hint != null) hint.IsVisible = true;
-                        var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+                        var hintBottom = FreezeHintLabelBottomCtl;
                         if (hintBottom != null) hintBottom.IsVisible = true;
 
                         SetFreezePromptControlsEnabled(false);
@@ -2155,8 +2163,8 @@ public partial class GranularSpeedEditorWindow : Window
                     _freezeDurationS = promptPreset ? Infrastructure.SettingsManager.Instance.Defaults.DefaultFreezeDurationS : _selectedFreezePresetS;
                     ScheduleGranularRecoverySave();
 
-                    var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
-                    var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+                    var icon = FreezeImageToggleIconCtl;
+                    var txt = FreezeImageToggleTextCtl;
                     if (icon != null) icon.Text = "🔓";
                     if (txt != null) txt.Text = "UNFREEZE IMAGE";
                     freezeImageToggle.Classes.Remove("Primary");
@@ -2201,7 +2209,7 @@ public partial class GranularSpeedEditorWindow : Window
         {
             SpeedPresetButtons.SetSpinningWheelValue(speedSlider, s);
             _pendingSpeed = s;
-            var lbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+            var lbl = PendingSpeedLabelCtl;
             if (lbl != null) lbl.Text = $"{s:0.0}x";
 
             if (_selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count)
@@ -2259,7 +2267,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void UpdateCancelConfirmState()
     {
-        var btn = this.FindControl<Button>("CancelGranularBtn");
+        var btn = CancelGranularBtnCtl;
         if (btn == null || _cancelConfirmFlyout == null) return;
         var wanted = IsDirty() ? _cancelConfirmFlyout : null;
         if (!ReferenceEquals(btn.Flyout, wanted)) btn.Flyout = wanted;
@@ -2268,8 +2276,8 @@ public partial class GranularSpeedEditorWindow : Window
     private void UpdateDeleteButtonVisibility()
     {
         UpdateCancelConfirmState();
-        var deleteSegBtn = this.FindControl<Button>("DeleteSegmentBtn");
-        var clearAllBtn = this.FindControl<Button>("ClearAllSegmentsBtn");
+        var deleteSegBtn = DeleteSegmentBtnCtl;
+        var clearAllBtn = ClearAllSegmentsBtnCtl;
 
         bool segSelected = _selectedSegmentIndex >= 0 && _selectedSegmentIndex < _segments.Count;
 
@@ -2283,7 +2291,7 @@ public partial class GranularSpeedEditorWindow : Window
         if (removeZoomBtn != null)
             removeZoomBtn.IsVisible = segSelected && _segments[_selectedSegmentIndex].ZoomW.HasValue;
 
-        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        var zoomBtn = ZoomSegmentBtnCtl;
         if (zoomBtn != null)
         {
             zoomBtn.IsVisible = true;
@@ -2374,8 +2382,8 @@ public partial class GranularSpeedEditorWindow : Window
 
         double speed = _baseSpeed;
         _pendingSpeed = _baseSpeed;
-        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
-        var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+        var speedSlider = PendingSpeedSliderCtl;
+        var speedLbl = PendingSpeedLabelCtl;
         if (speedSlider != null) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, _baseSpeed);
         if (speedLbl != null) speedLbl.Text = $"{_baseSpeed:0.0}x";
         PushUndo("add segment");   // UNDO_02
@@ -2678,8 +2686,8 @@ public partial class GranularSpeedEditorWindow : Window
         var seg = _segments[index];
         _pendingSpeed = seg.Speed;
 
-        var speedSlider = this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider");
-        var speedLbl = this.FindControl<TextBlock>("PendingSpeedLabel");
+        var speedSlider = PendingSpeedSliderCtl;
+        var speedLbl = PendingSpeedLabelCtl;
         if (speedSlider != null && seg.Speed >= 0.01) SpeedPresetButtons.SetSpinningWheelValue(speedSlider, seg.Speed);
         if (speedLbl != null) speedLbl.Text = $"{seg.Speed:0.0}x";
 
@@ -2739,7 +2747,6 @@ public partial class GranularSpeedEditorWindow : Window
         _freezeTimeMs = Math.Clamp(_freezeTimeMs, _trimStartMs, _trimStartMs + dur * 1000.0);
     }
 
-
     private void MoveFreezeCameraByFrames(int frameDelta)
     {
         double duration = GetDuration();
@@ -2793,7 +2800,6 @@ public partial class GranularSpeedEditorWindow : Window
 
     private bool _redrawQueued;
 
-
     private void UpdateDraggingVisuals(int segIndex, double newStartMs, double newEndMs)
     {
         var canvas = _segmentCanvas;
@@ -2834,7 +2840,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void BuildLaneContent()
     {
-        var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes");
+        var lanes = GranularLanesCtl;
         if (lanes?.LaneAHost == null || lanes.LaneBHost == null) return;
 
         var emptyLabel = new TextBlock
@@ -3020,7 +3026,7 @@ public partial class GranularSpeedEditorWindow : Window
             UpdateCaret();
             RelayoutFrameLane();
             double dur = GetDuration();
-            var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes");
+            var lanes = GranularLanesCtl;
             double w = canvas.Bounds.Width;
             if (w <= 0 && lanes?.LaneAHost != null && lanes.LaneAHost.Bounds.Width > 0)
                 w = lanes.LaneAHost.Bounds.Width;
@@ -3060,7 +3066,6 @@ public partial class GranularSpeedEditorWindow : Window
                     double zx1 = SrcMsToX(zsMs, w);
                     double zx2 = SrcMsToX(zeMs, w);
 
-
                     pendingZoomHeads.Add((i, zx1, zx2));
                 }
 
@@ -3094,7 +3099,6 @@ public partial class GranularSpeedEditorWindow : Window
                         _selectedSegmentBorderRef = null;
                 }
             }
-
 
             if (_createDragActive)
             {
@@ -3141,7 +3145,7 @@ public partial class GranularSpeedEditorWindow : Window
                 canvas.Children.Add(line);
             }
 
-            var markerOverlay = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes")?.MarkerOverlayHost;
+            var markerOverlay = GranularLanesCtl?.MarkerOverlayHost;
             markerOverlay?.Children.Clear();
             _freezeMarkerAnts.Clear();
 
@@ -3259,7 +3263,6 @@ public partial class GranularSpeedEditorWindow : Window
             DrawMemeBands(canvas, markerOverlay, w, h, MarkerStickHeight);
         });
     }
-
 
     // ══════════════════════════════════════════════════════════════════════════════════════
     // MEME_06 — DRAGGING A MEME, AND WHY IT USES ITS OWN RULER.
@@ -4304,7 +4307,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void WireZoomControls()
     {
-        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        var zoomBtn = ZoomSegmentBtnCtl;
         if (zoomBtn != null) zoomBtn.Click += (_, __) =>
         {
             // GUIDE_01 — ZOOM-IN needs a marked range for the same reason DELETE PARTS does, and
@@ -4317,7 +4320,7 @@ public partial class GranularSpeedEditorWindow : Window
         var removeZoomBtn = this.FindControl<Button>("RemoveZoomBtn");
         if (removeZoomBtn != null) removeZoomBtn.Click += (_, __) => RemoveZoomFromSelectedSegment();
 
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        var canvas = ZoomOverlayCanvasCtl;
         if (canvas != null)
         {
             canvas.PointerPressed += ZoomCanvas_PointerPressed;
@@ -4325,8 +4328,8 @@ public partial class GranularSpeedEditorWindow : Window
             canvas.PointerReleased += ZoomCanvas_PointerReleased;
         }
 
-        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
-        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
+        var slowCb = SlowZoomCheckCtl;
+        var instCb = InstantZoomCheckCtl;
         if (slowCb != null) slowCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: true);
         if (instCb != null) instCb.IsCheckedChanged += (_, __) => OnZoomModeChanged(fromSlow: false);
 
@@ -4359,7 +4362,7 @@ public partial class GranularSpeedEditorWindow : Window
         double lenS = Math.Max(0, endMs - startMs) / 1000.0;
         txt.Text = $"Start {FormatMs(startMs)}    End {FormatMs(endMs)}    Length {lenS:0.00}s";
 
-        bool stylePanelUp = this.FindControl<Border>("ZoomStylePanel")?.IsVisible == true;
+        bool stylePanelUp = ZoomStylePanelCtl?.IsVisible == true;
         if (stylePanelUp)
         {
             badge.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
@@ -4456,12 +4459,12 @@ public partial class GranularSpeedEditorWindow : Window
         _freezeDragMode = FreezeDragMode.None;
         _freezeMarkerAnts.Clear();
 
-        var icon = this.FindControl<TextBlock>("FreezeImageToggleIcon");
-        var txt = this.FindControl<TextBlock>("FreezeImageToggleText");
+        var icon = FreezeImageToggleIconCtl;
+        var txt = FreezeImageToggleTextCtl;
         if (icon != null) icon.Text = "\U0001F4F8";
         if (txt != null) txt.Text = " FREEZE IMAGE ";
 
-        var toggle = this.FindControl<Button>("FreezeImageToggle");
+        var toggle = FreezeImageToggleCtl;
         if (toggle != null)
         {
             toggle.Classes.Remove("Danger");
@@ -4471,9 +4474,9 @@ public partial class GranularSpeedEditorWindow : Window
         if (!string.IsNullOrEmpty(feedback)) ShowFeedback(feedback!);
 
         _freezePulseTimer?.Stop();
-        var hint = this.FindControl<TextBlock>("FreezeHintLabel");
+        var hint = FreezeHintLabelCtl;
         if (hint != null) hint.IsVisible = false;
-        var hintBottom = this.FindControl<TextBlock>("FreezeHintLabelBottom");
+        var hintBottom = FreezeHintLabelBottomCtl;
         if (hintBottom != null) hintBottom.IsVisible = false;
 
         foreach (var name in new[] { "FreezePreset05", "FreezePreset10", "FreezePreset15",
@@ -4503,10 +4506,10 @@ public partial class GranularSpeedEditorWindow : Window
             this.FindControl<Button>("MarkStartBtn"),
             this.FindControl<Button>("MarkEndBtn"),
             this.FindControl<Button>("GranularPlayPause"),
-            this.FindControl<FortniteVideoSoftware.App.Controls.SpinningWheelSlider>("PendingSpeedSlider"),
+            PendingSpeedSliderCtl,
             this.FindControl<StackPanel>("SpeedPresetsPanel"),
-            this.FindControl<Button>("DeleteSegmentBtn"),
-            this.FindControl<Button>("ClearAllSegmentsBtn"),
+            DeleteSegmentBtnCtl,
+            ClearAllSegmentsBtnCtl,
         };
         foreach (var c in controlsToToggle)
         {
@@ -4568,7 +4571,6 @@ public partial class GranularSpeedEditorWindow : Window
             "ClearAllSegmentsBtn");   // ANCHOR_01
     }
 
-
     /// <summary>ISSUE_01 — tells the user exactly how much is about to be erased.</summary>
     private void UpdateClearAllPromptText()
     {
@@ -4603,13 +4605,13 @@ public partial class GranularSpeedEditorWindow : Window
     private bool _syncingZoomChecks;
 
     /// <summary>true when the user has selected the SLOW (gradual) zoom ramp; false = INSTANT.</summary>
-    private bool ZoomSlowSelected => this.FindControl<RadioButton>("SlowZoomCheck")?.IsChecked == true;
+    private bool ZoomSlowSelected => SlowZoomCheckCtl?.IsChecked == true;
 
     private void OnZoomModeChanged(bool fromSlow)
     {
         if (_syncingZoomChecks) return;
-        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
-        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
+        var slowCb = SlowZoomCheckCtl;
+        var instCb = InstantZoomCheckCtl;
         if (slowCb == null || instCb == null) return;
 
         bool slow = fromSlow ? (slowCb.IsChecked == true) : (instCb.IsChecked != true);
@@ -4675,8 +4677,8 @@ public partial class GranularSpeedEditorWindow : Window
             slow = _segments[_selectedSegmentIndex].ZoomSlow;
         else
             slow = Infrastructure.SettingsManager.Instance.Defaults.DefaultZoomSlow;
-        var slowCb = this.FindControl<RadioButton>("SlowZoomCheck");
-        var instCb = this.FindControl<RadioButton>("InstantZoomCheck");
+        var slowCb = SlowZoomCheckCtl;
+        var instCb = InstantZoomCheckCtl;
         _syncingZoomChecks = true;
         if (slowCb != null) slowCb.IsChecked = slow;
         if (instCb != null) instCb.IsChecked = !slow;
@@ -5018,8 +5020,8 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void EnterZoomMode()
     {
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
-        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        var canvas = ZoomOverlayCanvasCtl;
+        var zoomBtn = ZoomSegmentBtnCtl;
         if (canvas == null) return;
 
         ClearLiveZoomCrop();
@@ -5030,9 +5032,8 @@ public partial class GranularSpeedEditorWindow : Window
         canvas.IsVisible = true;
         canvas.IsHitTestVisible = true;
 
-        var stylePanel = this.FindControl<Border>("ZoomStylePanel");
+        var stylePanel = ZoomStylePanelCtl;
         if (stylePanel != null) stylePanel.IsVisible = true;
-
 
         var seg = _segments[_selectedSegmentIndex];
         var vid = GetVideoDisplayRect(canvas);
@@ -5060,14 +5061,14 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void ExitZoomMode()
     {
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
-        var zoomBtn = this.FindControl<Button>("ZoomSegmentBtn");
+        var canvas = ZoomOverlayCanvasCtl;
+        var zoomBtn = ZoomSegmentBtnCtl;
         _zoomModeActive = false;
         UpdateDetachButtonForZoomMode();
         _zoomDrag = ZoomDrag.None;
         if (canvas != null) canvas.IsVisible = false;
 
-        var stylePanel = this.FindControl<Border>("ZoomStylePanel");
+        var stylePanel = ZoomStylePanelCtl;
         if (stylePanel != null) stylePanel.IsVisible = false;
 
         HideZoomTutorial();
@@ -5374,7 +5375,7 @@ public partial class GranularSpeedEditorWindow : Window
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             _isZoomRenderPending = false;
-            var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+            var canvas = ZoomOverlayCanvasCtl;
             if (canvas == null || _zoomBoxRect == null) return;
             double cw = canvas.Bounds.Width, ch = canvas.Bounds.Height;
 
@@ -5546,7 +5547,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// <summary>ZOOM_11 — closes the Slow/Instant picker. Safe to call when it is already closed.</summary>
     private void HideZoomStylePanel()
     {
-        var stylePanel = this.FindControl<Border>("ZoomStylePanel");
+        var stylePanel = ZoomStylePanelCtl;
         if (stylePanel != null) stylePanel.IsVisible = false;
     }
 
@@ -5696,7 +5697,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void CommitZoomToSegment(string action)
     {
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        var canvas = ZoomOverlayCanvasCtl;
         if (canvas == null || _selectedSegmentIndex < 0 || _selectedSegmentIndex >= _segments.Count) return;
         var vid = GetVideoDisplayRect(canvas);
         var (sw, sh) = FortniteVideoSoftware.Core.Media.CoordinateMath.GetResolutionInts(_originalResolution);
@@ -5856,7 +5857,7 @@ public partial class GranularSpeedEditorWindow : Window
     private void UpdateZoomPlayheadOverlay()
     {
         if (_zoomModeActive) return;
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("ZoomOverlayCanvas");
+        var canvas = ZoomOverlayCanvasCtl;
         if (canvas == null || _videoHost?.IpcClient == null) return;
 
         if (_gpuLiveZoomPreview)
@@ -6022,7 +6023,6 @@ public partial class GranularSpeedEditorWindow : Window
             pauseIcon.IsVisible = !isPaused;
         }
 
-
         if (trimDurSec > 0 && !_isCanvasScrubbing)
         {
             // MEME_08 — a meme drag parked the caret deliberately and the player is paused, so
@@ -6094,7 +6094,6 @@ public partial class GranularSpeedEditorWindow : Window
         UpdateLiveZoomCrop();
         UpdateZoomPlayheadOverlay();
     }
-
 
     private string? _thumbStripFile;
     private CancellationTokenSource? _thumbCts;
@@ -6184,7 +6183,10 @@ public partial class GranularSpeedEditorWindow : Window
             MountLane(fallbackBitmap);
             _thumbStripFile = strip;
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException swallowed2)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+        }
         catch (System.Exception ex)
         {
             RuntimeLog.Fail("Granular", $"Could not build the film-frame lane: {ex.Message}");
@@ -6346,7 +6348,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void UpdateCaret()
     {
-        var lanes = this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes");
+        var lanes = GranularLanesCtl;
         if (lanes == null) return;
 
         double outDur = OutDurationSec();
@@ -6417,12 +6419,10 @@ public partial class GranularSpeedEditorWindow : Window
         return null;
     }
 
-
     private readonly Services.EditorTimelineCache _outputTimelineCache = new();
     private readonly Services.EditorTimelineCache _voiceTimelineCache = new();
     private OutputTimeline? _voiceTimeline;
     private Func<double, double>? _voiceTimeMapper;
-
 
     // ══════════════════════════════════════════════════════════════════════════════════════
     // MEME_06 — PLACING, MOVING AND REMOVING A MEME.
@@ -6769,7 +6769,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// control. Read-only here: it changes only through Ctrl+mouse-wheel on the timeline.
     /// </summary>
     private double TimelineZoomFactor
-        => this.FindControl<FortniteVideoSoftware.App.Controls.TimelineLanesControl>("GranularLanes")
+        => GranularLanesCtl
                ?.ZoomFactor ?? 1.0;
 
     /// <summary>
@@ -7554,7 +7554,7 @@ public partial class GranularSpeedEditorWindow : Window
     {
         RefreshUndoHintText();
 
-        var u = this.FindControl<Button>("UndoBtn");
+        var u = UndoBtnCtl;
         var r = this.FindControl<Button>("RedoBtn");
         if (u != null)
         {
@@ -7575,7 +7575,7 @@ public partial class GranularSpeedEditorWindow : Window
 
     private void WireUndoRedo()
     {
-        var u = this.FindControl<Button>("UndoBtn");
+        var u = UndoBtnCtl;
         if (u != null) u.AddHandler(Button.ClickEvent, (_, _) => PerformUndo());
 
         var r = this.FindControl<Button>("RedoBtn");
@@ -7932,9 +7932,15 @@ public partial class GranularSpeedEditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        // UNDO_01 — snapshots are plain data (rule U1), so they cannot pin a native handle, but the
-        // lists still go here so nothing survives the window that owned them.
-        ClearUndoHistory("editor closed");
+        // UNDO_25 — PARKED, NOT CLEARED. This line used to read ClearUndoHistory("editor closed"),
+        // with the reasoning that "nothing survives the window that owned them". That reasoning is
+        // right about native handles and wrong about the user's work: snapshots are plain data
+        // (rule U1) and cannot pin anything, so the only thing clearing them achieved was throwing
+        // away ten minutes of speed ramps the moment somebody closed the editor to glance at the
+        // main timeline. 07_UNDO_AND_HISTORY.md §5 names this as the defect.
+        ParkHistoryForReopen();
+        _undoStack.Clear();
+        _redoStack.Clear();
 
         // RECOVERY_03 — OnClosing already stopped the debounce timer; release it here so nothing of
         // this window outlives it.
@@ -8010,10 +8016,12 @@ public partial class GranularSpeedEditorWindow : Window
             if (j == idx) continue;
 
             if (isStart && pointerMs < edgePos && Math.Abs(_segments[j].EndMs - edgePos) <= SeamEpsilonMs)
-            { idx = j; isStart = false; return; }
+            {
+                idx = j; isStart = false; return; }
 
             if (!isStart && pointerMs > edgePos && Math.Abs(_segments[j].StartMs - edgePos) <= SeamEpsilonMs)
-            { idx = j; isStart = true; return; }
+            {
+                idx = j; isStart = true; return; }
         }
     }
 
@@ -8056,6 +8064,5 @@ public partial class GranularSpeedEditorWindow : Window
                 }
             };
         }
-    
 }
 }

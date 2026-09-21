@@ -96,7 +96,11 @@ public static class WindowBoundsHelper
 
                     WindowSnapshot snapshot;
                     try { snapshot = WindowSnapshot.Capture(window); }
-                    catch { return; }
+                    catch (System.Exception swallowed2)
+                    {
+                        global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                        return;
+                    }
 
                     _ = Task.Run(() => SaveSnapshot(snapshot, key));
                 };

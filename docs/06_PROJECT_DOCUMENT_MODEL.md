@@ -165,14 +165,48 @@ fixed by muting it again — the rule is fix, or annotate one statement with a r
 
 ## 8. Open Work Bound To This Spec  {#PROJ-TODO}
 The model and its persistence exist and are unit-tested
-(`tests/FortniteVideoSoftware.Core.Tests/ProjectDocumentTests.cs`). NOT yet done, and required before
-the feature is user-visible:
+(`tests/FortniteVideoSoftware.Core.Tests/ProjectDocumentTests.cs`).
 
-1. `MainWindow` command wiring: New / Open / Save / Save As / Recent, with the dirty flag and the
-   unsaved-changes prompt modelled on CROPUNSAVED_01.
-2. `RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.
-3. `.fvsproj` shell association and icon (`ShellFileAssociation.cs`), plus open-with launch.
-4. Title-bar dirty indicator, per `04_UI_UX_AVALONIA_SPEC.md#UI-SETTINGS-ABOUT` title formatting.
+**Closed since this list was written:**
+
+1. ~~`MainWindow` command wiring~~ — done (`PROJSESSION_04`: Ctrl+S / Ctrl+Shift+S / Ctrl+O /
+   Ctrl+Z / Ctrl+Y, with the dirty flag and the unsaved-changes prompt).
+2. **`PROJ_10` — the reader was losing the source fingerprint on every load.** `SizeBytes` and
+   `ModifiedUtcSeconds` are `long`; the writer stored long-backed `JsonValue`s and the reader asked
+   for `double`. `JsonValue.TryGetValue<double>` is an EXACT-TYPE accessor — it returns false on a
+   long — so the fallback won and both fields came back **0 on every load**.
+
+   ⚠️ The damage was not the two fields, it was §6: those two fields ARE the integrity fingerprint.
+   `CheckSource` compared a real file's size against a stored zero and answered `Changed` for every
+   project anyone ever reopened. The warning that exists to say "your source clip was re-encoded"
+   fired constantly and therefore meant nothing. **A warning that is always on is a warning that is
+   off.** Every numeric read now tries every numeric backing, and `ReadLong` exists because
+   `(long)ReadDouble(...)` rounds past 2^53.
+3. **`PROJ_11` — the document now carries the HUD mask and the merge queue (schema 2).**
+   * The mask was `SettingsManager.ActiveMaskOverlay` plus one machine-wide `crop_coordinates.json`
+     and was in the project **nowhere**. A montage saved in March and reopened in May exported
+     through whatever mask was active then — different rectangles, a visibly different video — and
+     nothing said so. `ProjectMask` stores the profile name, the resolved config AND a content
+     fingerprint; the name alone is not enough, because a profile is editable in place.
+     Reopening with a different or edited mask raises a **Degraded** fault naming what changed. It
+     does **not** silently switch the machine's profile back: that would trade a silent wrong render
+     for a silent wrong setting, and reach outside the document to do it.
+   * The merge queue lived only in `VideoMergerWindow`'s `ObservableCollection<string>`. Queue eight
+     clips, close the Merger, save — and the `.fvsproj` described a single-clip edit. `ProjectMerge`
+     records the ordered clips; `ToolNavigator` holds them between windows.
+
+   ⚠️ `ProjectMerge` is also the document's route out of being single-source. `Source` is one clip
+   because the main editor edits one clip, and a montage of several was an unrelated feature sharing
+   an application. Storing the list here is the precondition for ever treating a multi-clip edit as
+   one document.
+
+**Still not done:**
+
+1. `RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.
+2. `.fvsproj` shell association and icon (`ShellFileAssociation.cs`), plus open-with launch.
+3. Title-bar dirty indicator, per `04_UI_UX_AVALONIA_SPEC.md#UI-SETTINGS-ABOUT` title formatting.
+4. Producing the `FortniteVideoSoftware.App.update.zip` release asset (`09` §3 DIST-SPLIT) — the
+   consumer side is wired and tested; the publisher side is not.
 
 ---
 

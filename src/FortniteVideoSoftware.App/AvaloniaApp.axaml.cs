@@ -84,6 +84,7 @@ public partial class AvaloniaApp : Application
                     catch (System.Exception ex)
                     {
                         window.ShowFailureAndWait(ex.Message);
+                        global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                         return;
                     }
                     

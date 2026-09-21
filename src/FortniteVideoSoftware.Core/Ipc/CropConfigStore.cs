@@ -75,14 +75,17 @@ public sealed class CropConfigStore
                 return config;
             }
         }
-        catch (JsonException)
+        catch (JsonException swallowed7)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (IOException)
+        catch (IOException swallowed9)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
 
         // Newest backup first. Do not rotate during recovery: that would replace a
@@ -204,7 +207,11 @@ public sealed class CropConfigStore
     {
         if (node is not JsonValue) return false;
         try { return Frac.FromString(node.ToString()) > Frac.Zero; }
-        catch { return false; }
+        catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
     }
 
     private static bool TryGetInt(JsonNode? node, out int value)
@@ -220,16 +227,19 @@ public sealed class CropConfigStore
             value = node.GetValue<int>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed5)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (FormatException)
+        catch (FormatException swallowed6)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (InvalidCastException)
+        catch (InvalidCastException swallowed8)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -247,12 +257,14 @@ public sealed class CropConfigStore
             value = node.GetValue<string>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed3)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (InvalidCastException)
+        catch (InvalidCastException swallowed4)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

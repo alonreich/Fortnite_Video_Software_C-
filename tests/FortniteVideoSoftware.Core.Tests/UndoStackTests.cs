@@ -215,6 +215,46 @@ public class UndoStackTests
         Assert.Equal(0, s.UndoCount);
     }
 
+    /// <summary>
+    /// UNDO_23 — the same re-entrancy trap on the REDO side. The guard was reset in a
+    /// <c>finally</c> that ran before <c>Changed</c> was raised, so the handler's write-back was
+    /// recorded as a fresh edit — which also wipes the redo branch (U3) and makes redo a one-shot.
+    /// </summary>
+    [Fact]
+    public void RedoingDoesNotRecordHistory()
+    {
+        UndoStack<Doc> s = NewStack("a");
+        s.Apply(new Doc("b"), "to b");
+        s.Undo();
+
+        s.Changed += (_, _) => s.Apply(new Doc("echo"), "control echoed");
+        s.Redo();
+
+        Assert.Equal(new Doc("b"), s.Current);
+        Assert.Equal(1, s.UndoCount);
+        Assert.Equal(0, s.RedoCount);
+    }
+
+    /// <summary>
+    /// UNDO_23 — <c>Reset</c> raises <c>Changed</c> too, and the handler is repopulating controls
+    /// for a DIFFERENT document. Anything it echoes back is not an edit of that document; if it
+    /// were recorded, every project open would start with a phantom undo entry that reverts the
+    /// user to a document they never had.
+    /// </summary>
+    [Fact]
+    public void ResettingDoesNotRecordHistory()
+    {
+        UndoStack<Doc> s = NewStack("a");
+        s.Apply(new Doc("b"), "to b");
+
+        s.Changed += (_, _) => s.Apply(new Doc("echo"), "control echoed");
+        s.Reset(new Doc("loaded"));
+
+        Assert.Equal(new Doc("loaded"), s.Current);
+        Assert.Equal(0, s.UndoCount);
+        Assert.Equal(0, s.RedoCount);
+    }
+
     [Fact]
     public void Changed_FiresOnApplyUndoRedoAndReset()
     {

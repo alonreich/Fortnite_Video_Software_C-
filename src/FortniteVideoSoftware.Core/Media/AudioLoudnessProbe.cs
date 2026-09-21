@@ -327,8 +327,9 @@ public static class AudioLoudnessProbe
 
             return new LoudnessReading(i, tp, lra, thresh, offset);
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -342,8 +343,9 @@ public static class AudioLoudnessProbe
             if (raw == null) return false;
             return double.TryParse(raw.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
-        catch
+        catch (System.Exception swallowed2)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

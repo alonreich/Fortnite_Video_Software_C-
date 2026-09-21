@@ -150,16 +150,17 @@ public class MPVSafetyManager : IDisposable
         {
             SeekProcessorLoopAsync().GetAwaiter().GetResult();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed3)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException swallowed)
         {
-            // MPVSAFETY_01 — the token source was freed underneath us. That is a teardown, not a
-            // fault. This is the exact throw that used to kill the process.
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (ChannelClosedException)
+        catch (ChannelClosedException swallowed4)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -274,8 +275,9 @@ public class MPVSafetyManager : IDisposable
                 }
             }
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException swallowed2)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {

@@ -18,8 +18,14 @@ public sealed class VoiceOverPreviewTake : IDisposable
 
     public void Dispose()
     {
-        try { Player.Dispose(); } catch { }
-        try { Reader.Dispose(); } catch { }
+        try { Player.Dispose(); } catch (System.Exception swallowed)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+        }
+        try { Reader.Dispose(); } catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 }
 
@@ -30,7 +36,8 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
     private readonly System.Threading.Channels.Channel<PlaybackRequest> _pending =
         System.Threading.Channels.Channel.CreateBounded<PlaybackRequest>(
             new System.Threading.Channels.BoundedChannelOptions(1)
-            { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest, SingleReader = true });
+            {
+                FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest, SingleReader = true });
     private readonly object _stateGate = new();
     private VoiceOverWindow.VoiceOverResult? _result;
     private volatile bool _disposed;

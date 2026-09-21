@@ -11,6 +11,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using FortniteVideoSoftware.Core.Abstractions;
 using FortniteVideoSoftware.Core.Infrastructure;
 using FortniteVideoSoftware.Core.Ipc;
+using FortniteVideoSoftware.Core.Project;
 
 namespace FortniteVideoSoftware.App.Services;
 
@@ -107,6 +108,70 @@ public sealed class ToolNavigator
     public static bool OpenedInProcess { get; private set; }
 
     /// <summary>
+    /// PROJ_11 — THE MERGE QUEUE, SOMEWHERE THE PROJECT CAN SEE IT.
+    ///
+    /// <para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// <b>THE DEFECT THIS CLOSES.</b> The queue lived in <c>VideoMergerWindow</c>'s own
+    /// <c>ObservableCollection&lt;string&gt;</c> and nowhere else. A user could add eight clips,
+    /// order them, close the Merger, and save the project — and the <c>.fvsproj</c> recorded a
+    /// single-clip edit with no trace that a merge had ever been assembled. Reopening produced a
+    /// document quietly missing most of the work, with nothing to indicate it.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ STATIC, FOR THE SAME REASON <see cref="OpenedInProcess"/> IS. The Merger window is
+    /// constructed by this navigator and does not receive it — it is legacy code-behind under the
+    /// COMPOSITION_02 migration, and Avalonia's lifetime cannot pass constructor arguments. The
+    /// queue must outlive the window that owns it, because "the user closed the Merger and THEN
+    /// saved" is the exact case being fixed. Written and read on the UI thread only.
+    /// </para>
+    ///
+    /// <para>
+    /// This moves with the view-model extraction: once the Merger has one, the queue lives there
+    /// and the session reads it through the same callback, unchanged.
+    /// </para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// </summary>
+    private static ProjectMerge? _mergeQueue;
+
+    /// <summary>
+    /// PROJ_11 — called by the Merger whenever its queue changes and once as it closes.
+    /// An empty queue CLEARS the record rather than storing an empty one: "no merge" and "a merge
+    /// of nothing" must not become two different states in the saved file.
+    /// </summary>
+    public static void PublishMergeQueue(IReadOnlyList<string>? paths, double baseSpeed)
+    {
+        if (paths is null || paths.Count == 0)
+        {
+            _mergeQueue = null;
+            return;
+        }
+
+        var clips = new List<MergeClip>(paths.Count);
+        foreach (string path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            clips.Add(new MergeClip(path, 0, 0));
+        }
+
+        _mergeQueue = clips.Count == 0
+            ? null
+            : new ProjectMerge { Clips = clips, BaseSpeed = baseSpeed <= 0 ? 1.0 : baseSpeed };
+    }
+
+    /// <summary>PROJ_11 — what <c>ProjectSession.Capture</c> reads. Null means "no merge queued".</summary>
+    public static ProjectMerge? ReadMergeQueue() => _mergeQueue;
+
+    /// <summary>
+    /// PROJ_11 — restores a queue from an opened project, so the Merger shows what the DOCUMENT
+    /// says rather than whatever was last assembled in this process. Without it, opening a project
+    /// could silently inherit another project's clips.
+    /// </summary>
+    public static void RestoreMergeQueue(ProjectMerge? merge)
+        => _mergeQueue = merge is { HasClips: true } ? merge : null;
+
+    /// <summary>
     /// Opens <paramref name="tool"/> in this process, hiding <paramref name="owner"/> until it
     /// closes.
     /// </summary>
@@ -164,6 +229,7 @@ public sealed class ToolNavigator
                 // whole thing down. Here the owner is still alive and still visible.
                 _faults.Fatal("UI", $"{toolName} could not be opened, so nothing has changed.", ex);
                 restoreVideoPipeline?.Invoke();
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
 

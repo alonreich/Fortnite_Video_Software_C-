@@ -77,6 +77,31 @@ public sealed class ProjectSession
     private readonly Func<(int Width, int Height, double Fps)> _probeVideoMetrics;
 
     /// <summary>
+    /// PROJ_11 — reads the HUD mask that is live RIGHT NOW: the active profile name from settings
+    /// plus the resolved crop configuration. A seam rather than a direct call, because
+    /// <c>SettingsManager</c> and <c>CropConfigStore</c> both touch disk and a session under test
+    /// must be constructible without either.
+    /// </summary>
+    private readonly Func<ProjectMask?> _readLiveMask;
+
+    /// <summary>PROJ_11 — the Video Merger's queue, or null when no merge is in progress.</summary>
+    private readonly Func<ProjectMerge?> _readMergeQueue;
+
+    /// <summary>
+    /// UNDO_24 — where edit history is kept BETWEEN runs of the application.
+    ///
+    /// <para>
+    /// 07_UNDO_AND_HISTORY.md §5 item 1. Until this was wired, <c>UndoStack</c> lived entirely in
+    /// memory: quitting the app discarded every step of how a montage was built, and the user got
+    /// no warning on the way out and nothing to Ctrl+Z against on the way back in.
+    /// </para>
+    ///
+    /// <para>⚠️ §4 — the history is NOT in the <c>.fvsproj</c>. It is per-machine and disposable,
+    /// and emailing a colleague a montage must not email them forty snapshots of its making.</para>
+    /// </summary>
+    private readonly UndoSidecarStore _sidecar;
+
+    /// <summary>
     /// PROJSESSION_08 — THE APPLICATION'S OWN NOTION OF "IS THERE ANYTHING TO LOSE".
     ///
     /// <para>
@@ -115,7 +140,10 @@ public sealed class ProjectSession
         IClock clock,
         MainViewModel viewModel,
         Func<(int Width, int Height, double Fps)> probeVideoMetrics,
-        Func<bool> hasUnsavedWork)
+        Func<bool> hasUnsavedWork,
+        Func<ProjectMask?>? readLiveMask = null,
+        Func<ProjectMerge?>? readMergeQueue = null,
+        UndoSidecarStore? sidecar = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _picker = picker ?? throw new ArgumentNullException(nameof(picker));
@@ -125,6 +153,19 @@ public sealed class ProjectSession
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _probeVideoMetrics = probeVideoMetrics ?? throw new ArgumentNullException(nameof(probeVideoMetrics));
         _hasUnsavedWork = hasUnsavedWork ?? throw new ArgumentNullException(nameof(hasUnsavedWork));
+
+        // PROJ_11 — these two default to "nothing to record" rather than being required, so the
+        // existing call sites and every test keep compiling. ⚠️ A default that returns null is
+        // honest here in a way it would not be elsewhere: it means "this session has no mask/merge
+        // source wired", which is exactly true of a headless session.
+        _readLiveMask = readLiveMask ?? (static () => null);
+        _readMergeQueue = readMergeQueue ?? (static () => null);
+
+        // UNDO_24 — defaults to the real store under ProgramData. A test that wants no disk passes
+        // its own rooted at a temp folder; there is no "null means disabled" mode, because a
+        // silently-disabled history is the defect this closes.
+        _sidecar = sidecar ?? UndoSidecarStore.CreateDefault(Core.Infrastructure.ApplicationPaths.CreateDefault());
+
         _lastAutosaveUtc = _clock.UtcNow;
     }
 
@@ -317,6 +358,20 @@ public sealed class ProjectSession
         _dirty = false;
         _history = new UndoStack<ProjectDocument>(document);
         _history.Changed += (_, _) => Raise();
+
+        // UNDO_24 — take back the history this project had when it was last closed.
+        //
+        // ⚠️ ORDERED AFTER the stack is constructed, because Restore replaces the BRANCHES and
+        // leaves Current alone — Current must already be the document that was just applied to the
+        // view-models, or the first Ctrl+Z would restore a state the screen does not show.
+        UndoSidecar? history = _sidecar.Load(chosen, HistoryFingerprint(document));
+        if (history is not null)
+        {
+            _history.Restore(history.Undo, history.Redo);
+            RuntimeLog.Info("UNDO",
+                $"Restored {history.Undo.Count} undo / {history.Redo.Count} redo step(s) from the sidecar (UNDO_24).");
+        }
+
         Raise();
 
         _notifier.Notify($"Opened {Path.GetFileNameWithoutExtension(chosen)}", NoticeKind.Success);
@@ -387,8 +442,9 @@ public sealed class ProjectSession
         catch (Exception ex)
         {
             _faults.Recoverable("PROJECT",
-                $"The unsaved-changes prompt failed during '{action}'; allowing it to proceed rather than "
-              + $"blocking the window. {ex.GetType().Name}: {ex.Message}", ex);
+            $"The unsaved-changes prompt failed during '{action}'; allowing it to proceed rather than "
+            + $"blocking the window. {ex.GetType().Name}: {ex.Message}", ex);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return true;
         }
     }
@@ -451,6 +507,7 @@ public sealed class ProjectSession
         catch (Exception ex)
         {
             _faults.Recoverable("PROJECT", $"HasUnsavedWork check failed, assuming nothing to save: {ex.Message}", ex);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -498,6 +555,11 @@ public sealed class ProjectSession
                 PortraitMode = _viewModel.IsPortraitMode,
                 HardwareMode = "Auto",
             },
+            // PROJ_11 — the mask and the merge queue are part of the work, not of the machine.
+            // Captured on every edit boundary so an undo step restores the mask the user had, not
+            // whatever the shared profile file says at the moment they press Ctrl+Z.
+            Mask = ReadLiveMaskSafely(),
+            Merge = ReadMergeQueueSafely(),
             Title = string.IsNullOrWhiteSpace(path) ? "Untitled" : Path.GetFileNameWithoutExtension(path),
             ModifiedUtc = _clock.UtcNow,
         };
@@ -556,9 +618,63 @@ public sealed class ProjectSession
             _applying = false;
         }
 
+        // PROJ_11 — OUTSIDE the _applying guard on purpose: this reports, it does not edit.
+        ReportMaskDriftIfAny(document);
+
         _dirty = true;
         DocumentApplied?.Invoke(this, document);
         Raise();
+    }
+
+    /// <summary>
+    /// PROJ_11 — SAY SO WHEN THE MASK THIS PROJECT WAS BUILT WITH IS NOT THE ONE THAT IS LIVE.
+    ///
+    /// <para>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// <b>THE DEFECT THIS CLOSES.</b> The HUD mask was a machine-wide setting
+    /// (<c>SettingsManager.ActiveMaskOverlay</c> plus one shared <c>crop_coordinates.json</c>) and
+    /// was in no way attached to a project. Open a montage from March today and the export runs
+    /// through whatever mask is active NOW — different rectangles, different overlays, a visibly
+    /// different video — and the application said nothing at all. The user's own saved record of
+    /// their edit omitted the single setting that decides what the frame looks like.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ THIS DOES NOT SILENTLY SWITCH THE MASK BACK. Changing the machine's active profile
+    /// because a file was opened would reach outside the document and alter the next project the
+    /// user opens too — trading a silent wrong render for a silent wrong setting. The document
+    /// holds the mask it was built with; the user is told what differs and decides.
+    /// </para>
+    ///
+    /// <para>
+    /// Degraded, not Fatal: nothing is broken and nothing is lost. Something the user can perceive
+    /// has changed under them, and the notice names both halves — what differs, and what still
+    /// works — as FAULTTIER_01 requires of this tier.
+    /// </para>
+    /// </summary>
+    private void ReportMaskDriftIfAny(ProjectDocument document)
+    {
+        if (document.Mask is not { } saved) return;
+
+        ProjectMask? live = ReadLiveMaskSafely();
+
+        // No live mask to compare against is not drift — it is a session with no mask source
+        // wired, which is the normal state in a test and during early startup.
+        if (live is null) return;
+
+        if (saved.MatchesLive(live.Config)) return;
+
+        bool renamed = !string.Equals(saved.ProfileName, live.ProfileName, StringComparison.OrdinalIgnoreCase);
+
+        _faults.Degraded("PROJECT",
+            renamed
+                ? $"This project was built with the \"{saved.ProfileName}\" HUD mask, but \"{live.ProfileName}\" "
+                + "is active now — the export will look different. Editing and export still work; switch the "
+                + "mask in the Crop Tool if you want the original look."
+                : $"The \"{saved.ProfileName}\" HUD mask has been edited since this project was saved, so the "
+                + "export will look different. Editing and export still work; the project remembers the mask "
+                + "it was built with.",
+            technicalDetail: $"saved fingerprint {saved.Fingerprint}, live {live.Fingerprint}");
     }
 
     // ── Plumbing ────────────────────────────────────────────────────────────────────────────
@@ -579,6 +695,13 @@ public sealed class ProjectSession
         CurrentPath = path;
         _dirty = false;
         _lastAutosaveUtc = _clock.UtcNow;
+
+        // UNDO_24 — the history is written WITH the save, and fingerprinted against what was just
+        // written. Saving is the moment the two are known to agree; writing the sidecar at any
+        // other time risks a history that describes a document the file does not contain.
+        if (_history is { } history)
+            _sidecar.Save(path, HistoryFingerprint(history.Current), history);
+
         Raise();
 
         if (announce) _notifier.Notify($"Saved {Path.GetFileNameWithoutExtension(path)}", NoticeKind.Success);
@@ -591,6 +714,53 @@ public sealed class ProjectSession
         string stem = string.IsNullOrWhiteSpace(video) ? "Untitled" : Path.GetFileNameWithoutExtension(video);
         return stem + ProjectDocument.FileExtension;
     }
+
+    /// <summary>
+    /// PROJ_11 — reading the live mask must never be able to fail a capture.
+    ///
+    /// <para>
+    /// ⚠️ <see cref="Capture"/> is on the undo path. If reading the crop config threw — a locked
+    /// file, a half-written profile, a mutex timeout — the exception would propagate out of
+    /// <c>PushEdit</c> and the user's edit would not be recorded at all, which loses work in order
+    /// to report a problem with an ancillary read. So the failure is classified and the capture
+    /// continues with no mask, which is the same shape <see cref="ProbeMetricsSafely"/> already has
+    /// for ffprobe.
+    /// </para>
+    ///
+    /// <para>
+    /// Degraded, not Recoverable: the saved project will not carry the mask it was built with, and
+    /// that is a difference the user can perceive the next time they open it.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// UNDO_24 — identifies WHICH VERSION of a project a history belongs to.
+    ///
+    /// <para>
+    /// Built from the source clip and the edit that produced the saved state. A project edited on
+    /// another machine, or restored from a backup, produces a different fingerprint and its stale
+    /// history is discarded rather than replayed — replaying it would walk the user back into a
+    /// document that never existed on this timeline, silently.
+    /// </para>
+    /// </summary>
+    private static string HistoryFingerprint(ProjectDocument document)
+        => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{document.Source.FilePath}|{document.Source.SizeBytes}|{document.Source.ModifiedUtcSeconds}|{document.SourceCutStartMs:F3}|{document.TrimmedDurationMs:F3}|{document.Segments.Count}|{document.Cuts.Count}|{document.Memes.Count}");
+
+    private ProjectMask? ReadLiveMaskSafely()
+        => _faults.GuardValue<ProjectMask?>(
+            "PROJECT",
+            "The HUD mask could not be read, so this save will not record which mask you were using. "
+          + "Your edit is saved and export still works — reopening will just use whichever mask is active then.",
+            _readLiveMask,
+            fallback: null);
+
+    private ProjectMerge? ReadMergeQueueSafely()
+        => _faults.GuardValue<ProjectMerge?>(
+            "PROJECT",
+            "The merge queue could not be read, so this save will not record the clips you queued. "
+          + "Everything else in the project is saved.",
+            _readMergeQueue,
+            fallback: null);
 
     private (int Width, int Height, double Fps) ProbeMetricsSafely()
         => _faults.GuardValue("PROJECT",

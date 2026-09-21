@@ -119,7 +119,17 @@ public static class ThumbnailStripGenerator
         {
             Directory.CreateDirectory(tempDirectory);
         }
-        catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); return null; }
+        catch (System.Exception ex)
+        {
+            Debug.WriteLine(ex.ToString());
+            // FAULTTIER_02 — DEGRADED, NOT SWALLOWED. The filmstrip is the thing the user is
+            // looking at while they trim; a blank one with no explanation is the exact
+            // "did I mis-click?" moment FAULTTIER_01 was written about.
+            global::FortniteVideoSoftware.Core.Abstractions.Faults.Degraded("THUMBS",
+                "The timeline filmstrip could not be built — its temporary folder could not be created, so the strip will stay blank. Trimming, editing and export all still work.",
+                ex);
+            return null;
+        }
 
         if (durationSec <= 0) durationSec = 10;
         if (startSec < 0) startSec = 0;
@@ -239,7 +249,11 @@ public static class ThumbnailStripGenerator
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex)
+        {
+            Debug.WriteLine(ex.ToString());
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     /// <summary>
@@ -253,7 +267,11 @@ public static class ThumbnailStripGenerator
     private static void TrySetBelowNormalPriority(Process process)
     {
         try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
-        catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+        catch (System.Exception ex)
+        {
+            Debug.WriteLine(ex.ToString());
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     private static async Task<bool> RunAsync(
@@ -276,7 +294,11 @@ public static class ThumbnailStripGenerator
             process = Process.Start(psi);
             if (process == null) return false;
 
-            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
             TrySetBelowNormalPriority(process); // THROTTLE_01
 
             Task<string> stdOut = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -285,7 +307,11 @@ public static class ThumbnailStripGenerator
             _ = await stdOut.ConfigureAwait(true);
 
             string errText = string.Empty;
-            try { errText = await stdErr.ConfigureAwait(true); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            try { errText = await stdErr.ConfigureAwait(true); } catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
 
             if (process.ExitCode == 0 && File.Exists(outPng)) return true;
 
@@ -297,18 +323,27 @@ public static class ThumbnailStripGenerator
         catch (OperationCanceledException)
         {
             try { if (process != null && !process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
             TryDelete(outPng);
             throw;
         }
         catch (System.Exception ex)
         {
             Debug.WriteLine(ex.ToString());
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
         }
     }
 
@@ -449,7 +484,11 @@ public static class ThumbnailStripGenerator
             process = Process.Start(psi);
             if (process == null) return false;
 
-            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
             TrySetBelowNormalPriority(process); // THROTTLE_01
 
             using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -523,7 +562,11 @@ public static class ThumbnailStripGenerator
                         if (index == 0) onReady(bitmap);
                         onFrame?.Invoke();
                     }
-                    catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+                    catch (System.Exception ex)
+                    {
+                        Debug.WriteLine(ex.ToString());
+                        global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+                    }
                 });
             }
 
@@ -535,14 +578,22 @@ public static class ThumbnailStripGenerator
                 if (landed == 0 && !string.IsNullOrWhiteSpace(err))
                     RuntimeLog.Debug(logTag, $"Filmstrip stream produced no frames. FFmpeg stderr:\n{err.Trim()}");
             }
-            catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
 
             return landed > 0;
         }
         catch (OperationCanceledException)
         {
             try { if (process != null && !process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
 
             if (cancellationToken.IsCancellationRequested) throw;
 
@@ -557,8 +608,11 @@ public static class ThumbnailStripGenerator
         }
         finally
         {
-            try { process?.Dispose(); } catch (System.Exception ex) { Debug.WriteLine(ex.ToString()); }
+            try { process?.Dispose(); } catch (System.Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            }
         }
     }
-
 }

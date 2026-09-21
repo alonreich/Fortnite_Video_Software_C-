@@ -52,8 +52,9 @@ public static class AtomicJsonFile
 
             return obj;
         }
-        catch (JsonException)
+        catch (JsonException swallowed2)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (Exception ex)
@@ -151,11 +152,13 @@ public static class AtomicJsonFile
                 File.Delete(path);
             }
         }
-        catch (IOException)
+        catch (IOException swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed3)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
     }
 }

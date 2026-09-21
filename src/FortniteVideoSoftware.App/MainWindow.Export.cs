@@ -90,7 +90,7 @@ public partial class MainWindow
             // the time its Task has completed.
             try { cts.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
 
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            OverlayLayerCtl?.StopOverlay();
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
@@ -143,7 +143,7 @@ public partial class MainWindow
         
         SetTimelinePopupsVisible(false);
         if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = false;
-        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
+        OverlayLayerCtl?.StartOverlay();
 
         var addMemeCb = this.FindControl<Avalonia.Controls.ToggleSwitch>("AddMemeCheckbox");
         string? memeFile = null;
@@ -182,12 +182,13 @@ public partial class MainWindow
             var estimateToken = processCts.Token;
             sizeEstimate = await Task.Run(() => SizeEstimator.EstimateMainAsync(sizeRequest, estimateToken), estimateToken);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed)
         {
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            OverlayLayerCtl?.StopOverlay();
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return;
         }
         catch (Exception ex)
@@ -198,7 +199,7 @@ public partial class MainWindow
         double? resolvedTargetMb = sizeEstimate.TargetMegabytes;
         if (!FortniteVideoSoftware.App.ViewModels.QualityLadder.IsOriginal(qualityIdx) && !resolvedTargetMb.HasValue)
         {
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            OverlayLayerCtl?.StopOverlay();
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
@@ -410,11 +411,11 @@ public partial class MainWindow
             (percent) => { Avalonia.Threading.Dispatcher.UIThread.Post(() => processButton.Content = $"PROCESSING... {percent}%"); },
             (phase, title, progress) => { 
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.UpdatePhase(phase, title, progress));
+                    OverlayLayerCtl?.UpdatePhase(phase, title, progress));
             }
         );
 
-        this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+        OverlayLayerCtl?.StopOverlay();
         if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
 
         if (result.Canceled)
@@ -528,6 +529,5 @@ public partial class MainWindow
 
         return dlg.Result;
     }
-
 
 }

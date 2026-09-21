@@ -103,6 +103,28 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   HardwareTelemetrySampler.cs                06 (AOTSAFETY_03)
 ⚠ AuthenticodeVerifier.cs                    05 06 (AOTSAFETY_05)
   FortniteVideoSoftware.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
+  RuntimePayloadManifest.cs                  09
+  DiagnosticReport.cs                        05
+  DiagnosticBundle.cs                        05
+  UndoSidecarStore.cs                        07
+  Faults.cs                                  08
+  SentinelList.cs                            05
+  FvsVerify Program.cs                       05
+  build/sentinels.txt                        05
+  .github/workflows/ci.yml                   05
+  .github/workflows/lfs-guard.yml            09
+⚠ UpdateService.cs                           05 09
+⚠ Staging.cs                                 05 09
+  GranularSpeedEditorWindow.History.cs       07
+  MainWindow.Controls.cs                     04
+  GranularSpeedEditorWindow.Controls.cs      04
+  MusicWizardWindow.Controls.cs              04
+  CropToolWindow.Controls.cs                 04
+  VideoMergerWindow.Controls.cs              04
+  PhaseOverlayControl.Controls.cs            04
+  TimelineLanesControl.Controls.cs           04
+  ConfirmDialogWindow.Controls.cs            04
+  WindowsOnlyFactAttribute.cs                08
 ```
 
 Full paths: see each spec's Code Mini-Map.
@@ -474,5 +496,26 @@ UNDO_21                                      07 §2 UNDO-RULES
 UNDO_22                                      07 §2 UNDO-RULES
 UPDATETRUST_02                               05 §5 SYS-SIGNING
 VERIFYHALT_01                                05 §4a SYS-DEVBUILD
+SYS-VERIFYTOOL                               05 §4a SYS-DEVBUILD
+SYS-CI                                       05 §4a SYS-DEVBUILD
+SYS-DIAGREPORT                               05 §2 SYS-LOGGING
+SYS-PAYLOADSPLIT                             09 §3 DIST-SPLIT | 05 §6 SYS-AUTOUPDATE
+SYS-REPOWEIGHT                               09 §4 DIST-REPOWEIGHT
+CITEST_01                                    08 §3 COMP-ARCHTEST
+FAULTTIER_02                                 08 §2 COMP-FAULTS
+MVVM_03                                      04 §1 UI-THEME | 08 §3a COMP-MVVM
+UNDO_23                                      07 §2 UNDO-RULES
+UNDO_24                                      07 §4 UNDO-PERSIST
+UNDO_25                                      07 §4 UNDO-PERSIST | 04 §6 UI-GRANULAR
+PROJ_10                                      06 §4 PROJ-AOT | 06 §6 PROJ-INTEGRITY
+PROJ_11                                      06 §2 PROJ-INPUTS | 06 §3 PROJ-SCHEMA
+AOTSAFETY_06                                 06 §4 PROJ-AOT
+ProjectMask                                  06 §2 PROJ-INPUTS
+ProjectMerge                                 06 §2 PROJ-INPUTS
+MergeClip                                    06 §2 PROJ-INPUTS
+RuntimePayloadManifest                       09 §3 DIST-SPLIT
+UndoSidecarStore                             07 §4 UNDO-PERSIST
+DiagnosticReport                             05 §2 SYS-LOGGING
+Faults.Install                               08 §2 COMP-FAULTS
 ```
 

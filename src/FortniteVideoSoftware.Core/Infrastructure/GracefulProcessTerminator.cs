@@ -180,13 +180,16 @@ public static class GracefulProcessTerminator
             await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
             return true;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed5)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (Exception)
+        catch (Exception swallowed4)
         {
-            return true; // disposed / handle gone — nothing left to wait for
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+            return true;
+            // disposed / handle gone — nothing left to wait for
         }
     }
 
@@ -196,9 +199,11 @@ public static class GracefulProcessTerminator
         {
             return process.WaitForExit(timeoutMs);
         }
-        catch (Exception)
+        catch (Exception swallowed3)
         {
-            return true; // disposed / handle gone — nothing left to wait for
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            return true;
+            // disposed / handle gone — nothing left to wait for
         }
     }
 
@@ -211,9 +216,9 @@ public static class GracefulProcessTerminator
                 process.Kill(entireProcessTree: true);
             }
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed6)
         {
-            // Raced to exit on its own — that is a success, not a failure.
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -227,9 +232,11 @@ public static class GracefulProcessTerminator
         {
             return process.HasExited;
         }
-        catch (Exception)
+        catch (Exception swallowed2)
         {
-            return true; // disposed / no handle — treat as gone
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return true;
+            // disposed / no handle — treat as gone
         }
     }
 }

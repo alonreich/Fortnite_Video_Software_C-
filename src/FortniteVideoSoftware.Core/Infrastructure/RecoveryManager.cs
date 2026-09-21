@@ -123,14 +123,24 @@ public sealed class RecoveryManager
                             }
                         }
                     }
-                    catch (ArgumentException) { }
-                    catch (InvalidOperationException) { }
-                    catch (System.ComponentModel.Win32Exception) { }
+                    catch (ArgumentException swallowed3)
+                    {
+                        global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+                    }
+                    catch (InvalidOperationException swallowed4)
+                    {
+                        global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
+                    }
+                    catch (System.ComponentModel.Win32Exception swallowed7)
+                    {
+                        global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
+                    }
                 }
             }
         }
-        catch (Exception)
+        catch (Exception swallowed6)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
         }
 
         CoreLogger.Info("Recovery", "Previous session did not shut down cleanly (crash detected). Recovery state is available to restore.");
@@ -206,9 +216,21 @@ public sealed class RecoveryManager
             using Process proc = Process.GetProcessById(pid);
             return !proc.HasExited && proc.StartTime.Ticks == startTicks;
         }
-        catch (ArgumentException) { return false; }
-        catch (InvalidOperationException) { return false; }
-        catch (System.ComponentModel.Win32Exception) { return false; }
+        catch (ArgumentException swallowed8)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
+        catch (InvalidOperationException swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
+        catch (System.ComponentModel.Win32Exception swallowed5)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+            return false;
+        }
         catch (System.Exception ex) { CoreLogger.Swallowed(ex); return false; }
     }
 

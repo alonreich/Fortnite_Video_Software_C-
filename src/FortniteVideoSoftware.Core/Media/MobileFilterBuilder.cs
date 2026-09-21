@@ -190,7 +190,6 @@ public class MobileFilterBuilder
         double Scale,
         (double x, double y) Pos,
         int Z);
-
 }
 
 internal static class MobileFilterBuilderExtensions
@@ -208,7 +207,7 @@ internal static class MobileFilterBuilderExtensions
         {
             double parsed;
             try { parsed = (double)scaleNode!; }
-            catch
+            catch (System.Exception swallowed)
             {
                 // ZEROSCALE_01 — the old code checked `!= Frac.Zero`, which let a NEGATIVE fraction
                 // straight through; and the numeric branch above had no check at all, so a JSON 0
@@ -217,7 +216,12 @@ internal static class MobileFilterBuilderExtensions
                 // negative would land there via a negative Frac. Only a strictly positive scale is
                 // meaningful; anything else falls back to 1/1 and is logged.
                 try { parsed = Frac.FromString(scaleNode!.ToString()).ToDouble(); }
-                catch { parsed = double.NaN; }
+                catch (System.Exception swallowed2)
+                {
+                parsed = double.NaN;
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                }
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
 
             if (double.IsFinite(parsed) && parsed > 0.0)

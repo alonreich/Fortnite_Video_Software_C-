@@ -64,8 +64,9 @@ public sealed class StateTransferStore
             var store = new StateTransferStore(paths);
             return store.LoadUnlocked();
         }
-        catch
+        catch (System.Exception swallowed6)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject { ["schema_version"] = SchemaVersion };
         }
     }
@@ -103,8 +104,9 @@ public sealed class StateTransferStore
 
                 return LoadUnlocked();
             }
-            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException swallowed3)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                 return new JsonObject();
             }
         }, cancellationToken).ConfigureAwait(false);
@@ -140,8 +142,9 @@ public sealed class StateTransferStore
 
             return LoadUnlocked();
         }
-        catch
+        catch (System.Exception swallowed5)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }
@@ -173,11 +176,13 @@ public sealed class StateTransferStore
                 payload["schema_version"] = SchemaVersion;
                 AtomicJsonFile.WriteObject(Paths.SessionStateFile, payload);
             }
-            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException swallowed2)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException swallowed20)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed20);   // FAULTTIER_02 — no failure is silent.
             }
             catch (Exception ex)
             {
@@ -215,11 +220,13 @@ public sealed class StateTransferStore
                 current["schema_version"] = SchemaVersion;
                 AtomicJsonFile.WriteObject(Paths.SessionStateFile, current);
             }
-            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException swallowed)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException swallowed9)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
             }
             catch (Exception ex)
             {
@@ -335,8 +342,9 @@ public sealed class StateTransferStore
 
                 AtomicJsonFile.TryDelete(Paths.SessionStateFile);
             }
-            catch (FortniteVideoSoftware.Core.Infrastructure.LockException)
+            catch (FortniteVideoSoftware.Core.Infrastructure.LockException swallowed12)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed12);   // FAULTTIER_02 — no failure is silent.
             }
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -381,8 +389,9 @@ public sealed class StateTransferStore
             CoreLogger.Fail("SessionState", $"Session state could not be read right now: {ex.Message}");
             return new JsonObject();
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed18)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed18);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }
@@ -444,12 +453,14 @@ public sealed class StateTransferStore
         {
             ValidateKnownProperty(key, value);
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException swallowed13)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed13);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (Exception)
+        catch (Exception swallowed8)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
 
@@ -471,11 +482,13 @@ public sealed class StateTransferStore
         {
             File.Move(path, corruptedPath, overwrite: true);
         }
-        catch (IOException)
+        catch (IOException swallowed19)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed19);   // FAULTTIER_02 — no failure is silent.
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed14)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed14);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -598,12 +611,14 @@ public sealed class StateTransferStore
             value = node.GetValue<string>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed10)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (FormatException)
+        catch (FormatException swallowed4)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -616,12 +631,14 @@ public sealed class StateTransferStore
             value = node.GetValue<double>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed21)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed21);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (FormatException)
+        catch (FormatException swallowed15)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed15);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -634,12 +651,14 @@ public sealed class StateTransferStore
             value = node.GetValue<int>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed16)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed16);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (FormatException)
+        catch (FormatException swallowed17)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed17);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -652,12 +671,14 @@ public sealed class StateTransferStore
             value = node.GetValue<bool>();
             return true;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException swallowed11)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed11);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
-        catch (FormatException)
+        catch (FormatException swallowed7)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

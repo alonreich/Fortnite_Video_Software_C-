@@ -44,6 +44,7 @@ namespace FortniteVideoSoftware.App.Controls;
 /// </summary>
 public partial class TimelineLanesControl : UserControl
 {
+
     /// <summary>Raised continuously while the user scrubs — caret drag, ruler click, lane click.</summary>
     public event Action<double>? SeekRequested;
 
@@ -93,10 +94,10 @@ public partial class TimelineLanesControl : UserControl
     {
         InitializeComponent();
 
-        var lanes = this.FindControl<Grid>("LanesGrid");
+        var lanes = LanesGridCtl;
         if (lanes != null) lanes.SizeChanged += (_, _) => QueueRefresh();
 
-        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        var scroll = LanesScrollCtl;
         if (scroll != null)
         {
             // ZOOMSIZE_02 — SizeChanged ONLY. ScrollChanged must never resize the content:
@@ -113,8 +114,8 @@ public partial class TimelineLanesControl : UserControl
         ApplyMarkerHeadroom();
 
         WireSeek(this.FindControl<Canvas>("RulerSeekCanvas"));
-        WireSeek(this.FindControl<Canvas>("LaneASeekCanvas"));
-        WireSeek(this.FindControl<Canvas>("LaneBSeekCanvas"));
+        WireSeek(LaneASeekCanvasCtl);
+        WireSeek(LaneBSeekCanvasCtl);
         WireCaretDrag();
     }
 
@@ -126,13 +127,12 @@ public partial class TimelineLanesControl : UserControl
 
     private void ApplyMarkerHeadroom()
     {
-        var lanes = this.FindControl<Grid>("LanesGrid");
+        var lanes = LanesGridCtl;
         if (lanes != null && lanes.RowDefinitions.Count > 0)
             lanes.RowDefinitions[0].Height = new GridLength(Math.Max(0, MarkerHeadroomPx));
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
-
 
     /// <summary>Upper 60px lane. The host window adds its own content here.</summary>
     public Panel? LaneAHost => this.FindControl<Panel>("LaneAHostPanel");
@@ -164,15 +164,15 @@ public partial class TimelineLanesControl : UserControl
     /// </summary>
     public bool LaneASeekable
     {
-        get => this.FindControl<Canvas>("LaneASeekCanvas")?.IsVisible ?? false;
-        set { var c = this.FindControl<Canvas>("LaneASeekCanvas"); if (c != null) c.IsVisible = value; }
+        get => LaneASeekCanvasCtl?.IsVisible ?? false;
+        set { var c = LaneASeekCanvasCtl; if (c != null) c.IsVisible = value; }
     }
 
     /// <summary>Whether clicking the LOWER lane seeks. ON in both windows today.</summary>
     public bool LaneBSeekable
     {
-        get => this.FindControl<Canvas>("LaneBSeekCanvas")?.IsVisible ?? false;
-        set { var c = this.FindControl<Canvas>("LaneBSeekCanvas"); if (c != null) c.IsVisible = value; }
+        get => LaneBSeekCanvasCtl?.IsVisible ?? false;
+        set { var c = LaneBSeekCanvasCtl; if (c != null) c.IsVisible = value; }
     }
 
     /// <summary>Clip length in seconds. Setting it redraws the ruler and both clocks.</summary>
@@ -282,7 +282,7 @@ public partial class TimelineLanesControl : UserControl
             _zoomFactor = z;
             ApplyZoomSizing();
             Refresh();
-            if (z <= 1.0001 && this.FindControl<ScrollViewer>("LanesScroll") is { } s)
+            if (z <= 1.0001 && LanesScrollCtl is { } s)
                 s.Offset = new Vector(0, 0);
             ZoomChanged?.Invoke(z);
         }
@@ -308,8 +308,8 @@ public partial class TimelineLanesControl : UserControl
         // pass has run; the flag stops the re-entry outright.
         if (_inZoomSizing) return;
 
-        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
-        var lanes = this.FindControl<Grid>("LanesGrid");
+        var scroll = LanesScrollCtl;
+        var lanes = LanesGridCtl;
         if (scroll == null || lanes == null) return;
 
         // ══════════════════════════════════════════════════════════════════════════════════════
@@ -357,7 +357,7 @@ public partial class TimelineLanesControl : UserControl
     private void HandleTimelineWheel(object? sender, PointerWheelEventArgs e)
     {
         if (!ZoomGesturesEnabled) return;
-        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        var scroll = LanesScrollCtl;
         if (scroll == null) return;
         double vp = scroll.Viewport.Width;
         if (vp <= 0) return;
@@ -411,7 +411,7 @@ public partial class TimelineLanesControl : UserControl
     /// </summary>
     private void EnsureCaretVisible()
     {
-        var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+        var scroll = LanesScrollCtl;
         if (scroll == null) return;
         double vp = scroll.Viewport.Width;
         if (vp <= 0 || _durationSec <= 0) return;
@@ -428,7 +428,6 @@ public partial class TimelineLanesControl : UserControl
         target = Math.Clamp(target, 0, maxOff);
         if (Math.Abs(target - off) > 0.5) scroll.Offset = new Vector(target, 0);
     }
-
 
     /// <summary>
     /// MM:SS, escalating to HH:MM:SS only at one hour or more. Never milliseconds.
@@ -450,7 +449,6 @@ public partial class TimelineLanesControl : UserControl
         if (elapsed != null) elapsed.Text = FormatClock(_positionSec);
         if (remaining != null) remaining.Text = FormatClock(Math.Max(0, _durationSec - _positionSec));
     }
-
 
     private void DrawRuler()
     {
@@ -528,7 +526,6 @@ public partial class TimelineLanesControl : UserControl
         return steps[^1];
     }
 
-
     private void UpdateCaret()
     {
         var host = this.FindControl<Panel>("CaretHost");
@@ -552,7 +549,7 @@ public partial class TimelineLanesControl : UserControl
             // ZOOM_01 — clamp the badge to the VISIBLE right edge, not the content width, or at
             // high zoom it lands thousands of pixels past the viewport and never reappears. With
             // no scrolling in play this is exactly the old `w - 60` clamp.
-            var scroll = this.FindControl<ScrollViewer>("LanesScroll");
+            var scroll = LanesScrollCtl;
             double visibleRight = w;
             if (scroll != null && scroll.Viewport.Width > 0)
                 visibleRight = Math.Min(w, scroll.Offset.X + scroll.Viewport.Width);
@@ -620,7 +617,6 @@ public partial class TimelineLanesControl : UserControl
             e.Handled = true;
         };
     }
-
 
     private void WireSeek(Canvas? surface)
     {

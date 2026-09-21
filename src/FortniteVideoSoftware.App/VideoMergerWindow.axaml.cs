@@ -34,6 +34,7 @@ internal sealed record VideoFileFingerprint(string Path, long SizeBytes, DateTim
 
 public partial class VideoMergerWindow : Window
 {
+
     public double MergerVolume { get; set; } = 100;
     private MpvVideoView? _videoHost;
     private bool _isSeeking = false;
@@ -90,7 +91,6 @@ public partial class VideoMergerWindow : Window
     private bool _musicIsStale = false;
     private string _musicQueueSignature = "";
 
-
     private readonly object _videoFingerprintLock = new();
     private readonly Dictionary<string, Task<VideoFileFingerprint?>> _videoFingerprintTasks = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.SemaphoreSlim _videoHashSemaphore = new(1, 1);
@@ -120,7 +120,6 @@ public partial class VideoMergerWindow : Window
 
         this.Loaded += async (s, e) => {
             InitializeMpv();
-
         };
 
         _playbackTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
@@ -140,7 +139,7 @@ public partial class VideoMergerWindow : Window
 
     private void InitializeControls()
     {
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         if (videoList != null)
         {
             videoList.ItemsSource = VideoQueue;
@@ -284,7 +283,7 @@ public partial class VideoMergerWindow : Window
             };
         }
 
-        var overlayLayer = this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer");
+        var overlayLayer = OverlayLayerCtl;
         if (overlayLayer != null)
         {
             overlayLayer.CancelRequested += (_, _) =>
@@ -305,7 +304,7 @@ public partial class VideoMergerWindow : Window
         var menuAddVideo = this.FindControl<MenuItem>("MenuAddVideo");
         if (menuAddVideo != null) menuAddVideo.Click += (s, e) => OnAddVideoClicked();
 
-        var menuOutputFolder = this.FindControl<MenuItem>("MenuOutputFolder");
+        var menuOutputFolder = MenuOutputFolderCtl;
         if (menuOutputFolder != null) menuOutputFolder.Click += async (s, e) => OnChooseOutputFolder();
 
         var menuSettings = this.FindControl<MenuItem>("MenuSettings");
@@ -371,7 +370,7 @@ public partial class VideoMergerWindow : Window
             };
         }
 
-        var addMusicBtn = this.FindControl<Button>("AddMusicButton");
+        var addMusicBtn = AddMusicButtonCtl;
         if (addMusicBtn != null)
         {
             addMusicBtn.Click += async (s, e) =>
@@ -470,7 +469,7 @@ public partial class VideoMergerWindow : Window
     
     private void ExecuteRemoveSelected()
     {
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         if (videoList?.SelectedItems != null && videoList.SelectedItems.Count > 0)
         {
             var itemsToRemove = videoList.SelectedItems.Cast<string>().ToList();
@@ -493,11 +492,24 @@ public partial class VideoMergerWindow : Window
         UpdateQueueState();
         InvalidateMusicIfStale();
         DebouncedQualityProbe();
+
+        // PROJ_11 — publish the queue so the project document can record it. Before this the queue
+        // existed ONLY in this collection, so closing the Merger and saving produced a .fvsproj
+        // that silently described a single-clip edit.
+        PublishQueueToProject();
     }
+
+    /// <summary>
+    /// PROJ_11 — hands the current queue to <see cref="Services.ToolNavigator"/>, which is where
+    /// <c>ProjectSession.Capture</c> reads it from. Called on every queue change AND once on close,
+    /// because the case being fixed is precisely "the user closed the Merger and then saved".
+    /// </summary>
+    private void PublishQueueToProject()
+        => Services.ToolNavigator.PublishMergeQueue(VideoQueue.ToList(), _baseSpeed);
 
     private void MoveVideo(int direction)
     {
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         if (videoList?.SelectedItems == null || videoList.SelectedItems.Count == 0) return;
 
         var selectedItems = videoList.SelectedItems.Cast<string>().ToList();
@@ -590,7 +602,7 @@ public partial class VideoMergerWindow : Window
         if (currentSig != _musicQueueSignature)
         {
             _musicIsStale = true;
-            var addMusicBtn = this.FindControl<Button>("AddMusicButton");
+            var addMusicBtn = AddMusicButtonCtl;
             if (addMusicBtn != null)
             {
                 addMusicBtn.Content = "⚠ MUSIC STALE — RE-SETUP";
@@ -634,7 +646,7 @@ public partial class VideoMergerWindow : Window
     /// </summary>
     private void UpdatePreviewAvailable()
     {
-        var vl = this.FindControl<ListBox>("VideoList");
+        var vl = VideoListCtl;
         bool hasVideo = _videoHost?.IpcClient != null && vl?.SelectedItem is string && VideoQueue.Count > 0;
         var noVideo = this.FindControl<Border>("NoVideoOverlay");
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
@@ -651,7 +663,6 @@ public partial class VideoMergerWindow : Window
         // MERGERBOTTOM_01 — the SET IN / SET OUT / FULL CLIP enable loop that used to close this
         // method is gone with the buttons themselves.
     }
-
 
     private void ApplySpeedPreset(double speed)
     {
@@ -744,7 +755,7 @@ public partial class VideoMergerWindow : Window
 
     private void WireUpVolumeSlider()
     {
-        var volumeSlider = this.FindControl<Slider>("VolumeSlider");
+        var volumeSlider = VolumeSliderCtl;
         var volumeBadgeText = this.FindControl<TextBlock>("VolumeBadgeText");
         var volumeSpeakerIcon = this.FindControl<Avalonia.Controls.Shapes.Path>("VolumeSpeakerIcon");
         if (volumeSlider != null && volumeBadgeText != null)
@@ -786,7 +797,7 @@ public partial class VideoMergerWindow : Window
 
     private void ToggleMute()
     {
-        var volumeSlider = this.FindControl<Slider>("VolumeSlider");
+        var volumeSlider = VolumeSliderCtl;
         if (volumeSlider != null)
         {
             if (volumeSlider.Value > 0) { _previousVolume = volumeSlider.Value; volumeSlider.Value = 0; }
@@ -871,7 +882,7 @@ public partial class VideoMergerWindow : Window
 
         if (addedCount > 0)
         {
-            var vl = this.FindControl<ListBox>("VideoList");
+            var vl = VideoListCtl;
             if (vl != null && vl.SelectedIndex < 0 && VideoQueue.Count > 0) vl.SelectedIndex = 0;
         }
 
@@ -1073,8 +1084,9 @@ public partial class VideoMergerWindow : Window
         {
             return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
-        catch
+        catch (System.Exception swallowed2)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return path.Trim();
         }
     }
@@ -1093,7 +1105,7 @@ public partial class VideoMergerWindow : Window
                 if (Directory.Exists(dir))
                 {
                     _outputDirectory = dir;
-                    var btn = this.FindControl<MenuItem>("MenuOutputFolder");
+                    var btn = MenuOutputFolderCtl;
                     if (btn != null) btn.Header = $"Output Folder: {System.IO.Path.GetFileName(dir)}";
                     UpdateOutputPathDisplay();
                     return;
@@ -1156,7 +1168,7 @@ public partial class VideoMergerWindow : Window
             Infrastructure.SettingsManager.Instance.MergerOutputDirectory = _outputDirectory;
             Infrastructure.SettingsManager.Save();
 
-            var btn = this.FindControl<MenuItem>("MenuOutputFolder");
+            var btn = MenuOutputFolderCtl;
             if (btn != null) btn.Header = $"Output Folder: {System.IO.Path.GetFileName(_outputDirectory)}";
             UpdateOutputPathDisplay();
         }
@@ -1285,19 +1297,19 @@ public partial class VideoMergerWindow : Window
                 worker.MusicConfig["main_vol"] = currentMainVol;
             }
 
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StartOverlay();
+            OverlayLayerCtl?.StartOverlay();
 
             worker.ProgressUpdate += percent => Avalonia.Threading.Dispatcher.UIThread.Post(() => 
             {
                 mergeBtn.Content = $"MERGING... {percent}%";
-                this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.UpdatePhase(1, "Merging Videos...", percent);
+                OverlayLayerCtl?.UpdatePhase(1, "Merging Videos...", percent);
             });
 
             worker.Finished += async (success, msg) =>
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                 {
-                    this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+                    OverlayLayerCtl?.StopOverlay();
                     mergeBtn.IsEnabled = true;
                     mergeBtn.Content = "MERGE VIDEOS";
                     UpdateQueueState();
@@ -1332,26 +1344,28 @@ public partial class VideoMergerWindow : Window
 
             await Task.Run(() => worker.RunAsync(_mergeCts.Token), _mergeCts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException swallowed)
         {
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            OverlayLayerCtl?.StopOverlay();
             mergeBtn.IsEnabled = true;
             mergeBtn.Content = "MERGE VIDEOS";
             UpdateQueueState();
             SetQueueStatus("Merge cancelled.", false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
-            this.FindControl<FortniteVideoSoftware.App.Controls.PhaseOverlayControl>("OverlayLayer")?.StopOverlay();
+            OverlayLayerCtl?.StopOverlay();
             mergeBtn.IsEnabled = true;
             mergeBtn.Content = "MERGE VIDEOS";
             UpdateQueueState();
             SetQueueStatus("Merge error. See the error dialog for details.", true);
 
             var failure = FortniteVideoSoftware.Core.Media.FfmpegErrorClassifier.ClassifyException(ex,
-                FortniteVideoSoftware.Core.Media.ExportStage.Preflight,
-                new FortniteVideoSoftware.Core.Media.ExportAttemptIdentity { AttemptIndex = 1, Operation = "MergeSetup", Description = "Merge preparation" });
+            FortniteVideoSoftware.Core.Media.ExportStage.Preflight,
+            new FortniteVideoSoftware.Core.Media.ExportAttemptIdentity { AttemptIndex = 1, Operation = "MergeSetup", Description = "Merge preparation" });
             await ErrorReporter.ShowAsync(this, failure);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -1364,7 +1378,7 @@ public partial class VideoMergerWindow : Window
 
     private void UpdateQueueState()
     {
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         int selectedIndex = videoList?.SelectedIndex ?? -1;
         int count = VideoQueue.Count;
 
@@ -1375,7 +1389,7 @@ public partial class VideoMergerWindow : Window
             ToolTip.SetTip(mergeBtn, count >= 1 ? "Merge/Process all listed videos" : "Add at least one video to enable processing");
         }
 
-        var addMusicBtn = this.FindControl<Button>("AddMusicButton");
+        var addMusicBtn = AddMusicButtonCtl;
         if (addMusicBtn != null)
         {
             var txt = this.FindControl<TextBlock>("AddMusicText");
@@ -1650,7 +1664,7 @@ public partial class VideoMergerWindow : Window
     {
         _autoAdvanceArmed = false;   // re-armed by StartAutoPreview if there is a next clip
 
-        var list = this.FindControl<ListBox>("VideoList");
+        var list = VideoListCtl;
         if (list == null) return;
 
         int index = list.SelectedIndex;
@@ -1786,7 +1800,7 @@ public partial class VideoMergerWindow : Window
                     var state = await new StateTransferStore(_paths).LoadAsync();
                     if (state.TryGetPropertyValue("MainVolume", out var volNode))
                     {
-                        var volSlider = this.FindControl<Slider>("VolumeSlider");
+                        var volSlider = VolumeSliderCtl;
                         if (volSlider != null) volSlider.Value = volNode?.GetValue<double>() ?? 100.0;
                     }
                 }
@@ -1895,7 +1909,6 @@ public partial class VideoMergerWindow : Window
         finally { _isSafeToClose = true; this.Close(); }
     }
 
-
     /// <summary>
     /// MERGERBOTTOM_01 — one trim entry per clip, all of them full-length.
     ///
@@ -1939,7 +1952,7 @@ public partial class VideoMergerWindow : Window
     /// </summary>
     private void WireQueueContextMenu()
     {
-        var list = this.FindControl<ListBox>("VideoList");
+        var list = VideoListCtl;
         if (list?.ContextFlyout is not Flyout flyout || flyout.Content is not Control content) return;
 
         int wired = 0;
@@ -1981,12 +1994,17 @@ public partial class VideoMergerWindow : Window
     /// </summary>
     private void CloseQueueContextFlyout()
     {
-        var list = this.FindControl<ListBox>("VideoList");
+        var list = VideoListCtl;
         list?.ContextFlyout?.Hide();
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        // PROJ_11 — the last word on the queue, before this window and its collection stop
+        // existing. Everything below is teardown; this is the one line that makes the user's
+        // merge survive the window it was assembled in.
+        PublishQueueToProject();
+
         _mergerSizeWorker?.Dispose();
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
@@ -2017,7 +2035,7 @@ public partial class VideoMergerWindow : Window
         // ══════════════════════════════════════════════════════════════════════════════════════
         if (!point.Properties.IsRightButtonPressed) return;
 
-        var list = this.FindControl<ListBox>("VideoList");
+        var list = VideoListCtl;
         if (list == null) return;
 
         var item = (e.Source as Avalonia.Controls.Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
@@ -2041,7 +2059,7 @@ public partial class VideoMergerWindow : Window
                 if (source?.DataContext is string itemText)
                 {
                     _isVideoDragging = true;
-                    var videoList = this.FindControl<ListBox>("VideoList");
+                    var videoList = VideoListCtl;
                     if (videoList != null)
                     {
                         foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>())
@@ -2090,7 +2108,7 @@ public partial class VideoMergerWindow : Window
                 if (targetIndex > oldIndex) targetIndex--;
                 VideoQueue.Insert(Math.Clamp(targetIndex, 0, VideoQueue.Count), itemToMove);
             }
-            var videoList = this.FindControl<ListBox>("VideoList");
+            var videoList = VideoListCtl;
             if (videoList != null) foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>()) container.Opacity = 1.0;
         }
         else
@@ -2149,7 +2167,7 @@ public partial class VideoMergerWindow : Window
 
         if (addedCount > 0)
         {
-            var vl = this.FindControl<ListBox>("VideoList");
+            var vl = VideoListCtl;
             if (vl != null && vl.SelectedIndex < 0 && VideoQueue.Count > 0) vl.SelectedIndex = 0;
         }
 
@@ -2164,7 +2182,7 @@ public partial class VideoMergerWindow : Window
 
     private int ComputeDropIndex(Avalonia.Input.DragEventArgs e)
     {
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         if (videoList == null) return 0;
         var pos = e.GetPosition(videoList);
         var containers = videoList.GetRealizedContainers().Cast<ListBoxItem>().ToList();
@@ -2186,7 +2204,7 @@ public partial class VideoMergerWindow : Window
     private void ShowDropIndicator(Avalonia.Input.DragEventArgs e)
     {
         var indicator = this.FindControl<Border>("DropIndicator");
-        var videoList = this.FindControl<ListBox>("VideoList");
+        var videoList = VideoListCtl;
         if (indicator == null || videoList == null) return;
         int targetIndex = ComputeDropIndex(e);
         var containers = videoList.GetRealizedContainers().Cast<ListBoxItem>().ToList();
@@ -2219,7 +2237,6 @@ public partial class VideoMergerWindow : Window
         frame.BorderBrush = active
             ? Infrastructure.ThemeResources.Brush(frame, "AppFocusInnerBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#38bdf8")))
             : Infrastructure.ThemeResources.Brush(frame, "AppBorderBrush", new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#475569")));
-
 }
 
     private PreviewDetachController? _previewDetach;

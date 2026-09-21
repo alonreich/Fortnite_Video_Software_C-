@@ -49,7 +49,7 @@ public sealed class GracefulProcessTerminatorTests
             $"Null process must be an immediate no-op (took {stopwatch.ElapsedMilliseconds} ms).");
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task TerminateAsync_AlreadyExitedProcess_ReturnsWithoutBurningGraceBudgets()
     {
         using var proc = StartCmd("/c exit 0");
@@ -63,7 +63,7 @@ public sealed class GracefulProcessTerminatorTests
             $"An already-exited process must return immediately, not consume the grace/confirm budgets (took {stopwatch.ElapsedMilliseconds} ms).");
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task TerminateAsync_StuckNonInteractiveProcess_HardKillsTreeAndConfirmsExit()
     {
         // ~59 s of guaranteed runtime: still alive when the short grace period below expires.
@@ -85,7 +85,7 @@ public sealed class GracefulProcessTerminatorTests
             $"The whole ladder must stay bounded (took {stopwatch.ElapsedMilliseconds} ms).");
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task TerminateAsync_InteractiveChild_QuitCommandCausesVoluntaryExit()
     {
         // The child records the FIRST single stdin character it reads, then exits on its own
@@ -124,7 +124,7 @@ public sealed class GracefulProcessTerminatorTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task RunAsync_CompletesNormally_AndReturnsFullyDrainedOutput()
     {
         var psi = new ProcessStartInfo
@@ -143,7 +143,7 @@ public sealed class GracefulProcessTerminatorTests
         Assert.Contains("hello-runner", stdout);
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task RunAsync_Cancellation_StopsChildWithinBoundedTime_AndRethrows()
     {
         var psi = new ProcessStartInfo

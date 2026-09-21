@@ -72,13 +72,14 @@ internal static class CrashLogDigest
             {
                 await proc.WaitForExitAsync(cts.Token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException swallowed)
             {
                 // wevtutil is NOT an interactive stdin tool, so the cooperative 'q' quit
                 // command is skipped: escalate straight to the bounded hard stop
                 // (Kill(entireProcessTree) → 2000 ms exit confirmation). Never throws.
                 await GracefulProcessTerminator.TerminateAsync(
-                    proc, "EVENTLOG DIGEST", attemptQuitCommand: false).ConfigureAwait(false);
+                proc, "EVENTLOG DIGEST", attemptQuitCommand: false).ConfigureAwait(false);
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
 
             string output = await readOutput.ConfigureAwait(false);
@@ -163,7 +164,11 @@ internal static class CrashLogDigest
             bool acquired = false;
             try
             {
-                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException) { acquired = true; }
+                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException swallowed3)
+                {
+                    acquired = true;
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+                }
                 if (File.Exists(path))
                 {
                     using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -191,7 +196,11 @@ internal static class CrashLogDigest
             bool acquired = false;
             try
             {
-                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException) { acquired = true; }
+                try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException swallowed2)
+                {
+                    acquired = true;
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                }
                 using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
                 using var sw = new StreamWriter(fs, new UTF8Encoding(false));
                 sw.Write(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));

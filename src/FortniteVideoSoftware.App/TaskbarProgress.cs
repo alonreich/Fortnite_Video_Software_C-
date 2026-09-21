@@ -134,6 +134,7 @@ internal static unsafe partial class TaskbarProgress
             {
                 _unavailable = true;
                 SafeLog($"Taskbar progress unavailable: {ex.GetType().Name}: {ex.Message}");
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
         }

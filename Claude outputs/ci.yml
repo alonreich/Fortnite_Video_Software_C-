@@ -1,0 +1,179 @@
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# CI — THE MACHINE THAT PULLS THE RATCHETS.
+#
+# ⚠️ WHY THIS FILE IS THE MOST IMPORTANT ONE IN THE REPOSITORY.
+#
+# This project enforces its architecture with executable rules: 15 ratchet tests in
+# ArchitectureRuleTests (no raw hex in shared styling, no `zoompan`, empty catches may not
+# increase, `async void` may not increase, service-locator reads may not increase, every source
+# file carries its [SPEC CONTRACT] sentinel), 169 fix sentinels in build/sentinels.txt, and ~190
+# behavioural tests over the timeline maths, the document model and the undo stack. Invariant #8
+# says every rule that can be a test is a test — and the project honoured that.
+#
+# None of it ran anywhere except on a developer's machine, when they remembered.
+#
+# The cost of that was not theoretical. At the moment this file was added the suite was RED on two
+# platform-independent tests, both genuine shipped product bugs:
+#   • UndoStackTests.RestoringDoesNotRecordHistory — the undo re-entrancy guard was released before
+#     the Changed handler ran, so every Ctrl+Z recorded the control echo as a fresh edit.
+#   • ProjectDocumentTests.RoundTrip_PreservesEveryField — the 64-bit source fingerprint read back
+#     as zero on every load, so the "your source clip changed" warning fired for every project
+#     anyone ever reopened, and therefore meant nothing.
+# Both had been red long enough that nobody looked, because five Windows-only tests were also
+# permanently red beside them and "the suite is red" was the normal state.
+#
+# A ratchet nobody pulls is a comment. This file is what makes the rules real.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# SYS-CI — this file is itself guarded by build/sentinels.txt. Deleting it, or renaming the jobs
+# that run the ratchets, halts the next local build with a named failure rather than quietly
+# returning the project to the state described at the top of this file.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes the run in flight for the same ref. Saves runner minutes and means the
+  # status check on a branch always describes its HEAD.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  # GATE 1 — the cheap checks, on the cheap runner.
+  #
+  # The fix-sentinel check is file reads and string search; it has no reason to wait for a Windows
+  # runner to spin up or for Avalonia to restore. If a fix was reverted, this fails in ~40 seconds
+  # and the expensive job never starts.
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  sentinels:
+    name: Fix sentinels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Verify every fix sentinel still resolves
+        run: dotnet run --project build/FvsVerify/FvsVerify.csproj -c Release -- "$GITHUB_WORKSPACE"
+
+      - name: Test the checker itself
+        # SYS-VERIFYTOOL. The guard needs a guard: this mechanism has failed silently four times
+        # (VERIFYLOOP_01, LISTCOMMENT_01, BATCHPARENS_01, VERIFYHALT_01) and every one of those was
+        # a check that could not fail rather than a fix that was missing.
+        run: dotnet test tests/FvsVerify.Tests/FvsVerify.Tests.csproj -c Release --logger "trx;LogFileName=fvsverify.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-sentinels
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  # GATE 2 — build and test the product.
+  #
+  # windows-latest, because the product is net9.0-windows/win-x64 and because
+  # GracefulProcessTerminatorTests spawns real cmd.exe children — the shutdown ladder is only
+  # meaningful against a real OS process, and those tests skip anywhere else (CITEST_01).
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build + test (Windows)
+    runs-on: windows-latest
+    needs: sentinels
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore FortniteVideoSoftware.sln
+
+      - name: Build
+        # TreatWarningsAsErrors is NOT forced on here. The AOT and trim analysers are configured
+        # per-project (PROJ-AOT / AOTSAFETY_01) and overriding that from the command line would
+        # change what the build means rather than check it.
+        run: dotnet build FortniteVideoSoftware.sln -c Release --no-restore
+
+      - name: Test — Core (timeline maths, document model, undo, IPC)
+        run: dotnet test tests/FortniteVideoSoftware.Core.Tests/FortniteVideoSoftware.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=core.trx"
+
+      - name: Test — App (the architecture ratchets)
+        # ⚠️ THIS STEP IS THE POINT OF THE WHOLE FILE. ArchitectureRuleTests is where "no raw hex",
+        # "no zoompan", "empty catches may not increase", "async void may not increase" and
+        # "every file carries its spec contract" are actually enforced. Before CI existed they
+        # were enforced by remembering to run them.
+        run: dotnet test tests/FortniteVideoSoftware.App.Tests/FortniteVideoSoftware.App.Tests.csproj -c Release --no-build --logger "trx;LogFileName=app.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  # GATE 3 — the NativeAOT publish actually links.
+  #
+  # AOT failures do not show up in `dotnet build`. They show up at publish, in the linker, and
+  # they are exactly the class of failure that costs a release: PROJ-AOT records that trim and AOT
+  # analyser warnings here are FIXED, never muted, and a warning that only appears on a machine
+  # nobody runs is a warning that gets muted by accident.
+  #
+  # Runs on pushes to main and on manual dispatch only — it is the slow job, and a branch that
+  # compiles and passes the ratchets has already answered the question CI is usually asked.
+  # ────────────────────────────────────────────────────────────────────────────────────────────
+  aot-publish:
+    name: NativeAOT publish
+    runs-on: windows-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish (AOT link must succeed with no analyser warnings)
+        run: >
+          dotnet publish src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj
+          -c Release -r win-x64
+          -p:PublishAot=true
+          -o ${{ runner.temp }}/aot
+
+      - name: Report payload size
+        # Finding 6. The number that decides what every user downloads for a one-line fix belongs
+        # in the build log, where a regression in it is visible the day it happens rather than the
+        # day someone notices the installer got bigger.
+        shell: pwsh
+        run: |
+          Get-ChildItem "${{ runner.temp }}/aot" -Recurse -File |
+            Sort-Object Length -Descending |
+            Select-Object -First 15 Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} |
+            Format-Table -AutoSize
+          $total = (Get-ChildItem "${{ runner.temp }}/aot" -Recurse -File | Measure-Object Length -Sum).Sum
+          Write-Host ("TOTAL PAYLOAD: {0:N1} MB" -f ($total/1MB))

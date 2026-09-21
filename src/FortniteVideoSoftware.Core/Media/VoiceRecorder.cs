@@ -78,8 +78,9 @@ public class VoiceRecorder : IDisposable
             {
                 return WaveInEvent.DeviceCount > 0;
             }
-            catch
+            catch (System.Exception swallowed3)
             {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
         }
@@ -120,7 +121,11 @@ public class VoiceRecorder : IDisposable
 
             string deviceLabel;
             try { deviceLabel = WaveInEvent.GetCapabilities(_waveIn.DeviceNumber).ProductName; }
-            catch (System.Exception) { deviceLabel = "(name unavailable)"; }
+            catch (System.Exception swallowed)
+            {
+                deviceLabel = "(name unavailable)";
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            }
             CoreLogger.Info("VoiceRecorder",
                 $"Capture started on device {_waveIn.DeviceNumber} '{deviceLabel}' at {_waveIn.WaveFormat.SampleRate}Hz/{_waveIn.WaveFormat.Channels}ch -> '{Path.GetFileName(_outputPath)}'.");
         }
@@ -162,8 +167,9 @@ public class VoiceRecorder : IDisposable
             if (max > _peakSeen) _peakSeen = max;
             VolumeChanged?.Invoke(this, max);
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException swallowed2)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {

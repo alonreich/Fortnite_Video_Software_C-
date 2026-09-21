@@ -193,7 +193,7 @@ public partial class MainWindow
     /// </summary>
     private void UpdateThumbnailButtonState()
     {
-        var btn = this.FindControl<Button>("SetThumbnailButton");
+        var btn = SetThumbnailButtonCtl;
         var txt = this.FindControl<TextBlock>("SetThumbnailText");
         if (btn == null) return;
 
@@ -367,7 +367,7 @@ public partial class MainWindow
     {
         // Cheap reject: identical to the pre-TIMELINEDRAW_01 guards, just without binding the
         // locals the render pass now fetches for itself.
-        if (this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas") == null) return;
+        if (TimelineMarkersCanvasCtl == null) return;
         if (ActiveVideoHost?.IpcClient == null) return;
         if (ActiveVideoHost.IpcClient.Duration <= 0) return;
 
@@ -418,7 +418,7 @@ public partial class MainWindow
     /// </summary>
     private void RenderTimelineMarkersCore()
     {
-        var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
+        var canvas = TimelineMarkersCanvasCtl;
         var bottomCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineBottomCanvas");
         var scaleCanvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineScaleCanvas");
         if (canvas == null || ActiveVideoHost?.IpcClient == null) return;
@@ -704,7 +704,10 @@ public partial class MainWindow
                 if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
                     if (_draggingStartMarker) {
                         _draggingStartMarker = false;
-                        try { e.Pointer.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
+                        try { e.Pointer.Capture(null); } catch (System.Exception swallowed2)
+                        {
+                            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                        }
                     }
                     return;
                 }
@@ -793,7 +796,10 @@ public partial class MainWindow
                 if (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed) {
                     if (_draggingEndMarker) {
                         _draggingEndMarker = false;
-                        try { e.Pointer.Capture(null); } catch (System.Exception) { /* ISSUE_13: releasing a capture the OS already dropped. Nothing to report. */ }
+                        try { e.Pointer.Capture(null); } catch (System.Exception swallowed)
+                        {
+                            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                        }
                     }
                     return;
                 }
@@ -1672,6 +1678,5 @@ public partial class MainWindow
             }
         }
     }
-
 
 }

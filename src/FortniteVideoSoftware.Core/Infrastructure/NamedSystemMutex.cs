@@ -41,9 +41,10 @@ public sealed class NamedSystemMutex : IDisposable
                     return guard;
                 }
             }
-            catch (AbandonedMutexException)
+            catch (AbandonedMutexException swallowed)
             {
                 guard._ownsHandle = true;
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 return guard;
             }
 

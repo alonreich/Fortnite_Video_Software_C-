@@ -67,9 +67,10 @@ public static class SingleInstanceGuard
                     scope = Environment.UserName;
                 }
             }
-            catch
+            catch (System.Exception swallowed3)
             {
                 scope = Environment.UserName;
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
 
             _cachedUserScope = scope.Replace('\\', '_');
@@ -234,14 +235,19 @@ public static class SingleInstanceGuard
                         try { VideoPathReceived?.Invoke(string.Empty); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException swallowed5)
                 {
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
                     return;
                 }
                 catch (Exception ex)
                 {
                     RuntimeLog.Fail("SingleInstance", $"Handoff listener error: {ex.Message}");
-                    try { await Task.Delay(500, token).ConfigureAwait(false); } catch { return; }
+                    try { await Task.Delay(500, token).ConfigureAwait(false); } catch (System.Exception swallowed2)
+                    {
+                        global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+                        return;
+                    }
                 }
             }
         }, token);
@@ -324,8 +330,9 @@ public static class SingleInstanceGuard
             string ext = Path.GetExtension(full).ToLowerInvariant();
             return ext is ".mp4" or ".mkv" or ".avi" or ".mov";
         }
-        catch
+        catch (System.Exception swallowed4)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

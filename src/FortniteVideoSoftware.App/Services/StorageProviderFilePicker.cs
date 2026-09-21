@@ -124,6 +124,7 @@ public sealed class StorageProviderFilePicker : IFilePickerService
             // Recoverable by definition: the dialog still opens, just at the OS default.
             // The user's outcome is unchanged, so nothing reaches the screen.
             _faults.Recoverable("PICKER", $"Remembered folder '{remembered}' could not be resolved: {ex.Message}", ex);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }

@@ -1,0 +1,318 @@
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# FIX SENTINELS — THE LIST OF FIXES THAT MUST STILL BE IN THE SOURCE.
+#
+# SYS-DEVBUILD / VERIFYHALT_01. Each entry names a comment tag that sits next to a specific fix and
+# the file it must appear in. If a tag is absent, the fix was reverted (a test cycle is about to be
+# wasted on a binary that does not contain it) or the fix was superseded and the sentinel is stale.
+# Either way a human decides; the build halts.
+#
+# ⚠️ WHY THIS IS A DATA FILE AND NOT A BATCH `FOR` LIST — SYS-VERIFYTOOL.
+#   The list used to live inside `for %%P in (...)` in dev.cmd, and that host broke it three separate
+#   times, each time SILENTLY:
+#     • VERIFYLOOP_01 — `call :CHECK_TAG` resolved labels by BYTE OFFSET through a mixed-EOL file.
+#       Two seeks landed badly, so 2 of 49 sentinels were never checked and the run reported clean.
+#     • LISTCOMMENT_01 — `REM` is not a comment inside a FOR list. cmd.exe tokenises on whitespace,
+#       so every annotation line became six or seven bogus sentinels. ~400 false [no-file] entries.
+#     • BATCHPARENS_01/02 — a round bracket anywhere in an annotation, even inside a REM, closes
+#       the FOR list early and the next word is executed as a command.
+#   And on top of all three, VERIFYHALT_01: the result variable was assigned and never read, so the
+#   whole subroutine was a no-op for its entire existence.
+#
+#   None of those are bugs in the sentinel idea. They are bugs in expressing a list of 164 strings
+#   in a language with no list type, no comments inside a list, and no escaping. The list now lives
+#   here, in a format with exactly one rule, and the checker that reads it is C# with its own tests
+#   — `FvsVerify` for the pre-build halt, `ArchitectureRuleTests.EveryFixSentinelStillResolves` for
+#   CI. Both read THIS file, so they cannot disagree.
+#
+# FORMAT — one rule:
+#   TAG=relative/path/to/file            a sentinel. The tag is searched for verbatim in the file.
+#   # anything                           a comment. Brackets, quotes, equals signs, all fine.
+#   RETIRED TAG — reason                 a sentinel deliberately withdrawn. Kept so the next person
+#                                        finds out what happened to it instead of re-adding it.
+#
+# Paths use forward slashes and are relative to the repository root. Windows and Linux both accept
+# them, which is what lets CI run this check on either.
+#
+# To add a sentinel: add one line. That is the whole procedure.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+
+LAYOUTLOOP_01=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.axaml.cs
+ZOOMSIZE_02=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.axaml.cs
+LAYOUTLOOP_02=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+SEEKSTORM_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+EDGEGUARD_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+DRAGCOST_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+# RETIRED STRIPCOST_01 — superseded, not reverted.
+#   It guarded "scale with a RenderTransform, never with Width" on the per-slot filmstrip Image.
+#   Commit ad0b7bd deleted that code path entirely and replaced it with Controls/TimelineFilmstrip,
+#   which draws through DrawingContext.DrawImage with explicit source and destination rects — no
+#   layout box to oversize, no 32768px bitmap for Skia to rasterise. The defect is structurally
+#   unreachable, so there is no fix left to protect. Found the moment VERIFYHALT_01 made this
+#   check able to speak at all.
+TRACEFLOOD_01=src/FortniteVideoSoftware.App/Program.cs
+THUMB_02=src/FortniteVideoSoftware.App/MainWindow.Canvas.cs
+MAINEND_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+FREEZE_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+TRANSPORT_TRACE_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+MPVEOF_01=src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs
+VOEND_01=src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs
+VOMON_02=src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs
+LIST_05=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+LIST_06=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
+P3ASYNC_01=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
+LAYOUT_03=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+SLIDER_06=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+SLIDER_07=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
+SLIDER_08=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+SLIDER_09=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+GRIP_01=src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs
+FIRSTFIT_01=src/FortniteVideoSoftware.App/WindowBoundsHelper.cs
+RESUME_01=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
+QUALITY_01=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
+QUALITY_02=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
+QUALITY_03=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
+QUALITY_04=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
+QUALITY_05=src/FortniteVideoSoftware.App/ViewModels/TimelineViewModel.cs
+SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs
+SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.axaml
+SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.Export.cs
+SIZEESTIMATE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
+SIZEESTIMATE_01=src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs
+SIZEESTIMATE_01=src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs
+DOUBLEFIRE_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
+LIST_07=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
+LAYOUT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+GATE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+GATE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+ZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+# RETIRED WIZPROGRESS_01 — superseded, not reverted.
+#   It guarded a ProgressBar added to fix a dead FindControl reference. WIZCOMPACT_01 then deleted
+#   the bar, the field AND the writer. A guard for a deleted fix is a permanent false alarm —
+#   exactly the QUALITY_04 failure this list already learned from once.
+CROPZOOMRESET_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CROPSAVEPROMPT_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CROPUNSAVED_01=src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs
+CROPUNSAVED_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CROPFIRSTBOOT_01=src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs
+FORTNITEDEFAULT_02=src/FortniteVideoSoftware.Core/Ipc/CropConfigDefaults.cs
+CROPFALLBACK_02=src/FortniteVideoSoftware.Core/Ipc/CropConfigStore.cs
+SPECTATINGDEFAULT_01=src/FortniteVideoSoftware.App/ViewModels/MainViewModel.cs
+NO_BOSS_HP_01=src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs
+SAVECONFIRM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+MAGICWAND_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+DELETEBTN_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+DELETESET_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CROPCANVAS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+AUTOZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+WHEELZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+PAN_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+BEZEL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+SPLIT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+# Crop Tools rework, phase 3: the right pane is gone and naming happens at the box. ---
+LAYERSPANE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ROLEPOPUP_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ROLEPOPUP_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+ANTS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+PLAYICON_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+TICKRULER_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+AUTOPLAY_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+ITEMMENU_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+# Crop Tools rework, phase 4: hit-testing, ghosts, and vertical space. ---
+ITEMHIT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+GHOSTKILL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CANCELSEL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+BACKTOVIDEO_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+WIZCOLLAPSE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+PLAYOVERLAY_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ZOOMBAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+WIZCOMPACT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+TIMELINESLIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+RESETMOVE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ORDERICONS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+# Crop Tools rework, phase 5. ---
+RELAUNCHARG_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+HANDLECURSOR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+NODUPES_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+COMPOSERDIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+COMPOSERDIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+HEADERMERGE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+TIMELINESLIM_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+PLAYROW_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+POPUPCLEAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+AUTOZOOM_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+CROSSHAIR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+POPUPCLEAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+# Concurrency / lifetime audit, 2026-09-18. Each tag guards a fix that cost a full
+# diagnosis cycle to find and would revert silently. See docs/05 and docs/03.
+# Finding 1 - GPU image slots were mutated by three threads with no synchronisation.
+GPUSLOT_01=src/FortniteVideoSoftware.App/MpvVideoView.cs
+GPUPRESENT_01=src/FortniteVideoSoftware.App/MpvVideoView.cs
+# Finding 2 - settings.json was written non-atomically to a fixed temp name, cross-process.
+SETTINGSATOMIC_01=src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs
+ATOMICTEXT_01=src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs
+# Finding 3 - cancel re-armed PROCESS before the pipeline stopped; the next export disposed
+# the CancellationTokenSource the previous worker was still registered on.
+EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Export.cs
+EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
+EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+CANCELREG_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+OUTPATH_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+# Finding 4 - ProcessWorker is IDisposable and was never disposed, so ISSUE_11's
+# kill-the-tree backstop was unreachable code.
+WORKERLIFETIME_01=src/FortniteVideoSoftware.App/Services/MainMediaController.cs
+WORKERLIFETIME_02=src/FortniteVideoSoftware.App/Services/MainMediaController.cs
+# Finding 5 - the session-state flush debounce had no maximum-wait ceiling, and teardown
+# disposed the CancellationTokenSource under a live listener.
+FLUSHCEILING_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
+IPCTEARDOWN_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
+IPCLEASE_01=src/FortniteVideoSoftware.Core/Ipc/IpcProtocol.cs
+IPCLEASE_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
+# Finding 6 - the two-pass tail disposed the Process while its pipe readers were still live.
+PIPEDRAIN_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+# Finding 7 - Cancel re-read a non-volatile Process field between the null test and Kill.
+PROCGATE_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+PROCGATE_02=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+# Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe.
+GRANPROBE_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+GRANPROBE_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
+# Architecture remediation, phase 0 - foundation. docs/08_APPLICATION_COMPOSITION.md
+# Composition root, fault tiers, signing mandate and the executable spec rules.
+COMPOSITION_01=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
+COMPOSITION_01=src/FortniteVideoSoftware.App/Program.cs
+COMPOSITION_02=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
+FAULTTIER_01=src/FortniteVideoSoftware.Core/Abstractions/Fault.cs
+FAULTTIER_01=src/FortniteVideoSoftware.Core/Abstractions/IFaultSink.cs
+FAULTTIER_01=src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs
+FAULTSTORM_01=src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs
+INJSEAM_01=src/FortniteVideoSoftware.Core/Abstractions/IProjectStore.cs
+INJSEAM_02=src/FortniteVideoSoftware.Core/Abstractions/IClock.cs
+INJSEAM_03=src/FortniteVideoSoftware.App/Abstractions/IUserNotifier.cs
+INJSEAM_04=src/FortniteVideoSoftware.App/Abstractions/IFilePickerService.cs
+PICKERMEMORY_01=src/FortniteVideoSoftware.App/Services/StorageProviderFilePicker.cs
+SIGNMANDATE_01=build/FvsBuild/CodeSigning.cs
+UPDATETRUST_02=src/FortniteVideoSoftware.App/Services/UpdateService.cs
+UPDATETRUST_02=src/FortniteVideoSoftware.App/Services/AuthenticodeVerifier.cs
+SCRIM_01=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
+ZOOMCARD_01=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
+ARCHTEST_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+ASYNCUI_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+ASYNCUI_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+# Architecture remediation, phase 1. Document model wired to the UI + one undo.
+PROJSESSION_01=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Project.cs
+PROJSESSION_02=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJSESSION_03=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJSESSION_04=src/FortniteVideoSoftware.App/MainWindow.Shortcuts.cs
+PROJSESSION_05=src/FortniteVideoSoftware.App/MainWindow.Project.cs
+PROJSESSION_06=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+PROJSESSION_07=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+UNDO_20=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+UNDO_21=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+UNDO_22=src/FortniteVideoSoftware.App/MainWindow.Project.cs
+# Architecture remediation, phase 2. Companion tools open in-process.
+TOOLNAV_01=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
+TOOLNAV_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+TOOLNAV_02=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
+TOOLNAV_03=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
+TOOLNAV_04=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
+TOOLNAV_04=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+TOOLNAV_04=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
+# Architecture remediation, phase 3. One FFmpeg job lifetime for both pipelines.
+PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs
+PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
+PIPELIFE_02=src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs
+PIPELIFE_02=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
+# Architecture remediation, phase 4. View-model extraction ratchets.
+MVVM_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+MVVM_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+# dev.cmd parse guards. Retained: they now assert that dev.cmd DELEGATES rather than parses.
+BATCHPARENS_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+# RETIRED BATCHPARENS_02 — the file format it guarded no longer exists.
+#   It guarded DevCmdBracketsBalance, which counted round brackets across dev.cmd because one
+#   stray bracket inside the FOR-list annotations closed the list early and ran the next word
+#   as a command. The list is now build/sentinels.txt, dev.cmd parses nothing, and the script
+#   is 10KB instead of 29KB with no list in it at all. A bracket in dev.cmd can no longer
+#   truncate a sentinel list, because there is no sentinel list in dev.cmd.
+#   What replaced it: ArchitectureRuleTests.DevCmdDelegatesTheSentinelCheckRatherThanParsingIt,
+#   which fails if anyone ever moves the list back.
+LISTCOMMENT_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+# Close-path save guard. PROJSESSION_08 dirty model, PROJSESSION_09 no-dialog exit save.
+PROJSESSION_08=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJSESSION_08=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
+PROJSESSION_09=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+# Remediation pass, 2026-09-21. Findings 1-6, 8 and 9 of the architecture review.
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+
+# Finding 8 — the sentinel check moved out of cmd.exe into code that has its own tests.
+SYS-VERIFYTOOL=build/FvsVerify/SentinelList.cs
+SYS-VERIFYTOOL=build/FvsVerify/Program.cs
+SYS-VERIFYTOOL=dev.cmd
+
+# Finding 1 — two live, platform-independent test failures nobody was looking at.
+# UNDO_23: the re-entrancy guard reset before Changed was raised, so every Ctrl+Z recorded the
+# control echo as a fresh edit and undo could never reach the beginning.
+UNDO_23=src/FortniteVideoSoftware.Core/Undo/UndoStack.cs
+# PROJ_10: JsonValue.TryGetValue is an exact-type accessor. The long-backed source fingerprint
+# read back as 0 on every load, so the integrity warning fired for every project ever reopened.
+PROJ_10=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
+# CITEST_01: five Windows-only tests FAILED rather than skipped off Windows, which is how a
+# permanently-red suite hid the two real failures above.
+CITEST_01=tests/FortniteVideoSoftware.Core.Tests/WindowsOnlyFactAttribute.cs
+# Finding 1 — the ratchets, the sentinels and ~190 behavioural tests now run on a machine rather
+# than on a developer remembering. A deleted CI file is a silently disarmed architecture.
+SYS-CI=.github/workflows/ci.yml
+
+# Finding 5 — the fault tiers existed and 3 of ~900 catch blocks used them. FAULTTIER_02 makes the
+# sink reachable from static helpers and window code-behind, and routes the two Swallowed helpers
+# through it, converting 576 sites in one edit instead of 576.
+FAULTTIER_02=src/FortniteVideoSoftware.Core/Abstractions/Faults.cs
+FAULTTIER_02=src/FortniteVideoSoftware.Core/Infrastructure/CoreLogger.cs
+FAULTTIER_02=src/FortniteVideoSoftware.App/RuntimeLog.cs
+FAULTTIER_02=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
+FAULTTIER_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+
+# Finding 9 — an encoder failure on a GPU that is not the developer's was invisible. A plain-text
+# bundle the user can read and send is the honest version of telemetry.
+SYS-DIAGREPORT=src/FortniteVideoSoftware.Core/Diagnostics/DiagnosticReport.cs
+SYS-DIAGREPORT=src/FortniteVideoSoftware.App/Services/DiagnosticBundle.cs
+
+# Finding 3 — history that survives the window, and history that survives the app.
+UNDO_24=src/FortniteVideoSoftware.Core/Undo/UndoSidecarStore.cs
+UNDO_24=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+
+# Finding 2 — the HUD mask and the merge queue are properties of the project, not of the machine.
+PROJ_11=src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs
+PROJ_11=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
+PROJ_11=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJ_11=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
+PROJ_11=src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs
+PROJ_11=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
+PROJ_11=src/FortniteVideoSoftware.App/MainWindow.Project.cs
+AOTSAFETY_06=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
+
+# Finding 4 — 973 imperative control lookups, 342 of them repeat resolutions of the SAME control.
+# MVVM_03 collapses those onto one cached accessor per control, in its own partial file so the
+# MVVM_02 ceiling is respected rather than raised.
+MVVM_03=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+MVVM_03=src/FortniteVideoSoftware.App/MainWindow.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/MusicWizardWindow.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/CropToolWindow.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/VideoMergerWindow.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/Controls/PhaseOverlayControl.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.Controls.cs
+MVVM_03=src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.Controls.cs
+UNDO_25=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.History.cs
+
+# Finding 6 — a one-line fix cost every user a 322MB re-download of codec binaries that did not
+# change. SYS-PAYLOADSPLIT lets a patch ship the app alone when the installed runtime already
+# matches; SYS-REPOWEIGHT stops the 2.7GB repository getting worse.
+SYS-PAYLOADSPLIT=src/FortniteVideoSoftware.Core/Infrastructure/RuntimePayloadManifest.cs
+SYS-PAYLOADSPLIT=src/FortniteVideoSoftware.App/Services/UpdateService.cs
+SYS-PAYLOADSPLIT=build/FvsBuild/Staging.cs
+SYS-REPOWEIGHT=.github/workflows/lfs-guard.yml

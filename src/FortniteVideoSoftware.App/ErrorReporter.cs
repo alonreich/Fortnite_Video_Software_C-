@@ -319,8 +319,9 @@ public static class ErrorReporter
 
             return string.Join("\n", tail);
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }

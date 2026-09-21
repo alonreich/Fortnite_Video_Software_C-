@@ -154,7 +154,11 @@ public static class CoachOverlay
 
             Dispatcher.UIThread.Post(() => Start(window, screenKey, steps, isAutomatic: true), DispatcherPriority.Loaded);
         }
-        catch (Exception ex) { SafeLog($"Register failed for '{screenKey}': {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SafeLog($"Register failed for '{screenKey}': {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     /// <summary>Replays the walkthrough registered for this window, ignoring the auto-show counter.</summary>
@@ -166,7 +170,11 @@ public static class CoachOverlay
             if (!Tours.TryGetValue(window, out RegisteredTour? tour) || tour == null) return;
             Start(window, tour.ScreenKey, tour.Steps, isAutomatic: false);
         }
-        catch (Exception ex) { SafeLog($"Replay failed: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SafeLog($"Replay failed: {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     /// <summary>
@@ -188,14 +196,22 @@ public static class CoachOverlay
             if (window == null || steps == null || steps.Count == 0) return;
             Start(window, screenKey: string.Empty, steps: steps, isAutomatic: false);
         }
-        catch (Exception ex) { SafeLog($"PlayOnce failed: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SafeLog($"PlayOnce failed: {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     /// <summary>Closes the walkthrough if one is running on this window. Call from OnClosing.</summary>
     public static void Cancel(Window window)
     {
         try { Finish(window, markSeen: false); }
-        catch (Exception ex) { SafeLog($"Cancel failed: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SafeLog($"Cancel failed: {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     /// OVERLAYHOST_01 — was a private copy, byte-identical to the one in the sibling overlay
@@ -450,6 +466,7 @@ public static class CoachOverlay
         {
             SafeLog($"Walkthrough tick failed, closing it: {ex.Message}");
             Finish(window, markSeen: false);
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -628,7 +645,11 @@ public static class CoachOverlay
             if (s.KeyHandler != null)
             {
                 try { window.RemoveHandler(InputElement.KeyDownEvent, s.KeyHandler); }
-                catch (Exception ex) { SafeLog($"Could not detach walkthrough key handler: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    SafeLog($"Could not detach walkthrough key handler: {ex.Message}");
+                    global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+                }
                 s.KeyHandler = null;
             }
 
@@ -638,7 +659,11 @@ public static class CoachOverlay
             if (markSeen && !string.IsNullOrWhiteSpace(s.ScreenKey))
                 UiStateStore.WriteInt(CounterFile(s.ScreenKey), int.MaxValue / 2);
         }
-        catch (Exception ex) { SafeLog($"Finish failed: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            SafeLog($"Finish failed: {ex.Message}");
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 
     private static IBrush Res(Control? host, string key, IBrush fallback)
@@ -649,6 +674,9 @@ public static class CoachOverlay
     private static void SafeLog(string message)
     {
         try { RuntimeLog.Info("COACH", message); }
-        catch (Exception) { /* a walkthrough must never fail because logging failed */ }
+        catch (Exception swallowed)
+        {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+        }
     }
 }

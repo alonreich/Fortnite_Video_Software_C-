@@ -368,7 +368,11 @@ public sealed class MainViewModel : ViewModelBase
                     MainVolume = state["MainVolume"]?.GetValue<double>() ?? 100.0;
                 }
             }
-            catch { MainVolume = 100.0; }
+            catch (System.Exception swallowed)
+            {
+                MainVolume = 100.0;
+                global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+            }
         }
 
         ApplyMaskProfile(SettingsManager.Instance.ActiveMaskOverlay);

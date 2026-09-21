@@ -111,315 +111,37 @@ dotnet clean "%PROJECT%" -c %CONFIG% -r %RUNTIME% -consoleLoggerParameters:Summa
 goto :EOF
 
 REM ======================================================================
-REM Subroutine: VERIFY_PATCHES
+REM Subroutine: VERIFY_PATCHES - SYS-VERIFYTOOL.
 REM
-REM Fix sentinels have gone missing from source between a commit and a build
-REM more than once, which silently produced a binary WITHOUT the fix and cost a
-REM full test cycle to discover. Each sentinel below is a comment tag that sits
-REM next to a specific fix. If one is absent the source has been reverted and
-REM building is pointless - say so loudly BEFORE the build, not after the test.
+REM THIS SUBROUTINE NO LONGER PARSES ANYTHING. The sentinel list lives in
+REM build\sentinels.txt and the checker is build\FvsVerify, a C# console
+REM app with its own tests in tests\FvsVerify.Tests. dev.cmd's entire job
+REM is to run it and read the exit code.
+REM
+REM WHY IT MOVED: as a batch FOR list this check broke three times and
+REM every failure was silent.
+REM   VERIFYLOOP_01  - `call :CHECK_TAG` seeked labels by BYTE OFFSET
+REM                    through a mixed-EOL file; two seeks landed badly, so
+REM                    2 of 49 sentinels were skipped and the run said OK.
+REM   LISTCOMMENT_01 - REM is not a comment inside a FOR list. Each
+REM                    annotation became six or seven bogus sentinels.
+REM   BATCHPARENS_01 - one round bracket in an annotation, even inside a
+REM                    REM, closed the list early and ran the next word.
+REM   VERIFYHALT_01  - the MISSING variable was assigned and never read, so
+REM                    for its whole existence this check could not fail.
+REM
+REM None of those are bugs in the sentinel idea. They are what a list of
+REM 164 strings, a comment syntax and a file search cost in a language with
+REM no list type, no comments inside a list, no escaping - and, decisively,
+REM no way to write a test against the result. Invariant #8 says every rule
+REM that can be a test is a test; this one now is, twice over.
+REM
+REM To add a sentinel: add one TAG=path line to build\sentinels.txt.
+REM Nothing in this file changes, ever again.
 REM ======================================================================
 :VERIFY_PATCHES
-REM VERIFYLOOP_01 - one data-driven loop, NOT 49 separate `call :CHECK_TAG` subroutine calls,
-REM and the :CHECK_TAG subroutine itself is gone.
-REM
-REM The old shape failed in the field with:
-REM     The system cannot find the batch label specified - CHECK_TAG
-REM printed twice, while the other 47 calls worked fine. cmd.exe resolves `call :label` by
-REM SEEKING through the batch file by byte offset, and this file was a mix of CRLF and bare-LF
-REM lines (96 of them). Adding sentinel lines shifted every later offset, and two of the seeks
-REM then landed badly.
-REM
-REM The silent damage was worse than the noise on screen: a seek that fails does NOT run the
-REM check and does NOT record anything, so VERIFY_PATCHES was quietly testing 47 of 49
-REM sentinels and reporting a clean pass for the two it skipped - which is the exact blind
-REM spot this subroutine exists to close.
-REM
-REM One loop performs ZERO label seeks, so the failure cannot return however many sentinels are
-REM added. The whole file is CRLF now, which is what a .cmd should be. Keep it that way.
-REM
-REM To add a sentinel: add one "TAG=relative\path" line to the list. Nothing else.
-REM Do NOT pad the tags to line them up - everything left of the "=" IS the string findstr
-REM searches for, so a padded tag matches nothing and reports every file as reverted.
-set "MISSING="
-for %%P in (
-  "LAYOUTLOOP_01=src\FortniteVideoSoftware.App\Controls\TimelineLanesControl.axaml.cs"
-  "ZOOMSIZE_02=src\FortniteVideoSoftware.App\Controls\TimelineLanesControl.axaml.cs"
-  "LAYOUTLOOP_02=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "SEEKSTORM_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "EDGEGUARD_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "DRAGCOST_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "REM STRIPCOST_01 is RETIRED, not lost. It guarded 'scale with a RenderTransform, never with"
-  "REM Width' on the per-slot filmstrip Image. Commit ad0b7bd deleted that whole code path and"
-  "REM replaced it with Controls\TimelineFilmstrip, which draws via context.DrawImage with an"
-  "REM explicit source and destination rect - so there is no layout box to oversize and no"
-  "REM 32768px bitmap for Skia to rasterise. The defect is structurally unreachable, so there is"
-  "REM no fix left for a sentinel to protect. Found by ArchitectureRuleTests."
-  "REM EveryDevCmdSentinelStillResolves once VERIFYHALT_01 made the check able to speak."
-  "TRACEFLOOD_01=src\FortniteVideoSoftware.App\Program.cs"
-  "THUMB_02=src\FortniteVideoSoftware.App\MainWindow.Canvas.cs"
-  "MAINEND_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "FREEZE_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "TRANSPORT_TRACE_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "MPVEOF_01=src\FortniteVideoSoftware.Core\Media\MpvIpcClient.cs"
-  "VOEND_01=src\FortniteVideoSoftware.App\VoiceOverWindow.axaml.cs"
-  "VOMON_02=src\FortniteVideoSoftware.App\VoiceOverWindow.axaml.cs"
-  "LIST_05=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "LIST_06=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml.cs"
-  "P3ASYNC_01=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml.cs"
-  "LAYOUT_03=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "SLIDER_06=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "SLIDER_07=src\FortniteVideoSoftware.App\AvaloniaApp.axaml"
-  "SLIDER_08=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "SLIDER_09=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "GRIP_01=src\FortniteVideoSoftware.App\Controls\WindowResizeGrip.cs"
-  "FIRSTFIT_01=src\FortniteVideoSoftware.App\WindowBoundsHelper.cs"
-  "RESUME_01=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml.cs"
-  "QUALITY_01=src\FortniteVideoSoftware.App\ViewModels\QualityLadder.cs"
-  "QUALITY_02=src\FortniteVideoSoftware.App\ViewModels\QualityLadder.cs"
-  "QUALITY_03=src\FortniteVideoSoftware.App\ViewModels\QualityLadder.cs"
-  "QUALITY_04=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
-  "QUALITY_05=src\FortniteVideoSoftware.App\ViewModels\TimelineViewModel.cs"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.SizeEstimate.cs"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.axaml"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\MainWindow.Export.cs"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\VideoMergerWindow.axaml.cs"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.App\Services\LatestEstimateWorker.cs"
-  "SIZEESTIMATE_01=src\FortniteVideoSoftware.Core\Media\OutputFileSize.cs"
-  "DOUBLEFIRE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
-  "LIST_07=src\FortniteVideoSoftware.App\MusicWizardWindow.axaml"
-  "LAYOUT_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "GATE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "GATE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "ZOOM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "ZOOM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "REM WIZPROGRESS_01 is RETIRED, not lost. It guarded a ProgressBar added to fix a dead"
-  "REM FindControl reference; WIZCOMPACT_01 then deleted the bar, the field AND the writer, so"
-  "REM there is no fix left for a sentinel to protect. A guard for a deleted fix is a permanent"
-  "REM false alarm - exactly the QUALITY_04 failure this list already learned from once."
-  "CROPZOOMRESET_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CROPSAVEPROMPT_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CROPUNSAVED_01=src\FortniteVideoSoftware.App\Controls\ConfirmDialogWindow.axaml.cs"
-  "CROPUNSAVED_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CROPFIRSTBOOT_01=src\FortniteVideoSoftware.App\Infrastructure\MaskOverlayManager.cs"
-  "FORTNITEDEFAULT_02=src\FortniteVideoSoftware.Core\Ipc\CropConfigDefaults.cs"
-  "CROPFALLBACK_02=src\FortniteVideoSoftware.Core\Ipc\CropConfigStore.cs"
-  "SPECTATINGDEFAULT_01=src\FortniteVideoSoftware.App\ViewModels\MainViewModel.cs"
-  "NO_BOSS_HP_01=src\FortniteVideoSoftware.Core\Media\MobileFilterBuilder.cs"
-  "SAVECONFIRM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "MAGICWAND_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "DELETEBTN_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "DELETESET_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CROPCANVAS_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "AUTOZOOM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "WHEELZOOM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "PAN_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "BEZEL_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "SPLIT_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "REM --- Crop Tools rework, phase 3: the right pane is gone and naming happens at the box. ---"
-  "LAYERSPANE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "ROLEPOPUP_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "ROLEPOPUP_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "ANTS_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "PLAYICON_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "TICKRULER_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "AUTOPLAY_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "ITEMMENU_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "REM --- Crop Tools rework, phase 4: hit-testing, ghosts, and vertical space. ---"
-  "ITEMHIT_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "GHOSTKILL_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CANCELSEL_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "BACKTOVIDEO_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "WIZCOLLAPSE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "PLAYOVERLAY_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "ZOOMBAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "WIZCOMPACT_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "TIMELINESLIM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "RESETMOVE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "ORDERICONS_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "REM --- Crop Tools rework, phase 5. ---"
-  "RELAUNCHARG_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "HANDLECURSOR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "NODUPES_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "COMPOSERDIM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "COMPOSERDIM_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "HEADERMERGE_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "TIMELINESLIM_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "PLAYROW_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "POPUPCLEAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "AUTOZOOM_02=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "CROSSHAIR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "POPUPCLEAR_01=src\FortniteVideoSoftware.App\CropToolWindow.axaml"
-  "REM --- Concurrency / lifetime audit, 2026-09-18. Each tag guards a fix that cost a full"
-  "REM --- diagnosis cycle to find and would revert silently. See docs/05 and docs/03."
-  "REM Finding 1 - GPU image slots were mutated by three threads with no synchronisation."
-  "GPUSLOT_01=src\FortniteVideoSoftware.App\MpvVideoView.cs"
-  "GPUPRESENT_01=src\FortniteVideoSoftware.App\MpvVideoView.cs"
-  "REM Finding 2 - settings.json was written non-atomically to a fixed temp name, cross-process."
-  "SETTINGSATOMIC_01=src\FortniteVideoSoftware.App\Infrastructure\SettingsManager.cs"
-  "ATOMICTEXT_01=src\FortniteVideoSoftware.Core\Infrastructure\AtomicJsonFile.cs"
-  "REM Finding 3 - cancel re-armed PROCESS before the pipeline stopped; the next export disposed"
-  "REM the CancellationTokenSource the previous worker was still registered on."
-  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Export.cs"
-  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
-  "EXPORTSESSION_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "CANCELREG_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "OUTPATH_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "REM Finding 4 - ProcessWorker is IDisposable and was never disposed, so ISSUE_11's"
-  "REM kill-the-tree backstop was unreachable code."
-  "WORKERLIFETIME_01=src\FortniteVideoSoftware.App\Services\MainMediaController.cs"
-  "WORKERLIFETIME_02=src\FortniteVideoSoftware.App\Services\MainMediaController.cs"
-  "REM Finding 5 - the session-state flush debounce had no maximum-wait ceiling, and teardown"
-  "REM disposed the CancellationTokenSource under a live listener."
-  "FLUSHCEILING_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
-  "IPCTEARDOWN_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
-  "IPCLEASE_01=src\FortniteVideoSoftware.Core\Ipc\IpcProtocol.cs"
-  "IPCLEASE_01=src\FortniteVideoSoftware.Core\Ipc\NamedPipeStateServer.cs"
-  "REM Finding 6 - the two-pass tail disposed the Process while its pipe readers were still live."
-  "PIPEDRAIN_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "REM Finding 7 - Cancel re-read a non-volatile Process field between the null test and Kill."
-  "PROCGATE_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "PROCGATE_02=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "REM Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe."
-  "GRANPROBE_01=src\FortniteVideoSoftware.App\GranularSpeedEditorWindow.axaml.cs"
-  "GRANPROBE_01=src\FortniteVideoSoftware.App\MainWindow.Wireup.cs"
-  "REM --- Architecture remediation, phase 0 - foundation. docs/08_APPLICATION_COMPOSITION.md"
-  "REM --- NOTE: NO ROUND BRACKETS IN REM LINES INSIDE THIS LIST. cmd.exe counts them even"
-  "REM --- inside a REM, so one in here closes the FOR list early and the next word is run"
-  "REM --- as a command. That is the '. was unexpected at this time.' failure."
-  "REM --- Composition root, fault tiers, signing mandate and the executable spec rules."
-  "COMPOSITION_01=src\FortniteVideoSoftware.App\Infrastructure\AppServices.cs"
-  "COMPOSITION_01=src\FortniteVideoSoftware.App\Program.cs"
-  "COMPOSITION_02=src\FortniteVideoSoftware.App\Infrastructure\AppServices.cs"
-  "FAULTTIER_01=src\FortniteVideoSoftware.Core\Abstractions\Fault.cs"
-  "FAULTTIER_01=src\FortniteVideoSoftware.Core\Abstractions\IFaultSink.cs"
-  "FAULTTIER_01=src\FortniteVideoSoftware.App\Services\UserFacingFaultSink.cs"
-  "FAULTSTORM_01=src\FortniteVideoSoftware.App\Services\UserFacingFaultSink.cs"
-  "INJSEAM_01=src\FortniteVideoSoftware.Core\Abstractions\IProjectStore.cs"
-  "INJSEAM_02=src\FortniteVideoSoftware.Core\Abstractions\IClock.cs"
-  "INJSEAM_03=src\FortniteVideoSoftware.App\Abstractions\IUserNotifier.cs"
-  "INJSEAM_04=src\FortniteVideoSoftware.App\Abstractions\IFilePickerService.cs"
-  "PICKERMEMORY_01=src\FortniteVideoSoftware.App\Services\StorageProviderFilePicker.cs"
-  "SIGNMANDATE_01=build\FvsBuild\CodeSigning.cs"
-  "UPDATETRUST_02=src\FortniteVideoSoftware.App\Services\UpdateService.cs"
-  "UPDATETRUST_02=src\FortniteVideoSoftware.App\Services\AuthenticodeVerifier.cs"
-  "SCRIM_01=src\FortniteVideoSoftware.App\AvaloniaApp.axaml"
-  "ZOOMCARD_01=src\FortniteVideoSoftware.App\AvaloniaApp.axaml"
-  "ARCHTEST_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "ASYNCUI_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "ASYNCUI_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "REM --- Architecture remediation, phase 1. Document model wired to the UI + one undo."
-  "PROJSESSION_01=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-  "PROJSESSION_01=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
-  "PROJSESSION_02=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-  "PROJSESSION_03=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-  "PROJSESSION_04=src\FortniteVideoSoftware.App\MainWindow.Shortcuts.cs"
-  "PROJSESSION_05=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
-  "PROJSESSION_06=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "PROJSESSION_07=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "UNDO_20=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "UNDO_21=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-  "UNDO_22=src\FortniteVideoSoftware.App\MainWindow.Project.cs"
-  "REM --- Architecture remediation, phase 2. Companion tools open in-process."
-  "TOOLNAV_01=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
-  "TOOLNAV_01=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "TOOLNAV_02=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
-  "TOOLNAV_03=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
-  "TOOLNAV_04=src\FortniteVideoSoftware.App\Services\ToolNavigator.cs"
-  "TOOLNAV_04=src\FortniteVideoSoftware.App\CropToolWindow.axaml.cs"
-  "TOOLNAV_04=src\FortniteVideoSoftware.App\VideoMergerWindow.axaml.cs"
-  "REM --- Architecture remediation, phase 3. One FFmpeg job lifetime for both pipelines."
-  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\FfmpegJobLifetime.cs"
-  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\ProcessWorker.cs"
-  "PIPELIFE_01=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
-  "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\FfmpegJobLifetime.cs"
-  "PIPELIFE_02=src\FortniteVideoSoftware.Core\Media\MergerWorker.cs"
-  "REM --- Architecture remediation, phase 4. View-model extraction ratchets."
-  "MVVM_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "MVVM_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "REM --- dev.cmd parse guards. See BATCHPARENS_01 - no brackets in REMs in this list."
-  "BATCHPARENS_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "BATCHPARENS_02=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "LISTCOMMENT_01=tests\FortniteVideoSoftware.App.Tests\ArchitectureRuleTests.cs"
-  "REM --- Close-path save guard. PROJSESSION_08 dirty model, PROJSESSION_09 no-dialog exit save."
-  "PROJSESSION_08=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-  "PROJSESSION_08=src\FortniteVideoSoftware.App\MainWindow.axaml.cs"
-  "PROJSESSION_09=src\FortniteVideoSoftware.App\Services\ProjectSession.cs"
-) do (
-    REM ==================================================================
-    REM LISTCOMMENT_01 - REM IS NOT A COMMENT INSIDE A FOR LIST.
-    REM
-    REM cmd.exe tokenises everything between the list's brackets on
-    REM whitespace. An unquoted `REM --- Crop Tools rework ---` line in
-    REM there is not skipped: it becomes the list items REM, ---, Crop,
-    REM Tools, rework, ---, and each one is checked as though it were a
-    REM sentinel. That produced ~400 bogus [no-file] entries the first
-    REM time VERIFYHALT_01 made this subroutine able to report at all.
-    REM
-    REM Nobody had seen it because MISSING was never read: the annotations
-    REM had been mis-parsed for as long as they had existed, silently.
-    REM
-    REM Annotations are therefore QUOTED, so each is a single token, and
-    REM are skipped here by their REM prefix. Keep them free of double
-    REM quotes and of '=' - the first ends the token, the second makes it
-    REM look like a TAG=path entry.
-    REM ==================================================================
-    set "ENTRY=%%~P"
-    set "HEAD=!ENTRY:~0,3!"
-    if /I "!HEAD!"=="REM" (
-        rem annotation, not a sentinel
-    ) else (
-    for /f "tokens=1,2 delims==" %%A in ("%%~P") do (
-        if not exist "%%B" (
-            set "MISSING=!MISSING! %%A[no-file]"
-        ) else (
-            findstr /C:"%%A" "%%B" >nul 2>nul
-            REM `if errorlevel` reads the LIVE exit code. %ERRORLEVEL% would be expanded once
-            REM when cmd parsed this whole block and would then never change.
-            if errorlevel 1 set "MISSING=!MISSING! %%A"
-        )
-    )
-    )
-)
-
-REM ======================================================================
-REM VERIFYHALT_01 - ACT ON THE RESULT. THIS BLOCK DID NOT EXIST.
-REM
-REM VERIFY_PATCHES built the MISSING list correctly and then... returned.
-REM `MISSING` was assigned in two places and read in NONE, so every sentinel
-REM in the list above - 134 of them - was being checked and the answer thrown
-REM away. The subroutine SYS-DEVBUILD describes as the thing that "halts
-REM loudly if one is absent" has been a no-op.
-REM
-REM This is not hypothetical damage. STRIPCOST_01 sat in the list pointing at
-REM a tag that no longer existed in GranularSpeedEditorWindow.axaml.cs - the
-REM code path was rewritten in ad0b7bd, superseding the fix rather than
-REM reverting it - and nothing ever said so. A guard that cannot fail is a
-REM guard that cannot be trusted, which is worse than no guard at all -
-REM VERIFYLOOP_01 above learned exactly this lesson once already, about two
-REM skipped entries, and the fix for it left the reporting half unwritten.
-REM
-REM A missing sentinel HALTS. It means either the fix it guards was reverted
-REM - a test cycle is about to be wasted - or the sentinel is stale and must be
-REM retired with a REM, as WIZPROGRESS_01 and STRIPCOST_01 are. Both need a human.
-REM ======================================================================
-if defined MISSING (
-    echo.
-    echo [DEV] ==================================================================
-    echo [DEV] FIX SENTINEL CHECK FAILED - BUILD HALTED.
-    echo [DEV]
-    echo [DEV] These tags are listed in VERIFY_PATCHES but were NOT found in
-    echo [DEV] their files:
-    echo [DEV]   !MISSING!
-    echo [DEV]
-    echo [DEV] Either the fix was reverted - restore it - or the fix was
-    echo [DEV] superseded and the sentinel is stale - retire it with a REM
-    echo [DEV] saying why, next to its entry in the list above.
-    echo [DEV] ==================================================================
-    echo.
-    exit /b 1
-)
-
+dotnet run --project "%REPO_ROOT%\build\FvsVerify\FvsVerify.csproj" -v q -- "%REPO_ROOT%"
+if errorlevel 1 exit /b 1
 goto :EOF
 
 REM ======================================================================

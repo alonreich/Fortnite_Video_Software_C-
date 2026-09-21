@@ -28,8 +28,9 @@ public static class OpenWithLaunch
             string ext = Path.GetExtension(arg).ToLowerInvariant();
             return ext is ".mp4" or ".mkv" or ".avi" or ".mov";
         }
-        catch
+        catch (System.Exception swallowed)
         {
+            global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

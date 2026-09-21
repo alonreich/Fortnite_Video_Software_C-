@@ -50,6 +50,10 @@ public static class ProjectSerializer
     private const string KeyAudio = "audio";
     private const string KeyExport = "export";
 
+    // PROJ_11 — schema 2. Both optional on read, so a v1 file loads with them absent.
+    private const string KeyMask = "mask";
+    private const string KeyMerge = "merge";
+
     /// <summary>
     /// PROJ_03 — the top-level keys this build understands. Anything else found on read is carried
     /// in <see cref="ProjectDocument.UnknownFields"/> and written back out untouched, so an older
@@ -59,6 +63,7 @@ public static class ProjectSerializer
     {
         KeyFormat, KeySchema, KeyTitle, KeyCreated, KeyModified, KeySource, KeyBaseSpeed,
         KeyCutStart, KeyTrimmed, KeySegments, KeyCuts, KeyMemes, KeyAudio, KeyExport,
+        KeyMask, KeyMerge,
     };
 
     public static JsonObject Write(ProjectDocument doc)
@@ -163,6 +168,52 @@ public static class ProjectSerializer
             ["portrait_mode"] = doc.Export.PortraitMode,
         };
 
+        // PROJ_11 — the HUD mask. Absent, not null, when there is none: a v1 reader parks unknown
+        // keys in UnknownFields, and an explicit null there would be carried back out as a null
+        // "mask" key that a v2 reader then has to distinguish from "no mask". Omission is cleaner
+        // and the reader treats both the same way.
+        if (doc.Mask is { } mask)
+        {
+            root[KeyMask] = new JsonObject
+            {
+                ["profile_name"] = mask.ProfileName,
+                ["fingerprint"] = mask.Fingerprint,
+                // DeepClone, because the document is immutable and the caller keeps its instance.
+                // Handing the live JsonObject to the writer would let a later edit of the config
+                // mutate a document already on the undo stack.
+                ["config"] = mask.Config?.DeepClone(),
+            };
+        }
+
+        // PROJ_11 — the merge queue.
+        if (doc.Merge is { HasClips: true } merge)
+        {
+            JsonArray clips = new();
+            foreach (MergeClip c in merge.Clips)
+            {
+                // AOTSAFETY_06 — the local is typed JsonNode so this binds to JsonArray.Add(JsonNode?)
+                // and NOT to the generic Add<T>, which carries RequiresUnreferencedCode /
+                // RequiresDynamicCode and would emit IL2026 + IL3050. PROJ-AOT is explicit that trim
+                // and AOT warnings here are FIXED, never suppressed: the warning is the analyser
+                // correctly pointing out that a generic JsonValue.Create path cannot survive
+                // TrimMode=full. The rest of this file already avoids it by construction; this call
+                // site is new, so it had to be told.
+                JsonNode clip = new JsonObject
+                {
+                    ["path"] = c.FilePath,
+                    ["start_sec"] = c.StartSec,
+                    ["end_sec"] = c.EndSec,
+                };
+                clips.Add(clip);
+            }
+
+            root[KeyMerge] = new JsonObject
+            {
+                ["base_speed"] = merge.BaseSpeed,
+                ["clips"] = clips,
+            };
+        }
+
         return root;
     }
 
@@ -218,8 +269,8 @@ public static class ProjectSerializer
             Width = ReadInt(sourceObj, "width", 0),
             Height = ReadInt(sourceObj, "height", 0),
             Fps = ReadDouble(sourceObj, "fps", 0),
-            SizeBytes = (long)ReadDouble(sourceObj, "size_bytes", 0),
-            ModifiedUtcSeconds = (long)ReadDouble(sourceObj, "modified_utc_seconds", 0),
+            SizeBytes = ReadLong(sourceObj, "size_bytes", 0),
+            ModifiedUtcSeconds = ReadLong(sourceObj, "modified_utc_seconds", 0),
         };
 
         List<SpeedSegment> segments = new();
@@ -304,6 +355,47 @@ public static class ProjectSerializer
             PortraitMode = ReadBool(exportObj, "portrait_mode", true),
         };
 
+        // PROJ_11 — the HUD mask. Absent in every v1 file, so null is the normal answer, not a fault.
+        ProjectMask? mask = null;
+        if (root[KeyMask] is JsonObject maskObj)
+        {
+            JsonObject? cfg = maskObj["config"] as JsonObject;
+            string profile = ReadString(maskObj, "profile_name", string.Empty) ?? string.Empty;
+
+            // ⚠️ The stored fingerprint is not trusted over the stored config. If a hand-edited file
+            // carries a fingerprint that does not describe its own config, the CONFIG is the work
+            // and the fingerprint is the checksum — recompute it, so the "is the live profile still
+            // the one this was built with" test compares like with like.
+            string stored = ReadString(maskObj, "fingerprint", string.Empty) ?? string.Empty;
+            string actual = ProjectMask.ComputeFingerprint(cfg);
+
+            mask = new ProjectMask(
+                profile,
+                string.IsNullOrEmpty(stored) || !string.Equals(stored, actual, StringComparison.Ordinal) ? actual : stored,
+                cfg is null ? null : (JsonObject)cfg.DeepClone());
+        }
+
+        // PROJ_11 — the merge queue. An entry with no path is dropped rather than restored as an
+        // empty row the user has to find and delete.
+        ProjectMerge? merge = null;
+        if (root[KeyMerge] is JsonObject mergeObj)
+        {
+            List<MergeClip> clips = new();
+            if (mergeObj["clips"] is JsonArray clipArray)
+            {
+                foreach (JsonNode? node in clipArray)
+                {
+                    if (node is not JsonObject o) continue;
+                    string clipPath = ReadString(o, "path", string.Empty) ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(clipPath)) continue;
+                    clips.Add(new MergeClip(clipPath, ReadDouble(o, "start_sec", 0), ReadDouble(o, "end_sec", 0)));
+                }
+            }
+
+            if (clips.Count > 0)
+                merge = new ProjectMerge { Clips = clips, BaseSpeed = ReadDouble(mergeObj, "base_speed", 1.0) };
+        }
+
         JsonObject? unknown = null;
         foreach (KeyValuePair<string, JsonNode?> kv in root)
         {
@@ -321,6 +413,8 @@ public static class ProjectSerializer
             BaseSpeed = ReadDouble(root, KeyBaseSpeed, 1.0),
             SourceCutStartMs = ReadDouble(root, KeyCutStart, 0),
             TrimmedDurationMs = ReadDouble(root, KeyTrimmed, 0),
+            Mask = mask,
+            Merge = merge,
             Segments = segments,
             Cuts = cuts,
             Memes = memes,
@@ -342,32 +436,92 @@ public static class ProjectSerializer
         return v.TryGetValue(out string? s) ? s : fallback;
     }
 
+    /// <summary>
+    /// PROJ_10 — EVERY NUMERIC READ TRIES EVERY NUMERIC BACKING, BECAUSE A <c>JsonValue</c> KNOWS
+    /// WHAT CLR TYPE IT WAS BUILT FROM AND WILL NOT CONVERT.
+    ///
+    /// <para>
+    /// ⚠️ THE BUG THIS CLOSES WAS SILENT DATA LOSS IN THE SOURCE FINGERPRINT.
+    /// <c>Write</c> stores <c>doc.Source.SizeBytes</c> — a <see cref="long"/> — so the node is a
+    /// <c>JsonValue</c> backed by <see cref="long"/>. <c>Read</c> asked it for a
+    /// <see cref="double"/>. <c>JsonValue.TryGetValue&lt;double&gt;</c> on a long-backed value
+    /// returns <see langword="false"/>: it is an exact-type accessor, not a numeric converter.
+    /// So the fallback won, and <c>SizeBytes</c> and <c>ModifiedUtcSeconds</c> came back as
+    /// <b>0 on every load</b> — while the writer kept faithfully saving the real values.
+    /// </para>
+    ///
+    /// <para>
+    /// The damage was not the two fields. Those two fields ARE the source-integrity fingerprint
+    /// (<c>PROJ_05</c> / §6 PROJ-INTEGRITY). <c>CheckSource</c> compared a real file's size against
+    /// a stored 0 and answered <c>Changed</c> for every project ever reopened — so the warning that
+    /// exists to tell a user their source clip was re-encoded or replaced fired constantly and
+    /// meant nothing. A warning that is always on is a warning that is off.
+    /// </para>
+    ///
+    /// <para>
+    /// The reader stays forgiving (§2: absorb a missing key, a null, a wrong type) — it just no
+    /// longer treats "stored as a different numeric type than I asked for" as absent.
+    /// </para>
+    /// </summary>
     private static double ReadDouble(JsonObject? o, string key, double fallback)
     {
         if (o == null || o[key] is not JsonValue v) return fallback;
         if (v.TryGetValue(out double d)) return d;
-        if (v.TryGetValue(out string? s) && double.TryParse(s, out double parsed)) return parsed;
+        if (v.TryGetValue(out long l)) return l;
+        if (v.TryGetValue(out int i)) return i;
+        if (v.TryGetValue(out decimal m)) return (double)m;
+        if (v.TryGetValue(out string? s) && double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double parsed)) return parsed;
         return fallback;
     }
 
+    /// <summary>
+    /// PROJ_10 — the 64-bit read. <c>(long)ReadDouble(...)</c> is not a substitute: a double carries
+    /// 53 bits of mantissa, so a file size or a Unix timestamp past 2^53 would round on the way
+    /// through. These two fields are compared for EQUALITY by the integrity check, and a value that
+    /// rounds is a value that never matches.
+    /// </summary>
+    private static long ReadLong(JsonObject? o, string key, long fallback)
+    {
+        if (o == null || o[key] is not JsonValue v) return fallback;
+        if (v.TryGetValue(out long l)) return l;
+        if (v.TryGetValue(out int i)) return i;
+        if (v.TryGetValue(out double d)) return (long)Math.Round(d);
+        if (v.TryGetValue(out decimal m)) return (long)m;
+        if (v.TryGetValue(out string? s) && long.TryParse(s, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out long parsed)) return parsed;
+        return fallback;
+    }
+
+    /// <summary>PROJ_10 — see <see cref="ReadDouble"/>. Same exact-type trap, same widening.</summary>
     private static double? ReadNullableDouble(JsonObject? o, string key)
     {
         if (o == null || o[key] is not JsonValue v) return null;
-        return v.TryGetValue(out double d) ? d : null;
+        if (v.TryGetValue(out double d)) return d;
+        if (v.TryGetValue(out long l)) return l;
+        if (v.TryGetValue(out int i)) return i;
+        if (v.TryGetValue(out decimal m)) return (double)m;
+        return null;
     }
 
+    /// <summary>PROJ_10 — see <see cref="ReadDouble"/>. Same exact-type trap, same widening.</summary>
     private static int ReadInt(JsonObject? o, string key, int fallback)
     {
         if (o == null || o[key] is not JsonValue v) return fallback;
         if (v.TryGetValue(out int i)) return i;
+        if (v.TryGetValue(out long l)) return (int)l;
         if (v.TryGetValue(out double d)) return (int)Math.Round(d);
+        if (v.TryGetValue(out string? s) && int.TryParse(s, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int parsed)) return parsed;
         return fallback;
     }
 
+    /// <summary>PROJ_10 — see <see cref="ReadDouble"/>. Same exact-type trap, same widening.</summary>
     private static int? ReadNullableInt(JsonObject? o, string key)
     {
         if (o == null || o[key] is not JsonValue v) return null;
         if (v.TryGetValue(out int i)) return i;
+        if (v.TryGetValue(out long l)) return (int)l;
         if (v.TryGetValue(out double d)) return (int)Math.Round(d);
         return null;
     }

@@ -15,7 +15,7 @@ All subsystems, controls, and rendering components across `src/` must strictly e
 5. **Zero Raw Hex Styling:** All Avalonia styles, controls, and dynamic templates must resolve colors exclusively through named `DynamicResource` tokens in `AvaloniaApp.axaml`. Hardcoded hex values in shared styling are strictly prohibited.
 6. **Thread-Bound Safety Contracts:** UI dispatchers must never block on native audio/video subsystem calls. WASAPI audio capture lifecycles run on an isolated serialized worker thread; SkiaSharp snapshot encoding and heavy image decodes execute off the UI thread.
 7. **Monotonic Progress Guarantee:** Render progress tracking must be cost-weighted and mathematically monotonic (P(n+1) >= P(n)). Progress bars may never snap, stutter, or lerp backward across multi-pass operations.
-8. **Every Rule That Can Be A Test Is A Test:** A specification paragraph only protects the codebase if the next person reads it. Where a rule can be mechanically asserted — one activation path per control, no raw hex in styling, no `zoompan`, no unexplained empty catch — it lives in `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` and the prose explains *why*. A sentinel proves a fix has not been deleted; a test proves it has not been broken.
+8. **Every Rule That Can Be A Test Is A Test — AND A MACHINE RUNS THEM:** A specification paragraph only protects the codebase if the next person reads it. Where a rule can be mechanically asserted — one activation path per control, no raw hex in styling, no `zoompan`, no unexplained empty catch — it lives in `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` and the prose explains *why*. A sentinel proves a fix has not been deleted; a test proves it has not been broken. ⚠️ And neither proves anything until something runs them without being asked: `.github/workflows/ci.yml` (`SYS-CI`) is what makes the ratchets real. Before it existed the suite had been red on two genuine shipped bugs — the undo re-entrancy guard (`UNDO_23`) and the project fingerprint round-trip (`PROJ_10`) — for long enough that nobody looked, because five Windows-only tests were permanently red beside them.
 9. **No Failure Is Silent:** Every caught exception is classified through `IFaultSink` as Recoverable, Degraded or Fatal (`08_APPLICATION_COMPOSITION.md` §2). `catch { }` and `catch (Exception ex) { Log(ex); }` are not error handling — they leave the user to guess whether they mis-clicked.
 
 ---
@@ -92,6 +92,13 @@ AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  Fault.cs  FfmpegJob
 IClock.cs  IFaultSink.cs  ⚠IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs
 ⚠MainWindow.Project.cs  ⚠ProjectSession.cs  ⚠StorageProviderFilePicker.cs
 ⚠ToolNavigator.cs  UserFacingFaultSink.cs
+```
+
+**[`09_DISTRIBUTION_AND_RELEASE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/09_DISTRIBUTION_AND_RELEASE.md)** — Distribution, update size & repository weight — the 322MB installer, the runtime/app package split, the fingerprint that decides which one a patch downloads, LFS enforcement and the history-rewrite runbook.
+
+```
+RuntimePayloadManifest.cs  ⚠UpdateService.cs  ⚠Staging.cs  .github/workflows/ci.yml
+.github/workflows/lfs-guard.yml  build/sentinels.txt  ⚠dev.cmd
 ```
 
 ---

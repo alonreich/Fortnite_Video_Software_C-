@@ -920,7 +920,11 @@ public class ProcessWorker : IDisposable
                     {
                         double os, oe;
                         try { os = bodyStart + granularTimeMapper(seg.StartMs / 1000.0); oe = bodyStart + granularTimeMapper(seg.EndMs / 1000.0); }
-                        catch { continue; }
+                        catch (System.Exception swallowed10)
+                        {
+                            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
+                            continue;
+                        }
                         os = Math.Max(bodyStart, os); oe = Math.Min(bodyEnd, oe);
                         if (oe <= os + 1e-3) continue;
                         bool freeze = seg.Speed < 0.01;
@@ -981,7 +985,6 @@ public class ProcessWorker : IDisposable
                         coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={gDur.ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
                     }
-
                 }
 
                 bool hasSecondPass = false;
@@ -1706,19 +1709,20 @@ public class ProcessWorker : IDisposable
                         catch (Exception startEx)
                         {
                             var startFailure = FfmpegErrorClassifier.Classify(
-                                ExportStage.Encoding,
-                                attemptId,
-                                processExitCode: null,
-                                processStartException: startEx,
-                                isTimeout: false,
-                                isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
-                                collector: null,
-                                earlierAttempts: earlierAttempts);
+                            ExportStage.Encoding,
+                            attemptId,
+                            processExitCode: null,
+                            processStartException: startEx,
+                            isTimeout: false,
+                            isCancellation: _isCanceled || cancellationToken.IsCancellationRequested,
+                            collector: null,
+                            earlierAttempts: earlierAttempts);
 
                             earlierAttempts.Add(startFailure);
                             LastFailure = startFailure;
                             FailureDetail = startFailure.FormatDiagnosticReport();
                             lastError = startFailure.Summary;
+                            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(startEx);   // FAULTTIER_02 — no failure is silent.
                             return false;
                         }
 
@@ -1786,10 +1790,16 @@ public class ProcessWorker : IDisposable
                         });
 
                         try { await proc.WaitForExitAsync(cancellationToken); }
-                        catch (OperationCanceledException) { }
+                        catch (OperationCanceledException swallowed5)
+                        {
+                            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
+                        }
 
                         try { await Task.WhenAll(progressTask, stderrTask); }
-                        catch (OperationCanceledException) { }
+                        catch (OperationCanceledException swallowed3)
+                        {
+                            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+                        }
                         catch (Exception ex) { CoreLogger.Fail("FFmpeg", $"Reader task error: {ex.Message}"); }
 
                         // FFMPEGSTOP_01 — let an in-flight ladder finish before reading the exit
@@ -2249,7 +2259,10 @@ public class ProcessWorker : IDisposable
                             }, cancellationToken);
 
                             try { await p.WaitForExitAsync(cancellationToken); }
-                            catch (OperationCanceledException) { }
+                            catch (OperationCanceledException swallowed8)
+                            {
+                                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
+                            }
 
                             string thumbErr = string.Empty;
                             try { thumbErr = await thumbErrTask; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
@@ -2435,9 +2448,9 @@ public class ProcessWorker : IDisposable
                 using var reserve = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                 return path;
             }
-            catch (IOException)
+            catch (IOException swallowed4)
             {
-                // Taken by an existing file, or lost the race to a sibling export. Try the next index.
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             }
         }
 
@@ -2598,10 +2611,17 @@ public class ProcessWorker : IDisposable
             // ══════════════════════════════════════════════════════════════════════════════════
             bool tailCanceled = false;
             try { await proc.WaitForExitAsync(cancellationToken); }
-            catch (OperationCanceledException) { tailCanceled = true; }
+            catch (OperationCanceledException swallowed6)
+            {
+                tailCanceled = true;
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
+            }
 
             try { await Task.WhenAll(progressTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException swallowed9)
+            {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
+            }
             catch (TimeoutException) { CoreLogger.Debug("FFmpeg", "Two-pass reader drain timed out after 5s; continuing teardown."); }
             catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
@@ -2807,7 +2827,11 @@ public class ProcessWorker : IDisposable
         }
 
         try { await process.WaitForExitAsync(cancellationToken); }
-        catch (OperationCanceledException) { return null; }
+        catch (OperationCanceledException swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return null;
+        }
 
         if (_isCanceled || cancellationToken.IsCancellationRequested) return null;
 
@@ -2973,7 +2997,11 @@ public class ProcessWorker : IDisposable
             }
 
             try { await process.WaitForExitAsync(cancellationToken); }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException swallowed7)
+            {
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
+                return;
+            }
 
             if (_isCanceled || cancellationToken.IsCancellationRequested) return;
 

@@ -231,6 +231,29 @@ internal static class Staging
             }
             // Entries cannot be read while the archive is open in Create mode; count them ourselves.
             log.Info($"[NativeAOT] Payload zipped: {entryCount} entries, {new FileInfo(PayloadZip).Length / (1024 * 1024)} MB.");
+
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // SYS-PAYLOADSPLIT — FINGERPRINT THE RUNTIME AND SHIP THE ANSWER.
+            //
+            // Written twice, on purpose:
+            //   • INTO the staging folder, so it lands beside the installed binaries and the
+            //     updater on that machine can read what is actually installed.
+            //   • BESIDE compiled\, so the release can publish it as a tiny sidecar asset and the
+            //     updater can read what the release EXPECTS without downloading 322 MB to find out.
+            // A fingerprint that exists in only one of those two places answers nothing.
+            //
+            // ⚠️ Computed BEFORE the zip is written into the staging tree, so the manifest
+            // describes the runtime binaries and not itself.
+            // ══════════════════════════════════════════════════════════════════════════════════
+            var manifest = FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FromFolder(StagingDir);
+            manifest.Write(StagingDir);
+
+            Directory.CreateDirectory(OutputDir);
+            manifest.Write(OutputDir);
+
+            log.Info($"[NativeAOT] Runtime fingerprint {manifest.Fingerprint} over {manifest.FileCount} binaries "
+                   + $"({FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FormatBytes(manifest.TotalBytes)}). "
+                   + "Publish compiled\\runtime.manifest.json as a release asset so patch updates can skip the payload.");
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)

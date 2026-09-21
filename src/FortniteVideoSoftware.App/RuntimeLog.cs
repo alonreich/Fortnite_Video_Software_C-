@@ -219,11 +219,22 @@ public static class RuntimeLog
         try
         {
             string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
-            Info("SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}");
-            Debug("SWALLOWED", $"{where}{Environment.NewLine}{ex}");
+
+            // FAULTTIER_02 — routed through the sink, like CoreLogger.Swallowed. See the long note
+            // there: these two are one contract in two assemblies, and between them they are how
+            // most of this codebase handles a caught exception. Recoverable, so the user sees
+            // nothing new; the difference is that the failure now EXISTS to the fault system.
+            //
+            // ⚠️ NOT reachable from inside the sink's own logging path. Report -> RuntimeLog.Debug
+            // -> Write, and Write does not call Swallowed — it has its own emergency guard
+            // (EmergencyWrite). If that ever changes, this becomes infinite recursion on the
+            // thread that was already failing, so check before adding one.
+            FortniteVideoSoftware.Core.Abstractions.Faults.Recoverable(
+                "SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}", ex);
         }
         catch (Exception)
         {
+            // Nothing left to escalate to.
         }
     }
 
@@ -260,8 +271,13 @@ public static class RuntimeLog
             if (!emit) return;
 
             string tail = suppressed > 0 ? $" (+{suppressed} identical in the last 30s)" : string.Empty;
-            Info("SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}{tail}");
-            Debug("SWALLOWED", $"{where}{Environment.NewLine}{ex}");
+
+            // FAULTTIER_02 — same routing as Swallowed above. The throttle stays HERE rather than
+            // relying on the sink's FAULTSTORM_01 gate: this one is keyed by CALL SITE and holds
+            // for 30s, which is what a per-frame failure needs, and the sink's is keyed by message
+            // text, which a message embedding a changing value defeats.
+            FortniteVideoSoftware.Core.Abstractions.Faults.Recoverable(
+                "SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}{tail}", ex);
         }
         catch (Exception)
         {

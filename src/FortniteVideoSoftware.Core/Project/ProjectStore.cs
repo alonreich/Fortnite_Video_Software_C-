@@ -76,12 +76,14 @@ public static class ProjectStore
             CoreLogger.Info("PROJECT", $"Saved '{Path.GetFileName(path)}'.");
             return ProjectIoResult.Ok(path);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return ProjectIoResult.Fail("Windows would not let the app write to that folder. Try a folder inside your Documents.");
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException swallowed3)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return ProjectIoResult.Fail("That folder no longer exists.");
         }
         catch (IOException ex)
@@ -157,14 +159,16 @@ public static class ProjectStore
 
             return ProjectSerializer.Read(root, out error);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException swallowed2)
         {
             error = "Windows would not let the app read that file.";
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (IOException ex)
         {
             error = $"The project could not be read: {ex.Message}";
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (Exception ex)

@@ -76,7 +76,11 @@ public static class HudConfig
     {
         if (value is null) return defaultValue;
         try { return CoordinateMath.ScaleRound(Frac.FromString(value.ToString())); }
-        catch { return defaultValue; }
+        catch (System.Exception swallowed3)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
+            return defaultValue;
+        }
     }
 
     /// <summary>
@@ -108,7 +112,11 @@ public static class HudConfig
             else
                 parsed = Frac.FromString(value.ToString());
         }
-        catch { return fallback; }
+        catch (System.Exception swallowed2)
+        {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
+            return fallback;
+        }
 
         return parsed > Frac.Zero ? parsed : fallback;
     }
@@ -413,7 +421,12 @@ public static class HudConfig
                 // a rendering bug rather than as bad data. "Switched off" is a zero CROP RECT.
                 Frac parsedScale;
                 try { parsedScale = ParseScaleStrict(scaleNode); }
-                catch { issues.Add($"Unreadable scale for '{kvp.Key}'"); continue; }
+                catch (System.Exception swallowed)
+                {
+                    issues.Add($"Unreadable scale for '{kvp.Key}'");
+                    global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                    continue;
+                }
 
                 if (parsedScale <= Frac.Zero)
                     issues.Add($"Invalid scale for '{kvp.Key}' (must be greater than zero)");

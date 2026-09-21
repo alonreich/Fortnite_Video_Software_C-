@@ -9,6 +9,7 @@ namespace FortniteVideoSoftware.App.Controls;
 
 public partial class ConfirmDialogWindow : Window
 {
+
     public enum ConfirmDialogResult { Cancelled, Yes, No, Alt }
     
     public ConfirmDialogResult DialogResult { get; private set; } = ConfirmDialogResult.Cancelled;
@@ -52,9 +53,9 @@ public partial class ConfirmDialogWindow : Window
     public ConfirmDialogWindow()
     {
         InitializeComponent();
-        var yesBtn = this.FindControl<Button>("YesBtn");
-        var noBtn = this.FindControl<Button>("NoBtn");
-        var altBtn = this.FindControl<Button>("AltBtn");
+        var yesBtn = YesBtnCtl;
+        var noBtn = NoBtnCtl;
+        var altBtn = AltBtnCtl;
         if (yesBtn != null) yesBtn.Click += (s, e) => { DialogResult = ConfirmDialogResult.Yes; Close(); };
         if (noBtn != null) noBtn.Click += (s, e) => { DialogResult = ConfirmDialogResult.No; Close(); };
         if (altBtn != null) altBtn.Click += (s, e) => { DialogResult = ConfirmDialogResult.Alt; Close(); };
@@ -84,8 +85,8 @@ public partial class ConfirmDialogWindow : Window
     /// </summary>
     public void UseDestructiveStyling()
     {
-        var yesBtn = this.FindControl<Button>("YesBtn");
-        var noBtn = this.FindControl<Button>("NoBtn");
+        var yesBtn = YesBtnCtl;
+        var noBtn = NoBtnCtl;
 
         if (yesBtn != null)
         {
@@ -114,9 +115,9 @@ public partial class ConfirmDialogWindow : Window
     /// </summary>
     public void UseEditOrRemoveStyling()
     {
-        var yesBtn = this.FindControl<Button>("YesBtn");
-        var noBtn = this.FindControl<Button>("NoBtn");
-        var altBtn = this.FindControl<Button>("AltBtn");
+        var yesBtn = YesBtnCtl;
+        var noBtn = NoBtnCtl;
+        var altBtn = AltBtnCtl;
 
         if (yesBtn != null)
         {
@@ -152,9 +153,9 @@ public partial class ConfirmDialogWindow : Window
     /// </summary>
     public void SetButtonClasses(string? yesClass, string? noClass, string? altClass)
     {
-        Repaint(this.FindControl<Button>("YesBtn"), yesClass);
-        Repaint(this.FindControl<Button>("NoBtn"), noClass);
-        Repaint(this.FindControl<Button>("AltBtn"), altClass);
+        Repaint(YesBtnCtl, yesClass);
+        Repaint(NoBtnCtl, noClass);
+        Repaint(AltBtnCtl, altClass);
 
         static void Repaint(Button? btn, string? cls)
         {
@@ -226,9 +227,9 @@ public partial class ConfirmDialogWindow : Window
 
     public void SetButtonText(string yesText, string noText, string? altText = null)
     {
-        var yesBtn = this.FindControl<Button>("YesBtn");
-        var noBtn = this.FindControl<Button>("NoBtn");
-        var altBtn = this.FindControl<Button>("AltBtn");
+        var yesBtn = YesBtnCtl;
+        var noBtn = NoBtnCtl;
+        var altBtn = AltBtnCtl;
         if (yesBtn != null)
         {
             yesBtn.Content = yesText;

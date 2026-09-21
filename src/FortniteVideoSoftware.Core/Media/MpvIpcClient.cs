@@ -253,8 +253,9 @@ public class MpvIpcClient : IDisposable
                         PollDimensions();
                     }
                 }
-                catch (Exception)
+                catch (Exception swallowed2)
                 {
+                    global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 }
             }
         }
@@ -557,7 +558,11 @@ public class MpvIpcClient : IDisposable
             if (_eventLoopThread != null)
             {
                 try { loopStopped = _eventLoopThread.Join(TimeSpan.FromSeconds(3)); }
-                catch { loopStopped = false; }
+                catch (System.Exception swallowed)
+                {
+                    loopStopped = false;
+                    global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
+                }
                 _eventLoopThread = null;
             }
 

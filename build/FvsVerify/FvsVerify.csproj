@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SYS-VERIFYTOOL. Deliberately plain: no package references, no RID, no AOT. It runs before the
+    product is built, on a developer machine and on a CI runner, and must never be the reason
+    either of those is slow or fails to restore.
+
+    TargetFramework is the portable net9.0, NOT net9.0-windows — CI checks the sentinels on any
+    runner, and the check itself is file reads and string search.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>FvsVerify</RootNamespace>
+    <AssemblyName>FvsVerify</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <!-- Not part of the product; nothing here is shipped, so nothing here is signed or trimmed. -->
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
+</Project>

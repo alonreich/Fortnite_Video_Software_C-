@@ -106,9 +106,10 @@ public static class IpcProtocol
                     scope = Environment.UserName;
                 }
             }
-            catch
+            catch (System.Exception swallowed3)
             {
                 scope = Environment.UserName;
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
 
             _cachedUserScope = scope.Replace('\\', '_').Replace(':', '_').Replace('/', '_');
@@ -173,13 +174,14 @@ public static class IpcProtocol
                     trusted = expected != null && peer.User?.Value == expected;
                 });
             }
-            catch
+            catch (System.Exception swallowed2)
             {
                 string impersonated = server.GetImpersonationUserName();
                 if (!string.IsNullOrEmpty(impersonated))
                 {
-                    trusted = string.Equals(impersonated, Environment.UserName, StringComparison.OrdinalIgnoreCase);
+                trusted = string.Equals(impersonated, Environment.UserName, StringComparison.OrdinalIgnoreCase);
                 }
+                global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             }
 
             return trusted;
@@ -210,8 +212,9 @@ public static class IpcProtocol
             var node = JsonNode.Parse(bytes);
             return node as JsonObject ?? new JsonObject();
         }
-        catch (JsonException)
+        catch (JsonException swallowed4)
         {
+            global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }

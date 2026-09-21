@@ -96,7 +96,7 @@ public partial class MainWindow
         }
 
         bool questionPressed = e.Key == Key.OemQuestion;
-        var sheet = this.FindControl<Grid>("ShortcutSheetOverlay");
+        var sheet = ShortcutSheetOverlayCtl;
         if (sheet != null)
         {
             if (questionPressed)
@@ -321,7 +321,7 @@ public partial class MainWindow
         }
         _lastTransportToggleUtc = now;
 
-        var btn = this.FindControl<Button>("PlayPauseButton");
+        var btn = PlayPauseButtonCtl;
         if (btn == null || !btn.IsEnabled) return false;
 
         if (_isMusicBlockFocused)
@@ -348,7 +348,7 @@ public partial class MainWindow
         double time = GetCurrentMpvTime();
         SetTrimStart(time * 1000);
         _trimStartSet = true;
-        var markStartButton = this.FindControl<Button>("MarkStartButton");
+        var markStartButton = MarkStartButtonCtl;
         if (markStartButton != null) markStartButton.Content = $"START: {FormatTime(TimeSpan.FromSeconds(time))}";
 
         if (ActiveVideoHost?.IpcClient != null)
@@ -381,7 +381,7 @@ public partial class MainWindow
         _trimEndMs = time * 1000;
         _prewarmArmed = true;
         SchedulePrewarm();
-        var markEndButton = this.FindControl<Button>("MarkEndButton");
+        var markEndButton = MarkEndButtonCtl;
         if (markEndButton != null) markEndButton.Content = $"END: {FormatTime(TimeSpan.FromSeconds(time))}";
 
         if (ActiveVideoHost?.IpcClient != null)
