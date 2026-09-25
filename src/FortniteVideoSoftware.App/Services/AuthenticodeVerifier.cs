@@ -170,9 +170,9 @@ internal static unsafe partial class AuthenticodeVerifier
         catch (Exception ex)
         {
             // A missing wintrust.dll or a blocked entry point is NOT a pass.
-            return new SignatureInfo(false, false, string.Empty, string.Empty,
-            $"Trust provider unavailable ({ex.GetType().Name}: {ex.Message}).");
             global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+            return new SignatureInfo(false, false, string.Empty, string.Empty,
+                $"Trust provider unavailable ({ex.GetType().Name}: {ex.Message}).");
         }
 
         bool hasSignature = trustResult != TRUST_E_NOSIGNATURE;
@@ -202,9 +202,9 @@ internal static unsafe partial class AuthenticodeVerifier
                 // as unusable rather than as a pass — a publisher we cannot name is not a publisher
                 // we can compare.
                 chainValid = false;
-                return new SignatureInfo(false, true, string.Empty, string.Empty,
-                $"Signature present but the signer certificate could not be read ({ex.GetType().Name}: {ex.Message}).");
                 global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
+                return new SignatureInfo(false, true, string.Empty, string.Empty,
+                    $"Signature present but the signer certificate could not be read ({ex.GetType().Name}: {ex.Message}).");
             }
         }
 
