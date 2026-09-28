@@ -12,9 +12,11 @@ namespace FortniteVideoSoftware.App.Controls;
 public sealed class VoiceOverPreviewTake : IDisposable
 {
     public required VoiceOverTake Take { get; init; }
-    public required NAudio.Wave.AudioFileReader Reader { get; init; }
+    public required FortniteVideoSoftware.Core.Media.WavAudioReader Reader { get; init; }
     public required NAudio.Wave.WaveOutEvent Player { get; init; }
     public double StartProjectSec { get; set; }
+    /// <summary>MUSICSYNC_02 — consecutive out-of-tolerance readings (PreviewAudioSync).</summary>
+    public int DriftStrikes;
 
     public void Dispose()
     {
@@ -104,12 +106,12 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
                     {
                         if (_disposed) break;
                         if (string.IsNullOrWhiteSpace(take.Path) || !File.Exists(take.Path)) continue;
-                        NAudio.Wave.AudioFileReader? reader = null;
+                        FortniteVideoSoftware.Core.Media.WavAudioReader? reader = null;
                         NAudio.Wave.WaveOutEvent? player = null;
                         try
                         {
                             reader = new(take.Path);
-                            player = new();
+                            player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();   // MUSICSYNC_02
                             player.Init(reader);
                             _takes.Add(new() { Take = take, Reader = reader, Player = player });
                         }
@@ -134,15 +136,9 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
                         double voiceTime = request.Time - take.StartProjectSec;
                         bool play = (!request.Paused || request.Frozen) && !request.Ended &&
                             voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
-                        bool playing = take.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing;
-                        if (play && !playing)
-                        {
-                            take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
-                            take.Player.Play();
-                        }
-                        else if (!play && playing) take.Player.Pause();
-                        else if (play && Math.Abs(take.Reader.CurrentTime.TotalSeconds - voiceTime) > 0.5)
-                            take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
+                        // MUSICSYNC_02 — shared follower rule: seek-only correction, reader lead
+                        // compensated, 0.12 s tolerance confirmed twice (was 0.5 s, uncompensated).
+                        Infrastructure.PreviewAudioSync.SyncVoiceTake(take.Reader, take.Player, play, voiceTime, ref take.DriftStrikes);
                     }
                     catch (Exception ex) { CoreLogger.Swallowed(ex); }
                 }

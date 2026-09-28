@@ -4,13 +4,14 @@ Flat lookup. Grep for a filename, symbol, constant or engineering tag; read ONLY
 Notation: `03 §9 FFM-BINPATH` = `03_FFMPEG_EXPORT_PIPELINE.md`, section 9, stable anchor `FFM-BINPATH`.
 Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote anchors in Proof-of-Read headers, never bare numbers.
 `mini-map only` = the symbol is bound to the spec but not discussed in its prose body; read that spec's Code Mini-Map row.
+`[code-only: File]` = the tag/symbol is named in that source file but in NO spec's text; the route given is the closest spec section, or just the spec governing that file. Treat the missing prose as a documentation gap, not as permission.
 
 ---
 
 ## 1. Source File -> Spec
 `⚠` = CO-GOVERNED. Reading one listed spec is NOT compliance; read them all (`SPEC_GOVERNANCE.md` §2).
 
-⚠️ **This list is NOT exhaustive** and never has been — 122 files under `src/` are absent from it. The authoritative routing for any file is the `[SPEC CONTRACT]` sentinel block at its own line 1, which every one of them carries and which `ArchitectureRuleTests.EveryProductionSourceFileCarriesTheSpecContract` enforces. Use this table as a fast lookup, not as proof that an unlisted file is ungoverned.
+⚠️ **This list is NOT exhaustive** and never has been — many files under `src/` are absent from it. The authoritative routing for any file is the `[SPEC CONTRACT]` sentinel block at its own line 1, which every one of them carries and which `ArchitectureRuleTests.EveryProductionSourceFileCarriesTheSpecContract` enforces. Use this table as a fast lookup, not as proof that an unlisted file is ungoverned.
 
 ```
   AmbientBubblesBackground.cs                04
@@ -22,16 +23,20 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   Build.cmd                                  05
   CanvasMath.cs                              01
   CoachOverlay.cs                            04
+⚠ CompositeTimeline.cs                       01 03
   ConfirmDialogWindow.axaml.cs               04
   CoordinateMath.cs                          01
   DeploymentLifecycle.cs                     05
-  dev.cmd                                    05
+⚠ dev.cmd                                    05 08
+  ExportTimingTag.cs                         03
   FfmpegDiagnosticCollector.cs               03
   FloatingNotice.cs                          04
 ⚠ FluidVolumeSlider.cs                       02 04
+  FramePtsProbe.cs                           03
   GpuCapabilityProbe.cs                      03
   GranularSpeedBuilder.cs                    03
-⚠ GranularSpeedEditorWindow.axaml.cs         01 04 05
+⚠ GranularSpeedEditorWindow.axaml.cs         01 04 05 07
+⚠ GranularSpeedEditorWindow.Merge.cs         01 04
   HardwareScanner.cs                         03
   KineticScrubController.cs                  01
   LatestEstimateWorker.cs                    05
@@ -39,17 +44,25 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   MainWindow.Canvas.cs                       01
   MainWindow.Export.cs                       03
   MainWindow.SizeEstimate.cs                 03
-⚠ MainWindow.Shortcuts.cs                    01 06 07
+  MainWindow.Shortcuts.cs                    01
+⚠ MainWindow.ToolReturn.cs                   05 08
   MainWindow.Wireup.cs                       01
 ⚠ MainWindow.axaml.cs                        01 02 04 GOV
   MaskOverlayManager.cs                      05
+⚠ MemeLoudness.cs                            02 03
   MemePreviewDirector.cs                     03
+⚠ MergeClipGraph.cs                          01 03
+⚠ MergeEditorBridge.cs                       01 03
+⚠ MergeEdl.cs                                01 03 06
+  MergerAutosaveStore.cs                     05
+⚠ MergerPreviewPlan.cs                       01 03
+⚠ MergerSession.cs                           01 05
   MergerWorker.cs                            03
   MicLevelMonitor.cs                         02
   MobileFilterBuilder.cs                     03
   IpcProtocol.cs                             05
   MpvIpcClient.cs                            02
-  MpvVideoView.cs                            04
+⚠ MpvVideoView.cs                            04 05
   NamedPipeStateServer.cs                    05
 ⚠ MusicWizardWindow.axaml.cs                 01 02
 ⚠ OutputTimeline.cs                          01 06
@@ -58,27 +71,34 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ PhoneFrameMockup.axaml.cs                  01 04
   ExportViewModel.cs                         03
   ProcessWorker.cs                           03
+  ProgressiveLanes.cs                        04
   QualityLadder.cs                           03
   ProjectRecoveryService.cs                  05
 ⚠ RecoveryManager.cs                         05 GOV
   RuntimeLog.cs                              05
-  SettingsManager.cs                         05
   SettingsWindow.axaml.cs                    04
   SpinningWheelSlider.cs                     04
   TextOverlayGenerator.cs                    03
   TimelineKnob.cs                            01
   TimelineLanesControl.axaml.cs              01
+  TimelineReorder.cs                         04
   UiStateStore.cs                            05
   UpdateAvailableWindow.axaml.cs             04
-  UpdateService.cs                           05
+⚠ VideoMergerWindow.ClipActions.cs           01 04
+⚠ VideoMergerWindow.EdlPreview.cs            01 03 04
+⚠ VideoMergerWindow.Effects.cs               01 04
+⚠ VideoMergerWindow.History.cs               01 06
+⚠ VideoMergerWindow.Lanes.cs                 01 04
+⚠ VideoMergerWindow.Session.cs               01 04 05
+⚠ VideoMergerWindow.TimelineSelect.cs        01 04
   WindowResizeGrip.cs                        04
   VoiceOverPreviewPlayer.cs                  02
 ⚠ VoiceOverWindow.axaml.cs                   01 02
   VoiceRecorder.cs                           02
 ⚠ WindowBoundsHelper.cs                      04 05
   ZoomPreviewSimulator.cs                    03
-  FvsBuild (Program.cs / Staging.cs)         05
-  ProjectDocument.cs                         06
+  FvsBuild Program.cs                        05
+⚠ ProjectDocument.cs                         06 07
   ProjectSerializer.cs                       06
   ProjectStore.cs                            06
   RecentProjects.cs                          06
@@ -94,14 +114,14 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   IClock.cs                                  08
 ⚠ IProjectStore.cs                           06 08
 ⚠ IUserNotifier.cs                           04 08
-⚠ IFilePickerService.cs                      05 08
+  IFilePickerService.cs                      08
 ⚠ StorageProviderFilePicker.cs               05 08
   UserFacingFaultSink.cs                     08
   ArchitectureRuleTests.cs                   08
 ⚠ CodeSigning.cs                             05 08
-⚠ SettingsManager.cs                         05 06 (AOTSAFETY_04)
-  HardwareTelemetrySampler.cs                06 (AOTSAFETY_03)
-⚠ AuthenticodeVerifier.cs                    05 06 (AOTSAFETY_05)
+  SettingsManager.cs                         05
+  HardwareTelemetrySampler.cs                04
+  AuthenticodeVerifier.cs                    05
   FortniteVideoSoftware.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
   RuntimePayloadManifest.cs                  09
   DiagnosticReport.cs                        05
@@ -111,20 +131,38 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   SentinelList.cs                            05
   FvsVerify Program.cs                       05
   build/sentinels.txt                        05
-  .github/workflows/ci.yml                   05
+⚠ .github/workflows/ci.yml                   08 09
   .github/workflows/lfs-guard.yml            09
 ⚠ UpdateService.cs                           05 09
-⚠ Staging.cs                                 05 09
-  GranularSpeedEditorWindow.History.cs       07
-  MainWindow.Controls.cs                     04
+  Staging.cs                                 09
+⚠ GranularSpeedEditorWindow.History.cs       04 07
+⚠ MainWindow.Controls.cs                     01 02 04 GOV
   GranularSpeedEditorWindow.Controls.cs      04
   MusicWizardWindow.Controls.cs              04
   CropToolWindow.Controls.cs                 04
-  VideoMergerWindow.Controls.cs              04
+  VideoMergerWindow.Controls.cs              03
   PhaseOverlayControl.Controls.cs            04
   TimelineLanesControl.Controls.cs           04
   ConfirmDialogWindow.Controls.cs            04
   WindowsOnlyFactAttribute.cs                08
+  TimelineViewModel.cs                       01
+⚠ MergedTimeline.cs                          01 03
+⚠ MusicPadAlignment.cs                       01 02 03
+⚠ VideoMergerWindow.Timeline.cs              01 03
+  EncoderManager.cs                          03
+  TwoPassEncoding.cs                         03
+  ExportColorPolicy.cs                       03
+  IntroTag.cs                                03
+  MergeClipAnalyzer.cs                       03
+  GrabCursors.cs                             04
+  VideoMergerWindow.Playhead.cs              04
+⚠ LaneDiskCache.cs                           04 05
+  WaveformPeaks.cs                           04
+  CoreLogger.cs                              05
+  CropConfigStore.cs                         05
+⚠ MainWindow.Recovery.cs                     05 07
+  FaultCounters.cs                           08
+  .gitattributes                             09
 ```
 
 Full paths: see each spec's Code Mini-Map.
@@ -136,6 +174,11 @@ Full paths: see each spec's Code Mini-Map.
 ```
 _isSafeToClose                               05 §3 SYS-WINSTATE
 SIZEESTIMATE_01                              03 FFM-SIZEESTIMATE | 04 UI-THEME | 05 SYS-SIZEESTIMATE
+MERGEQUALITY_01                              03 FFM-SIZEESTIMATE
+MERGESIZE_01                                 03 FFM-SIZEESTIMATE
+MEMELEVEL_01                                 03 §12 FFM-SCRAPER
+CLIPFRAMES_01                                03 §12 FFM-SCRAPER | 02 §5 AUD-CONCAT
+MemeLoudness                                 03 §12 FFM-SCRAPER
 CANCELREG_01                                 03 §8b FFM-EXPORTLIFETIME
 EXPORTSESSION_01                             03 §8b FFM-EXPORTLIFETIME
 FLUSHCEILING_01                              05 §4d SYS-IPCLIFETIME
@@ -179,7 +222,6 @@ AtomicJsonFile                               05 §4 SYS-RECOVERY
 AtomicJsonFile.WriteText                     05 §4c SYS-ATOMICWRITE
 AudioFilterChain                             02 §7 AUD-MUSICFADE
 AudioLoudnessProbe                           02 §2 AUD-MASTERING
-backend/                                     03 (mini-map only)
 BeginMoveDrag                                04 §7 UI-BORDERLESS
 BillableSeconds                              03 §8a FFM-QUALITY
 BlockingCollection<string>                   05 §2 SYS-LOGGING
@@ -188,35 +230,31 @@ Build                                        01 §1 TL-PORTRAIT | 03 (mini-map o
 BuildAtempoChain                             03 (mini-map only)
 CalculateEffectiveDurationMs                 03 §8a FFM-QUALITY
 CalculateFreezeOutputMs                      03 §8a FFM-QUALITY
-CanvasHeight                                 01 (mini-map only)  [= 1080]   [formula term, not a code symbol]
 CanvasMath                                   01 (mini-map only)
-CanvasWidth                                  01 (mini-map only)  [= 1920]   [formula term, not a code symbol]
-CenterClearSlice                             01 (mini-map only) | 04 (mini-map only)  [= 720]   [formula term, not a code symbol]
 CheckFault                                   05 §4 SYS-RECOVERY
 ChunkSpec                                    03 (mini-map only)
 ClampZoomInsideItsBlock                      01 (mini-map only)
-ClearLiveZoomCrop                            03 (mini-map only)
+ClearLiveZoomCrop                            04 §6 UI-GRANULAR   [code-only: counterpart of UpdateLiveZoomCrop]
 CoachOverlay                                 04 §5 UI-COACH
-CoachTours                                   04 (mini-map only)
+CoachTours                                   04 §5 UI-COACH
 Compute                                      03 (mini-map only)
 ConfirmDialogWindow                          02 §6 AUD-DIALOGS | 04 (mini-map only)
-ContentAspect                                01 (mini-map only)  [= 2.0/3.0]   [formula term, not a code symbol]
 CoordinateMath                               01 §1 TL-PORTRAIT
 CoreLogger                                   05 (mini-map only)
 Create                                       01 (mini-map only)
 Cut                                          01 §2 TL-OUTPUTTIMELINE, 01 §5 TL-CUTS | 02 §2 AUD-MASTERING, 02 §4 AUD-VOICEOVER | 04 §4 UI-SAFEGUARDS
 CUTS_02                                      02 §4 AUD-VOICEOVER
-DebounceMs                                   04 (mini-map only) | 05 (mini-map only)  [= 700]
+DebounceMs                                   03  [= 450]   [code-only: FilmstripPrewarm.cs]
 DefaultValues.QualityIndex                   03 §8a FFM-QUALITY
 DeploymentLifecycle                          05 §1 SYS-MUTEX
 DOUBLEFIRE_01                                04 §4 UI-SAFEGUARDS
-EnableGlobalRipple                           02 (mini-map only) | 04 §1 UI-THEME
+EnableGlobalRipple                           04 §1 UI-THEME
 EndThumbnailMarkerDrag                       01 §9 TL-HITBOX
 EndUndoGesture                               01 (mini-map only)
 EnsureDefaults                               05 (mini-map only)
 EnsureStep2WaveformPresent                   02 §6 AUD-DIALOGS
 EnsureWritableDirectories                    05 (mini-map only)
-ExportPayload                                03 (mini-map only)
+ExportPayload                                03   [code-only: ExportPayload.cs]
 FFM-QUALITY                                  03 §8a FFM-QUALITY
 FfmpegDiagnosticCollector                    03 (mini-map only)
 File.Move                                    05 §4 SYS-RECOVERY
@@ -227,7 +265,7 @@ FirstRunCoverage                             05 §3 SYS-WINSTATE
 fitDisplayOnFirstRun                         05 §3 SYS-WINSTATE
 FloatingNotice                               04 §5 UI-COACH
 FluidVolumeSlider                            02 (mini-map only) | 04 (mini-map only)
-FormatDiagnosticReport                       03 (mini-map only)
+FormatDiagnosticReport                       03   [code-only: ExportFailure.cs]
 FREEZE_01                                    01 §4 TL-FREEZE
 FreezeSecondCostFactor                       03 §8a FFM-QUALITY
 FVS_DEV_LOG_DIR                              05 §4a SYS-DEVBUILD
@@ -235,12 +273,12 @@ FVS_SIGN_PASS                                05 §5 SYS-SIGNING
 FVS_SIGN_PFX                                 05 §5 SYS-SIGNING
 GeneratePng                                  03 (mini-map only)
 GetQualitySettings                           03 §8a FFM-QUALITY
-GlobalMasterVolume                           02 (mini-map only)
+GlobalMasterVolume                           02 §1 AUD-MASTERVOL
 GpuCapabilityProbe                           03 §1 FFM-HWENC
 GranularSpeedBuilder                         03 (mini-map only) | 05 §3 SYS-WINSTATE
 GranularSpeedEditorWindow                    01 (mini-map only) | 04 (mini-map only) | 05 (mini-map only)
 GRIP_01                                      04 §7a UI-RESIZEGRIP
-HardwareScanner                              03 (mini-map only)
+HardwareScanner                              03 §1 FFM-HWENC
 HasUnsavedWork                               05 (mini-map only)
 InsertionAt                                  01 (mini-map only)
 IsActive                                     02 §4 AUD-VOICEOVER | 03 §5 FFM-MEMEPREVIEW
@@ -253,7 +291,7 @@ LIST_05                                      02 §6 AUD-DIALOGS
 LIST_06                                      04 §2 UI-DPI
 LIST_07                                      02 §6 AUD-DIALOGS
 LoadState                                    05 (mini-map only)
-LogMutex                                     05 (mini-map only)
+LogMutexName                                 05 (mini-map only)
 MAINEND_01                                   01 §8 TL-ENDSTOP
 MainTimelineEndSeconds                       01 §8 TL-ENDSTOP
 MainWindow                                   01 §2 TL-OUTPUTTIMELINE | 02 (mini-map only) | 04 (mini-map only) | 05 §3 SYS-WINSTATE
@@ -275,20 +313,19 @@ MpvIpcClient                                 02 §1 AUD-MASTERVOL | 03 §9 FFM-B
 MusicVolSlider                               02 §6 AUD-DIALOGS
 MusicWizardWindow                            01 (mini-map only) | 02 (mini-map only)
 NormalizeCuts                                01 (mini-map only)
-Notify                                       04 (mini-map only)
-NotifyError                                  04 (mini-map only)
+Notify                                       08 (mini-map only)
+NotifyError                                  04   [code-only: GranularSpeedEditorWindow.axaml.cs]
 ObserveProperty                              02 (mini-map only)
 OnClosed                                     05 §3 SYS-WINSTATE
 OnClosing                                    05 §3 SYS-WINSTATE
-OnPointerMoved                               01 (mini-map only) | 02 (mini-map only) | 04 (mini-map only)
-OnPointerPressed                             01 (mini-map only)
-OnPointerReleased                            01 (mini-map only)
+OnPointerMoved                               02 (mini-map only) | 04 (mini-map only)
+OnPointerPressed                             02 | 04   [code-only: FluidVolumeSlider.cs, SpinningWheelSlider.cs]
+OnPointerReleased                            02 | 04   [code-only: FluidVolumeSlider.cs, SpinningWheelSlider.cs]
 OnPointerWheelChanged                        04 (mini-map only)
 OnTick                                       01 (mini-map only)
 OnTrackSelected                              02 §6 AUD-DIALOGS
-OnVolumeChanged                              02 (mini-map only)
+OnVolumeChanged                              02   [code-only: VoiceOverWindow.axaml.cs]
 OutputTimeline                               01 §2 TL-OUTPUTTIMELINE | 02 §6 AUD-DIALOGS
-OutputToSource                               01 §2 TL-OUTPUTTIMELINE
 OverlayCanvas                                04 §5 UI-COACH
 P3ASYNC_01                                   02 §6 AUD-DIALOGS
 PhoneFrameMockup                             01 §1 TL-PORTRAIT | 04 (mini-map only)
@@ -308,29 +345,27 @@ QuantizeItemSize                             01 §1 TL-PORTRAIT
 QuietBoostReductionFactor                    02 §2 AUD-MASTERING  [= 0.70]
 ReadInt                                      05 (mini-map only)
 ReadObject                                   05 (mini-map only)
-ReadString                                   05 (mini-map only)
+ReadString                                   06   [code-only: ProjectSerializer.cs]
 RecoveryManager                              05 §4 SYS-RECOVERY
 RecoveryStateFile                            05 (mini-map only)
 Redo                                         04 §6 UI-GRANULAR
 Register                                     04 (mini-map only)
 RelayoutFrameLane                            01 (mini-map only)
 Reload                                       02 (mini-map only)
-RenderWaveform                               02 (mini-map only)
 ReportMicHealth                              02 §4 AUD-VOICEOVER
 ResizeGrip                                   04 §7a UI-RESIZEGRIP
 ResolveHostPanel                             04 §5 UI-COACH
-RestoreRecoveryState                         05 (mini-map only)
 ResultSegments                               05 §3 SYS-WINSTATE
 RESUME_01                                    02 §6 AUD-DIALOGS
 ResumeFromInitialStateAsync                  02 §6 AUD-DIALOGS
 RewindFromTimelineEnd                        01 §8 TL-ENDSTOP
-RotateBackups                                05 (mini-map only)
+RotateBackupsUnlocked                        05 §4 SYS-RECOVERY
 RuntimeLog                                   05 (mini-map only)
-SampleRate                                   02 (mini-map only)  [= 44100]
+SampleRate                                   04 (mini-map only)  [= 4000, WaveformPeaks]
 SaveBoundsSync                               04 (mini-map only) | 05 (mini-map only)
-SaveRecoveryState                            02 (mini-map only)
+SaveRecoveryState                            02 (mini-map only) | 05 SYS-EDITHOT | 07 §6 UNDO-EQUALITY
 SaveState                                    05 (mini-map only)
-SchemaVersion                                05 (mini-map only)  [= 1]
+CurrentSchemaVersion                         05 (mini-map only)  [= 9, SettingsManager]
 SEAM_01                                      01 §3 TL-MARKERS | 04 §6 UI-GRANULAR
 SEEKSTORM_01                                 04 §6 UI-GRANULAR
 SegDragMode                                  01 (mini-map only)
@@ -341,9 +376,8 @@ SetButtonText                                04 (mini-map only)
 SetGlobalMasterVolume                        02 §1 AUD-MASTERVOL
 SizeToContent                                04 §2 UI-DPI
 SLIDER_06                                    02 §6 AUD-DIALOGS
-SLIDER_07                                    04 §1 UI-THEME
+SLIDER_07                                    04 §1 UI-THEME | 02 §6 AUD-DIALOGS
 SnapInsertionPoint                           01 §7 TL-MEME
-SnapToTick                                   04 (mini-map only)
 SourceMsToOutputSeconds                      01 §2 TL-OUTPUTTIMELINE
 SourceToOutput                               01 §7 TL-MEME
 SpinningWheelSlider                          04 (mini-map only)
@@ -353,7 +387,7 @@ StartRecording                               02 (mini-map only)
 StopRecording                                02 (mini-map only)
 SurvivingSourceWidth                         01 §1 TL-PORTRAIT  [= 720]   [formula term, not a code symbol]
 SYS-DEVBUILD                                 05 §4a SYS-DEVBUILD
-Tactile                                      02 (mini-map only) | 04 §1 UI-THEME
+Tactile                                      04 §1 UI-THEME
 TargetLufs                                   02 (mini-map only)  [= -14.0]
 TargetMbFor                                  03 §8a FFM-QUALITY
 TextOverlayGenerator                         03 (mini-map only)
@@ -362,7 +396,7 @@ THUMB_02                                     01 §9 TL-HITBOX
 TimelineKnob                                 01 (mini-map only)
 TimelineLanesControl                         01 (mini-map only)
 TimelineStartSeconds                         01 (mini-map only)
-TimePos                                      02 (mini-map only)
+CurrentTime                                  02 §2a AUD-IPCSTATE | 02 §4 AUD-VOICEOVER
 TL-ENDSTOP                                   01 §8 TL-ENDSTOP
 TogglePlayPauseTransport                     01 §8 TL-ENDSTOP
 ToWorkerQualityLevel                         03 §8a FFM-QUALITY
@@ -376,19 +410,18 @@ TryExecutePlayPause                          04 §4 UI-SAFEGUARDS
 UI-RESIZEGRIP                                04 §7a UI-RESIZEGRIP
 UiStateStore                                 04 §5 UI-COACH | 05 (mini-map only)
 Undo                                         04 §6 UI-GRANULAR
-Uninstall                                    05 (mini-map only)
+Uninstall                                    05 §1 SYS-MUTEX
 UpdateEstimatedQuality                       03 §8a FFM-QUALITY
 UpdateReadyLamp                              02 §4 AUD-VOICEOVER
 UpdateThumbnailButtonState                   01 (mini-map only)
 UpdateTimelineMarkers                        01 (mini-map only)
-Velocity                                     01 (mini-map only)
 VERIFY_PATCHES                               05 §4a SYS-DEVBUILD
 VideoVolSlider                               02 §6 AUD-DIALOGS
 VOEND_01                                     01 §8 TL-ENDSTOP
 VoiceOverPreviewPlayer                       02 §4 AUD-VOICEOVER
 VoiceOverWindow                              01 (mini-map only) | 02 (mini-map only)
 VoiceRecorder                                02 §4 AUD-VOICEOVER
-VolumeChanged                                02 (mini-map only) | 04 (mini-map only)
+VolumeChanged                                02   [code-only: VoiceRecorder.cs, VoiceOverWindow.axaml.cs]
 VolumeSlider                                 02 (mini-map only)
 VOMON_02                                     02 §4 AUD-VOICEOVER
 WindowBoundsHelper                           04 §8 UI-DETACH | 05 §3 SYS-WINSTATE
@@ -414,8 +447,7 @@ GetCurrentVersion                            05 §6 SYS-AUTOUPDATE
 TryParseVersion                              05 §6 SYS-AUTOUPDATE
 SynchronizeVersionFiles                      05 §6 SYS-AUTOUPDATE
 ZoomPreviewSimulator                         02 §4 AUD-VOICEOVER | 03 (mini-map only)
-ZoomRampRequiredGap                          03 (mini-map only)  [= 1.0]
-ZoomRampSeconds                              03 (mini-map only)  [= 0.5]
+ZoomRampSeconds                              03  [= 0.5]   [code-only: GranularSpeedBuilder.cs, ZoomPreviewSimulator.cs]
 AOTSAFETY_01                                 06 §4 PROJ-AOT
 EndGesture                                   07 §2 UNDO-RULES
 GestureIdleMs                                07 §2 UNDO-RULES  [= 900]
@@ -423,12 +455,11 @@ U1                                           07 §2 UNDO-RULES
 U2                                           07 §2 UNDO-RULES
 U3                                           07 §2 UNDO-RULES
 U4                                           07 §2 UNDO-RULES
-UNDO_10                                      07 §1 UNDO-WHY
-UNDO_11                                      07 §2 UNDO-RULES
+UNDO_10                                      07 §1 UNDO-WHY | 07 §3 UNDO-STATE   [code-only: UndoStack.cs]
+UNDO_11                                      07 §2 UNDO-RULES   [code-only: UndoStack.cs — U2 ceiling]
 UndoEntry                                    07 §4 UNDO-PERSIST
 UndoStack                                    07 §2 UNDO-RULES
 AOTSAFETY_02                                 06 §4 PROJ-AOT
-AOTSAFETY_03                                 06 §4 PROJ-AOT
 AOTSAFETY_04                                 06 §4 PROJ-AOT
 AOTSAFETY_05                                 06 §4 PROJ-AOT | 05 §5 SYS-SIGNING
 AddNode                                      06 §4 PROJ-AOT
@@ -474,48 +505,228 @@ INJSEAM_04                                   08 §1 COMP-ROOT   [IFilePickerServ
 MVVM_01                                      08 §3a COMP-MVVM
 MVVM_02                                      08 §3a COMP-MVVM
 PICKERMEMORY_01                              08 (mini-map only) | 05 §3 SYS-WINSTATE
-PIPELIFE_01                                  08 §4 COMP-FINDINGS | 03 (mini-map only)
-PIPELIFE_02                                  08 §4 COMP-FINDINGS | 03 (mini-map only)
-PROJSESSION_01                               06 (mini-map only) | 08 (mini-map only)
-PROJSESSION_02                               06 (mini-map only)
-PROJSESSION_03                               06 (mini-map only) | 05 §4 SYS-RECOVERY
-PROJSESSION_04                               06 (mini-map only) | 07 (mini-map only)
-PROJSESSION_05                               06 (mini-map only) | 05 §6 SYS-AUTOUPDATE
-PROJSESSION_06                               07 (mini-map only)
+PIPELIFE_01                                  03 (mini-map only)
+PIPELIFE_02                                  03 | 08   [code-only: FfmpegJobLifetime.cs, MergerWorker.cs]
+PROJSESSION_01                               08 (mini-map only)
+PROJSESSION_02                               06   [code-only: ProjectSession.cs]
+PROJSESSION_03                               06 | 05 §4 SYS-RECOVERY   [code-only: ProjectSession.cs]
+PROJSESSION_04                               06 §8 PROJ-TODO | 07 §5 UNDO-TODO
+PROJSESSION_05                               06 §8 PROJ-TODO
+PROJSESSION_06                               07 §3 UNDO-STATE   [code-only: MainWindow.Project.cs]
 PROJSESSION_07                               05 §3 SYS-WINSTATE
 PROJSESSION_08                               06 §9 PROJ-CLOSEGUARD
 PROJSESSION_09                               06 §9 PROJ-CLOSEGUARD
 SCRIM_01                                     04 §1 UI-THEME
 SIGNMANDATE_01                               05 §5 SYS-SIGNING
-TOOLNAV_01                                   05 (mini-map only) | 08 §4 COMP-FINDINGS
-TOOLNAV_02                                   05 (mini-map only)
+TOOLNAV_01                                   08 (mini-map only)
+TOOLNAV_02                                   05 §3 SYS-WINSTATE
 TOOLNAV_03                                   05 §3 SYS-WINSTATE
-TOOLNAV_04                                   05 (mini-map only)
+TOOLNAV_04                                   05 §3 SYS-WINSTATE   [code-only: ToolNavigator.cs, CropToolWindow.axaml.cs, VideoMergerWindow.axaml.cs]
 UNDO_20                                      07 §2 UNDO-RULES
-UNDO_21                                      07 §2 UNDO-RULES
-UNDO_22                                      07 §2 UNDO-RULES
+UNDO_21                                      07 §3 UNDO-STATE   [code-only: ProjectSession.cs]
+UNDO_22                                      04 §6 UI-GRANULAR   [code-only: MainWindow.Project.cs]
 UPDATETRUST_02                               05 §5 SYS-SIGNING
 VERIFYHALT_01                                05 §4a SYS-DEVBUILD
-SYS-VERIFYTOOL                               05 §4a SYS-DEVBUILD
-SYS-CI                                       05 §4a SYS-DEVBUILD
-SYS-DIAGREPORT                               05 §2 SYS-LOGGING
-SYS-PAYLOADSPLIT                             09 §3 DIST-SPLIT | 05 §6 SYS-AUTOUPDATE
+SYS-VERIFYTOOL                               05 SYS-VERIFYTOOL
+SYS-CI                                       08 COMP-CI | 09 §5 DIST-CIWATCH
+SYS-DIAGREPORT                               05 SYS-DIAGREPORT
+SYS-PAYLOADSPLIT                             09 §3 DIST-SPLIT | 05 SYS-PAYLOADSPLIT
 SYS-REPOWEIGHT                               09 §4 DIST-REPOWEIGHT
-CITEST_01                                    08 §3 COMP-ARCHTEST
-FAULTTIER_02                                 08 §2 COMP-FAULTS
-MVVM_03                                      04 §1 UI-THEME | 08 §3a COMP-MVVM
-UNDO_23                                      07 §2 UNDO-RULES
-UNDO_24                                      07 §4 UNDO-PERSIST
-UNDO_25                                      07 §4 UNDO-PERSIST | 04 §6 UI-GRANULAR
-PROJ_10                                      06 §4 PROJ-AOT | 06 §6 PROJ-INTEGRITY
-PROJ_11                                      06 §2 PROJ-INPUTS | 06 §3 PROJ-SCHEMA
-AOTSAFETY_06                                 06 §4 PROJ-AOT
-ProjectMask                                  06 §2 PROJ-INPUTS
-ProjectMerge                                 06 §2 PROJ-INPUTS
-MergeClip                                    06 §2 PROJ-INPUTS
+CITEST_01                                    08 COMP-CI
+FAULTTIER_02                                 08 COMP-FAULTCHANNEL
+MVVM_03                                      08 §3 COMP-ARCHTEST | 01 (mini-map only)
+UNDO_23                                      07 §5 UNDO-TODO
+UNDO_24                                      07 §5 UNDO-TODO | 07 §4 UNDO-PERSIST
+UNDO_25                                      07 §5 UNDO-TODO | 04 §6 UI-GRANULAR
+PROJ_10                                      06 §8 PROJ-TODO
+PROJ_11                                      06 §8 PROJ-TODO
+PROJ_12                                      06 §8 PROJ-TODO
+AOTSAFETY_06                                 06 §4 PROJ-AOT   [code-only: ProjectSerializer.cs, UndoSidecarStore.cs]
+ProjectMask                                  06 §8 PROJ-TODO
+ProjectMerge                                 06 §8 PROJ-TODO | 05 §4 SYS-RECOVERY
+MergeClip                                    06 §8 PROJ-TODO   [code-only: ProjectDocument.cs]
 RuntimePayloadManifest                       09 §3 DIST-SPLIT
 UndoSidecarStore                             07 §4 UNDO-PERSIST
-DiagnosticReport                             05 §2 SYS-LOGGING
+DiagnosticReport                             05 SYS-DIAGREPORT
 Faults.Install                               08 §2 COMP-FAULTS
+AOTSAFETY_03                                 06 §10 PROJ-AOTPOLICY
+AOTCLEAN_01                                  06 §10 PROJ-AOTPOLICY
+AOTCLEAN_02                                  06 §10 PROJ-AOTPOLICY
+AOTCLEAN_03                                  06 §10 PROJ-AOTPOLICY | 04 UI-GPUPRESENT2
+AOTCLEAN_04                                  06 §10 PROJ-AOTPOLICY
+WavAudioReader                               06 §10 PROJ-AOTPOLICY
+D3D11Interop                                 06 §10 PROJ-AOTPOLICY
+SIGNLOCAL_01                                 05 §5 SYS-SIGNING
+SIGNLOCAL_02                                 05 §5 SYS-SIGNING
+ILCCRASH_01                                  06 §10 PROJ-AOTPOLICY
+RELEASEASSETS_01                             09 §3 DIST-SPLIT
+GPUPRESENT_02                                04 §12 UI-GPUPRESENT2
+TryAcquireProducerKey                        04 §12 UI-GPUPRESENT2
+EDITHOT_01                                   05 SYS-EDITHOT
+EDITHOT_02                                   05 SYS-EDITHOT
+LiveMaskCache                                05 SYS-EDITHOT
+MainWindow.Recovery.cs                       05 SYS-EDITHOT | 07 UNDO-EQUALITY
+UNDOEQ_01                                    07 §6 UNDO-EQUALITY
+UNDOEQ_02                                    07 §6 UNDO-EQUALITY
+MUSICSYNC_01                                 02 §8 AUD-PREVIEWSYNC
+MUSICPAD_01                                  02 §8 AUD-PREVIEWSYNC
+MusicPadAlignment                            02 §8 AUD-PREVIEWSYNC | 03 §6 FFM-FADES
+MUSICSYNC_02                                 02 §8 AUD-PREVIEWSYNC
+MusicBedPlan                                 02 §8 AUD-PREVIEWSYNC
+PreviewAudioSync                             02 §8 AUD-PREVIEWSYNC
+PreviewSourceToOutputSeconds                 02 §8 AUD-PREVIEWSYNC
+COLOR_01                                     03 §11 FFM-COLOR
+ExportColorPolicy                            03 §11 FFM-COLOR
+VideoColorInfo                               03 §11 FFM-COLOR
+LOGVIS_01                                    08 COMP-LOGVIS
+FaultCounters                                08 COMP-LOGVIS
+WarnThrottled                                08 COMP-LOGVIS
+WRITEORDER_01                                05 SYS-WRITEORDER
+WRITEORDER_02                                05 SYS-WRITEORDER
+USERSCOPE_01                                 05 SYS-USERSCOPE
+DefaultUserRoot                              05 SYS-USERSCOPE
+UserScopedName                               05 SYS-USERSCOPE
+SCRAPER_01                                   03 §12 FFM-SCRAPER
+TIMINGTAG_02                                 03 §12 FFM-SCRAPER
+FRAMESNAP_01                                 03 §12 FFM-SCRAPER
+ExportTimingTag                              03 §12 FFM-SCRAPER
+SCRAPER_02                                   03 §12 FFM-SCRAPER
+SCRAPER_03                                   03 §12 FFM-SCRAPER
+SCRAPER_04                                   03 §12 FFM-SCRAPER
+SCRAPER_05                                   03 §12 FFM-SCRAPER
+IntroTag                                     03 §12 FFM-SCRAPER
+MergedTimeline                               03 §12 FFM-SCRAPER
+MergeClipAnalyzer                            03 §12 FFM-SCRAPER
+MergerThumbnailScraper                       03 §12 FFM-SCRAPER
+MERGEEDL_01                                  01 §10 TL-COMPOSITE
+EDLNULL_01                                   01 §10 TL-COMPOSITE
+RESTOREMISS_01                               05 §4 SYS-RECOVERY
+MergeEdl                                     01 §10 TL-COMPOSITE
+COMPOSITE_01                                 01 §10 TL-COMPOSITE
+MERGESESSION_01                              05 §4 SYS-RECOVERY
+MergerAutosaveStore                          05 §4 SYS-RECOVERY
+MergerSession                                05 §4 SYS-RECOVERY
+ClipIdList                                   05 §4 SYS-RECOVERY
+MERGEUNDO_01                                 06 §8 PROJ-TODO | 07 §2 UNDO-RULES
+LANES_01                                     04 §9 UI-MERGERQUEUE
+LANECACHE_02                                 04 §9 UI-MERGERQUEUE
+ThumbGrid                                    04 §9 UI-MERGERQUEUE
+WaveformPeaks                                04 §9 UI-MERGERQUEUE
+LaneDiskCache                                04 §9 UI-MERGERQUEUE | 05 (mini-map only)
+REMOVEUX_01                                  04 §9 UI-MERGERQUEUE | 04 §4 UI-SAFEGUARDS | 05 §6 SYS-AUTOUPDATE
+EMPTYQUEUE_01                                04 §9 UI-MERGERQUEUE
+LanePlanner                                  04 §9 UI-MERGERQUEUE
+ProgressiveLaneRunner                        04 §9 UI-MERGERQUEUE
+ANTS_01                                      04 §9 UI-MERGERQUEUE
+TimelineReorder                              04 §9 UI-MERGERQUEUE
+CompositeTimeline                            01 §10 TL-COMPOSITE | 02 §5 AUD-CONCAT
+MERGEEDIT_01                                 01 §10 TL-COMPOSITE
+MergeEditorSource                            01 §10 TL-COMPOSITE
+MERGEPREVIEW_EDL_01                          01 §10 TL-COMPOSITE | 04 §9 UI-MERGERQUEUE
+MERGEPREVIEW_01                              01 §10 TL-COMPOSITE | 04 §9 UI-MERGERQUEUE
+MergerPreviewPlan                            01 §10 TL-COMPOSITE
+MERGEEDIT_02                                 04 §9 UI-MERGERQUEUE
+CLIPACTIONS_01                               04 §9 UI-MERGERQUEUE
+MERGERUX_01                                  04 §9 UI-MERGERQUEUE
+MERGERPLAYHEAD_01                            04 §9 UI-MERGERQUEUE
+AppPlayheadBrush                             04 §9 UI-MERGERQUEUE
+AntsThickness                                04 §9 UI-MERGERQUEUE
+GRABCURSOR_01                                04 §9 UI-MERGERQUEUE
+GrabCursors                                  04 §9 UI-MERGERQUEUE
+FramePtsProbe                                03 §12 FFM-SCRAPER
+MERGEGRAPH_01                                03 §12 FFM-SCRAPER
+MergeClipGraph                               03 §12 FFM-SCRAPER
+MUSICMAP_01                                  03 §12 FFM-SCRAPER | 02 §5 AUD-CONCAT
+OUTTAG_01                                    03 §12 FFM-SCRAPER
+OutputToSourceRelative                       01 §2 TL-OUTPUTTIMELINE
+CoordinateConstants                          01 (mini-map only)
+MaxZoomUpscale                               01 §6 TL-ZOOM  [= 8]
+ReplaceCurrent                               07 (mini-map only) | 06 §8 PROJ-TODO
+NextUndoLabel                                07 (mini-map only) | 07 §5 UNDO-TODO
+NextRedoLabel                                07 (mini-map only) | 07 §5 UNDO-TODO
+TimePosChanged                               02 §4 AUD-VOICEOVER
+MusicBedLufs                                 02 §2 AUD-MASTERING  [= TargetLufs = -14.0]
+DUCKOFF_01                                   02 §3 AUD-SIDECHAIN
+carving_enabled                              02 §3 AUD-SIDECHAIN
+VOPROT_01                                    02 §4 AUD-VOICEOVER
+AutoVoiceNormalization                       02 §4 AUD-VOICEOVER
+granularTimeMapper                           02 §4 AUD-VOICEOVER
+StreamGeometry                               02 §4 AUD-VOICEOVER
+FITEND_01                                    02 §6 AUD-DIALOGS
+SLIDER_08                                    02 §6 AUD-DIALOGS | 04 §1 UI-THEME
+SLIDER_09                                    02 §6 AUD-DIALOGS | 04 §1 UI-THEME
+ISSUE_04                                     02 §7 AUD-MUSICFADE
+CrossfadeOutSec                              02 §7 AUD-MUSICFADE
+CrossfadeInSec                               02 §7 AUD-MUSICFADE
+EdgeFadeSec                                  02 §7 AUD-MUSICFADE
+KeepMusicDuringMeme                          02 §7 AUD-MUSICFADE
+EncoderManager                               03 §1 FFM-HWENC
+TwoPassEncoding                              03 §1 FFM-HWENC
+BinaryPathResolver                           03 §9 FFM-BINPATH
+ThumbnailStripGenerator                      03 §8 FFM-THUMBSTRIP | 04 §9 UI-MERGERQUEUE
+InstallerGateName                            05 §1 SYS-MUTEX
+RunUninstallWorkerAsync                      05 §1 SYS-MUTEX
+EveryFixSentinelStillResolves                05 SYS-VERIFYTOOL | 08 §3 COMP-ARCHTEST
+DevCmdDelegatesTheSentinelCheckRatherThanParsingIt  05 SYS-VERIFYTOOL | 08 §3 COMP-ARCHTEST
+EveryCatchBlockReportsSomewhere              08 COMP-FAULTCHANNEL | 08 §3 COMP-ARCHTEST
+R9                                           09 §3 DIST-SPLIT | 05 SYS-PAYLOADSPLIT
+PROJ_06                                      06 §2 PROJ-INPUTS   [code-only: ProjectDocument.cs]
+PROJ_07                                      07 §3 UNDO-STATE   [code-only: ProjectDocument.cs]
+SWITCHPROMPT_01                              06 §9 PROJ-CLOSEGUARD
+LAYOUTLOOP_01                                01   [code-only: TimelineLanesControl.axaml.cs]
+ZOOMSIZE_02                                  01   [code-only: TimelineLanesControl.axaml.cs]
+LAYOUTLOOP_02                                04 §6 UI-GRANULAR   [code-only: GranularSpeedEditorWindow.axaml.cs — same defect as LAYOUTLOOP_01]
+EDGEGUARD_01                                 01 §3 TL-MARKERS   [code-only: GranularSpeedEditorWindow.axaml.cs]
+DRAGCOST_01                                  04 §6 UI-GRANULAR   [code-only: GranularSpeedEditorWindow.axaml.cs]
+TRACEFLOOD_01                                05 §4a SYS-DEVBUILD   [code-only: Program.cs]
+LAYOUT_01                                    04   [code-only: CropToolWindow.axaml]
+GATE_01                                      04   [code-only: CropToolWindow.axaml, CropToolWindow.axaml.cs]
+ZOOM_01                                      04   [code-only: CropToolWindow.axaml, CropToolWindow.axaml.cs]
+CROPZOOMRESET_01                             04 §4 UI-SAFEGUARDS
+CROPSAVEPROMPT_02                            04 §4 UI-SAFEGUARDS
+CROPUNSAVED_01                               04 §4 UI-SAFEGUARDS | 06 §5 PROJ-DISK
+CROPFIRSTBOOT_01                             05 §4 SYS-RECOVERY
+FORTNITEDEFAULT_02                           05 §4 SYS-RECOVERY
+CROPFALLBACK_02                              05 §4 SYS-RECOVERY
+SPECTATINGDEFAULT_01                         04 §4 UI-SAFEGUARDS
+NO_BOSS_HP_01                                04 §4 UI-SAFEGUARDS
+SAVECONFIRM_01                               04   [code-only: CropToolWindow.axaml.cs]
+MAGICWAND_01                                 04   [code-only: CropToolWindow.axaml.cs]
+DELETEBTN_01                                 04   [code-only: CropToolWindow.axaml.cs]
+DELETESET_01                                 04   [code-only: CropToolWindow.axaml.cs]
+CROPCANVAS_01                                04   [code-only: CropToolWindow.axaml.cs]
+AUTOZOOM_01                                  04   [code-only: CropToolWindow.axaml.cs]
+WHEELZOOM_01                                 04   [code-only: CropToolWindow.axaml.cs]
+PAN_01                                       04   [code-only: CropToolWindow.axaml.cs]
+BEZEL_01                                     04   [code-only: CropToolWindow.axaml]
+SPLIT_01                                     04   [code-only: CropToolWindow.axaml]
+LAYERSPANE_01                                04   [code-only: CropToolWindow.axaml]
+ROLEPOPUP_01                                 04   [code-only: CropToolWindow.axaml, CropToolWindow.axaml.cs]
+PLAYICON_01                                  04   [code-only: CropToolWindow.axaml]
+TICKRULER_01                                 04   [code-only: CropToolWindow.axaml.cs]
+AUTOPLAY_01                                  04   [code-only: CropToolWindow.axaml.cs]
+ITEMMENU_01                                  04   [code-only: CropToolWindow.axaml.cs]
+ITEMHIT_01                                   04   [code-only: CropToolWindow.axaml.cs]
+GHOSTKILL_01                                 04   [code-only: CropToolWindow.axaml.cs]
+CANCELSEL_01                                 04   [code-only: CropToolWindow.axaml.cs]
+BACKTOVIDEO_01                               04   [code-only: CropToolWindow.axaml.cs]
+WIZCOLLAPSE_01                               04   [code-only: CropToolWindow.axaml.cs]
+PLAYOVERLAY_01                               04   [code-only: CropToolWindow.axaml]
+ZOOMBAR_01                                   04   [code-only: CropToolWindow.axaml]
+WIZCOMPACT_01                                04   [code-only: CropToolWindow.axaml]
+TIMELINESLIM_01                              04   [code-only: CropToolWindow.axaml]
+RESETMOVE_01                                 04   [code-only: CropToolWindow.axaml]
+ORDERICONS_01                                04   [code-only: CropToolWindow.axaml]
+RELAUNCHARG_01                               04   [code-only: CropToolWindow.axaml.cs]
+HANDLECURSOR_01                              04   [code-only: CropToolWindow.axaml.cs]
+NODUPES_01                                   04   [code-only: CropToolWindow.axaml.cs]
+COMPOSERDIM_01                               04   [code-only: CropToolWindow.axaml, CropToolWindow.axaml.cs]
+HEADERMERGE_01                               04   [code-only: CropToolWindow.axaml]
+TIMELINESLIM_02                              04   [code-only: CropToolWindow.axaml]
+PLAYROW_01                                   04   [code-only: CropToolWindow.axaml]
+POPUPCLEAR_01                                04   [code-only: CropToolWindow.axaml, CropToolWindow.axaml.cs]
+AUTOZOOM_02                                  04   [code-only: CropToolWindow.axaml.cs]
+CROSSHAIR_01                                 04   [code-only: CropToolWindow.axaml.cs]
+TOOLRETURN_01                                05 §3 SYS-WINSTATE
 ```
 

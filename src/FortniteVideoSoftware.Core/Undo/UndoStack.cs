@@ -279,6 +279,18 @@ public sealed class UndoStack<T> where T : class
         }
     }
 
+    /// <summary>
+    /// MERGEUNDO_01 — swaps <see cref="Current"/> for an EQUIVALENT normalised form WITHOUT touching
+    /// either branch. For the moment right after a window applied an undo/redo target and re-read its
+    /// own state: sub-microsecond rounding must not become a phantom entry that burns the redo branch
+    /// (U3). Not for edits: a real change goes through <see cref="Apply"/>. Raises no event.
+    /// </summary>
+    public void ReplaceCurrent(T state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        Current = state;
+    }
+
     /// <summary>Oldest-first history, for persistence and for a history panel. Excludes <see cref="Current"/>.</summary>
     public IReadOnlyList<UndoEntry<T>> UndoEntries => _undo;
 

@@ -138,7 +138,7 @@ public sealed class UndoSidecarStore
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("UNDO", $"Could not write the history sidecar: {ex.Message}");
+            CoreLogger.Warn("UNDO", $"Could not write the history sidecar: {ex.Message}");
             return false;
         }
     }
@@ -189,7 +189,7 @@ public sealed class UndoSidecarStore
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("UNDO", $"Could not read the history sidecar: {ex.Message}");
+            CoreLogger.Warn("UNDO", $"Could not read the history sidecar: {ex.Message}");
             return null;
         }
     }
@@ -207,7 +207,7 @@ public sealed class UndoSidecarStore
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("UNDO", $"Could not delete the history sidecar: {ex.Message}");
+            CoreLogger.Warn("UNDO", $"Could not delete the history sidecar: {ex.Message}");
         }
     }
 
@@ -254,7 +254,7 @@ public sealed class UndoSidecarStore
             // which is strictly better than throwing the session's whole history away.
             if (doc is null)
             {
-                CoreLogger.Debug("UNDO", $"Skipping an unreadable history entry: {error}");
+                CoreLogger.Warn("UNDO", $"Skipping an unreadable history entry: {error}");
                 continue;
             }
 

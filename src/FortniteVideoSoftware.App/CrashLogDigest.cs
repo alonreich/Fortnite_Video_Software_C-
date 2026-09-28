@@ -160,7 +160,7 @@ internal static class CrashLogDigest
     {
         try
         {
-            using var mutex = new System.Threading.Mutex(false, "Global\\FortniteVideoSoftwareCrashDigestMutex");
+            using var mutex = new System.Threading.Mutex(false, FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.UserScopedName("FortniteVideoSoftwareCrashDigestMutex"));   // USERSCOPE_01
             bool acquired = false;
             try
             {
@@ -192,7 +192,7 @@ internal static class CrashLogDigest
     {
         try
         {
-            using var mutex = new System.Threading.Mutex(false, "Global\\FortniteVideoSoftwareCrashDigestMutex");
+            using var mutex = new System.Threading.Mutex(false, FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.UserScopedName("FortniteVideoSoftwareCrashDigestMutex"));   // USERSCOPE_01
             bool acquired = false;
             try
             {

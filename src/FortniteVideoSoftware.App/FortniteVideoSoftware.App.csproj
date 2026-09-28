@@ -1,25 +1,39 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\FortniteVideoSoftware.Core\FortniteVideoSoftware.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia.Desktop" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.0.10" />
-    <PackageReference Include="NAudio" Version="2.3.0" />
-    <!-- AUDIO_12: System.Windows.Extensions was referenced ONLY for System.Media.SoundPlayer in
-         UiSoundEffect.cs. UiSoundEffect now runs on NAudio (already a dependency, already used in
-         production by Core\Media\VoiceRecorder.cs), so this package and its
-         winmm PlaySound single-channel limitation are gone. Verified: no other `System.Media` or
-         `SoundPlayer` reference exists anywhere in src\. -->
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <!-- AOTSAFETY_03: DevTools is attached only under #if DEBUG (PreviewMonitorWindow), so the
+         package is referenced only in Debug. In Release it dragged Avalonia.Controls.DataGrid and
+         ColorPicker into the NativeAOT graph for nothing. -->
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.22" Condition="'$(Configuration)' == 'Debug'" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <!-- AOTSAFETY_03: Avalonia.Controls.ColorPicker and Avalonia.Controls.DataGrid were removed.
+         Neither is used by any .cs or .axaml file in src\. DataGrid was rooted with
+         TrimmerRootAssembly, which forced whole-assembly analysis and emitted the IL2104/IL3053
+         lines that failed the release build. -->
+    <!-- AOTCLEAN_02: NAudio.Core + NAudio.WinMM only (WaveOutEvent / WaveInEvent / WAV I/O).
+         The NAudio umbrella package pulled NAudio.Wasapi (MediaFoundation over classic COM
+         interop, which NativeAOT cannot run: IL2050), Asio, Midi and WinForms into the binary.
+         Its only type we used, AudioFileReader, is replaced by Core\Media\WavAudioReader.cs. -->
+    <!-- AOTCLEAN_01: SkiaSharp 3 overrides, the documented way to run Avalonia 11.3.6+ on SkiaSharp 3
+         (2.88's SKObject.PtrToStructure<T> was IL2091). Managed and every native asset MUST move
+         together: a 2.88 native library under the 3.x managed layer throws at the first bitmap. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="3.119.2" />
+    <PackageReference Include="NAudio.Core" Version="2.3.0" />
+    <PackageReference Include="NAudio.WinMM" Version="2.3.0" />
 
-    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
-    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <!-- AOTCLEAN_03: Vortice.Direct3D11 / Vortice.DXGI removed. They brought SharpGen.Runtime,
+         whose reflection-based vtable registry is not trim-safe (IL2067/IL2072). The preview's
+         handful of D3D11/DXGI calls are now direct vtable calls in Interop\D3D11Interop.cs. -->
   </ItemGroup>
 
   <!-- AUDIO_08: the six UI sound effects used to live as base64 STRING LITERALS inside
@@ -44,8 +58,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="payload.zip" Condition="Exists('payload.zip')" />
-    <TrimmerRootAssembly Include="Avalonia.Controls.ColorPicker" />
-    <TrimmerRootAssembly Include="Avalonia.Controls.DataGrid" />
     <TrimmerRootAssembly Include="Avalonia.Themes.Fluent" />
     <TrimmerRootAssembly Include="SkiaSharp" />
     <InternalsVisibleTo Include="FortniteVideoSoftware.App.Tests" />
@@ -110,8 +122,18 @@
        warnings would hide the headline and keep the noise. CS1998/CS0414 are unrelated style
        warnings and stay suppressed. -->
   <NoWarn>$(NoWarn);CS1998;CS0414</NoWarn>
+    <!-- ══════════════════════════════════════════════════════════════════════════════════════
+         AOTCLEAN_01 — ZERO TRIM/AOT WARNINGS, NOTHING MUTED, NOTHING COLLAPSED.
+         Build.cmd publishes with TreatWarningsAsErrors=true and every IL2xxx/IL3xxx code is fatal,
+         first-party AND third-party. The 2026-09-25 interim (IL2104/IL3053 made non-fatal, third-
+         party detail collapsed with TrimmerSingleWarn, IL2026 muted at the ILC stage) is gone.
+         Each finding was fixed at its source instead: see docs/06 §10 PROJ-AOTPOLICY.
+         AotSafetyRuleTests fails the build if a mute, a collapse or a WarningsNotAsErrors entry
+         for any IL code comes back.
+         ══════════════════════════════════════════════════════════════════════════════════════ -->
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
 
   <!-- ══════════════════════════════════════════════════════════════════════════════════════════
        ISSUE_03 — WIN32 BINARY IDENTITY. DO NOT DELETE THESE, AND DO NOT LEAVE THEM BLANK.
@@ -128,10 +150,10 @@
           InformationalVersion carry the real number that users and bug reports see.
        ══════════════════════════════════════════════════════════════════════════════════════════ -->
   <PropertyGroup>
-    <Version>2026.09.18.0937</Version>
-    <AssemblyVersion>2026.09.18.0937</AssemblyVersion>
-    <FileVersion>2026.09.18.0937</FileVersion>
-    <InformationalVersion>2026.09.18.0937</InformationalVersion>
+    <Version>2026.09.26.1215</Version>
+    <AssemblyVersion>2026.09.26.1215</AssemblyVersion>
+    <FileVersion>2026.09.26.1215</FileVersion>
+    <InformationalVersion>2026.09.26.1215</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Clip Studio for Gameplay</Product>

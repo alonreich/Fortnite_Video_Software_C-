@@ -11,8 +11,8 @@
 | `src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs` | `OutputSizeEstimator` | `EstimateMainAsync`, `EstimateMergerAsync`, `CalculateMain`, `CalculateMerger`, `ReadMediaAsync` | Shared estimates and bounded media metadata cache. |
 | `src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps`, `FromBitrate` | MB/GB/TB formatting and shared merger encoder settings. |
 | `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `VoiceOverTake` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
-| `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | Hardware GPU encoder detection and automated fallback logic. |
-| `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Hardware capability enumeration, RDP session detection, and registry auto-fix. |
+| `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | PREVIEW GPU check only (D3D11 device, feature level, real adapter; logs RDP) — hardware vs CPU software preview. Does not test encoders. |
+| `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Boot encoder scan: one-frame test encode per encoder (NVIDIA → AMD → INTEL); result shared suite-wide. |
 | `src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `HighChunkCountWarnThreshold`, `SpliceFadeSec` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
 | `src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `LayerSpec`, `MobileFilterBuilder` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
 | `src/FortniteVideoSoftware.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `Result` | `Compute`, `ZoomPreviewSimulator`, `struct` | CPU/GPU live zoom simulation matching export filtergraph parity. |
@@ -20,17 +20,32 @@
 | `src/FortniteVideoSoftware.Core/Media/MergerWorker.cs` | `MergerWorker` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
 | `src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
 | `src/FortniteVideoSoftware.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
+| `src/FortniteVideoSoftware.Core/Media/EncoderManager.cs` | `EncoderManager` | `EncoderPreference`, `AvailableEncoders`, `PrimaryEncoder`, `GetInitialEncoder`, `GetFallbackList`, `GetCodecFlags`, `GetDecodeFlags`, `MaxBitrateKbps` | Export-time encoder list (`ffmpeg -encoders`), NVENC → AMF → QSV → libx264 fallback order, per-encoder rate-control flags. |
+| `src/FortniteVideoSoftware.Core/Media/TwoPassEncoding.cs` | `TwoPassEncoding` | `MasterCodecArgs`, `PassArgs`, `Cleanup` | libx264 two-pass size targeting (scratch master, pass 1/2 args), shared by both workers. |
+| `src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs` | `FfmpegJobLifetime` | `SetCurrentProcess`, `TakeCurrentProcess`, `PeekCurrentProcess`, `Cancel`, `DisposeJob`, `EmitFinished`, `FinishEmitted` | PIPELIFE_01 — one shared FFmpeg job lifetime (process gate, cancel, dispose, finish) for both workers. **⚠ CO-GOVERNED BY: 08**|
+| `src/FortniteVideoSoftware.Core/Media/ExportColorPolicy.cs` | `ExportColorPolicy`, `VideoColorInfo` | `BuildConversionChain`, `OutputTagArgs`, `HdrToneMapChain`, `IsHdr`, `IsFullRange` | COLOR_01 — SDR BT.709 TV-range conversion and output colour tags. |
+| `src/FortniteVideoSoftware.Core/Media/IntroTag.cs` | `IntroTag` | `Key`, `StandardIntroSec`, `OutputArgs`, `Read`, `Validate` | SCRAPER_01 — `fvs_intro_sec` tag and the muxer args that write both tags. |
+| `src/FortniteVideoSoftware.Core/Media/ExportTimingTag.cs` | `ExportTimingTag`, `ExportTiming` | `Key`, `Format`, `TryParse`, `Read`, `SecToFrames` | TIMINGTAG_02 — frame-exact `fvs_timing` tag (intro, fade-in, fade-out). |
+| `src/FortniteVideoSoftware.Core/Media/MergeClipAnalyzer.cs` | `MergeClipAnalyzer`, `MergeClipInfo` | `AnalyzeAsync`, `TryGetCompleted` | SCRAPER_03 — background per-file probe (duration, tags, audio, size), cached. |
+| `src/FortniteVideoSoftware.Core/Media/FramePtsProbe.cs` | `FramePtsProbe` | `ProbeAsync`, `Parse`, `IntroCutUs` | FRAMESNAP_01 — real frame pts for the intro cut. |
+| `src/FortniteVideoSoftware.Core/Media/MergedTimeline.cs` | `MergedTimeline`, `MergedClip`, `MergeClipSource` | `Build`, `Remap`, `ToMerged`, `TotalSec`, `Composite` | SCRAPER_02 — the Merger's merged clock. **⚠ CO-GOVERNED BY: 01**|
+| `src/FortniteVideoSoftware.Core/Media/CompositeTimeline.cs` | `CompositeTimeline`, `CompositeClip` | `Build`, `TotalOutputSec`, `ClipsOutputSec`, `MergedSecToBodyOutputSec`, `MemeAtRelSec`, `MergeFps` | COMPOSITE_01 — the Merger's one time mapper (output length, frame counts, music by output time). **⚠ CO-GOVERNED BY: 01**|
+| `src/FortniteVideoSoftware.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlEffects`, `EdlMeme`, `EdlMusic` | `Clips`, `BaseSpeed`, `ToJson`, `FromJson` | The Merger's edit list read by `MergerWorker.Edl`. **⚠ CO-GOVERNED BY: 01, 06**|
+| `src/FortniteVideoSoftware.Core/Media/MergeClipGraph.cs` | `MergeClipGraph`, `MergeMemeInput`, `MergeClipGraphResult` | `Build` | MERGEGRAPH_01 — one Merger clip with granular effects and memes. **⚠ CO-GOVERNED BY: 01**|
+| `src/FortniteVideoSoftware.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `GainDbAsync`, `GainFor`, `Chain` | MEMELEVEL_01 — Merger meme loudness gain + limiter. **⚠ CO-GOVERNED BY: 02**|
+| `src/FortniteVideoSoftware.Core/Media/MusicPadAlignment.cs` | `MusicPadAlignment` | `Align` | MUSICPAD_01 — shifts Main App music by the fade-in pad. **⚠ CO-GOVERNED BY: 01, 02**|
 
 ---
 
 ## 1. Hardware Encoding & Gatekeeper  {#FFM-HWENC}
-* **Probe Hierarchy:** `GpuCapabilityProbe` inspects installed display adapters for active NVIDIA NVENC (`h264_nvenc`) or AMD AMF (`h264_amf`) hardware encoders using test encode probes.
-* **Graceful CPU Fallback:** Missing drivers, unaccelerated GPUs, or VM/RDP sessions silently fallback to software CPU encoding (`libx264` with `-preset veryfast -crf 20`).
+* **Probe Hierarchy:** `HardwareScanner` test-encodes one black frame with NVIDIA NVENC (`h264_nvenc`), AMD AMF (`h264_amf`) and Intel QSV (`h264_qsv`), in that order, and keeps the first that works (shared suite-wide). At export `EncoderManager` reads `ffmpeg -encoders` and falls back NVENC → AMF → QSV → `libx264`. `GpuCapabilityProbe` does NOT test encoders: it only decides hardware vs CPU software PREVIEW (D3D11 device/feature level, real adapter) and logs RDP sessions.
+* **Graceful CPU Fallback:** Missing drivers, unaccelerated GPUs, or VM/RDP sessions fall back to software CPU encoding (`libx264`). With a size target it runs two-pass (`TwoPassEncoding`); otherwise CRF 23/20/17 by quality level (presets veryfast/fast/medium).
 * **RDP Detection & Registry Auto-Fix:**
-  * When a Remote Desktop session is detected without WDDM hardware acceleration, the UI displays red indicator badges: `RDP SESSION` and `RDP: CPU BLOCKED`.
-  * The "Auto-Fix" action issues an elevated PowerShell command modifying the Windows Registry:
-    ```cmd
-    reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v "bEnumerateHWDuringRDP" /t REG_DWORD /d 1 /f
+  * When a Remote Desktop session is detected and `fEnableWddmDriver` is missing or 0 (`ExportViewModel.CheckRdpGpuBlocked`), the UI displays red indicator badges: `RDP SESSION` and `RDP: CPU BLOCKED`.
+  * The "Auto-Fix" action (`ExportViewModel.AutoFixRdpGpuPolicyAsync`) runs an elevated (`runas`) PowerShell command that sets two DWORDs under `HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services`:
+    ```text
+    fEnableWddmDriver = 1
+    fEnableAVC444ModeOnHWEncoder = 1
     ```
   * System requires a session reconnect to unlock NVENC/AMF over RDP.
 
@@ -38,20 +53,20 @@
 
 ## 2. Memory-Safe Dynamic Zoom Filtergraph  {#FFM-ZOOMGRAPH}
 * **Absolute Ban on `zoompan`:** The FFmpeg `zoompan` filter is strictly banned suite-wide due to severe native heap leaks that crash long-form renders.
-* **Filtergraph Implementation:**
-  Dynamic scaling, padding, cropping, and contrast-adaptive sharpening (CAS) are executed via:
-  ```text
-  pad=iw+3840:ih+2160:(ow-iw)/2:(oh-ih)/2:color=black,
-  scale={targetW}:{targetH}:eval=frame,
-  crop={ZoomW}:{ZoomH}:{ZoomX}:{ZoomY},
-  cas=0.5,
-  scale={srcW}:{srcH}:force_original_aspect_ratio=decrease,
-  pad={srcW}:{srcH}:(ow-iw)/2:(oh-ih)/2:color=black
-  ```
-* **Upscale Ceiling & Sharpening:**
-  * Upscale ceiling is clamped to:
-    $$\text{MaxScale} = \min\left(\frac{1920}{\text{ZoomW}}, \frac{1080}{\text{ZoomH}}\right)$$
-  * Mandatory AMD Contrast Adaptive Sharpening (`cas=0.5`) counteracts bilinear softness during upscale.
+* **Filtergraph Implementation (`GranularSpeedBuilder`):** every zoom chunk first fits the frame to the zoom's OWN resolution (`{resW}x{resH}` = the zoom's `ZoomOrigRes`), then takes one of two paths:
+  * **Constant zoom** (instant zoom, the held body of a slow zoom, freezes — `BuildConstantZoomFilter`): the visible region is computed directly (`CoordinateMath.SnapZoomWindow`), no per-frame scale:
+    ```text
+    scale={resW}:{resH}:force_original_aspect_ratio=decrease,pad={resW}:{resH}:(ow-iw)/2:(oh-ih)/2,
+    pad={canvasW}:{canvasH}:{padX}:{padY}:black,
+    crop={cropW}:{cropH}:{cropX}:{cropY},
+    cas=0.5,
+    scale={resW}:{resH}
+    ```
+  * **Slow ramp** (the ≤0.5 s glide in/out of a slow zoom): pad to a `2·resW × 2·resH` canvas, optional downscale when the working frame would exceed 100 Mpx (`MaxZoomWorkingPixels`), then `scale=w='iw*(z)':h='ih*(z)':eval=frame` → `crop` → `cas=0.5` → `scale={resW}:{resH}`, with z and the crop centre as time expressions.
+* **Zoom Limit & Sharpening:**
+  * Full zoom is measured against the zoom's own resolution:
+    $$z_{\text{target}} = \min\left(\frac{\text{resW}}{\text{ZoomW}}, \frac{\text{resH}}{\text{ZoomH}}\right)$$
+  * Mandatory AMD Contrast Adaptive Sharpening (`cas=0.5`) counteracts softness during upscale.
 * **Chunk Normalization Invariant:** All video chunks are strictly normalized prior to concatenation:
   ```text
   fps={targetFps}:round=near:start_time=0
@@ -60,11 +75,13 @@
 ---
 
 ## 3. Concat Framing & Sizing  {#FFM-CONCAT}
-* **CFR 60fps Normalization:** All merger clips and speed chunks are resampled to constant 60fps CFR prior to concat to eliminate A/V presentation timestamp drift.
-* **Bitrate Conservation:**
-  * Target video bitrate (`-b:v`) is calculated as the duration-weighted average of all input streams:
+* **CFR Normalization:** The Merger resamples every clip and meme to 60 fps CFR (`fps=60`) before concat. The Main App resamples speed chunks, intro and memes to `fps={targetFps}`; `ProcessWorker` sets `targetFps = "60"`, so both apps currently export 60 fps.
+* **Merger speed — two routes:** a clip WITHOUT effects gets `setpts=PTS/{speed}` + an `atempo` chain (steps kept within 0.5–2.0); a clip WITH effects goes through the granular engine (`MergeClipGraph` → `GranularSpeedBuilder.Build`, MERGEGRAPH_01).
+* **Merger Bitrate (100%):**
+  * Target video bitrate (`-b:v`) is the duration-weighted average of all input streams, clamped to 800–100 000 kbps (`OutputFileSize.MergerTargetKbps`):
     $$\text{Bitrate}_{\text{target}} = \frac{\sum (D_i \times B_i)}{\sum D_i}$$
-  * `-maxrate` and `-bufsize` match the peak clip bitrate among inputs.
+  * `-maxrate` = max(target, peak clip bitrate capped at 100 000); `-bufsize` = 2 × maxrate (capped at 100 000).
+  * Below 100% see MERGEQUALITY_01 (§8a).
 * **Audio Edge Fades (SPLICE_01 / SPLICE_02):** Injects an audio edge fade at each end of every concatenated chunk to eliminate acoustic transients:
   ```text
   afade=t=in:st=0:d={fade},afade=t=out:st={dur-fade}:d={fade}
@@ -76,15 +93,11 @@
 ---
 
 ## 4. Meme Concat Architecture  {#FFM-MEMECONCAT}
-* **Aspect Normalization:**
-  * Non-portrait memes are center-cropped to 2:3 with black horizontal padding to 1080 x 1920.
-  * Native 9:16 memes bypass the 2:3 crop and scale directly to 1080 x 1920.
-* **Even-Dimension Mask:** All meme frames are bitwise-masked to even pixel boundaries:
-  ```text
-  scale=w='bitand(iw,-2)':h='bitand(ih,-2)'
-  ```
+* **Aspect Normalization:** Memes are never cropped. Each is fitted inside the OUTPUT canvas and padded with black (`scale={canvas}:force_original_aspect_ratio=decrease,pad={canvas}:(ow-iw)/2:(oh-ih)/2`). Main App canvas: 1080 x 1920 in portrait, else the source resolution rounded down to even; Merger: 1080 x 1920 or 1920 x 1080.
+* **Even Dimensions:** Main App meme frames then pass `scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1`.
+* **Meme Loudness:** A meme with sound is measured and gets gain = TargetLufs − measured (clamped), then `alimiter=limit=-2.0dB` (Main App; Merger: MEMELEVEL_01).
 * **Silent Meme Audio Synthesis:** Memes lacking audio streams inject synthesized silence (`anullsrc` at 48kHz stereo) for the exact duration of the meme.
-* **Still Image Looping:** Static image memes (`.png`, `.jpg`, `.webp`) are looped at the project target frame rate:
+* **Still Image Looping:** Static image memes (`.png`, `.jpg`, `.jpeg`) are looped at the export frame rate:
   ```cmd
   -loop 1 -framerate {targetFps} -t 4.0 -i "{memePath}"
   ```
@@ -107,13 +120,10 @@
 ---
 
 ## 6. Fades & Intros  {#FFM-FADES}
-* **Buffer Margins:** Fade in/out operations require a 0.5s pre/post buffer margin.
-* **Speed-Scaled Video Fades:** Video fade duration scales proportionally with speed factor:
-  $$\text{FadeDuration}_{\text{video}} = \text{PadStartHumanSec} \times \text{SpeedFactor}$$
-* **Thumbnail Blackout Prevention:** To prevent pitch-black cover frames when fade-in is enabled, the export injects a 0.1s frozen action frame at t=0 before the fade-in commences:
-  ```text
-  tpad=start_duration=0.1:start_mode=clone
-  ```
+* **Fade Pads:** With fades on, the export takes extra footage before MARK START / after MARK END: pad = min(1.0 s, available footage ÷ speed) in output seconds; a pad under 0.5 s becomes 0 (no fade on that edge). Source footage used = pad × speed.
+* **Fade Length = The Pad:** `fade`/`afade` in and out last exactly the pad (`padStartHumanSec` / `padEndHumanSec`), not pad × speed.
+* **MUSICPAD_01:** the music is shifted by the lead pad (`MusicPadAlignment.Align`) so it lands where the preview showed it — see `02_AUDIO_ENGINE_MASTERING.md` MUSICPAD_01.
+* **Thumbnail Blackout Prevention:** To prevent pitch-black cover frames (e.g. after a fade-in), every Main App export starts with a still intro (`IntroStillSec`, 0.1 s unless a custom thumbnail sets another length) placed in front of the faded body. It is a SEPARATE input (the source seeked to the thumbnail frame, else MARK START), whose first frame is looped (`select='eq(n\,0)',loop=…`) and `concat`enated before the body, with matching silence on the audio.
 * **Meme Fade Rules:** Leading and trailing memes receive output tail fades; middle memes receive zero fades.
 
 ---
@@ -137,13 +147,13 @@ Render progress tracking is cost-weighted across three sequential phases and mus
 ---
 
 ## 8. Phase 3 Thumbnail Strip Temporal Padding  {#FFM-THUMBSTRIP}
-* **The Defect It Prevents:** The `tile=15x1` thumbnail-strip extractor samples only the FIRST physical input clip, while the requested UI timeline duration equals the SUM of all merged/queued videos. Unpadded, every sample past the first clip's end returns nothing and the strip renders pitch-black voids — which users read as a corrupted or prematurely-ended file.
-* **Mandatory Filter Order:** `tpad` MUST be injected BEFORE the `fps` sampler, never after:
+* **Main path (`ThumbnailStripGenerator`, STRIP_01):** when there are at least 2 s of video per thumbnail, the file is opened N times, each input keyframe-seeked (`-noaccurate_seek -ss`) to its sample, one frame taken from each (`trim=end_frame=1`) and the frames joined with `hstack`. No `tpad` is involved.
+* **Sweep (short ranges and the fallback when the seeked path fails):** one range is decoded and sampled; if the last sample falls past the real end, `tpad` clones the final frame so the strip has no black gap. `tpad` comes AFTER the `fps` sampler and lasts 1 s:
   ```text
-  tpad=stop_mode=clone:stop_duration=1000,fps={sampleRate},scale=...,tile=15x1
+  fps=fps={N/dur}:round=up,scale=-1:60,tpad=stop_mode=clone:stop_duration=1,tile=Nx1
   ```
-* **Why `stop_duration=1000`:** The final physical frame is cloned for an effectively unbounded 1000 seconds, so the sampler always finds a frame no matter how long the combined timeline is. The value is a ceiling, not a duration — extraction stops when the requested sample count is met.
-* **Scope:** Add Music Wizard phase 3 strip generation and the Video Merger's multi-clip preview grid. Distinct from the 0.1s `tpad=start_duration` intro clone in §6 (FFM-FADES), which exists to prevent black COVER frames.
+  `StreamAsync` (frame-by-frame lanes) uses the same `fps → scale → tpad=…:stop_duration=1` order.
+* **Scope:** Music Wizard phase 3, Granular Speed Editor, Voice Over and the Video Merger lanes. Distinct from the 0.1s still intro in §6 (FFM-FADES), which exists to prevent black COVER frames.
 
 ---
 
@@ -181,7 +191,7 @@ A freeze holds ONE still picture; every frame after the first is a near-empty P-
 
 $$t_{\text{billable}} = (t_{\text{sec}} - t_{\text{freeze}}) + (t_{\text{freeze}} \times 0.15)$$
 
-⚠️ **SAFE ONLY BECAUSE THE EXPORT IS TWO-PASS VBR.** `ProcessWorker` runs an analysis pass and allocates bits by complexity, so a smaller target does not starve the moving footage — the freeze simply stops being paid for. Under a fixed-bitrate single-pass encode this discount would take bits AWAY from the motion and must not be applied.
+⚠️ **ONLY FULLY SAFE ON CPU (TWO-PASS VBR).** With a size target, `libx264` runs an analysis pass and allocates bits by complexity, so a smaller target does not starve the moving footage — the freeze simply stops being paid for. A GPU encoder (NVENC/AMF/QSV) with a size target is single-pass CBR: there the discount takes bits AWAY from the motion. The discount is currently applied on both routes.
 ⚠️ Size estimates derive duration and held-frame seconds from the SAME `OutputTimeline`: total output seconds and the sum of its freeze chunks. The older `TimelineViewModel` duration walks must not drive output-size estimates: they treated freezes as replacements and ignored cuts when speed segments existed.
 
 ### No Marks Set Means The Whole Video (QUALITY_05)
@@ -196,8 +206,10 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 * Main's label binds to `Export.EstimatedFileSizeText` with a matching descriptive tooltip. Both apps format approximate sizes as MB, GB or TB. Unknown or incomplete media details show an em dash, never a misleading partial total.
 * Main's first estimate uses known timeline inputs. Merger can reuse metadata from the last completed queue estimate. A background pass checks cached file identity and probes missing/changed media, then refines the number. Normal edits reuse metadata. No trial encode is started during editing.
 * Opening a video initializes its known duration without marking trim points. On recovery, if player duration is not ready and no end is marked, the background estimate resolves the end from probed source metadata without changing the editor's trim selections.
-* Merger at 100% uses the duration-weighted video bitrate and the SAME bitrate clamp as `MergerWorker`. Below 100%, its rough prediction follows the export's constant-quality curve, with an estimated factor of `2^((15-CQ)/6)`. Source dimensions and frame rate adjust that prediction for 1080p60 output.
-* Audio counts once as the exported soundtrack. Merger always writes 192 kbps AAC; mixing in music does not add the original music files' bytes. Rough constant-quality predictions include 1% container overhead. These predictions cannot guarantee a final size without encoding the full content.
+* Merger estimate = the 100% bitrate (duration-weighted video bitrate, SAME clamp as `MergerWorker`) × the quality ratio (MERGEQUALITY_01; 1.0 at 100%, floor 300 kbps below it).
+* **MERGEQUALITY_01 — below 100% is always smaller (P11).** The old path encoded below 100% with an UNCAPPED constant quality (CQ 16–35); on high-motion gameplay CQ 16–17 out-spent the 100% bitrate, so 95% produced a bigger file than 100%. Now below 100% the Merger encodes single-pass VBR at `MergerTargetKbps(avg) × MergerQualityRatio(p)` (ratio = 2^((15−CQ(p))/6): 0.79 at 95%, 0.28 at 50%, 0.10 at 5%), maxrate ≤ min(100% peak, 2× target); the estimate uses the same number. CQ remains only when the source bitrate is unknown. Harness (2 × 3 s 1080p60 noise clips, 16.9 MB): 100% 17.1 MB, 95% 13.9 MB, 50% 4.8 MB.
+* **MERGESIZE_01 — the Merger estimate uses the edit list's length.** When the captured `MergeEdl` describes the queue, `MergerSizeRequest.OutputSeconds` = `CompositeTimeline.Build(edl).TotalOutputSec` (base speed, granular speeds, freezes, memes, cuts, removed intros, custom-thumbnail still) and replaces `files ÷ speed`; TOTAL LENGTH shows the same number. Every changed capture re-requests the estimate (deduped).
+* Audio counts once as the exported soundtrack. Merger always writes 192 kbps AAC; mixing in music does not add the original music files' bytes. Every Merger estimate (and the Main App's `Original` prediction) includes 1% container overhead. These predictions cannot guarantee a final size without encoding the full content.
 * Worker lifetime and stale-result guarantees are specified in `05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-SIZEESTIMATE`.
 
 ---
@@ -254,10 +266,11 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 ---
 
 ## 9. Production Binary Discovery Hierarchy  {#FFM-BINPATH}
-* **Strict Search Order:** `ProcessWorker` resolves `ffmpeg.exe` / `ffprobe.exe` in this order and stops at the first hit:
-  1. `AppContext.BaseDirectory` + `backend\` — **ALWAYS PROBED FIRST.**
-  2. Development sandbox paths (`bin\Debug\...\backend\`, injected by MSBuild during `dev.cmd`).
-  3. Only then any wider fallback.
+* **Strict Search Order:** `BinaryPathResolver.Resolve(name, "backend", "binaries")` (used by `ProcessWorker`, `MergerWorker`, `EncoderManager` and the App) checks, from the exe's folder (`Environment.ProcessPath`, else `AppContext.BaseDirectory`), and stops at the first hit:
+  1. `backend\` — **ALWAYS PROBED FIRST.**
+  2. `..\..\..\..\..\backend\`
+  3. `binaries\`, then `..\..\..\..\..\binaries\`
+  4. Nothing found → the bare name (`ffmpeg.exe`) is returned, so Windows searches the system PATH. ⚠ RISK: this can bind a system FFmpeg of unknown version — exactly what the next bullet forbids.
 * **Why The Order Is Non-Negotiable:** The production MSI installs the binaries into `backend\` beside the executable. Probing anything else first lets a production build either fail to locate its executables or silently bind a system-wide FFmpeg of unknown version and build flags — a filtergraph this suite depends on (`cas`, `acrossover`, `sidechaincompress`) may not exist in that binary.
 * **Dev/Prod Parity:** Because MSBuild mirrors the installer's `backend\` layout into `bin\Debug`, the identical lookup satisfies both environments with no conditional compilation.
 * **`ffplay.exe` Is Not Copied:** It is unused — music preview runs through an isolated `MpvIpcClient`.
@@ -270,9 +283,40 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
   %USERPROFILE%\Videos\Fortnite Video Software\Memes
   ```
   Resolved via `Environment.SpecialFolder.MyVideos + @"\Fortnite Video Software\Memes"`, overridable in global settings.
-* **Boot Scan Contract:** Scans `.mp4`, `.png`, `.jpg` and **SKIPS 0-byte files**. Each survivor is probed for native dimensions and its aspect ratio (Width / Height) is computed and cached for the portrait validation rule in `04_UI_UX_AVALONIA_SPEC.md` §10 (UI-MEMESELECT).
+* **Boot Scan Contract:** Scans `.mp4`, `.mkv`, `.avi`, `.png`, `.jpg`, `.jpeg` (`MemeCatalog`) and **SKIPS 0-byte files**. Each survivor is probed for native dimensions and its aspect ratio (Width / Height) is computed and cached for the portrait validation rule in `04_UI_UX_AVALONIA_SPEC.md` §10 (UI-MEMESELECT).
 * **Directory Management:** Settings exposes the path plus `Open Folder` / `Change Folder`. A change updates global config and triggers a re-scan; an `UnauthorizedAccessException` reverts the path in a try-catch rather than leaving the app pointed at an unreadable folder.
 * **Dynamic Cloud Retrieval (Delta Sync):** `"Download more memes..."` in the meme selector opens a confirmation dialog, then enumerates the public Git provider's directory contents over its API. **Only files MISSING locally are downloaded** — a full re-pull is forbidden. The selector refreshes on completion.
 * **External Meme Ingestion:** A meme chosen from outside the directory is COPIED into the active directory, and its path is serialized into the recovery state and verified for existence on boot.
 * **Runtime Logging:** `MemeSelected` is logged with `FileType`, `FilePath`, `Width`, `Height`, `AspectRatio`.
-* **Image Meme Duration:** `.jpg` / `.png` are assigned `memeDuration = 4.0` seconds via `-loop 1 -framerate {targetFps}` … `-t 4.0`.
+* **Image Meme Duration:** `.png` / `.jpg` / `.jpeg` are assigned `memeDuration = 4.0` seconds via `-loop 1 -framerate {targetFps}` … `-t 4.0`.
+
+---
+
+## 11. Colour Management  {#FFM-COLOR}
+* **COLOR_01:** every delivered file is SDR BT.709, TV range, and TAGGED (`ExportColorPolicy.OutputTagArgs` in `EncoderManager.GetCodecFlags` and `TwoPassEncoding`).
+* `MediaProber.GetVideoColorInfoAsync` reads `pix_fmt`/`color_*`. `ExportColorPolicy.BuildConversionChain` decides:
+  * SDR 709 limited → nothing added (GPU route kept).
+  * full range or BT.601 matrix → `colorspace=…:range=tv`.
+  * HDR (PQ/HLG) → `zscale`+`tonemap=hable` when the bundled FFmpeg lists both filters, else Degraded (export continues).
+* Insertion point: `ProcessWorker`, right after the timing stage (speed/cuts/CFR) on BOTH the main and HUD branches, and BEFORE fades, intro, portrait crop, HUD overlays and memes. `MergerWorker` applies it per input before concat.
+* Any conversion filter is outside `ExportVideoPipeline`'s CUDA table, so HDR/full-range sources take the CPU filter route automatically.
+
+---
+
+## 12. Thumbnail Intro Tag & The Merger's Thumbnail Scraper  {#FFM-SCRAPER}
+* **SCRAPER_01 — the tag.** Every output that starts with the 0.1 s still thumbnail intro (the frame SMS/WhatsApp show, so a shared clip is never a black thumbnail) is stamped `fvs_intro_sec=<seconds, F3>` via `IntroTag.OutputArgs` (`-metadata … -movflags +faststart+use_metadata_tags`). Written at EVERY final write: `ProcessWorker` single-pass, slow pass 2 and the two-pass tail; `MergerWorker` the same three. A plain remux DROPS mdta keys, so no path may rely on the tag surviving a copy.
+* **Detection is tag-only.** `IntroTag.Read` accepts `0 < v ≤ 2.0` and `v ≤ duration/2`, else 0. Untagged files (older exports, other programs) are never cut. No pixel heuristics.
+* **SCRAPER_02 — `MergedTimeline` is the single clock** for the merger preview, the Music Wizard's lanes (`MusicWizardWindow.MergerClipWindows`), the merger music preview and the export (`MergerWorker.ClipIntroSkipSec`). Merged seconds = kept clip content end to end, 1.0x, EXCLUDING the synthetic custom-thumbnail intro.
+  * Clips 2..N: tagged intro removed while the scraper is on.
+  * Clip 1: kept, UNLESS a custom thumbnail (**SCRAPER_04** — SET / MOVE HERE / REMOVE THUMBNAIL + draggable camera marker; the frame is clamped out of any removed intro) is set → removed regardless of the scraper, replaced by a 0.1 s still of the chosen frame (`ThumbnailClipIndex`/`ThumbnailSourceSec`), prepended with silence AFTER speed, concat and the music mix (music never moves).
+  * Fades are untouched. A removal that would leave < 0.05 s of content is refused.
+  * `Remap` re-anchors a merged position through (clip, source second). The music window is remapped whenever the layout changes, so a song starts on the same clip moment in preview and file.
+* **SCRAPER_03 — analysis is background.** `MergeClipAnalyzer`: one ffprobe per file on the thread pool, 2..4 in parallel, cached by path+size+mtime. The UI awaits finished tasks only; MERGE/ADD MUSIC await `EnsureTimelineReadyAsync`.
+* **Merged output tag:** custom thumbnail → 0.100; clip 1 intro kept and untrimmed → its tag ÷ speed; else no intro — `fvs_intro_sec` is omitted, but `fvs_timing` is always written (`intro=0`).
+* **SCRAPER_05 — setting** `MergerThumbnailScraper` (default ON; settings schema v8 forces it ON for upgraders; v9 = REMOVEUX_01). Surfaces: merger bottom-left checkbox, Settings › Defaults › Video Merger.
+* **TIMINGTAG_02 — frame-exact timing tag.** Every export also carries `fvs_timing=v=2;fps=N/D;intro=F;fadein=F;fadeout=F` (frames at the export CFR). File layout: `[intro][fade-in … body … fade-out]`. A fade key is OMITTED (unknown) when a meme sits at that edge; `0` means no fade. `ExportTimingTag.Read` prefers v2 and falls back to the v1 seconds key. Merged outputs write fades too (OUTTAG_01).
+* **FRAMESNAP_01 — cuts land on real frame pts.** When a queued clip's timing tag has `intro=F>0`, `MergeClipAnalyzer` runs `FramePtsProbe` (ffprobe `frame=best_effort_timestamp_time`, first F+16 packets, sorted, µs relative to `format.start_time`) and the intro cut is the pts of frame F, not F/fps. Merger trims are written with 6 decimals and the start backed off by `TrimStartEpsilonSec` (0.5 ms) so the frame at the cut is kept. Verified on 60, 59.94 and VFR clips (a nominal F/fps cut drops one real frame on the VFR clip).
+* **CLIPFRAMES_01 — every plain clip has exactly the composite's frame count (P9).** `fps=60` over a whole file emits up to the last frame's END, one frame more than `round(keep × 60)` on e.g. a 59.94 source. When `MergerWorker.Edl` describes the queue, each clip WITHOUT effects gets `tpad=stop_mode=clone:stop=1,trim=end_frame=N` after `fps=60` and its audio `apad,atrim=end=N/60` (silence of N/60 when it has none), N = `round(clip.OutputLengthSec × 60)`. Harness (odd lengths, 59.94/30/60 sources, scraper on): plain 380/380 frames at 1.0x and 253/253 at 1.5x, effects chain 410/410 and 293/293, audio = video.
+* **MERGEGRAPH_01 — Merger clips with granular effects (P7.1).** `MergerWorker.Edl` (set from the Merger's edit list; ignored unless it has the same clips in the same order as `InputFiles`). A clip WITHOUT effects keeps the plain chain unchanged. A clip WITH effects goes through `MergeClipGraph.Build`: trim kept window (FRAMESNAP epsilon) → the Main App's `GranularSpeedBuilder.Build` in SOURCE pixels (speed segments absolute, freezes = speed-0 segments, zoom, cuts clip-relative, base speed outside segments = D19, no HUD branch) with every internal label prefixed `c{i}_` → canvas chain + fps=60 → memes spliced at their output times (Build's time mapper; AtStart 0 / AtEnd fade-out start / Mid; memes fit-padded to the canvas, CFR, own audio padded or silence) → `concat` → `[v{i}][a{i}]`. Meme files are extra inputs after the thumbnail input (images `-loop 1 -framerate 60 -t D`); a missing meme file is skipped and logged. `outputDuration` = `CompositeTimeline.ClipsOutputSec` when any clip has effects. Harness (container): 3 clips (cut + image meme / 0.5x ramp / freeze + video meme AtEnd) → 15.800 s exactly as predicted, audio = video, no intro frames, every run the expected frame count; 4-clip variant within +1 frame. **MEMELEVEL_01 (P9):** a meme with sound is measured once per file (`MemeLoudness.GainDbAsync` → `AudioLoudnessProbe`) and gets the Main App's rule — gain = TargetLufs − measured, clamped [MinMusicGainDb, MaxMusicGainDb], `volume=` when |gain| > 0.01 dB, then `alimiter=limit=-2.0dB` (always on a meme with sound); unmeasurable = as recorded + limiter. P9.2 harness: 3 clips (cut + AtStart video meme / 0.5x ramp + Mid video meme / freeze + AtEnd image meme) → 16.500 s = prediction, audio = video; meme -20.6 LUFS raised (+6.6 dB), clip audio unchanged.
+* **MUSICMAP_01 — music by output time (P7.2, D8).** The Merger converts the music window's merged-clock start/end to finished-body seconds with `CompositeTimeline.MergedSecToBodyOutputSec` (effects and base speed before that moment move it; the thumbnail intro is excluded because it is prepended after the mix). The music itself is never stretched. Harness: music placed at merged 6.0 s after a cut and a 1.5 s meme → heard from 8.0 s (predicted 8.0000) to 11.05 s.
+* **OUTTAG_01 — merged output fades (P7.3).** The merged file's `fvs_timing` carries clip 1's fade-in and the last clip's fade-out (60 fps frames, divided by the base speed) when they survive unchanged: tag known, kept window still contains the fade, no granular effects on that clip. Otherwise the key is omitted (unknown). Harness: `v=2;fps=60/1;intro=6;fadein=30;fadeout=60`.

@@ -112,6 +112,31 @@ public sealed class OutputSizeEstimateTests
     }
 
     [Fact]
+    public void Merger_UsesTheEditListLength_WhenKnown()   // MERGESIZE_01
+    {
+        EstimateMedia[] sources = [Source("a", 10, 6000), Source("b", 30, 12000)];
+        var plain = OutputSizeEstimator.CalculateMerger(sources, 1, 100);
+        var withEffects = OutputSizeEstimator.CalculateMerger(sources, 1, 100, outputSeconds: 50);
+        Assert.Equal(50, withEffects.DurationSeconds);
+        Assert.Equal(plain.Megabytes!.Value * 50 / 40, withEffects.Megabytes!.Value, 6);
+        Assert.Equal(40, OutputSizeEstimator.CalculateMerger(sources, 1, 100, outputSeconds: double.NaN).DurationSeconds);
+        var quick = OutputSizeEstimator.QuickMergerEstimate(new MergerSizeRequest(["a", "b"], 1, 100, sources, 25));
+        Assert.Equal(25, quick!.DurationSeconds);
+    }
+
+    [Fact]
+    public void Merger_BelowFullQuality_IsAlwaysSmaller_AndMatchesTheExportTarget()   // MERGEQUALITY_01
+    {
+        EstimateMedia[] sources = [Source("a", 10, 6000), Source("b", 30, 12000)];
+        var full = OutputSizeEstimator.CalculateMerger(sources, 1, 100);
+        var q95 = OutputSizeEstimator.CalculateMerger(sources, 1, 95);
+        Assert.True(q95.Megabytes < full.Megabytes);
+        Assert.Equal(Math.Round(10500 * FortniteVideoSoftware.Core.Media.OutputFileSize.MergerQualityRatio(95)), q95.VideoKbps, 6);
+        for (int q = 5; q < 100; q += 5)
+            Assert.True(FortniteVideoSoftware.Core.Media.OutputFileSize.MergerQualityRatio(q) < FortniteVideoSoftware.Core.Media.OutputFileSize.MergerQualityRatio(q + 5) + 1e-9);
+    }
+
+    [Fact]
     public void MergerQualityFollowsTheEncoderCurve()
     {
         var sources = new[] { Source() };

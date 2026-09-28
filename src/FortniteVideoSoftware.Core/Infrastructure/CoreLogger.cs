@@ -12,6 +12,13 @@ public static class CoreLogger
     public static Action<string, string>? FailAction;
     public static Action<string, string>? DebugAction;
 
+    /// <summary>
+    /// LOGVIS_01 — handled failures that must reach PRODUCTION logs (throttled by the host).
+    /// Debug is dev-only (FVS_DEV_LOG_DIR). It stays for traces and full stack dumps, never for
+    /// "X failed" lines.
+    /// </summary>
+    public static Action<string, string>? WarnAction;
+
     public static Action<string>? AppendAction;
 
     public static void Info(string step, string detail)
@@ -22,6 +29,13 @@ public static class CoreLogger
     public static void Debug(string step, string detail)
     {
         DebugAction?.Invoke(step, detail);
+    }
+
+    /// <summary>LOGVIS_01 — see <see cref="WarnAction"/>. Falls back to Debug when no host wired Warn (tests).</summary>
+    public static void Warn(string step, string detail)
+    {
+        if (WarnAction != null) WarnAction(step, detail);
+        else DebugAction?.Invoke(step, detail);
     }
 
     public static void Fail(string step, string detail)

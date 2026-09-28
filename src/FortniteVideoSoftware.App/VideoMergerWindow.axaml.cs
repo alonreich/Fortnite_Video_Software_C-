@@ -156,9 +156,9 @@ public partial class VideoMergerWindow : Window
             videoList.AddHandler(Avalonia.Input.DragDrop.DragOverEvent, VideoList_DragOver);
             videoList.AddHandler(Avalonia.Input.DragDrop.DragLeaveEvent, VideoList_DragLeave);
             videoList.AddHandler(Avalonia.Input.DragDrop.DropEvent, VideoList_Drop);
-            videoList.PointerPressed += VideoList_PointerPressed;
-            videoList.PointerMoved += VideoList_PointerMoved;
-            videoList.PointerReleased += VideoList_PointerReleased;
+            videoList.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent, VideoList_PointerPressed, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);   // MERGERUX_01 (P10 R-a) — the row handles the press for selection
+            videoList.AddHandler(Avalonia.Input.InputElement.PointerMovedEvent, VideoList_PointerMoved, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+            videoList.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, VideoList_PointerReleased, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         }
         VideoQueue.CollectionChanged += VideoQueue_CollectionChanged;
 
@@ -166,7 +166,7 @@ public partial class VideoMergerWindow : Window
         var timelineOverlay = this.FindControl<Border>("TimelineOverlay");
         var canvas = this.FindControl<Avalonia.Controls.Canvas>("TimelineMarkersCanvas");
 
-        Controls.TimelineKnob.Attach(canvas, timelineSlider);
+        Controls.TimelineKnob.Attach(canvas, timelineSlider); AttachMergerPlayhead(canvas, timelineSlider);   // MERGERPLAYHEAD_01
 
         if (timelineSlider != null)
         {
@@ -174,11 +174,11 @@ public partial class VideoMergerWindow : Window
             {
                 if (!_isTimerUpdatingSlider)
                 {
-                    double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+                    double duration = PreviewDurationSec();   // SCRAPER_02 — merged seconds once analysed
                     if (duration > 0)
                     {
                         double targetTime = (e.NewValue / 100.0) * duration;
-                        _ = SeekInternal(targetTime);
+                        _ = SeekPreview(targetTime);
                     }
                 }
             };
@@ -187,7 +187,7 @@ public partial class VideoMergerWindow : Window
         {
             bool isScrubbing = false;
             timelineOverlay.PointerPressed += (s, e) => {
-                if (e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed) {
+                if (e.GetCurrentPoint(timelineOverlay).Properties.IsLeftButtonPressed && IsOnSeekRows(e, canvas)) {   // D23
                     isScrubbing = true;
                     e.Pointer.Capture(timelineOverlay);
                     SeekTimelineFromPointer(e, canvas, timelineSlider);
@@ -207,7 +207,7 @@ public partial class VideoMergerWindow : Window
 
     private void SeekTimelineFromPointer(Avalonia.Input.PointerEventArgs e, Avalonia.Controls.Canvas timelineCanvas, Slider timelineSlider)
     {
-        double duration = _videoHost?.IpcClient?.Duration ?? 0.0;
+        double duration = PreviewDurationSec();
         double width = timelineCanvas.Bounds.Width;
         if (duration <= 0 || width <= 0) return;
 
@@ -225,7 +225,7 @@ public partial class VideoMergerWindow : Window
             _isTimerUpdatingSlider = false;
         }
 
-        _ = SeekInternal(targetTime);
+        _ = SeekPreview(targetTime);
         e.Handled = true;
     }
 
@@ -262,8 +262,8 @@ public partial class VideoMergerWindow : Window
                 TakeManualControl();   // AUTOPREVIEW_01
                 if (_videoHost?.IpcClient != null)
                 {
-                    double target = Math.Max(0, _videoHost.IpcClient.CurrentTime - 10);
-                    _ = SeekInternal(target);
+                    double target = Math.Max(0, PreviewPositionSec() - 10);
+                    _ = SeekPreview(target);
                 }
             };
         }
@@ -276,9 +276,9 @@ public partial class VideoMergerWindow : Window
                 TakeManualControl();   // AUTOPREVIEW_01
                 if (_videoHost?.IpcClient != null)
                 {
-                    double dur = _videoHost.IpcClient.Duration;
-                    double target = dur > 0 ? Math.Min(dur, _videoHost.IpcClient.CurrentTime + 10) : _videoHost.IpcClient.CurrentTime + 10;
-                    _ = SeekInternal(target);
+                    double dur = PreviewDurationSec();
+                    double target = dur > 0 ? Math.Min(dur, PreviewPositionSec() + 10) : PreviewPositionSec() + 10;
+                    _ = SeekPreview(target);
                 }
             };
         }
@@ -314,6 +314,7 @@ public partial class VideoMergerWindow : Window
             {
                 var settingsWin = new FortniteVideoSoftware.App.Controls.SettingsWindow();
                 await settingsWin.ShowDialog<bool>(this);
+                SyncScraperFromSettings();   // SCRAPER_05
             };
         }
 
@@ -339,8 +340,8 @@ public partial class VideoMergerWindow : Window
                 {
                     var dlg = new FortniteVideoSoftware.App.Controls.ConfirmDialogWindow();
                     dlg.SetTitle("Remove Selected");
-                    dlg.SetMessage("Remove the selected video(s) from the queue?\nThis cannot be undone.");
-                    dlg.SetButtonText("YES, REMOVE", "CANCEL");
+                    dlg.SetMessage("Remove the selected video(s) from the queue?\nThe files on your computer are not touched. Ctrl+Z brings them back.");
+                    dlg.SetButtonText("YES, REMOVE", "CANCEL"); dlg.UseDestructiveStyling();   // REMOVEUX_01
                     await dlg.ShowDialog(this);
                     if (dlg.Result)
                         ExecuteRemoveSelected();
@@ -383,12 +384,14 @@ public partial class VideoMergerWindow : Window
                     return;
                 }
 
-                var wizard = new MusicWizardWindow(VideoQueue.ToList(), _cachedTotalDurationSec, _baseSpeed);
+                await EnsureTimelineReadyAsync();   // SCRAPER_02 — the wizard lays out the merged (scraped) timeline
+                var wizard = new MusicWizardWindow(VideoQueue.ToList(), MusicTimelineTotalSec(), _baseSpeed) { MergerClipWindows = MusicClipWindows() };
                 await wizard.ShowDialog(this);
 
                 if (wizard.Result != null)
                 {
                     _musicResult = wizard.Result;
+                    OnMusicPlaced();
                     _musicQueueSignature = string.Join("|", VideoQueue);
                     _musicIsStale = false;
                     addMusicBtn.Classes.Clear();
@@ -460,6 +463,7 @@ public partial class VideoMergerWindow : Window
         // entry per clip so nothing downstream changed shape, but every entry is now full-length.
 
         WireQueueContextMenu();
+        InitializeScraper();   // SCRAPER_01..05
 
         WireUpVolumeSlider();
         AttachTitleBarDrag();
@@ -492,6 +496,7 @@ public partial class VideoMergerWindow : Window
         UpdateQueueState();
         InvalidateMusicIfStale();
         DebouncedQualityProbe();
+        ScheduleTimelineRebuild();   // SCRAPER_03 — background analysis, no UI wait
 
         // PROJ_11 — publish the queue so the project document can record it. Before this the queue
         // existed ONLY in this collection, so closing the Merger and saving produced a .fvsproj
@@ -505,7 +510,7 @@ public partial class VideoMergerWindow : Window
     /// because the case being fixed is precisely "the user closed the Merger and then saved".
     /// </summary>
     private void PublishQueueToProject()
-        => Services.ToolNavigator.PublishMergeQueue(VideoQueue.ToList(), _baseSpeed);
+        => NoteEdlChanged();   // MERGESESSION_01 — the full edit list (PROJ_12), coalesced
 
     private void MoveVideo(int direction)
     {
@@ -522,21 +527,13 @@ public partial class VideoMergerWindow : Window
         if (direction < 0)
         {
             foreach (int idx in selectedIndices)
-            {
-                var item = VideoQueue[idx];
-                VideoQueue.RemoveAt(idx);
-                VideoQueue.Insert(idx - 1, item);
-            }
+                VideoQueue.Move(idx, idx - 1);   // D20 — Move keeps the clip's id (and its effects); RemoveAt+Insert did not
         }
         else
         {
             selectedIndices.Reverse();
             foreach (int idx in selectedIndices)
-            {
-                var item = VideoQueue[idx];
-                VideoQueue.RemoveAt(idx);
-                VideoQueue.Insert(idx + 1, item);
-            }
+                VideoQueue.Move(idx, idx + 1);   // D20 — see above
         }
         
         videoList.SelectedItems.Clear();
@@ -688,8 +685,8 @@ public partial class VideoMergerWindow : Window
             _mergerSizeEstimator.EstimateMergerAsync, PaintSizeEstimate,
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action), Services.OutputSizeEstimator.QuickMergerEstimate);
         int quality = (this.FindControl<Controls.SpinningWheelSlider>("QualitySlider")?.Value + 1) * 5 ?? 100;
-        var request = new Services.MergerSizeRequest(VideoQueue.ToArray(), _baseSpeed, quality, _knownSizeSources);
-        if (_lastMergerSizeRequest is { } previous && previous.Speed == request.Speed &&
+        var request = new Services.MergerSizeRequest(VideoQueue.ToArray(), _baseSpeed, quality, _knownSizeSources, EdlOutputSec());   // MERGESIZE_01
+        if (_lastMergerSizeRequest is { } previous && previous.Speed == request.Speed && previous.OutputSeconds == request.OutputSeconds &&
             previous.Quality == request.Quality && previous.Paths.SequenceEqual(request.Paths)) return;
         bool queueChanged = _lastMergerSizeRequest == null || !_lastMergerSizeRequest.Paths.SequenceEqual(request.Paths);
         _lastMergerSizeRequest = request;
@@ -714,6 +711,7 @@ public partial class VideoMergerWindow : Window
         }
         var length = this.FindControl<TextBlock>("EstimatedLengthText");
         if (length != null) length.Text = estimate.DurationSeconds > 0 ? FormatDuration(estimate.DurationSeconds) : "—";
+        PaintMergedLength();
         _cachedTotalDurationSec = estimate.Sources?.Sum(s => s.Duration) ?? 0;
         _knownSizeSources = estimate.Sources?.ToArray();
         _clipDurations.Clear();
@@ -751,7 +749,7 @@ public partial class VideoMergerWindow : Window
     /// reads ("1.2x — Slight Boost"), so the two windows must never be able to disagree about it.
     /// One ladder now, in <see cref="Infrastructure.SpeedLabel"/>.
     /// </summary>
-    private void UpdateSpeedLabel() => Infrastructure.SpeedLabel.Apply(this, _baseSpeed);
+    private void UpdateSpeedLabel() { Infrastructure.SpeedLabel.Apply(this, _baseSpeed); NoteEdlChanged(); }
 
     private void WireUpVolumeSlider()
     {
@@ -1244,6 +1242,8 @@ public partial class VideoMergerWindow : Window
             var worker = new FortniteVideoSoftware.Core.Media.MergerWorker { InputFiles = new List<string>(VideoQueue), OutputDirectory = _outputDirectory, SpeedFactor = _baseSpeed, QualityPercent = qualityPercent, OutputRatio = targetRatio, AutoSpikeFlattening = FortniteVideoSoftware.App.Infrastructure.SettingsManager.Instance.Defaults.AutoSpikeFlattening, HardwareStrategy = mergerStrategy };
 
             worker.ClipTrims = BuildClipTrimList();
+            await EnsureTimelineReadyAsync();
+            ApplyScraperToWorker(worker);   // SCRAPER_01..04 — the cut the preview shows
             _activeMergerWorker = worker;
 
             // Only the Wizard owns export gain; the bubble slider controls monitoring.
@@ -1260,8 +1260,8 @@ public partial class VideoMergerWindow : Window
                 if (musicPaths.Count > 0)
                 {
                     double speedFactor = _baseSpeed > 0.01 ? _baseSpeed : 1.0;
-                    double timelineStartSec = _musicResult.TimelineStartSeconds / speedFactor;
-                    double timelineEndSec = _musicResult.TimelineEndSeconds / speedFactor;
+                    double timelineStartSec = MusicExportSec(_musicResult.TimelineStartSeconds, speedFactor);   // MUSICMAP_01 — output time, effects included
+                    double timelineEndSec = MusicExportSec(_musicResult.TimelineEndSeconds, speedFactor);
                     for (int i = 0; i < musicPaths.Count; i++)
                     {
                         double offsetSeconds = i == 0 ? _musicResult.OffsetSeconds : 0.0;
@@ -1509,8 +1509,8 @@ public partial class VideoMergerWindow : Window
             if (_videoHost?.IpcClient != null) _ = _videoHost.IpcClient.SetPropertyAsync("pause", _videoHost.IpcClient.IsPaused ? "no" : "yes");
             e.Handled = true;
         }
-        else if (e.Key == Avalonia.Input.Key.Left) { TakeManualControl(); _ = _videoHost?.IpcClient?.SendCommandAsync("seek", -5); e.Handled = true; }
-        else if (e.Key == Avalonia.Input.Key.Right) { TakeManualControl(); _ = _videoHost?.IpcClient?.SendCommandAsync("seek", 5); e.Handled = true; }
+        else if (e.Key == Avalonia.Input.Key.Left) { TakeManualControl(); _ = SeekPreview(Math.Max(0, PreviewPositionSec() - 5)); e.Handled = true; }
+        else if (e.Key == Avalonia.Input.Key.Right) { TakeManualControl(); _ = SeekPreview(PreviewPositionSec() + 5); e.Handled = true; }
         else if (e.Key == Avalonia.Input.Key.Up) { MoveVideo(-1); e.Handled = true; }
         else if (e.Key == Avalonia.Input.Key.Down) { MoveVideo(1); e.Handled = true; }
     }
@@ -1598,6 +1598,7 @@ public partial class VideoMergerWindow : Window
     /// </summary>
     private void StartAutoPreview(string path)
     {
+        if (StartMergedPreview(path)) return;   // SCRAPER_02
         var ipc = _videoHost?.IpcClient;
         if (ipc == null || string.IsNullOrWhiteSpace(path)) return;
 
@@ -1681,6 +1682,7 @@ public partial class VideoMergerWindow : Window
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_videoHost?.IpcClient == null) return;
+        if (TickMergedPlayback()) return;   // SCRAPER_02 — one timeline across all clips
 
         // ── AUTOPREVIEW_01, part 1: the midpoint seek for a clip whose length was not known when
         //    it was opened. Runs once, as soon as mpv reports a duration, then caches it so this
@@ -1753,29 +1755,6 @@ public partial class VideoMergerWindow : Window
         }
     }
 
-    private void DrawTimelineScale(Avalonia.Controls.Canvas? scaleCanvas, double canvasWidth, double duration)
-    {
-        if (scaleCanvas == null || canvasWidth <= 0) return;
-        scaleCanvas.Children.Clear();
-        double tickInterval = 5;
-        if (duration > 3600) tickInterval = 300;
-        else if (duration > 1800) tickInterval = 60;
-        else if (duration > 300) tickInterval = 30;
-        else if (duration > 60) tickInterval = 10;
-
-        for (double t = 0; t <= duration; t += tickInterval)
-        {
-            double tx = (t / duration) * canvasWidth;
-            if (t > 0.001 && duration - t > 0.001)
-            {
-                var tickText = new TextBlock { Text = TimeSpan.FromSeconds(t).ToString(t >= 3600 ? "h\\:mm\\:ss" : "m\\:ss"), Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(180, 255, 255, 255)), FontSize = Infrastructure.ThemeManager.ScaledFontSize(9) };
-                Avalonia.Controls.Canvas.SetLeft(tickText, Math.Max(0, Math.Min(Math.Max(0, canvasWidth - 36), tx + 2)));
-                Avalonia.Controls.Canvas.SetTop(tickText, 0);
-                scaleCanvas.Children.Add(tickText);
-            }
-        }
-    }
-
     private async void InitializeMpv()
     {
         _videoHost = this.FindControl<MpvVideoView>("VideoHost");
@@ -1827,7 +1806,7 @@ public partial class VideoMergerWindow : Window
                 TargetProcess = "MainWindow"
             });
         }
-        catch (System.Exception ex) { RuntimeLog.Debug("IPC", $"Merger return handoff: {ex.Message}"); }
+        catch (System.Exception ex) { RuntimeLog.WarnThrottled("IPC", $"Merger return handoff: {ex.Message}"); }
 
         _recovery.ReleaseLockOnly();
         ShutdownVideoPipeline();
@@ -2002,10 +1981,11 @@ public partial class VideoMergerWindow : Window
     {
         // PROJ_11 — the last word on the queue, before this window and its collection stop
         // existing. Everything below is teardown; this is the one line that makes the user's
-        // merge survive the window it was assembled in.
-        PublishQueueToProject();
+        // merge survive the window it was assembled in. MERGESESSION_01: capture + autosave now.
+        CaptureEdlNow(flush: true);
 
         _mergerSizeWorker?.Dispose();
+        ShutdownMergerMusicPreview();
         Controls.CoachOverlay.Cancel(this);
         Controls.FloatingNotice.Clear(this);
         base.OnClosed(e);
@@ -2065,9 +2045,9 @@ public partial class VideoMergerWindow : Window
                         foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>())
                             if (container.DataContext is string s && s == itemText) { container.Opacity = 0.3; break; }
                     }
-                    var dragData = new Avalonia.Input.DataObject();
-                    dragData.Set("VideoItem", itemText);
-                    await Avalonia.Input.DragDrop.DoDragDrop(e, dragData, Avalonia.Input.DragDropEffects.Move);
+                    var dragData = new Avalonia.Input.DataTransfer();
+                    dragData.Add(Avalonia.Input.DataTransferItem.Create(VideoItemFormat, itemText));
+                    await Avalonia.Input.DragDrop.DoDragDropAsync(e, dragData, Avalonia.Input.DragDropEffects.Move);
                     _videoDragStartPoint = null;
                     _isVideoDragging = false;
                     if (videoList != null) foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>()) container.Opacity = 1.0;
@@ -2080,8 +2060,8 @@ public partial class VideoMergerWindow : Window
 
     private void VideoList_DragOver(object? sender, Avalonia.Input.DragEventArgs e)
     {
-        if (e.Data.Contains("VideoItem")) { e.DragEffects = Avalonia.Input.DragDropEffects.Move; SetVideoListDragState(true); ShowDropIndicator(e); }
-        else if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.GetFiles()?.Any() == true)
+        if (e.DataTransfer.Contains(VideoItemFormat)) { e.DragEffects = Avalonia.Input.DragDropEffects.Move; SetVideoListDragState(true); ShowDropIndicator(e); }
+        else if (e.DataTransfer.Contains(Avalonia.Input.DataFormat.File))
         {
             e.DragEffects = Avalonia.Input.DragDropEffects.Copy;
             SetVideoListDragState(true);
@@ -2096,24 +2076,23 @@ public partial class VideoMergerWindow : Window
     {
         SetVideoListDragState(false);
         HideDropIndicator();
-        if (e.Data.Contains("VideoItem"))
+        if (e.DataTransfer.Contains(VideoItemFormat))
         {
-            string? itemToMove = e.Data.Get("VideoItem") as string;
+            string? itemToMove = e.DataTransfer.TryGetValue(VideoItemFormat);
             if (itemToMove == null) return;
             int targetIndex = ComputeDropIndex(e);
             int oldIndex = VideoQueue.IndexOf(itemToMove);
             if (oldIndex >= 0 && targetIndex >= 0 && targetIndex != oldIndex)
             {
-                VideoQueue.RemoveAt(oldIndex);
                 if (targetIndex > oldIndex) targetIndex--;
-                VideoQueue.Insert(Math.Clamp(targetIndex, 0, VideoQueue.Count), itemToMove);
+                VideoQueue.Move(oldIndex, Math.Clamp(targetIndex, 0, VideoQueue.Count - 1));   // D20 — keeps the clip id
             }
             var videoList = VideoListCtl;
             if (videoList != null) foreach (var container in videoList.GetRealizedContainers().Cast<ListBoxItem>()) container.Opacity = 1.0;
         }
         else
         {
-            var dropped = e.Data.GetFiles();
+            var dropped = e.DataTransfer.TryGetFiles();
             if (dropped != null)
             {
                 _ = AddExternalVideosAsync(dropped.Select(f => f.Path.LocalPath).ToArray());

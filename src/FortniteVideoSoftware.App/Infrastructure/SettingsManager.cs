@@ -101,8 +101,14 @@ public class AppSettings
     public ThemeMode ThemeMode { get; set; } = ThemeMode.Dark;
     public FontScale FontScale { get; set; } = FontScale.Normal;
 
-    public bool ConfirmVideoMergerRemove { get; set; } = true;
+    public bool ConfirmVideoMergerRemove { get; set; } = false;   // REMOVEUX_01 — off by default; removal is undoable (Ctrl+Z)
     public bool ConfirmVideoMergerClearAll { get; set; } = true;
+
+    /// <summary>
+    /// SCRAPER_05 — Video Merger "Thumbnail Scraper": remove the tagged 0.1 s thumbnail intro from
+    /// clips 2..N when merging. On for new installs, and forced back on by the v8 migration.
+    /// </summary>
+    public bool MergerThumbnailScraper { get; set; } = true;
     public bool ConfirmCropToolReset { get; set; } = true;
     public bool ConfirmCropToolDelete { get; set; } = true;
 
@@ -435,10 +441,14 @@ public static class SettingsManager
     ///   6 = added voice protection / initial auto-update.
     ///   7 = AUTO-UPDATE — ensures AutoUpdateChecks defaults to true on initial install
     ///       and on upgrades where the configuration did not yet exist.
+    ///   8 = SCRAPER_05 — added MergerThumbnailScraper; every upgrade turns it ON.
+    ///   9 = REMOVEUX_01 — the Video Merger's remove confirmation is OFF by default (removal is undoable
+    ///       with Ctrl+Z and a notice says so); every upgrade turns it OFF once. Users who want the dialog
+    ///       switch it back on in Settings › Confirmation Dialogs.
     /// Bump this whenever a field is renamed, removed, or changes meaning, and add the matching
     /// case to <see cref="Migrate"/>. NEVER reuse a number.
     /// </summary>
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 9;
 
     private static string SettingsPath => Path.Combine(FortniteVideoSoftware.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot, "settings.json");
 
@@ -448,7 +458,8 @@ public static class SettingsManager
     /// over each other. Named the same way as the existing Global\Fvs* locks so it is visible
     /// alongside them in a handle dump.
     /// </summary>
-    private const string SettingsMutexName = @"Global\FvsSettingsMutex";
+    private static readonly string SettingsMutexName =
+        FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.UserScopedName("FvsSettingsMutex");   // USERSCOPE_01
 
     /// <summary>
     /// SETTINGSATOMIC_01 — in-PROCESS gate around reading/writing <see cref="Instance"/>. Serialising
@@ -594,6 +605,20 @@ public static class SettingsManager
             // auto-update checks MUST be enabled (true) by default.
             loaded.AutoUpdateChecks = true;
             from = 7;
+        }
+
+        if (from < 8)
+        {
+            // SCRAPER_05 — new feature, on by default for upgraders too (product decision).
+            loaded.MergerThumbnailScraper = true;
+            from = 8;
+        }
+
+        if (from < 9)
+        {
+            // REMOVEUX_01 — user decision 2026-09-27: no blocking confirm by default, also on upgrade.
+            loaded.ConfirmVideoMergerRemove = false;
+            from = 9;
         }
 
         loaded.SchemaVersion = from;

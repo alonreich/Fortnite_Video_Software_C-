@@ -32,7 +32,7 @@ internal static class VoiceOverAudioTools
     internal static float[] DecodePeaks(string path, int buckets)
     {
         if (buckets < 1) buckets = 1;
-        using var reader = new NAudio.Wave.AudioFileReader(path);
+        using var reader = new FortniteVideoSoftware.Core.Media.WavAudioReader(path);
 
         long totalSamples = reader.Length / (reader.WaveFormat.BitsPerSample / 8);
         if (totalSamples <= 0) return Array.Empty<float>();
@@ -90,7 +90,7 @@ internal static class VoiceOverAudioTools
                 }
                 catch (Exception ex)
                 {
-                    RuntimeLog.Debug("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
+                    RuntimeLog.WarnThrottled("VoiceOver", $"Could not delete temp take '{System.IO.Path.GetFileName(path)}': {ex.Message}");
                     return;
                 }
             }

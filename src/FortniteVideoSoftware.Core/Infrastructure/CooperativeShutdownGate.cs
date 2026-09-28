@@ -124,7 +124,7 @@ internal sealed class CooperativeShutdownGate
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug(logTag, $"Could not confirm process exit: {ex.Message}");
+            CoreLogger.Warn(logTag, $"Could not confirm process exit: {ex.Message}");
         }
 
         try { return proc.HasExited ? proc.ExitCode : -1; }

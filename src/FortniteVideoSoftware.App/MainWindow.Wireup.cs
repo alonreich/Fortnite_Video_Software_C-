@@ -412,7 +412,7 @@ public partial class MainWindow
                         UpdateEstimatedQuality();
                         ShowTacticalFeedback("Speed segments removed");
                         UpdateTimelineMarkers();
-                        SaveRecoveryState();
+                        SaveRecoveryState(label: "remove speed segments");
                         RuntimeLog.Info("UI", "User removed all granular speed segments via the EDIT/REMOVE prompt.");
                         return;
                     }
@@ -508,7 +508,7 @@ public partial class MainWindow
                     InvalidateVoiceOverRecordingForTimingChange();
                     UpdateEstimatedQuality();
                     UpdateTimelineMarkers();
-                    SaveRecoveryState();
+                    SaveRecoveryState(label: "granular speed edits");
 
                     // ══════════════════════════════════════════════════════════════════════
                     // CUTS_02 — A CUT MADE IN THE EDITOR IS A CHANGE TO THE WHOLE PROJECT.
@@ -630,7 +630,7 @@ public partial class MainWindow
                 UpdateThumbnailButtonState();
                 UpdateTimelineMarkers();
                 UpdateEstimatedQuality();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "set thumbnail");
             };
         }
 
@@ -773,10 +773,11 @@ public partial class MainWindow
                     InvalidateVoiceOverRecordingForTimingChange();
                 UpdateEstimatedQuality();
                 UpdateSpeedLabel();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "change speed", gestureKey: "speed-dial");
             };
             mainSpeedSlider.ValueChangeCompleted += (s, e) =>
             {
+                EndProjectGesture();   // UNDOEQ_02 — the sweep is one undo step; the next sweep is another.
                 RuntimeLog.Info("UI", $"Speed slider final resting value: {e / 10.0:F1}x");
             };
             UpdateSpeedLabel();
@@ -816,15 +817,13 @@ public partial class MainWindow
 
             volumeSlider.PointerReleased += (s, e) =>
             {
-                try
-                {
-                    new FortniteVideoSoftware.Core.Ipc.StateTransferStore(_paths)
-                        .UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject
-                        {
-                            ["MainVolume"] = volumeSlider.Value
-                        });
-                }
-                catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
+                // EDITHOT_01 — was UpdatePropertiesSync on the UI thread. When no in-process IPC
+                // server is running, that path takes the machine-wide state mutex (up to 15 s) and
+                // rewrites session_state.json before the release handler returns. The async
+                // overload runs the disk path on the thread pool, and it is still an in-memory
+                // update when the server IS running.
+                double volume = volumeSlider.Value;
+                _ = PersistMainVolumeAsync(volume);
             };
         }
 
@@ -845,10 +844,11 @@ public partial class MainWindow
             qualitySlider.ValueChanged += (s, v) =>
             {
                 UpdateEstimatedQuality();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "change quality", gestureKey: "quality-dial");
             };
             qualitySlider.ValueChangeCompleted += (s, v) =>
             {
+                EndProjectGesture();   // UNDOEQ_02
                 RuntimeLog.Info("UI", $"Quality dial resting on '{FortniteVideoSoftware.App.ViewModels.QualityLadder.NameOf(v)}' (tier {v}).");
             };
 
@@ -891,7 +891,7 @@ public partial class MainWindow
                         UpdateEstimatedQuality();
                         ShowTacticalFeedback("Music removed");
                         UpdateTimelineMarkers();
-                        SaveRecoveryState();
+                        SaveRecoveryState(label: "remove music");
                         RuntimeLog.Info("UI", "User removed background music via the EDIT/REMOVE prompt.");
                         return;
                     }
@@ -974,18 +974,18 @@ public partial class MainWindow
             {
                 UpdatePortraitOverlay();
                 ApplyMemeItemsToCombo(preserveSelection: true);
-                SaveRecoveryState();
+                SaveRecoveryState(label: "toggle portrait mode");
             };
         }
 
         var teammatesCb = TeammatesCheckboxCtl;
-        if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
+        if (teammatesCb != null) teammatesCb.IsCheckedChanged += (s, e) => SaveRecoveryState(label: "toggle teammates");
 
         var spectatingCb = SpectatingCheckboxCtl;
-        if (spectatingCb != null) spectatingCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
+        if (spectatingCb != null) spectatingCb.IsCheckedChanged += (s, e) => SaveRecoveryState(label: "toggle spectating");
 
         var enableFadeCb = EnableFadeCheckboxCtl;
-        if (enableFadeCb != null) enableFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState();
+        if (enableFadeCb != null) enableFadeCb.IsCheckedChanged += (s, e) => SaveRecoveryState(label: "toggle fade");
 
         var portraitTextInput = PortraitTextInputCtl;
         if (portraitTextInput != null) portraitTextInput.TextChanged += (s, e) => { UpdatePortraitOverlay(); ScheduleRecoveryStateSave(); };
@@ -998,7 +998,7 @@ public partial class MainWindow
                     var cb = MemeComboBoxCtl;
                     if (cb != null) cb.IsDropDownOpen = true;
                 }
-                SaveRecoveryState();
+                SaveRecoveryState(label: "toggle meme");
             };
         }
         
@@ -1022,7 +1022,7 @@ public partial class MainWindow
                 SyncMemePlacementUi(sel.FullPath);
             }
 
-            SaveRecoveryState();
+            SaveRecoveryState(label: "choose meme");
             if (addMemeCb?.IsChecked == true && memeCb.SelectedItem != null && _musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
             {
                 _keepMusicDuringMeme = NativeDialog.ShowQuestion(
@@ -1157,7 +1157,7 @@ public partial class MainWindow
                 : Infrastructure.MemePlacement.End;
 
             Infrastructure.MemePlacementStore.Set(sel.FullPath, chosen);
-            SaveRecoveryState();
+            SaveRecoveryState(label: "change meme placement");
 
             if (Infrastructure.MemePlacementStore.ContradictsShippedDefault(sel.FullPath, chosen))
             {

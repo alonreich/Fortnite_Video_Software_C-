@@ -9,6 +9,12 @@
 | `src/FortniteVideoSoftware.Core/Project/RecentProjects.cs` | `RecentProjects`, `RecentProject` | `Read`, `Touch`, `Prune`, `MaxEntries` | Recent list |
 | ⚠ `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` | `OutputTimeline` | `Create`, `Chunk`, `Cut`, `Insertion` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
 | ⚠ `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `ReadObject`, `WriteObject` | CO-GOVERNED by `05_SYSTEM_LIFECYCLE_STORAGE.md` |
+| ⚠ `src/FortniteVideoSoftware.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlAnchor` | `ToJson`, `FromJson`, `MergeEdlJsonContext` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
+| ⚠ `src/FortniteVideoSoftware.App/VideoMergerWindow.History.cs` | `VideoMergerWindow` (Partial) | `_history`, `RecordHistory`, `StepHistoryAsync`, `ApplyEdlStateAsync`, `ResetHistory` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
+| ⚠ `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `SaveAsync`, `SaveAsAsync`, `OpenAsync`, `AutosaveTick`, `ConfirmDiscardAsync`, `IsDirty`, `PushEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
+| ⚠ `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
+| `src/FortniteVideoSoftware.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `NormalizeExtension` | Store seam; forwards to `ProjectStore` |
+| `src/FortniteVideoSoftware.Core/Infrastructure/AotJson.cs` | `AotJson` | `AddNode` | Reflection-free `JsonArray` append (AOTSAFETY_02) |
 | `src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj` | build configuration | `AOTSAFETY_01`, `SuppressTrimAnalysisWarnings`, `SuppressAotAnalysisWarnings` | Publish-time safety analysis |
 
 ---
@@ -90,8 +96,10 @@ fixed by muting it again — the rule is fix, or annotate one statement with a r
   `Infrastructure/AotJson.AddNode` casts to the interface and binds to the unannotated method.
   ⚠ Use `AddNode`, never a `#pragma`: the extension makes the safety PROVABLE, where a suppression
   merely asserts it and goes on hiding the next call — possibly one that really does pass a POCO.
-* **AOTSAFETY_03 — `Marshal.SizeOf(Type)`** in `HardwareTelemetrySampler.GetMemUsage`. Asks the
-  runtime to build marshalling code for a reflectively-known type, which does not exist after AOT
+* **`Marshal.SizeOf(Type)`** in `HardwareTelemetrySampler.GetMemUsage` — a separate fix, not the
+  `AOTSAFETY_03` tag: that tag's sentinel (`build/sentinels.txt`) is the release analyser policy in
+  `FortniteVideoSoftware.App.csproj` (§10), even though this call site's code comment reuses the
+  label. Asks the runtime to build marshalling code for a reflectively-known type, which does not exist after AOT
   compilation. `Marshal.SizeOf<T>()` is computed at compile time and yields the identical size.
 * **AOTSAFETY_04 — `SettingsManager.Save` was on the reflection path.** It already had a
   source-generated `SettingsJsonContext` AND assigned it as `TypeInfoResolver`, yet still called
@@ -137,8 +145,9 @@ fixed by muting it again — the rule is fix, or annotate one statement with a r
 * **PROJ_05 — Paths outlive the files they point at.** `CheckSource()` returns `Intact`, `Changed`,
   `Missing` or `Unknown` so the app can say *"that video has been replaced, your cuts may not line
   up"* instead of rendering markers against different footage.
-* **Fingerprint, not hash.** Size plus last-write-time at whole-second resolution. Hashing a 4 GB
-  capture on every open would cost more than the entire load. Sub-second drift is ignored: copying a
+* **Fingerprint, not hash.** Size plus last-write-time stored in whole Unix seconds; a difference of
+  up to 2 s is tolerated, more is `Changed`. Hashing a 4 GB
+  capture on every open would cost more than the entire load. Small drift is ignored: copying a
   file between filesystems perturbs it without the bytes differing, and a false warning teaches users
   to dismiss the real one.
 * **An absent fingerprint is `Unknown`, not `Changed`.** Older projects have no fingerprint, and
@@ -199,13 +208,29 @@ The model and its persistence exist and are unit-tested
    because the main editor edits one clip, and a montage of several was an unrelated feature sharing
    an application. Storing the list here is the precondition for ever treating a multi-clip edit as
    one document.
+4. **`PROJ_12` — the merge queue carries the Video Merger's full edit list (schema 3).**
+   `ProjectMerge.Edl` is the `MergeEdl` (MERGEEDL_01: windows in source µs, per-clip speed/zoom,
+   freezes, memes, thumbnail, music, scraper, base speed), written under `merge.edl` in the EDL's own
+   source-generated JSON. `merge.clips` is still written. Read: a valid `edl` wins; a missing or
+   corrupt one leaves `Edl` null and `ToEdl()` migrates `clips` (no effects, deterministic clip ids so
+   two migrations are equal). The bump to 3 is deliberate: a v2 reader keeps unknown keys only at the
+   ROOT, so it would silently drop `merge.edl`; refusing the file is safer than losing effects.
+5. **`MERGEUNDO_01` — Video Merger undo/redo over the edit list.** `VideoMergerWindow.History.cs` keeps one
+   `UndoStack<MergeEdl>` (U1–U4). It stores `MergerSession.UserEdit(edl)` (analysis fields stripped, so a
+   finished background probe is never a step). `MergerSession.DescribeChange` labels each step and gives
+   gesture keys (`speed`, `thumb`) so a wheel sweep or a marker drag is ONE step. Ctrl+Z / Ctrl+Y /
+   Ctrl+Shift+Z (not while a TextBox has focus or a MERGE runs). Undo/redo and session restore share
+   `ApplyEdlStateAsync`, which reorders the queue in place (`MergerSession.SyncQueue`, never Clear) and
+   re-derives music from its clip anchors. `UndoStack.ReplaceCurrent` absorbs the re-capture right after
+   an undo so normalisation can never burn the redo branch.
+6. ~~Title-bar dirty indicator~~ — done (`PROJSESSION_05`: `MainWindow.RefreshProjectTitle` appends
+   " •" to the project name while `ProjectSession.IsDirty`).
 
 **Still not done:**
 
 1. `RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.
 2. `.fvsproj` shell association and icon (`ShellFileAssociation.cs`), plus open-with launch.
-3. Title-bar dirty indicator, per `04_UI_UX_AVALONIA_SPEC.md#UI-SETTINGS-ABOUT` title formatting.
-4. Producing the `FortniteVideoSoftware.App.update.zip` release asset (`09` §3 DIST-SPLIT) — the
+3. Producing the `FortniteVideoSoftware.App.update.zip` release asset (`09` §3 DIST-SPLIT) — the
    consumer side is wired and tested; the publisher side is not.
 
 ---
@@ -239,3 +264,21 @@ The model and its persistence exist and are unit-tested
      that needs Task Manager to quit is worse, and the crash-recovery snapshot (`05` §4 SYS-RECOVERY)
      still holds the session either way.
 
+---
+
+## 10. Release Analyser Policy (AOTCLEAN_01, supersedes AOTSAFETY_03)  {#PROJ-AOTPOLICY}
+`AOTSAFETY_03` here is the tag registered in `build/sentinels.txt` (it resolves to
+`FortniteVideoSoftware.App.csproj`); the `Marshal.SizeOf<T>()` fix in §4 is a different change.
+* **Zero trim/AOT warnings. Nothing muted, nothing collapsed, nothing made non-fatal.** `Staging.Publish` runs with `-p:TreatWarningsAsErrors=true`; every IL2xxx/IL3xxx from ANY assembly fails the release.
+* The interim AOTSAFETY_03 rule (third-party `TrimmerSingleWarn`, `WarningsNotAsErrors=IL2104;IL3053`, IL2026 muted at the ILC stage) is REMOVED. Each finding was fixed at its source:
+  | Finding | Source | Fix |
+  |---|---|---|
+  | IL2026 ×2, IL3050 ×3 | Avalonia 11.0.10 (`ObservableStreamPlugin`, `MethodAccessorPlugin`, composition `Expression`, `SkiaMetalApi`) | Avalonia **11.3.22** (same major) |
+  | IL2091 ×2 | SkiaSharp 2.88 (`SKObject.PtrToStructure<T>`) | SkiaSharp **3.119.2** with native-asset overrides (supported on Avalonia ≥ 11.3.6). `TextOverlayGenerator` moved to `SKFont` (AOTCLEAN_04) |
+  | IL2050 ×2, IL2070 | NAudio umbrella → NAudio.Wasapi `MediaFoundationReader` (classic COM interop: unsupported by NativeAOT, would throw) | **NAudio.Core + NAudio.WinMM only**; `AudioFileReader` replaced by `Core/Media/WavAudioReader` (AOTCLEAN_02) |
+  | IL2067, IL2072 | Vortice 3.8.3 → SharpGen.Runtime reflection vtable registry | Vortice removed; `App/Interop/D3D11Interop.cs` makes the six D3D11/DXGI calls through verified vtable slots (AOTCLEAN_03) |
+* Side effect: the NAudio umbrella's WinForms dependency is gone, so the App no longer needs `Microsoft.WindowsDesktop.App`.
+* Avalonia 11.3 obsoletions migrated (no suppression): `DragEventArgs.Data` → `DataTransfer`, `DataFormats.Files` → `DataFormat.File`, `DoDragDrop` → `DoDragDropAsync` with an application-private `DataFormat<string>`, `RadialGradientBrush.Radius` → `RadiusX/RadiusY` (same relative value).
+* `Avalonia.Diagnostics` is referenced in Debug only (DevTools is `#if DEBUG`). `Avalonia.Controls.DataGrid` and `.ColorPicker` stay removed.
+* **ILCCRASH_01 — ILC's own crash is not a code failure.** ILC 9.0.x can crash internally (`IL1013` / `NullReferenceException` in `XNodeNavigator` while the parallel scanner reads a framework assembly's embedded `ILLink.Substitutions.xml`, dotnet/runtime#108743). `Staging.Publish` recognises that signature and re-runs the same publish ONCE with `-p:IlcSingleThreaded=true` (`--parallelism:1`). Any other failure, or a second crash, fails the build. Nothing is muted.
+* `AotSafetyRuleTests` pins all of the above: no IL code in `NoWarn` or `WarningsNotAsErrors`, no `TrimmerSingleWarn=true`, and the NAudio umbrella, NAudio.Wasapi and Vortice packages never return.

@@ -62,8 +62,11 @@ public sealed record ProjectDocument
     /// <b>2 — PROJ_11.</b> Added <see cref="Mask"/> and <see cref="Merge"/>. Both are optional on
     /// read, so a v1 file loads unchanged; the bump records that a v2 writer stores information a
     /// v1 reader will park in <see cref="UnknownFields"/> rather than lose.
+    /// <b>3 — PROJ_12.</b> Added <see cref="ProjectMerge.Edl"/> (the Video Merger's full edit list:
+    /// effects, thumbnail, music). It lives INSIDE <c>merge</c>, where a v2 reader keeps no unknown
+    /// keys, so a v2 build would silently drop the effects; refusing the file is the safer answer.
     /// </remarks>
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     /// <summary>
     /// PROJ_02 — the oldest schema this build can still READ. A file below this is refused with an
@@ -240,6 +243,78 @@ public sealed record ProjectDocument
     }
 
     /// <summary>Creates the empty document a brand-new edit starts from.</summary>
+    /// <summary>
+    /// UNDOEQ_01 — EDIT-STATE EQUALITY. <c>docs/07_UNDO_AND_HISTORY.md</c> §3: "U4 depends on
+    /// <c>Equals</c> being a real state comparison — a reference-equality default silently disables
+    /// it."
+    /// <para>
+    /// The compiler-generated record equality WAS that default. <see cref="Segments"/>,
+    /// <see cref="Cuts"/> and <see cref="Memes"/> are arrays built fresh by every
+    /// <c>ProjectSession.Capture()</c>, so they were compared BY REFERENCE. <see cref="ModifiedUtc"/>
+    /// and <see cref="CreatedUtc"/> default to <c>UtcNow</c>, and <see cref="Mask"/> carries a fresh
+    /// <c>JsonObject</c>. Two captures of an untouched editor were therefore never equal: U4
+    /// (never push a no-op) could not fire, and every no-op click became an undo step that visibly
+    /// did nothing.
+    /// </para>
+    /// <para>
+    /// Compared: everything the user can change and everything the export reads. The lists are
+    /// compared element-wise (the element types are value records). The mask is compared by its
+    /// content fingerprint, the same identity <see cref="ProjectMask.MatchesLive"/> uses.
+    /// NOT compared: <see cref="CreatedUtc"/>, <see cref="ModifiedUtc"/> (bookkeeping, not state),
+    /// <see cref="Title"/> (derived from the source path, which is compared) and
+    /// <see cref="UnknownFields"/> (round-trip carriage for newer writers, never edited here).
+    /// </para>
+    /// </summary>
+    public bool Equals(ProjectDocument? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        if (other is null) return false;
+
+        return Equals(Source, other.Source)
+            && BaseSpeed.Equals(other.BaseSpeed)
+            && SourceCutStartMs.Equals(other.SourceCutStartMs)
+            && TrimmedDurationMs.Equals(other.TrimmedDurationMs)
+            && SequenceEqual(Segments, other.Segments)
+            && SequenceEqual(Cuts, other.Cuts)
+            && SequenceEqual(Memes, other.Memes)
+            && Equals(Audio, other.Audio)
+            && Equals(Export, other.Export)
+            && string.Equals(Mask?.ProfileName, other.Mask?.ProfileName, StringComparison.Ordinal)
+            && string.Equals(Mask?.Fingerprint, other.Mask?.Fingerprint, StringComparison.Ordinal)
+            && Equals(Merge, other.Merge);
+    }
+
+    /// <summary>UNDOEQ_01 — consistent with <see cref="Equals(ProjectDocument?)"/>: timestamps excluded.</summary>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Source);
+        hash.Add(BaseSpeed);
+        hash.Add(SourceCutStartMs);
+        hash.Add(TrimmedDurationMs);
+        hash.Add(Segments.Count);
+        hash.Add(Cuts.Count);
+        hash.Add(Memes.Count);
+        hash.Add(Audio);
+        hash.Add(Export);
+        hash.Add(Mask?.Fingerprint);
+        hash.Add(Merge);
+        return hash.ToHashCode();
+    }
+
+    internal static bool SequenceEqual<T>(IReadOnlyList<T>? left, IReadOnlyList<T>? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null) return (left?.Count ?? 0) == (right?.Count ?? 0);
+        if (left.Count != right.Count) return false;
+        var comparer = EqualityComparer<T>.Default;
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!comparer.Equals(left[i], right[i])) return false;
+        }
+        return true;
+    }
+
     public static ProjectDocument ForClip(SourceClip clip, string? title = null) => new()
     {
         Source = clip,
@@ -438,8 +513,49 @@ public sealed record ProjectMerge
     /// </summary>
     public double BaseSpeed { get; init; } = 1.0;
 
+    /// <summary>
+    /// PROJ_12 — the Video Merger's full edit list (MERGEEDL_01): clip windows, per-clip effects,
+    /// thumbnail, music. Null in files written before schema 3; <see cref="ToEdl"/> migrates those.
+    /// </summary>
+    public MergeEdl? Edl { get; init; }
+
     /// <summary>True when the queue holds anything worth restoring.</summary>
-    public bool HasClips => Clips.Count > 0;
+    public bool HasClips => Clips.Count > 0 || Edl is { Clips.Count: > 0 };
+
+    /// <summary>
+    /// PROJ_12 — the edit list to restore: <see cref="Edl"/> when present, otherwise the legacy
+    /// <see cref="Clips"/> migrated (user windows kept, no effects). Migrated clip ids are
+    /// DETERMINISTIC (<c>new Guid(i + 1, 0, …)</c>), so migrating the same document twice gives equal
+    /// edit lists and an undo stack never sees a phantom change.
+    /// </summary>
+    public MergeEdl ToEdl()
+    {
+        if (Edl is not null) return Edl;
+        var clips = new List<EdlClip>(Clips.Count);
+        for (int i = 0; i < Clips.Count; i++)
+        {
+            var c = Clips[i];
+            clips.Add(new EdlClip
+            {
+                ClipId = new Guid(i + 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                Path = c.FilePath,
+                InUs = SecToUs(c.StartSec),
+                OutUs = SecToUs(c.EndSec),
+            });
+        }
+        return new MergeEdl { Clips = clips, BaseSpeed = BaseSpeed > 0 ? BaseSpeed : 1.0 };
+    }
+
+    private static long SecToUs(double sec) => double.IsFinite(sec) && sec > 0 ? (long)Math.Round(sec * 1_000_000.0) : 0;
+
+    /// <summary>UNDOEQ_01 — element-wise, not by array reference (see <see cref="ProjectDocument.Equals(ProjectDocument?)"/>).</summary>
+    public bool Equals(ProjectMerge? other)
+        => other is not null
+        && BaseSpeed.Equals(other.BaseSpeed)
+        && ProjectDocument.SequenceEqual(Clips, other.Clips)
+        && Equals(Edl, other.Edl);
+
+    public override int GetHashCode() => HashCode.Combine(BaseSpeed, Clips.Count);
 }
 
 /// <summary>

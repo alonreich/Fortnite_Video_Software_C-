@@ -984,7 +984,7 @@ internal static class UpdateService
         }
         catch (Exception ex)
         {
-            RuntimeLog.Debug("UPDATE", $"Could not purge old update downloads: {ex.Message}");
+            RuntimeLog.WarnThrottled("UPDATE", $"Could not purge old update downloads: {ex.Message}");
         }
     }
 

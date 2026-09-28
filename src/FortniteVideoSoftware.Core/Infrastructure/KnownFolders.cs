@@ -67,7 +67,7 @@ public partial class WindowsShellFolderResolver : IShellFolderResolver
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("KnownFolders", $"SHGetKnownFolderPath failed for {folderId}: {ex.Message}");
+            CoreLogger.Warn("KnownFolders", $"SHGetKnownFolderPath failed for {folderId}: {ex.Message}");
         }
         finally
         {
@@ -85,7 +85,7 @@ public partial class WindowsShellFolderResolver : IShellFolderResolver
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("KnownFolders", $"Registry fallback expansion failed for {folderId}: {ex.Message}");
+            CoreLogger.Warn("KnownFolders", $"Registry fallback expansion failed for {folderId}: {ex.Message}");
         }
 
         return null;
@@ -127,11 +127,11 @@ public partial class WindowsShellFolderResolver : IShellFolderResolver
             }
             catch (System.Security.SecurityException ex)
             {
-                CoreLogger.Debug("KnownFolders", $"SecurityException reading registry key {subKey}: {ex.Message}");
+                CoreLogger.Warn("KnownFolders", $"SecurityException reading registry key {subKey}: {ex.Message}");
             }
             catch (Exception ex)
             {
-                CoreLogger.Debug("KnownFolders", $"Failed reading registry key {subKey}: {ex.Message}");
+                CoreLogger.Warn("KnownFolders", $"Failed reading registry key {subKey}: {ex.Message}");
             }
         }
 

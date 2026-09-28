@@ -286,6 +286,102 @@ public class ProjectDocumentTests : IDisposable
         Assert.Equal(original.Merge!.Clips, loaded.Merge.Clips);
     }
 
+    // ── PROJ_12 — the Video Merger's edit list (Video-Merger-Migration.md P3.1) ─────────────
+
+    [Fact]
+    public void T31a_ASchemaTwoMergeQueueMigratesToAnEdl()
+    {
+        JsonObject json = ProjectSerializer.Write(SampleDocument() with
+        {
+            Merge = new ProjectMerge
+            {
+                BaseSpeed = 1.5,
+                Clips = new[] { new MergeClip(@"C:\clips\a.mp4", 0, 0), new MergeClip(@"C:\clips\b.mp4", 3.5, 12.25) },
+            },
+        });
+        json["schema_version"] = 2;
+        ((JsonObject)json["merge"]!).Remove("edl");
+
+        ProjectDocument? loaded = ProjectSerializer.Read(json, out string? error);
+
+        Assert.Null(error);
+        Assert.Null(loaded!.Merge!.Edl);
+        MergeEdl edl = loaded.Merge.ToEdl();
+        Assert.Equal(2, edl.Clips.Count);
+        Assert.Equal(1.5, edl.BaseSpeed);
+        Assert.Equal(3_500_000, edl.Clips[1].InUs);
+        Assert.Equal(12_250_000, edl.Clips[1].OutUs);
+        Assert.Equal(0, edl.Clips[0].OutUs);
+        Assert.True(edl.Clips.All(c => c.Effects.IsEmpty));
+        Assert.Equal(edl, loaded.Merge.ToEdl());   // deterministic ids: migrating twice is equal
+    }
+
+    [Fact]
+    public void T31b_RoundTrip_EdlWithEveryEffectKind()
+    {
+        var a = new EdlClip
+        {
+            Path = @"C:\clips\a.mp4", SizeBytes = 123, LastWriteUtcTicks = 638_000_000_000_000_000, DurationUs = 20_000_000,
+            InUs = 500_000, OutUs = 18_000_000, IntroCutUs = 100_100,
+            Timing = new ExportTiming(60000, 1001, 6, 30, null),
+            Effects = new EdlEffects
+            {
+                Speed = new[] { new EdlSpeedSegment(1_000_000, 3_000_000, 0.5, new EdlZoom(10, 20, 540, 960, true, 1_000_000, 2_000_000)) },
+                Freezes = new[] { new EdlFreeze(4_000_000, 1.25) },
+                Memes = new[]
+                {
+                    new EdlMeme("m1", @"C:\memes\x.mp4", EdlMemePlacement.AtStart, 0, 2),
+                    new EdlMeme("m2", @"C:\memes\y.mp4", EdlMemePlacement.Mid, 6_000_000, 1.5),
+                    new EdlMeme("m3", @"C:\memes\z.mp4", EdlMemePlacement.AtEnd, 0, 3),
+                },
+            },
+        };
+        var b = new EdlClip { Path = @"C:\clips\b.mp4", DurationUs = 9_000_000 };
+        var edl = new MergeEdl
+        {
+            Clips = new[] { a, b },
+            ScraperEnabled = false,
+            BaseSpeed = 1.25,
+            Thumbnail = new EdlThumbnail(new EdlAnchor(b.ClipId, 2_000_000)),
+            Music = new EdlMusic
+            {
+                FilePaths = new[] { @"C:\music\song.mp3" }, DurationsSec = new[] { 180.5 }, OffsetSec = 12,
+                Start = new EdlAnchor(a.ClipId, 1_000_000), End = new EdlAnchor(b.ClipId, 8_000_000),
+                MusicVolume = 0.8, VideoVolume = 0.6, Loop = true, Ducking = false, Carving = true,
+            },
+        };
+        ProjectDocument original = SampleDocument() with
+        {
+            Merge = new ProjectMerge { Clips = new[] { new MergeClip(a.Path, 0.5, 18), new MergeClip(b.Path, 0, 0) }, BaseSpeed = 1.25, Edl = edl },
+        };
+
+        JsonObject json = ProjectSerializer.Write(original);
+        Assert.Equal(3, (int)json["schema_version"]!);
+        ProjectDocument? loaded = ProjectSerializer.Read(json, out string? error);
+
+        Assert.Null(error);
+        Assert.Equal(edl, loaded!.Merge!.Edl);
+        Assert.Equal(original.Merge, loaded.Merge);
+        Assert.Same(loaded.Merge.Edl, loaded.Merge.ToEdl());
+        Assert.NotEqual(original.Merge, original.Merge with { Edl = edl with { BaseSpeed = 2 } });
+    }
+
+    [Fact]
+    public void T31c_ACorruptEdlFallsBackToTheClipList()
+    {
+        JsonObject json = ProjectSerializer.Write(SampleDocument() with
+        {
+            Merge = new ProjectMerge { Clips = new[] { new MergeClip(@"C:\clips\a.mp4", 0, 0) }, Edl = new MergeEdl { Clips = new[] { new EdlClip { Path = "x" } } } },
+        });
+        json["merge"]!["edl"] = new JsonObject { ["Clips"] = "not a list" };
+
+        ProjectDocument? loaded = ProjectSerializer.Read(json, out string? error);
+
+        Assert.Null(error);
+        Assert.Null(loaded!.Merge!.Edl);
+        Assert.Single(loaded.Merge.ToEdl().Clips);
+    }
+
     /// <summary>
     /// A queue entry with no path is not a clip. Restoring it as an empty row would leave the user
     /// hunting for something to delete before the merge would run.
@@ -580,5 +676,70 @@ public class ProjectDocumentTests : IDisposable
 
         RecentProject entry = Assert.Single(recent.Read());
         Assert.False(entry.Exists);
+    }
+
+    // ── UNDOEQ_01: edit-state equality (07_UNDO_AND_HISTORY.md §3, U4) ─────────────────────────
+
+    private static ProjectDocument FreshCaptureOf(ProjectDocument d) => d with
+    {
+        // Exactly what ProjectSession.Capture() does on every edit: new arrays, new timestamps,
+        // a freshly cloned mask object.
+        Segments = new List<SpeedSegment>(d.Segments).ToArray(),
+        Cuts = new List<OutputTimeline.Cut>(d.Cuts).ToArray(),
+        Memes = new List<MemePlacement>(d.Memes).ToArray(),
+        Mask = d.Mask is null ? null : d.Mask with { Config = (JsonObject?)d.Mask.Config?.DeepClone() },
+        Merge = d.Merge is null ? null : d.Merge with { Clips = new List<MergeClip>(d.Merge.Clips).ToArray() },
+        CreatedUtc = DateTimeOffset.UtcNow.AddMinutes(5),
+        ModifiedUtc = DateTimeOffset.UtcNow.AddMinutes(5),
+    };
+
+    [Fact]
+    public void UndoEq_TwoCapturesOfAnUntouchedEditorAreEqual()
+    {
+        ProjectDocument a = SampleDocument() with
+        {
+            Mask = new ProjectMask("Default", "ABCDEF0123456789", new JsonObject { ["x"] = 1 }),
+            Merge = new ProjectMerge { Clips = new[] { new MergeClip(@"C:.mp4", 0, 5) } },
+        };
+        ProjectDocument b = FreshCaptureOf(a);
+
+        Assert.NotSame(a.Segments, b.Segments);
+        Assert.Equal(a, b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    }
+
+    [Fact]
+    public void UndoEq_ARealEditIsNotEqual()
+    {
+        ProjectDocument a = SampleDocument();
+        Assert.NotEqual(a, a with { BaseSpeed = 1.2 });
+        Assert.NotEqual(a, a with { Cuts = new[] { new OutputTimeline.Cut(40.0, 43.0) } });
+        Assert.NotEqual(a, a with { Segments = Array.Empty<SpeedSegment>() });
+        Assert.NotEqual(a, a with { Export = a.Export with { PortraitMode = !a.Export.PortraitMode } });
+        Assert.NotEqual(a, a with { Mask = new ProjectMask("Other", "0000000000000000", null) });
+    }
+
+    [Fact]
+    public void UndoEq_UndoStackRejectsANoOpCapture()
+    {
+        ProjectDocument a = SampleDocument();
+        var stack = new FortniteVideoSoftware.Core.Undo.UndoStack<ProjectDocument>(a);
+
+        Assert.False(stack.Apply(FreshCaptureOf(a), "edit"));
+        Assert.False(stack.CanUndo);
+    }
+
+    [Fact]
+    public void UndoEq_ADialSweepWithOneGestureKeyIsOneUndoStep()
+    {
+        ProjectDocument a = SampleDocument();
+        var stack = new FortniteVideoSoftware.Core.Undo.UndoStack<ProjectDocument>(a);
+
+        for (int tick = 1; tick <= 20; tick++)
+            stack.Apply(a with { BaseSpeed = 1.0 + tick / 10.0 }, "change speed", "speed-dial");
+        stack.EndGesture();
+
+        Assert.Equal(1, stack.UndoCount);
+        Assert.Equal(1.0, stack.Undo()!.BaseSpeed);
     }
 }

@@ -169,6 +169,9 @@ public class ProcessWorker : IDisposable
     public double ThumbnailPosMs { get; set; }
     public double VolumeNormalizeDb { get; set; }
     public double IntroStillSec { get; set; }
+
+    /// <summary>TIMINGTAG_02 — the timing stamped into the delivered file; set before the first encode.</summary>
+    private ExportTiming _exportTiming = new(60, 1, 0, null, null);
     public double? IntroAbsTimeMs { get; set; }
 
     /// <summary>
@@ -509,6 +512,18 @@ public class ProcessWorker : IDisposable
                 double sourceDuration = await prober.GetDurationAsync();
                 OriginalResolution = await prober.GetResolutionStringAsync();
 
+                // COLOR_01 — decide the colour conversion ONCE per export, from the source's own tags.
+                VideoColorInfo sourceColor = await prober.GetVideoColorInfoAsync();
+                bool canToneMap = sourceColor.IsHdr
+                    && await ExportColorPolicy.HasFilterAsync(_ffmpegPath, "zscale")
+                    && await ExportColorPolicy.HasFilterAsync(_ffmpegPath, "tonemap");
+                string? colorChain = ExportColorPolicy.BuildConversionChain(sourceColor, canToneMap, out string colorDescription, out string? colorDegraded);
+                CoreLogger.Info("COLOR", $"Source {sourceColor}. {colorDescription}");
+                if (colorDegraded != null)
+                {
+                    FortniteVideoSoftware.Core.Abstractions.Faults.Degraded("EXPORT", colorDegraded, technicalDetail: colorDescription);
+                }
+
                 var config = new VideoConfig();
                 var (keepHighestRes, targetMb, qualityLevel) = config.GetQualitySettings(QualityLevel, TargetMbOverride);
 
@@ -781,6 +796,15 @@ public class ProcessWorker : IDisposable
                 }
 
                 var musicTracks = MusicTracks != null ? new List<MusicTrack>(MusicTracks) : new List<MusicTrack>();
+                if (musicTracks.Count > 0 && (padStartHumanSec > 0 || padEndHumanSec > 0))
+                {
+                    // MUSICPAD_01 — the UI placed the music from MARK START; the body starts at the fade-in pad.
+                    double firstBefore = musicTracks[0].TimelineStartDelay;
+                    musicTracks = MusicPadAlignment.Align(musicTracks, padStartHumanSec, padEndHumanSec, gDur, MusicLeadFadeIn, MusicTailFadeOut);
+                    CoreLogger.Info("Audio",
+                        $"Music aligned to the preview: fade-in pad {padStartHumanSec:F3}s, fade-out pad {padEndHumanSec:F3}s; " +
+                        $"first track starts at {musicTracks[0].TimelineStartDelay:F3}s of the body (was {firstBefore:F3}s from MARK START).");
+                }
                 if (musicTracks.Count == 0 && MusicConfig != null)
                 {
                     string? mPath = MusicConfig["path"]?.ToString();
@@ -984,6 +1008,21 @@ public class ProcessWorker : IDisposable
                     {
                         coreFilters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={gDur.ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_prepared_base]");
                         aPreparedPad = "[a_prepared_base]";
+                    }
+                }
+
+                // COLOR_01 — convert to SDR BT.709 TV range straight after the timing stage (speed,
+                // cuts, CFR: colour-agnostic) and BEFORE fades, the intro still, the portrait crop, the
+                // HUD overlays and memes. Those are all SDR artwork, and would be tone-mapped too if
+                // they were composited first. Both the main branch and the HUD branch are converted.
+                if (colorChain != null)
+                {
+                    coreFilters.Add($"{vStabilizedPad}{colorChain}[v_color]");
+                    vStabilizedPad = "[v_color]";
+                    if (!string.IsNullOrEmpty(gVHud))
+                    {
+                        coreFilters.Add($"{gVHud}{colorChain}[gVHud_color]");
+                        gVHud = "[gVHud_color]";
                     }
                 }
 
@@ -1490,6 +1529,23 @@ public class ProcessWorker : IDisposable
 
                 string corePath = Path.Combine(tempJobDir, "core.mp4");
 
+                // TIMINGTAG_02 — frame-exact timing stamped into the delivered file (intro + fades),
+                // alongside the SCRAPER_01 v1 seconds key that older Merger builds read.
+                // A meme at an edge moves the fade away from the file's edge, so that fade is written
+                // as UNKNOWN (null) rather than as a wrong position.
+                {
+                    if (!ExportTiming.TryParseFps(targetFps, out int tagFpsNum, out int tagFpsDen)) { tagFpsNum = 60; tagFpsDen = 1; }
+                    double tagFps = (double)tagFpsNum / tagFpsDen;
+                    bool memeAtHead = memes.Any(m => m.CutOutputSec <= introDurationSec + 1e-6);
+                    bool memeAtTail = memes.Any(m => m.CutOutputSec >= renderDurationSec - 1e-6);
+                    _exportTiming = new ExportTiming(
+                        tagFpsNum, tagFpsDen,
+                        introInputIndex.HasValue ? ExportTiming.SecToFrames(introDurationSec, tagFps) : 0,
+                        memeAtHead ? null : ExportTiming.SecToFrames(padStartHumanSec, tagFps),
+                        memeAtTail ? null : ExportTiming.SecToFrames(padEndHumanSec, tagFps));
+                    CoreLogger.Info("FFmpeg", $"Timing tag: {ExportTimingTag.Format(_exportTiming)}");
+                }
+
                 string twoPassMasterPath = Path.Combine(tempJobDir, "twopass_master.mp4");
                 string twoPassLogPrefix = Path.Combine(tempJobDir, "twopass_stats");
 
@@ -1614,14 +1670,14 @@ public class ProcessWorker : IDisposable
                             ffmpegArgs.AddRange(TwoPassEncoding.PassArgs(requestedBitrate!.Value, 2, twoPassLogPrefix));
                             ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
                                 "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                                "-movflags", "+faststart", corePath]);
+                                ..IntroTag.OutputArgs(_exportTiming), corePath]);   // TIMINGTAG_02
                         }
                         else
                         {
                             ffmpegArgs.AddRange(codecArgs);
                             ffmpegArgs.AddRange(["-c:a", "aac", "-b:a", $"{audioKbps}k",
                                 "-t", totalOutputDurationSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                                "-movflags", "+faststart", corePath]);
+                                ..IntroTag.OutputArgs(_exportTiming), corePath]);   // TIMINGTAG_02
                         }
 
                         double encodeBand = EncodeBandMax - encodeFloor;
@@ -1667,7 +1723,7 @@ public class ProcessWorker : IDisposable
                         }
                         catch (Exception ex)
                         {
-                            CoreLogger.Debug("FFmpeg", $"Could not build the inlined command for the log: {ex.Message}");
+                            CoreLogger.Warn("FFmpeg", $"Could not build the inlined command for the log: {ex.Message}");
                         }
 
                         var psi = new ProcessStartInfo
@@ -2507,7 +2563,7 @@ public class ProcessWorker : IDisposable
 
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
-        pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
+        pass2.AddRange(["-c:a", "copy", ..IntroTag.OutputArgs(_exportTiming), finalPath]);   // TIMINGTAG_02
 
         if (!await RunPassAsync(pass2, "Encoding Video (3 of 3)", totalOutputDurationSec,
                                 pass1Ceiling, pass2Ceiling, cancellationToken))
@@ -2622,7 +2678,7 @@ public class ProcessWorker : IDisposable
             {
                 global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
             }
-            catch (TimeoutException) { CoreLogger.Debug("FFmpeg", "Two-pass reader drain timed out after 5s; continuing teardown."); }
+            catch (TimeoutException) { CoreLogger.Warn("FFmpeg", "Two-pass reader drain timed out after 5s; continuing teardown."); }
             catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
             // FFMPEGSTOP_01 — a cancelled tail must still let the ladder finish, or the process is

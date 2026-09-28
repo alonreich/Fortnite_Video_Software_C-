@@ -6110,7 +6110,7 @@ public partial class GranularSpeedEditorWindow : Window
         var loading = _thumbLoadingOverlay;
         if (laneGrid == null) return;
 
-        if (string.IsNullOrWhiteSpace(_videoPath) || !File.Exists(_videoPath)) return;
+        if (string.IsNullOrWhiteSpace(_videoPath) || !File.Exists(_videoPath)) { if (IsMergeMode) await BuildMergeFrameLaneAsync(laneGrid, loading); return; }   // MERGEEDIT_02
 
         double dur = GetDuration();
         if (dur <= 0) return;
@@ -7701,7 +7701,7 @@ public partial class GranularSpeedEditorWindow : Window
     /// </summary>
     private void ScheduleGranularRecoverySave()
     {
-        if (_editorClosing) return;
+        if (_editorClosing || IsMergeMode) return;   // MERGEEDIT_02 — no editor recovery for a merge
         if (_granularRecoveryTimer == null)
         {
             _granularRecoveryTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -7796,7 +7796,7 @@ public partial class GranularSpeedEditorWindow : Window
         }
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
 
-        if (session == null) return false;
+        if (session == null || IsMergeMode) return false;   // MERGEEDIT_02 — the Merger autosaves the merge itself
         if (!GetJsonBool(session["open"], false)) return false;
         if (GetJsonIntOrNull(session["schema_version"]) != GranularRecoverySchemaVersion) return false;
 

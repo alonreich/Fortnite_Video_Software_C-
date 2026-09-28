@@ -205,7 +205,7 @@ public partial class MainWindow
                 _musicWizardResult.TimelineStartSeconds = newStart;
                 _musicWizardResult.TimelineEndSeconds = newEnd;
                 UpdateTimelineMarkers();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "move music", gestureKey: "music-nudge");
                 e.Handled = true;
             }
         }
@@ -361,7 +361,7 @@ public partial class MainWindow
         ShowTimelineGlow(_trimStartMs, Avalonia.Media.Brushes.SeaGreen);
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "mark start");
 
         TriggerParticleBurst(new Avalonia.Point(Bounds.Width / 2, Bounds.Height * 0.7),
             Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);
@@ -394,7 +394,7 @@ public partial class MainWindow
         ShowTimelineGlow(_trimEndMs, Avalonia.Media.Brushes.SeaGreen);
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "mark end");
 
         TriggerParticleBurst(new Avalonia.Point(Bounds.Width / 2, Bounds.Height * 0.7),
             Controls.ParticleBurstCanvas.BurstPreset.MarkerDrop);

@@ -66,6 +66,7 @@ public static class TwoPassEncoding
     public static List<string> MasterCodecArgs() =>
     [
         "-c:v", "libx264",
+        .. ExportColorPolicy.OutputTagArgs,   // COLOR_01
         "-preset", "veryfast",
         "-crf", MasterCrf,
         "-pix_fmt", "yuv420p",
@@ -87,6 +88,7 @@ public static class TwoPassEncoding
         return
         [
             "-c:v", "libx264",
+            .. ExportColorPolicy.OutputTagArgs,   // COLOR_01 — identical on both passes
             "-preset", "medium",
             "-b:v", $"{kbps}k",
             "-pass", passNumber.ToString(),

@@ -76,7 +76,7 @@ public sealed class MicLevelMonitor : IDisposable
             {
                 // Not fatal and not worth a modal: the meter simply stays still, and recording is
                 // still attempted normally when the user presses record.
-                CoreLogger.Debug("MicMonitor", $"Could not open device {device} for monitoring: {ex.Message}");
+                CoreLogger.Warn("MicMonitor", $"Could not open device {device} for monitoring: {ex.Message}");
                 StopCore();
             }
         }
@@ -98,8 +98,8 @@ public sealed class MicLevelMonitor : IDisposable
         if (waveIn == null) return;
         try { waveIn.DataAvailable -= OnDataAvailable; } catch (Exception ex) { CoreLogger.Swallowed(ex); }
         try { waveIn.RecordingStopped -= OnRecordingStopped; } catch (Exception ex) { CoreLogger.Swallowed(ex); }
-        try { waveIn.StopRecording(); } catch (Exception ex) { CoreLogger.Debug("MicMonitor", $"StopRecording threw: {ex.Message}"); }
-        try { waveIn.Dispose(); } catch (Exception ex) { CoreLogger.Debug("MicMonitor", $"Dispose threw: {ex.Message}"); }
+        try { waveIn.StopRecording(); } catch (Exception ex) { CoreLogger.Warn("MicMonitor", $"StopRecording threw: {ex.Message}"); }
+        try { waveIn.Dispose(); } catch (Exception ex) { CoreLogger.Warn("MicMonitor", $"Dispose threw: {ex.Message}"); }
     }
 
     private void OnDataAvailable(object? sender, WaveInEventArgs a)
@@ -123,7 +123,7 @@ public sealed class MicLevelMonitor : IDisposable
     {
         if (e.Exception != null)
         {
-            CoreLogger.Debug("MicMonitor", $"Monitoring stopped with an error: {e.Exception.Message}");
+            CoreLogger.Warn("MicMonitor", $"Monitoring stopped with an error: {e.Exception.Message}");
         }
     }
 

@@ -95,6 +95,9 @@ public static class DiagnosticBundle
                 // is the one thing a log tail can miss entirely — a hard crash writes no epitaph.
                 report.Add("SESSION", DescribeSession(paths));
 
+                // LOGVIS_01 — every classified failure this session, by tier and area.
+                report.Add("FAULTS", FaultCounters.Describe());
+
                 string folder = FolderFor(paths);
                 Directory.CreateDirectory(folder);
 

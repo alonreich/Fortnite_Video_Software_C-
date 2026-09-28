@@ -47,4 +47,17 @@ public partial class VideoMergerWindow
     private Button? AddMusicButtonCtl => _cAddMusicButton ??= this.FindControl<Button>("AddMusicButton");
     private Slider? _cVolumeSlider;
     private Slider? VolumeSliderCtl => _cVolumeSlider ??= this.FindControl<Slider>("VolumeSlider");
+    private CheckBox? _cScraperCheckBox;
+    private CheckBox? ScraperCheckBoxCtl => _cScraperCheckBox ??= this.FindControl<CheckBox>("ThumbnailScraperCheckBox");
+    private Canvas? _cMarkersCanvas;
+    private Canvas? MarkersCanvasCtl => _cMarkersCanvas ??= this.FindControl<Canvas>("TimelineMarkersCanvas");
+    private Canvas? _cFilmLane;
+    private Canvas? FilmLaneCtl => _cFilmLane ??= this.FindControl<Canvas>("MergerFilmstripLane");   // LANES_01
+    private Canvas? _cWaveLane;
+    private Canvas? WaveLaneCtl => _cWaveLane ??= this.FindControl<Canvas>("MergerWaveformLane");    // LANES_01
+    private Canvas? _cBlocksLane;
+    private Canvas? BlocksLaneCtl => _cBlocksLane ??= this.FindControl<Canvas>("MergerClipBlocksLane");  // D20
+
+    /// <summary>AOTCLEAN_01 — in-app reorder drag payload (application-private format; replaces the obsolete string key "VideoItem").</summary>
+    private static readonly Avalonia.Input.DataFormat<string> VideoItemFormat = Avalonia.Input.DataFormat.CreateStringApplicationFormat("fvs.merger.video-item");
 }

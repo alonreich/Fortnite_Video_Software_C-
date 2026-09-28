@@ -45,8 +45,16 @@
                         </TabItem>
                         <TabItem Header="Defaults">
                             <ScrollViewer>
+                                <StackPanel Spacing="0">
                                 <StackPanel Name="DefaultsPanel" Margin="10" Spacing="10" MaxWidth="500" HorizontalAlignment="Left">
                                     <TextBlock Text="Default values applied when the app opens." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,0,0,5" />
+                                </StackPanel>
+                                <!-- SCRAPER_05 — same flag as the small checkbox at the bottom left of the Video Merger. -->
+                                <StackPanel Margin="10,0,10,10" Spacing="6" MaxWidth="500" HorizontalAlignment="Left">
+                                    <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <CheckBox Name="MergerThumbnailScraperCheckBox" Content="Thumbnail Scraper" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding MergerThumbnailScraper, Mode=TwoWay}"
+                                              ToolTip.Tip="When merging, cut the short cover-picture intro that this app adds to every export from the 2nd clip onward, so the joined video has no flashes between clips. The first clip keeps its intro unless you pick a custom thumbnail in the merger." />
+                                </StackPanel>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
@@ -204,7 +212,7 @@
                                 <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="Choose whether the software should double check with you before deleting data. If you uncheck these, actions will happen instantly without warning." Margin="0,0,0,10" />
                                 
                                 <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,5"/>
-                                <CheckBox Content="Show warning before 'Remove Selected' video" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmVideoMergerRemove, Mode=TwoWay}" />
+                                <CheckBox Content="Video Merger: ask before removing clips (Delete key, right-click, Remove)" ToolTip.Tip="Off: clips are removed at once and a notice tells you Ctrl+Z brings them back. On: a confirmation box asks first." Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmVideoMergerRemove, Mode=TwoWay}" />
                                 <CheckBox Content="Show warning before 'Clear All' videos" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmVideoMergerClearAll, Mode=TwoWay}" />
                                 
                                 <TextBlock Text="Crop Tools" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
@@ -262,7 +270,7 @@
                                             <TextBlock Name="AboutGpuText" Grid.Row="1" Grid.Column="1" Text="Detecting..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
 
                                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Storage Root: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
-                                            <TextBlock Name="AboutStorageText" Grid.Row="2" Grid.Column="1" Text="ProgramData\FortniteVideoSoftware" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                            <TextBlock Name="AboutStorageText" Grid.Row="2" Grid.Column="1" Text="%LOCALAPPDATA%\Fortnite Video Software" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
                                         </Grid>
                                     </StackPanel>
 

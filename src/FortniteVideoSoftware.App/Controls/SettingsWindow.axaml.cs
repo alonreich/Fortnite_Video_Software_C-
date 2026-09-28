@@ -821,7 +821,7 @@ public partial class SettingsWindow : Window
             AutoUpdateChecks = autoCheckCb.IsChecked.Value;
         }
         SettingsManager.Instance.AutoUpdateChecks = AutoUpdateChecks;
-
+        SettingsManager.Instance.MergerThumbnailScraper = MergerThumbnailScraper;   // SCRAPER_05
         SettingsManager.Instance.UiSoundsEnabled = UiSoundsEnabled;
         SettingsManager.Instance.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);
 

@@ -120,7 +120,7 @@ REM is to run it and read the exit code.
 REM
 REM WHY IT MOVED: as a batch FOR list this check broke three times and
 REM every failure was silent.
-REM   VERIFYLOOP_01  - `call :CHECK_TAG` seeked labels by BYTE OFFSET
+REM   VERIFYLOOP_01  - the old per-tag `call :<label>` subroutine seeked labels by BYTE OFFSET
 REM                    through a mixed-EOL file; two seeks landed badly, so
 REM                    2 of 49 sentinels were skipped and the run said OK.
 REM   LISTCOMMENT_01 - REM is not a comment inside a FOR list. Each

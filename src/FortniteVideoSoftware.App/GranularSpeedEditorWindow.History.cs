@@ -61,7 +61,7 @@ public partial class GranularSpeedEditorWindow
 
     /// <summary>UNDO_25 — normalised identity for the clip this editor is editing.</summary>
     private string HistoryKey =>
-        string.IsNullOrWhiteSpace(_videoPath) ? string.Empty : Path.GetFullPath(_videoPath).ToUpperInvariant();
+        string.IsNullOrWhiteSpace(_videoPath) || IsMergeMode ? string.Empty : Path.GetFullPath(_videoPath).ToUpperInvariant();   // MERGEEDIT_02
 
     /// <summary>
     /// UNDO_25 — takes back the history this clip had when its editor was last closed.

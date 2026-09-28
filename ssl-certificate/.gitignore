@@ -1,0 +1,4 @@
+# SIGNLOCAL_01 - private keys and the password never enter git.
+*.pfx
+*.key.pem
+*.password.txt

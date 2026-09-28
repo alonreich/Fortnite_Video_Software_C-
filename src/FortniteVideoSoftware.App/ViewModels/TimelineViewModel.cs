@@ -358,6 +358,50 @@ public sealed class TimelineViewModel : ViewModelBase
         return Math.Max(0.0, frozenMs);
     }
 
+    private (double StartMs, double EndMs, double BaseSpeed, int Segments, int Cuts)? _previewTimelineKey;
+    private OutputTimeline? _previewTimeline;
+
+    /// <summary>
+    /// MUSICSYNC_01 — source ms to FINISHED-VIDEO seconds for LIVE PREVIEW use (called every UI
+    /// tick while playing).
+    /// <para>
+    /// Same mapping as <see cref="SourceMsToOutputSeconds"/> (North Star #2: OutputTimeline is the
+    /// only authority for time), with two differences that matter on a hot path:
+    ///   • it NEVER calls <see cref="EnsureTrimPointsSet"/>. Unset marks resolve read-only to "the
+    ///     whole video", the QUALITY_05 rule, so previewing cannot stamp the clip as trimmed;
+    ///   • the OutputTimeline is rebuilt only when its inputs change (trim, base speed, segments,
+    ///     freeze, cuts), not once per frame.
+    /// </para>
+    /// </summary>
+    public double PreviewSourceToOutputSeconds(double sourceMs)
+    {
+        double startMs = IsTrimStartSet ? TrimStartMs : 0.0;
+        double endMs = (IsTrimEndSet && TrimEndMs > startMs) ? TrimEndMs : LoadedVideoDurationMs;
+        double spanMs = Math.Max(0, endMs - startMs);
+
+        var segments = BuildExportSpeedSegments();
+        var hashSeg = new HashCode();
+        foreach (var seg in segments) hashSeg.Add(seg);
+        var hashCut = new HashCode();
+        foreach (var cut in Cuts) hashCut.Add(cut);
+        var key = (startMs, endMs, BaseSpeed, hashSeg.ToHashCode(), hashCut.ToHashCode());
+
+        if (_previewTimeline == null || _previewTimelineKey != key)
+        {
+            _previewTimeline = OutputTimeline.Create(
+                spanMs,
+                segments,
+                BaseSpeed,
+                startMs,
+                null,
+                CutRange.ToClipRelative(Cuts, startMs));
+            _previewTimelineKey = key;
+        }
+
+        double absSourceSec = Math.Clamp(sourceMs, startMs, startMs + spanMs) / 1000.0;
+        return Math.Max(0.0, _previewTimeline.SourceToOutput(absSourceSec));
+    }
+
     public double SourceMsToOutputSeconds(double sourceMs, IReadOnlyList<SpeedSegment>? segments = null)
     {
         EnsureTrimPointsSet();

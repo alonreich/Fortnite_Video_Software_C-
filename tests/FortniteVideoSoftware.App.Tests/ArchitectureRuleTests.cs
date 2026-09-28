@@ -618,9 +618,9 @@ public sealed class ArchitectureRuleTests
             ["GranularSpeedEditorWindow.axaml.cs"] = 8075,
             ["CropToolWindow.axaml.cs"]            = 6493,
             ["MusicWizardWindow.axaml.cs"]         = 5557,
-            ["VoiceOverWindow.axaml.cs"]           = 3670,
-            ["MainWindow.axaml.cs"]                = 3460,
-            ["VideoMergerWindow.axaml.cs"]         = 2275,
+            ["VoiceOverWindow.axaml.cs"]           = 3655,   // 2026-09-25: MUSICSYNC_02 shared sync
+            ["MainWindow.axaml.cs"]                = 3265,   // 2026-09-25: edit hook + preview audio moved to partials
+            ["VideoMergerWindow.axaml.cs"]         = 2246,   // 2026-09-26: D20 reorders → VideoQueue.Move;   // 2026-09-25: SCRAPER_02 timeline scale moved to a partial
             ["PhaseOverlayControl.axaml.cs"]       = 2425,
             ["SettingsWindow.axaml.cs"]            = 1040,
         };

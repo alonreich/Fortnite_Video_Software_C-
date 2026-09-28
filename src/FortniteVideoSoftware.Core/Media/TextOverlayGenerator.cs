@@ -53,8 +53,9 @@ public static class TextOverlayGenerator
         {
             Color = SKColors.White,
             IsAntialias = true,
-            Typeface = typeface
         };
+        // AOTCLEAN_04 — SkiaSharp 3: text state (typeface, size) lives on SKFont, not SKPaint.
+        using var font = new SKFont(typeface) { Edging = SKFontEdging.Antialias };
 
         int currentFontSize = 110;
         int minFontSize = 14;
@@ -62,8 +63,8 @@ public static class TextOverlayGenerator
 
         while (currentFontSize >= minFontSize)
         {
-            paint.TextSize = currentFontSize;
-            finalLines = WrapText(text, paint, width - (padding * 4));
+            font.Size = currentFontSize;
+            finalLines = WrapText(text, font, paint, width - (padding * 4));
             
             float totalHeight = finalLines.Count * (currentFontSize * 1.2f);
             if (totalHeight <= height - (padding * 2))
@@ -73,7 +74,7 @@ public static class TextOverlayGenerator
             currentFontSize -= 4;
         }
 
-        paint.TextSize = currentFontSize;
+        font.Size = currentFontSize;
 
         bool hasHebrew = text.Any(c => c >= 0x0590 && c <= 0x05FF);
 
@@ -88,8 +89,7 @@ public static class TextOverlayGenerator
             string displayLine = hasHebrew ? ReorderRtl(line) : line;
             displayLines.Add(displayLine);
             
-            var bounds = new SKRect();
-            paint.MeasureText(displayLine, ref bounds);
+            font.MeasureText(displayLine, out SKRect bounds, paint);
             if (bounds.Width > maxLineWidth) maxLineWidth = bounds.Width;
         }
 
@@ -113,12 +113,11 @@ public static class TextOverlayGenerator
 
         foreach (var displayLine in displayLines)
         {
-            var bounds = new SKRect();
-            paint.MeasureText(displayLine, ref bounds);
-            
+            font.MeasureText(displayLine, out SKRect bounds, paint);
+
             float textX = xOffset + (bgWidth - bounds.Width) / 2f;
-            
-            canvas.DrawText(displayLine, textX, textY, paint);
+
+            canvas.DrawText(displayLine, textX, textY, SKTextAlign.Left, font, paint);
             textY += lineHeight;
         }
 
@@ -128,7 +127,7 @@ public static class TextOverlayGenerator
         data.SaveTo(stream);
     }
 
-    private static List<string> WrapText(string text, SKPaint paint, float maxWidth)
+    private static List<string> WrapText(string text, SKFont font, SKPaint paint, float maxWidth)
     {
         var words = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var lines = new List<string>();
@@ -137,8 +136,7 @@ public static class TextOverlayGenerator
         foreach (var word in words)
         {
             var testLine = string.IsNullOrEmpty(currentLine) ? word : currentLine + " " + word;
-            var bounds = new SKRect();
-            paint.MeasureText(testLine, ref bounds);
+            font.MeasureText(testLine, out SKRect bounds, paint);
 
             if (bounds.Width > maxWidth && !string.IsNullOrEmpty(currentLine))
             {

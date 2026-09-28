@@ -136,28 +136,19 @@ public sealed class ToolNavigator
     private static ProjectMerge? _mergeQueue;
 
     /// <summary>
-    /// PROJ_11 — called by the Merger whenever its queue changes and once as it closes.
-    /// An empty queue CLEARS the record rather than storing an empty one: "no merge" and "a merge
-    /// of nothing" must not become two different states in the saved file.
+    /// PROJ_12 / MERGESESSION_01 — the Merger's full edit list. Stores the legacy clip list too (from
+    /// the EDL windows) so a reader that only knows <see cref="ProjectMerge.Clips"/> still sees the queue.
     /// </summary>
-    public static void PublishMergeQueue(IReadOnlyList<string>? paths, double baseSpeed)
+    public static void PublishMergeEdl(FortniteVideoSoftware.Core.Media.MergeEdl edl)
     {
-        if (paths is null || paths.Count == 0)
+        if (edl.Clips.Count == 0)
         {
             _mergeQueue = null;
             return;
         }
-
-        var clips = new List<MergeClip>(paths.Count);
-        foreach (string path in paths)
-        {
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            clips.Add(new MergeClip(path, 0, 0));
-        }
-
-        _mergeQueue = clips.Count == 0
-            ? null
-            : new ProjectMerge { Clips = clips, BaseSpeed = baseSpeed <= 0 ? 1.0 : baseSpeed };
+        var clips = new List<MergeClip>(edl.Clips.Count);
+        foreach (var c in edl.Clips) clips.Add(new MergeClip(c.Path, c.InUs / 1_000_000.0, c.OutUs / 1_000_000.0));
+        _mergeQueue = new ProjectMerge { Clips = clips, BaseSpeed = edl.BaseSpeed, Edl = edl };
     }
 
     /// <summary>PROJ_11 — what <c>ProjectSession.Capture</c> reads. Null means "no merge queued".</summary>

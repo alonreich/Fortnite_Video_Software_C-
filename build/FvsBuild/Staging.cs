@@ -15,6 +15,12 @@ internal static class Staging
     private const string ProjectExe = "FortniteVideoSoftware.App.exe";
     private const string OutputExe = "FortniteVideoSoftware.exe";
     private const string OutputDir = @".\compiled";
+    /// <summary>
+    /// RELEASEASSETS_01 — release sidecars (runtime.manifest.json) live HERE, not in .\compiled.
+    /// MANDATE #2 says .\compiled holds exactly one file, and ValidateCompiledOutput enforces it; the
+    /// manifest used to be written into .\compiled and every build that reached validation failed.
+    /// </summary>
+    private const string ReleaseAssetsDir = @".\obj\ReleaseAssets";
     private const string StagingDir = @".\obj\StandaloneTemp\Staging";
     private const string FinalDir = @".\obj\StandaloneTemp\NativeAot_final";
     private const string PayloadZip = @"src\FortniteVideoSoftware.App\payload.zip";
@@ -96,10 +102,44 @@ internal static class Staging
         TryDeleteFile(PayloadZip);
     }
 
+    /// <summary>
+    /// ILCCRASH_01 — output that means ILC ITSELF crashed, as opposed to our code failing to compile.
+    /// ILC 9.0.x (dotnet/runtime#108743) can die with IL1013 / NullReferenceException inside
+    /// XNodeNavigator while its PARALLEL scanner processes a framework assembly's embedded
+    /// ILLink.Substitutions.xml. It is a race in the compiler: the identical inputs compile on the
+    /// next run. Nothing in FVS code or configuration triggers it, and nothing is suppressed for it.
+    /// </summary>
+    private static readonly string[] IlcInternalCrashMarkers =
+    [
+        "ILCompiler.NativeAotFatalErrorException",
+        "ILCompiler.CodeGenerationFailedException",
+        "error IL1013",
+    ];
+
     /// <summary>Runs one of the two identical NativeAOT publishes (staging pass or final installer pass).</summary>
     public static bool Publish(string outputDir, string buildVersion, BuildLog log, string stepTitle)
     {
         log.Info($"[NativeAOT] {stepTitle}");
+        if (RunPublish(outputDir, buildVersion, log, singleThreadedIlc: false, out bool ilcCrashed))
+        {
+            return true;
+        }
+        if (!ilcCrashed)
+        {
+            return false;   // a real build error: report it as it is
+        }
+
+        // ILCCRASH_01 — the compiler crashed, not the code. Re-run the SAME publish once with
+        // ILC's scanner single-threaded (--parallelism:1), which removes the race window. Slower,
+        // identical output. A second failure is reported as a failure.
+        log.Warn("[NativeAOT] ILC (the NativeAOT compiler) crashed internally - known .NET 9 race, dotnet/runtime#108743.");
+        log.Warn("[NativeAOT] Retrying this publish once with a single-threaded ILC scanner (slower, same output)...");
+        return RunPublish(outputDir, buildVersion, log, singleThreadedIlc: true, out _);
+    }
+
+    private static bool RunPublish(string outputDir, string buildVersion, BuildLog log, bool singleThreadedIlc, out bool ilcCrashed)
+    {
+        bool crashed = false;
         List<string> arguments =
         [
             "publish", ProjectFile,
@@ -117,7 +157,19 @@ internal static class Staging
             "-o", outputDir,
             "-v", "m",
         ];
-        return Cli.RunStreaming("dotnet", arguments, log) == 0;
+        if (singleThreadedIlc)
+        {
+            arguments.Add("-p:IlcSingleThreaded=true");
+        }
+        int exit = Cli.RunStreaming("dotnet", arguments, log, line =>
+        {
+            foreach (string marker in IlcInternalCrashMarkers)
+            {
+                if (line.Contains(marker, StringComparison.Ordinal)) { crashed = true; break; }
+            }
+        });
+        ilcCrashed = crashed;
+        return exit == 0;
     }
 
     /// <summary>Step 2.5/2.6: stages backend codecs, the mpv frontend and the starter media next to the staged app.</summary>
@@ -238,7 +290,7 @@ internal static class Staging
             // Written twice, on purpose:
             //   • INTO the staging folder, so it lands beside the installed binaries and the
             //     updater on that machine can read what is actually installed.
-            //   • BESIDE compiled\, so the release can publish it as a tiny sidecar asset and the
+            //   • BESIDE compiled\ (obj\ReleaseAssets, RELEASEASSETS_01), so the release can publish it as a tiny sidecar asset and the
             //     updater can read what the release EXPECTS without downloading 322 MB to find out.
             // A fingerprint that exists in only one of those two places answers nothing.
             //
@@ -248,12 +300,12 @@ internal static class Staging
             var manifest = FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FromFolder(StagingDir);
             manifest.Write(StagingDir);
 
-            Directory.CreateDirectory(OutputDir);
-            manifest.Write(OutputDir);
+            Directory.CreateDirectory(ReleaseAssetsDir);
+            manifest.Write(ReleaseAssetsDir);
 
             log.Info($"[NativeAOT] Runtime fingerprint {manifest.Fingerprint} over {manifest.FileCount} binaries "
                    + $"({FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FormatBytes(manifest.TotalBytes)}). "
-                   + "Publish compiled\\runtime.manifest.json as a release asset so patch updates can skip the payload.");
+                   + "Publish " + ReleaseAssetsDir.TrimStart('.', '\\') + "\\runtime.manifest.json as a release asset so patch updates can skip the payload.");
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)

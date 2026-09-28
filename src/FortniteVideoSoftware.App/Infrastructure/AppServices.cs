@@ -232,7 +232,7 @@ public sealed class AvaloniaWindowProvider : IActiveWindowProvider
             {
                 // Reading the lifetime during teardown can race. A null answer degrades the caller
                 // to the log, which is the documented contract above.
-                RuntimeLog.Debug("COMPOSITION", $"Active window lookup failed: {ex.Message}");
+                RuntimeLog.WarnThrottled("COMPOSITION", $"Active window lookup failed: {ex.Message}");
                 return null;
             }
         }

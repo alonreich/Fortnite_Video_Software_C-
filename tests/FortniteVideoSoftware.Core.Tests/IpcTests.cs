@@ -375,4 +375,26 @@ public class IpcTests : IDisposable
         Assert.False(state.ContainsKey("MainVolume"));
         Assert.Equal(1, state["schema_version"]?.GetValue<int>());
     }
+
+    // WRITEORDER_02 — concurrent flushes can never leave an older snapshot on disk.
+    [Fact]
+    public async Task IpcServer_ConcurrentFlushes_DiskEndsAtTheLatestState()
+    {
+        using var server = NamedPipeStateServer.TryStart(_paths, new JsonObject { ["schema_version"] = 1 });
+        Assert.NotNull(server);
+
+        var flushers = new List<Task>();
+        for (int i = 1; i <= 200; i++)
+        {
+            server!.UpdateProperties(new JsonObject { ["MainVolume"] = (double)(i % 100) });
+            flushers.Add(Task.Run(server.FlushToDiskSafe));
+        }
+        await Task.WhenAll(flushers);
+        server!.FlushToDiskSafe();
+
+        double expected = server.GetState()["MainVolume"]!.GetValue<double>();
+        JsonObject? onDisk = AtomicJsonFile.ReadObject(_paths.SessionStateFile);
+        Assert.NotNull(onDisk);
+        Assert.Equal(expected, onDisk!["MainVolume"]!.GetValue<double>());
+    }
 }

@@ -255,6 +255,8 @@ public class EncoderManager
         var fpsValue = FpsFraction(fpsExpr);
 
         var vcodec = new List<string> { "-c:v", encoderName };
+        // COLOR_01 — every delivered file states what it is: SDR BT.709, TV range.
+        vcodec.AddRange(ExportColorPolicy.OutputTagArgs);
         int gop = (int)(fpsValue * new Frac(2, 1) + new Frac(1, 2)).ToDouble();
         int keyintMin = (int)(fpsValue + new Frac(1, 2)).ToDouble();
         vcodec.AddRange(["-g", gop.ToString(), "-keyint_min", keyintMin.ToString()]);

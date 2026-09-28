@@ -133,6 +133,37 @@ public class MediaProber
         return $"{w}x{h}";
     }
 
+    /// <summary>COLOR_01 — colour description of the first video stream (see <see cref="ExportColorPolicy"/>).</summary>
+    public async Task<VideoColorInfo> GetVideoColorInfoAsync()
+    {
+        var data = await ProbeAsync();
+        var streams = data["streams"]?.AsArray();
+        if (streams != null)
+        {
+            foreach (var stream in streams)
+            {
+                if (stream?["codec_type"]?.ToString() == "video") return VideoColorInfo.FromStream(stream);
+            }
+        }
+        return VideoColorInfo.Unknown;
+    }
+
+    /// <summary>SCRAPER_01 — length of the tagged thumbnail intro, or 0 (see <see cref="IntroTag"/>).</summary>
+    public async Task<double> GetIntroTagSecAsync()
+    {
+        var data = await ProbeAsync();
+        double duration = await GetDurationAsync();
+        return IntroTag.Read(data["format"]?["tags"], duration);
+    }
+
+    /// <summary>TIMINGTAG_02 — frame-exact timing tag (v2), or the v1 seconds tag, or null.</summary>
+    public async Task<ExportTiming?> GetExportTimingAsync()
+    {
+        var data = await ProbeAsync();
+        double duration = await GetDurationAsync();
+        return ExportTimingTag.Read(data["format"]?["tags"], duration);
+    }
+
     public async Task<bool> HasAudioAsync()
     {
         var data = await ProbeAsync();

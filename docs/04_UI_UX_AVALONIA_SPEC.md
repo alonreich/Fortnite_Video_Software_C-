@@ -5,28 +5,37 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| src/FortniteVideoSoftware.App/AvaloniaApp.axaml | AppStyles | AppPrimaryButtonGradient, AppZoomBrush, AppDangerBrush, SliderThumb | Global styling dictionary, design tokens, and control templates. |
-| src/FortniteVideoSoftware.App/Controls/CoachOverlay.cs | CoachOverlay, CoachTours | Register, StartTour, ResolveHostPanel, OnRenderTick | In-memory 30Hz vector walkthrough overlay and first-run user guidance. |
-| src/FortniteVideoSoftware.App/Controls/FloatingNotice.cs | FloatingNotice | Notify, NotifyError, OverlayCanvas, LayoutPass | Semantic floating pill notices with double layout pass rendering. |
-| src/FortniteVideoSoftware.App/Controls/AmbientBubblesBackground.cs | AmbientBubblesBackground | BubbleCount = 35, PhysicsStep = 30Hz, Anomalies, ThrottledPaint | Ambient floating bubble wallpaper with 30fps throttled physics. |
-| src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs | FluidVolumeSlider, Tactile | OnPointerMoved, VolumeChanged, EnableGlobalRipple, AppTubeBrush | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 02**|
-| src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs | ConfirmDialogWindow | AskEditOrRemoveAsync, SetButtonText, OnConfirm | Destructive action confirmation dialog with loss itemization. |
-| src/FortniteVideoSoftware.App/Controls/SpinningWheelSlider.cs | SpinningWheelSlider | OnPointerWheelChanged, SetValueSmooth, SnapToTick | Precision wheel slider for speed, quality, and fine numeric tuning. |
-| src/FortniteVideoSoftware.App/MainWindow.axaml.cs | MainWindow | SizeToContent, MinWidth, MinHeight, BeginMoveDrag | Main window UI coordination, fluid container resizing, and borderless dragging. **⚠ CO-GOVERNED BY: 01, 02, GOV**|
-| src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs | GranularSpeedEditorWindow | PushUndo, Undo, Redo, MaxUndoDepth = 40 | Granular Speed Editor 3-column layout and 40-deep immutable undo/redo engine. **⚠ CO-GOVERNED BY: 01, 05**|
-| src/FortniteVideoSoftware.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | DimmerFlanks, CenterClearSlice = 720 | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
-| src/FortniteVideoSoftware.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, RestoreBounds, SaveBoundsSync, DebounceMs = 700 | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
-| src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window in the suite. |
+| src/FortniteVideoSoftware.App/AvaloniaApp.axaml | AppStyles | AppPrimaryButtonGradient, AppZoomBrush, AppDangerBrush, `Slider /template/ Thumb` style | Global styling dictionary, design tokens, and control templates. |
+| src/FortniteVideoSoftware.App/Controls/CoachOverlay.cs | CoachOverlay, CoachStep, CoachGesture | Register, Replay, PlayOnce, ResolveHostPanel, Tick, TickMs = 33 | In-memory 30Hz vector walkthrough overlay and first-run user guidance. |
+| src/FortniteVideoSoftware.App/Controls/FloatingNotice.cs | FloatingNotice, NoticeKind | Show, ShowAt, Success, Info, Warn, Error, OverlayCanvas, MaxConcurrent = 3 | Semantic floating pill notices with double layout pass rendering. |
+| src/FortniteVideoSoftware.App/Controls/AmbientBubblesBackground.cs | AmbientBubblesBackground | BubbleCount = 35, PhysicsHz = 60, RenderHz = 30, StepPhysics, ResetBubble | Ambient floating bubble wallpaper: 60 Hz fixed-step physics, painting throttled to 30 fps. |
+| src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs | FluidVolumeSlider | OnPointerMoved, StepPhysics, IsInteracting, RefreshGlassTheme, AppTubeGlassBaseColor, AppTubeGlassEdgeColor, AppTubeInnerShadowColor | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 02**|
+| src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs | ConfirmDialogWindow | AskAsync, AskEditOrRemoveAsync, AskSaveChangesAsync, SetButtonText, UseDestructiveStyling | Destructive action confirmation dialog with loss itemization. |
+| src/FortniteVideoSoftware.App/Controls/SpinningWheelSlider.cs | SpinningWheelSlider | OnPointerWheelChanged, SetRange, SetLabels, BeginSettle, NearestDetent | Precision wheel slider for speed, quality, and fine numeric tuning. |
+| src/FortniteVideoSoftware.App/MainWindow.axaml.cs | MainWindow | AttachTitleBarDrag, BeginMoveDrag | Main window UI coordination, fluid container resizing, and borderless dragging. **⚠ CO-GOVERNED BY: 01, 02, GOV**|
+| src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs | GranularSpeedEditorWindow | PushUndo, PerformUndo, PerformRedo, MaxUndoDepth = 40 | Granular Speed Editor 3-column layout and 40-deep immutable undo/redo engine. **⚠ CO-GOVERNED BY: 01, 05**|
+| src/FortniteVideoSoftware.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | PortraitImageControl, AppPortraitMaskBrush flanks, 600 · 720 · 600 columns | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
+| src/FortniteVideoSoftware.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, ApplyBounds, SaveBoundsAsync, SaveBoundsSync, SaveSnapshot (700 ms debounce) | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
+| src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window that has a grip (Crop Tools, Granular, Merger, Voice Over, Music Wizard, Finished dialog). |
 | src/FortniteVideoSoftware.App/Controls/SettingsWindow.axaml.cs | SettingsWindow | SelectTab, ShowAboutAsync, BuildAboutUi | Suite-wide preferences, About identity, hardware acceleration readout, and manual update checks. |
-| src/FortniteVideoSoftware.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | 4-way update suggestion modal with scrollable release notes and non-nagging choices. |
+| src/FortniteVideoSoftware.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | Update suggestion modal: three buttons plus close, scrollable release notes, non-nagging choices. |
+| src/FortniteVideoSoftware.App/VideoMergerWindow.TimelineSelect.cs | VideoMergerWindow | AttachClipChip, IsOnSeekRows, SelectQueueRow, TimelineBlocks, ChipDragThresholdPx = 6 | Merger timeline selection ants, thumbnail-block select/drag reorder (ANTS_01, MERGERUX_01). **⚠ CO-GOVERNED BY: 01**|
+| src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs | VideoMergerWindow | InitializeMergerGranular, InitializeLanes, InitializeTimelineSelection | Merger window session wiring. **⚠ CO-GOVERNED BY: 01, 05**|
+| src/FortniteVideoSoftware.App/VideoMergerWindow.EdlPreview.cs | VideoMergerWindow | ClearPreviewSurface, EdlLoadGraceTicks = 8, MergerPreviewPlan | One-EDL merge preview and effects preview (MERGEPREVIEW_EDL_01, MERGEPREVIEW_01, EMPTYQUEUE_01). **⚠ CO-GOVERNED BY: 01, 03**|
+| src/FortniteVideoSoftware.App/VideoMergerWindow.Lanes.cs | VideoMergerWindow | InitializeLanes, LaneCacheSize = 128, LaneParallelism = 2, BuildFilmTileAsync, BuildWaveTileAsync | Merger filmstrip and waveform lanes (LANES_01, LANECACHE_02). **⚠ CO-GOVERNED BY: 01**|
+| src/FortniteVideoSoftware.App/VideoMergerWindow.Playhead.cs | VideoMergerWindow | AttachMergerPlayhead, PositionPlayhead, AntsThickness = 1.25, PlayheadWidth = 2 | Merger red playhead line over every timeline row (MERGERPLAYHEAD_01). |
+| src/FortniteVideoSoftware.App/Infrastructure/GrabCursors.cs | GrabCursors | Open, Closed | Vector-drawn 24×24 open/closed-hand cursors (GRABCURSOR_01). |
+| src/FortniteVideoSoftware.App/Infrastructure/LaneDiskCache.cs | LaneDiskCache | MaxFiles = 800 | On-disk lane cache under `ApplicationPaths.LaneCacheDirectory` (LANECACHE_02). **⚠ CO-GOVERNED BY: 05**|
+| src/FortniteVideoSoftware.Core/Media/ProgressiveLanes.cs | LanePlanner, ThumbGrid, ProgressiveLaneRunner, LaneCache<T> | Plan, Slots, Pick, Generation, Cancel, MaxFrames = 90 | Lane tile planning, fixed thumbnail grid, progressive runner, LRU cache. |
+| src/FortniteVideoSoftware.Core/Media/WaveformPeaks.cs | WaveformPeaks | SampleRate = 4000, PeaksPerSecond = 40, MaxPeaks = 6000 | Vector waveform peaks for the Merger waveform lane (LANECACHE_02). |
 
 ---
 
 ## 1. Theme Governance & Token Mandate  {#UI-THEME}
 * **Zero Raw Hex Styling:** Hardcoded hex color codes in shared styling, controls, and dynamic templates are strictly forbidden. All brushes, borders, and shadows must resolve through named DynamicResource keys in AvaloniaApp.axaml.
 * **Token Registry Standards:**
-  * Primary actions: AppPrimaryButtonGradient, AppPrimaryBrush
-  * Zoom and crop boxes: AppZoomBrush, AppZoomGlow
+  * Primary actions: AppPrimaryButtonGradient
+  * Zoom and crop boxes: AppZoomBrush
   * Destructive triggers: AppDangerButtonGradient, AppDangerBrush
   * Glow shadows: AppDropIndicatorShadow, AppPhaseGlowShadow, AppRecordingGlowShadow
   * Table rules: AppBorderBrush (the frame around a table), AppTableHairlineBrush (rules INSIDE it — deliberately ~10% alpha, enough to guide the eye across a row, not enough to compete with the frame). Defined for both themes: low-alpha white on the dark ground, low-alpha ink on the light one.
@@ -60,12 +69,8 @@
 
 ## 2. High-DPI Scaling & Fluid Layouts  {#UI-DPI}
 * **First-Run Size Comes From The Display (FIRSTFIT_01):** `MinWidth`/`MinHeight` are a FLOOR, never a default size. The first open of every editing window is computed from the display — 80% of its working area, landscape 16:9, centred — and every open after that is whatever the user left it at. Authoritative rule and the maths: `05_SYSTEM_LIFECYCLE_STORAGE.md` §3 (SYS-WINSTATE).
-* **Root Window Constraints:**
-  All application windows enforce:
-  `xml
-  SizeToContent="WidthAndHeight" MinWidth="900" MinHeight="600"
-  `
-  Hardcoded root Width and Height properties are strictly banned.
+* **Root Window Constraints:** every window sets its own `MinWidth`/`MinHeight` in its XAML: Main App 800×600, Crop Tools 800×600, Settings 800×600, Granular Speed Editor 900×600, Voice Over Studio 980×640, Video Merger 1200×700, Music Wizard 1300×730, Preview Monitor 480×300, Meme Picker 520×460, deployment progress 560×360.
+  Editing windows never use `SizeToContent` and set no root `Width`/`Height` (their first size is FIRSTFIT_01's). `SizeToContent` is for dialogs only: `WidthAndHeight` on Confirm, Error, Audio Fix and Finished; `Height` on Cloud Sync, Update Available and Update Download (those may set a root `Width`).
 * **Container Expansion:**
   * Action rows, headers, and time badges use Auto or * grid tracks with hard MinWidth/MinHeight floors.
   * Scrubber row height is locked to 44px.
@@ -102,9 +107,8 @@
 * **Temporary crop selection zoom (CROPZOOMRESET_01):** Once a HUD quick selection is successfully added, restore the landscape viewport's zoom, fit mode, and scroll offset from before auto-zoom. Cancel restores the same state. A failed addition keeps its selection, and a manually zoomed view that did not trigger auto-zoom is preserved.
 * **HUD controls (SPECTATINGDEFAULT_01 / NO_BOSS_HP_01):** New projects start with Spectating Eye on. Explicit saved on/off choices restore faithfully. No Mask forces HUD controls off and remains a clean initial state. Boss HP has no control, setting, detection role, or export flag; legacy `boss_hp` layer keys are ignored.
 * **Destructive Confirmations:**
-  * Settings toggle defaults to protected (ConfirmDestructiveActions = true).
-  * Confirmation dialogs itemize exactly what will be discarded (segments, cuts, memes, take count) with clear escape buttons (KEEP IT, STAY HERE).
-  * Cut confirmation defaults to OFF.
+  * No global switch: each destructive action has its own `Confirm…` setting (`SettingsManager`) with its own default. ON: ConfirmVideoMergerClearAll, ConfirmCropToolReset, ConfirmCropToolDelete, ConfirmGranularDeleteSegment, ConfirmGranularClearAll, ConfirmMainAppCancel, ConfirmMainAppSwitchTool. OFF: ConfirmVideoMergerRemove (REMOVEUX_01; settings schema v9 turns it off once for upgraders), ConfirmMainAppCut, ConfirmVoiceOverDeleteTake, ConfirmFinishedDialogExit.
+  * Confirmation dialogs itemize exactly what will be discarded (segments, cuts, memes, take count) with clear escape buttons (KEEP IT in the Granular Speed Editor, STAY HERE in the Main App; Crop Tools uses `Back to editing`, CROPSAVEPROMPT_02).
   * Destructive actions must never execute in outer button click handlers that own flyouts.
 * **One Transport Per Surface (MAINEND_01):** Where a screen offers both an on-screen PLAY button and a keyboard shortcut, both must call the SAME method. Two copies of `SetPropertyAsync("pause", ...)` drift: a fix applied to one leaves the other trapped, and the user cannot tell which control is misbehaving. Behaviour: `01_TIMELINE_COORDINATE_MATH.md` §8 (TL-ENDSTOP).
 * **ONE ACTIVATION PATH PER CONTROL (DOUBLEFIRE_01) — NON-NEGOTIABLE:** Avalonia raises **both** `Command` and `Click` on a single button press. A control that carries a `Command` must NOT also carry a `Click` handler, and vice versa.
@@ -130,7 +134,7 @@
   * Tour layer blocks underlying hit-testing.
   * Unwraps decorators via ResolveHostPanel.
 * **FloatingNotice System:**
-  * Semantic pill notifications in OverlayCanvas using 4 distinct semantic tokens (Info, Success, Warning, Danger).
+  * Semantic pill notifications in OverlayCanvas using 4 distinct semantic kinds (`NoticeKind`: Info, Success, Warning, Error).
   * Deduplicates identical notices within a 1.4s window.
   * Enforces a maximum concurrency ceiling of 3 visible notices.
   * Executes a double layout pass to prevent top-left rendering flashes before layout computation finishes.
@@ -171,7 +175,7 @@
   * Exactly 35 background particles (BubbleCount = 35).
   * Particle opacity ranges between 5% - 10%.
   * Diameters range between 3px - 13px (with rare visual anomalies up to 40px).
-  * Physics timestep locked to 30Hz; paint calls throttled to 30fps; IsHitTestVisible="False".
+  * Physics fixed timestep 60 Hz (`PhysicsHz`); painting throttled to 30 fps (`RenderHz`); IsHitTestVisible="False".
 * **Borderless Window Dragging:**
   * Windows without OS titlebars (ExtendClientAreaTitleBarHeightHint="0") allow dragging from background areas via BeginMoveDrag on left mouse down (ClickCount < 2).
   * Bypasses child Button, Slider, and TextBox hit areas to prevent dragging during text selection.
@@ -181,7 +185,7 @@
 ## 7a. The Resize Grip Is Part Of A Borderless Window  {#UI-RESIZEGRIP}
 Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws no resize frame**. The only thing telling a user a window can be resized — and the only thing they can grab — is what the app draws itself. A borderless window without a grip is not "clean"; it is a window most users believe is a fixed size.
 
-* **One implementation, attached by every window.** `Controls/WindowResizeGrip.Attach(window, tooltip)` is the only way a window gets a grip. It adopts the `ResizeGrip` Border where the XAML already declares one and builds one where it does not, so the two cannot drift apart.
+* **One implementation, attached by every window that has a grip.** Crop Tools, Granular Speed Editor, Video Merger, Voice Over Studio, Music Wizard and the Finished dialog attach it; the Main App and Settings (and the Preview Monitor, Meme Picker and deployment progress windows) have no grip. `Controls/WindowResizeGrip.Attach(window, tooltip)` is the only way a window gets a grip. It adopts the `ResizeGrip` Border where the XAML already declares one and builds one where it does not, so the two cannot drift apart.
 * **Why this is a shared class and not twenty lines per window.** It *was* twenty lines per window, and the copies had already diverged into the worst possible split:
 
   | window | before |
@@ -269,6 +273,22 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 * **Rubber-Band Drag-Select Is STRICTLY FORBIDDEN:** Dragging on list items is reserved for REORDERING the queue and for accepting external file drops. Enabling the default canvas drag-selection behaviour breaks clip reordering outright — the two gestures are the same gesture.
 * **Dual Drop Paths (neither may be removed):** Avalonia OLE drag & drop accepts MULTIPLE external files at once with the same duplicate detection as the Upload Files button, while internal item-reorder drags continue to work. The legacy `WM_DROPFILES` interop fallback exists because Windows UIPI silently blocks OLE drops into an elevated process.
 * **Title Truncation:** Long filenames use `TextTrimming="CharacterEllipsis"` with the full path exposed as the item tooltip. Font size does NOT shrink — titles never clip outside the `VIDEOS LIST` container and never wrap.
+* **One EDL, the export's schedule (MERGEPREVIEW_EDL_01 / MERGEPREVIEW_01):** once the queue is analysed the preview plays the whole merge as ONE inline mpv EDL (`VideoMergerWindow.EdlPreview.cs`), so mpv's clock is the merged clock and a new layout (reorder, remove, scraper, thumbnail) reloads it at the same moment of the same file; effects play live from `MergerPreviewPlan` (the export's own chunks: speed per stretch, cut jumps, freeze holds, meme cut-aways). Clock rules: `01_TIMELINE_COORDINATE_MATH.md` §10 (TL-COMPOSITE).
+* **Filmstrip + waveform lanes (LANES_01):** two thin lanes (`MergerFilmstripLane` 34 px, `MergerWaveformLane` 18 px) sit under the merged timeline, one tile per clip over that clip's slice of the merge. Tiles are planned LEFT→RIGHT (`LanePlanner`) and built by one `ProgressiveLaneRunner` per lane (max 2 ffmpeg each, strict start order); filmstrip tiles paint frame by frame (`ThumbnailStripGenerator.StreamAsync`, keyframes), waveform tiles are vector `WaveformPeaks` envelopes. Nothing waits on them and playback is NOT throttled for them (D9: they fill while the preview plays). Caching, keys and the resize/reorder debounce are LANECACHE_02's (below); the new run cancels the old one and a superseded tile never paints (generation check). Lanes are hidden until the merged timeline exists and are not hit-testable.
+* **LANECACHE_02 — a clip is decoded once, ever (P11, 2026-09-27).** The lane cache key is the CLIP (file identity + kept window), never the width or the position. Filmstrip: a fixed grid per clip (`ThumbGrid`: 1 frame/s, max 90) generated by `ThumbnailStripGenerator.StreamAsync` (keyframes only), cached in memory (LRU 128) and on disk (`ApplicationPaths.LaneCacheDirectory`, PNG, `LaneDiskCache`, pruned to 800 files); drawn as `ThumbGrid.Slots` slots of lane-height × 16:9, each a `CroppedBitmap` of the nearest grid frame (`ThumbGrid.Pick`). Waveform: `WaveformPeaks` (mono 4 kHz PCM once → 40 peaks/s, max 6000, cached in memory + disk as float32) drawn as a vector envelope scaled to the clip's loudest peak and stretched to the clip's width. A resize or a reorder only re-places cached pieces (150 ms debounce); ffmpeg runs only for a clip never seen before.
+* **REMOVEUX_01 — removal is instant and undoable (P11).** `ConfirmVideoMergerRemove` defaults to OFF (settings schema v9 turns it off once for upgraders); when a user turns it on (Settings › Confirmation Dialogs: "Video Merger: ask before removing clips"), the confirm uses `UseDestructiveStyling` (red, not the Enter key). Every user removal (not undo/redo/restore) shows one notice: "Clip removed from the list. Press Ctrl+Z to undo."
+* **EMPTYQUEUE_01 — no clips, no picture (P11).** When the queue becomes empty the Merger stops mpv, forgets the EDL, stops the music preview and HIDES the video surface (the NO VIDEO LOADED card is semi-transparent and showed a ghost of the last frame); the surface returns with the first clip.
+* **One selection, one order, two views (ANTS_01, D14):** the list and the merged timeline show the same `VideoQueue`. Selected clips get the SAME yellow marching ants on their timeline block (`Rectangle.TimelineAnts`, `AppWarningBrush`, dash 4,2, offset 0→6 in 0.6 s) as in the list; the timeline redraws on every list `SelectionChanged`. The clip labels (number · name) on the upper timeline are NOT interactive; the thumbnail blocks (`MergerClipBlocksLane`) are the handles and own the gesture rules (MERGERUX_01, below): drag sideways past 6 px = reorder with a yellow insertion bar, drop = `VideoQueue.Move(from, TimelineReorder.TargetIndex(...))`. While a block is pressed the timeline is not rebuilt (THUMB_02). Reorders from either view flow through the queue, so ids, autosave and undo follow.
+* **Granular edit on the whole merge (MERGEEDIT_02, D16):** the GRANULAR SPEED button (`MergerGranularButton`, upper row right of the transport; enabled once the merged timeline matches the queue; Primary "GRANULAR SPEED", or Success "EDIT SPEEDS" when any clip has effects) opens the SAME `GranularSpeedEditorWindow` with `videoPath` = the merge's inline `edl://` URL, trim 0..merged length and every effect in merged ms (`MergeEditorSource`). In that mode (`IsMergeMode`) the editor keeps no crash-recovery session and no parked history (the Merger autosaves and undoes the EDL), stitches its film lane from one keyframe strip per clip into one composite bitmap, and draws numbered clip dividers at their OUTPUT positions (they follow speed edits). Accept = one Merger undo step "granular edit"; Cancel changes nothing. The editor's code-behind did not grow: three in-place seams + `GranularSpeedEditorWindow.Merge.cs`.
+* **MERGERUX_01 — one job per area (P10, user decisions D22–D25, 2026-09-27):**
+  * The UPPER timeline (time scale + scrub row) and the WAVEFORM lane SEEK (click or drag); the thumbnail blocks between them never do (`IsOnSeekRows`, MERGERPLAYHEAD_01 added the waveform on 2026-09-28); the clip labels on the scrub row are centred over their clip and are NOT handles (not hit-testable).
+  * **MERGERPLAYHEAD_01 (user 2026-09-28):** the playhead is a 2 px red line (`AppPlayheadBrush` #ef4444) with a small downward cap, from the top of the time scale down through the scrub row, the thumbnail blocks and the waveform (`VideoMergerWindow.Playhead.cs`, one non-hit-testable layer spanning every row of the timeline grid, ZIndex 60). It follows the scrub slider's value (set by the tick and by a pointer scrub, so it moves on press) and uses the seek's own mapping (x / column width × duration), so it sits exactly over the matching thumbnail and waveform pixel. The slider's resting dot is hidden on this one slider only (`Slider#TimelineSlider /template/ Thumb` Opacity 0 in `VideoMergerWindow.axaml`); the slider still carries value, keyboard and automation. The selection ants are 1.25 px (`AntsThickness`, was 2) on both the upper timeline and the blocks, so they read gentler.
+  * The thumbnail BLOCKS only select and move: hover = soft white glow + open-hand cursor, press/drag = closed-hand cursor (`GRABCURSOR_01`, `Infrastructure/GrabCursors.cs`, vector-drawn 24×24, stock Hand/SizeAll fallback); a plain click SELECTS WITHOUT SEEKING (`SelectQueueRow(i, preview:false)`); press + 6 px = drag, the block follows the pointer and the gold bar shows the landing slot; right-click selects without seeking.
+  * After ANY reorder (list or blocks) the playhead stays on the same frame of the same clip (D22): the EDL reload remaps it through (file, source second); `TrackClipIds` marks a Move so the list's re-selection does not start a preview.
+  * The list's press/move/release handlers are registered with `handledEventsToo` (the ListBoxItem handles the left press for selection — with `+=` the OLE drag never started). The playhead only re-selects a row when it CROSSES into another clip, never every tick and never during a press/drag (`QueueGestureActive`); a seek holds its target for 3 ticks while mpv still reports the old position.
+  * Upper row = the Main App's upper row: SET THUMBNAIL left (identical button: Secondary, 16,8, image icon · text · icon, font 9, same SET / MOVE HERE / REMOVE states and class logic), transport centre, GRANULAR SPEED right (same GRANULAR SPEED / EDIT SPEEDS + Primary/Success logic) with the output path beside it; TOTAL SIZE / TOTAL LENGTH sit left of OUTPUT QUALITY in row 1.
+  * X-axis: faint grid line at every tick (Main App spacing: 5/10/30/60/300 s) on the scrub row, labels at every tick plus 0:00 and the total. The filmstrip/blocks lanes start 8 px into the scrub row's dead lower band (below the resting knob) so the gap is gone without overlapping hitboxes (lanes are on top there).
+* **Clip actions on both views (CLIPACTIONS_01, D20):** the Delete key (not while typing or merging) and "Remove from list" remove the SELECTED rows by index (a file queued twice loses only the selected copy); a confirm dialog appears only when `ConfirmVideoMergerRemove` is on; Ctrl+Z restores the clip with its id and effects. Right-click on a clip block selects it (P10: the timeline chips are no longer handles) and opens Move earlier / Move later / Remove. The filmstrip lane carries one outlined, draggable clip BLOCK per clip (`MergerClipBlocksLane`; the blocks own the click/drag/ants/right-click rules, MERGERUX_01); the scrubber stays for seeking. Every queue reorder uses `VideoQueue.Move` (never RemoveAt+Insert, which re-identifies the clip and drops its effects), and a queue change rebuilds the merged timeline synchronously from the analysis cache (no I/O) and repaints lanes from their tile cache at once; uncached work stays in the background workers.
 
 ---
 
@@ -283,7 +303,7 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 
 ## 11. Settings Window, About Tab & Universal Version Title Bar  {#UI-SETTINGS-ABOUT}
 * **Dedicated About Tab:** Application identity, versioning, system runtime metadata, and update controls reside inside a dedicated `About` tab in `SettingsWindow.axaml`. The updates checkbox is removed from Confirmation Dialogs to ensure cohesive information architecture.
-* **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and ProgramData storage root.
+* **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and the per-user storage root (`ApplicationPaths.ProgramDataRoot` = `%LOCALAPPDATA%\Fortnite Video Software`, USERSCOPE_01; `FVS_PROGRAMDATA_ROOT` overrides it).
 * **Manual Update Trigger:** The `Check For Updates Now` button executes on-demand checking (`UpdateService.CheckManualAsync`), providing inline status feedback and bypassing the 24-hour startup probe throttle.
 * **Skipped Release Filter Management:** Displays skipped release tags with a `Clear Skip` action button allowing users to re-enable skipped update prompts without modifying raw files.
 * **Direct Navigation Routes:**
@@ -292,4 +312,11 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 * **Universal Title Bar Versioning:** Custom title bars in `MainWindow` and `VideoMergerWindow` dynamically format window titles as `Fortnite Video Software v{version}` and `Fortnite Video Software - Merger v{version}` via `DeploymentLifecycle.GetCurrentVersion()`.
 * **Update Suggestion Dialog (UpdateAvailableWindow):**
   * Houses scrollable release notes ("What's New in this Release") parsed from GitHub release `body`.
-  * Clarifies dismissal copy to `"Not Now (Remind me later)"` to distinguish transient postponement from version skipping.
+  * Three buttons plus the title-bar close: `Update now` (`UpdateChoice.UpdateNow`), `Skip this version` (`SkipThisVersion`: this release is never offered again, newer ones are) and `Never tell me about updates again` (`NeverTellMeAgain`: turns `AutoUpdateChecks` off). Closing without choosing is `Dismissed`: nothing is stored, and a later start may offer the same release again.
+
+---
+
+## 12. Present Permit Before Keyed Mutex (GPUPRESENT_02)  {#UI-GPUPRESENT2}
+* **Defect:** GPUPRESENT_01 checked the per-slot present permit AFTER `ReleaseSync(ConsumerKey)`. A dropped frame left the texture on key 1 with no consumer, and every later lap paid a 1000 ms `AcquireSync` timeout while holding `_renderLock`. Each UI stall of about 250 ms poisoned one more slot, so the preview decayed towards 1 fps until a resize.
+* **Rule:** `UpdateSurface` takes the permit FIRST and skips to the next free slot. Holding the permit proves no present is in flight, so a texture found on ConsumerKey is an orphan and `TryAcquireProducerKey` reclaims it (`AcquireSync(1,0)` + `ReleaseSync(0)`). Two consecutive unrecoverable timeouts on one slot force a swap-chain rebuild (`_forceSwapChainRebuild`). `ImportAndPresentTexture` receives the permit and owns releasing it on every path.
+* Avalonia's `UpdateWithKeyedMutexAsync` runs as a compositor server job, so its task completes after the compositor's acquire/release. A released permit therefore means the compositor is finished with the slot.

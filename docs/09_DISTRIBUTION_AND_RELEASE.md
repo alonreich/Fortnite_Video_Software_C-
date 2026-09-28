@@ -8,8 +8,8 @@
 | :--- | :--- | :--- | :--- |
 | `src/FortniteVideoSoftware.Core/Infrastructure/RuntimePayloadManifest.cs` | `RuntimePayloadManifest` | `FromFolder`, `Read`, `Write`, `SYS-PAYLOADSPLIT` | Runtime fingerprint. |
 | `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `AppOnlyAssetName`, `RuntimeAlreadyMatchesAsync`, `SYS-PAYLOADSPLIT` | Which package to download. **⚠ CO-GOVERNED BY: 05** |
-| `build/FvsBuild/Staging.cs` | `Staging` | `CreatePayloadZip`, `SYS-PAYLOADSPLIT` | Writes the manifest into the payload and beside `compiled\`. |
-| `.github/workflows/ci.yml` | CI | `SYS-CI`, `aot-publish` | Runs the ratchets; reports payload size. |
+| `build/FvsBuild/Staging.cs` | `Staging` | `CreatePayloadZip`, `SYS-PAYLOADSPLIT` | Writes the manifest into the staging folder (after the zip is built, see §3 OPEN KNOWN DEFECTS) and to `obj\ReleaseAssets`. |
+| `.github/workflows/ci.yml` | CI | `SYS-CI`, `aot-publish` | Runs the ratchets; reports the app publish size. **⚠ CO-GOVERNED BY: 08** |
 | `.github/workflows/lfs-guard.yml` | LFS guard | `SYS-REPOWEIGHT` | Proves LFS is real and stops new large files. |
 | `.gitattributes` | EOL + LFS policy | `EOL_01`, `SYS-REPOWEIGHT` | What is stored where. |
 
@@ -73,7 +73,9 @@ recurs: the *repeat* download.
   | `runtime.manifest.json` | a fingerprint, a few hundred bytes | always read first |
 
 * **The fingerprint is names and sizes, not content hashes.** `RuntimePayloadManifest.FromFolder`
-  lists every `.dll`/`.exe`/`.com`, sorts ordinally by relative path, and hashes
+  lists every `.dll`/`.exe`/`.com` in the folder — including the app's own
+  `FortniteVideoSoftware.App.exe`, which the build publishes into the same staging folder (defect 3
+  below) — sorts ordinally by relative path, and hashes
   `path:length` lines. Hashing 368 MB on every update check would be a worse bug than the one being
   fixed; two different FFmpeg builds do not coincidentally keep every file at the same byte length.
 
@@ -95,10 +97,27 @@ recurs: the *repeat* download.
   the updater change ships ahead of the release-pipeline change that starts producing the small
   package, and does nothing until one appears.
 
-* **Open work.** The build writes `compiled\runtime.manifest.json` and stages a copy beside the
-  installed binaries. Producing and uploading `FortniteVideoSoftware.App.update.zip` itself is a
-  release-pipeline change in `GitHubReleasePublisher` and is **not yet done** — until it is, the
-  consumer side is inert, correct, and tested.
+* **Open work.** The build writes `obj\ReleaseAssets\runtime.manifest.json` (RELEASEASSETS_01: `compiled\` holds only the exe, MANDATE #2).
+  Producing and uploading `FortniteVideoSoftware.App.update.zip` and the `runtime.manifest.json` sidecar
+  is a release-pipeline change in `GitHubReleasePublisher` and is **not yet done**. The consumer side is
+  inert today, but it is **NOT complete** — see the defects below.
+
+* **⚠ OPEN KNOWN DEFECTS — NOT FIXED (tracked as R9 in `Video-Merger-Migration.md`).** Each one alone
+  keeps the patch path from ever working; all three must be fixed before the release pipeline starts
+  publishing the small package.
+  1. **Installs never receive the runtime fingerprint.** `Staging.CreatePayloadZip` builds and closes
+     `payload.zip` FIRST and only then calls `manifest.Write(StagingDir)`, so `runtime.manifest.json`
+     is not inside the payload that is embedded and extracted on install. `RuntimeAlreadyMatchesAsync`
+     reads it from `AppContext.BaseDirectory`, finds nothing, and always picks the full installer.
+  2. **The app-only package is never downloaded.** `UpdateService.DownloadVerifyLaunchAsync` computes
+     `appOnly` via `RuntimeAlreadyMatchesAsync`, but only logs it: the download always fetches
+     `release.DownloadUrl` (the full installer). `AppOnlyUrl` is read only by `HasAppOnlyPackage`, and
+     nothing extracts or applies an app-only zip.
+  3. **The fingerprint could never match across releases.** The staging folder fingerprinted by
+     `CreatePayloadZip` also holds the NativeAOT `FortniteVideoSoftware.App.exe`, and `FromFolder`
+     includes every `.exe`. The app binary's length changes with virtually every build, so a new
+     release's advertised fingerprint would differ from the installed one even when FFmpeg/libmpv are
+     identical.
 
 ---
 
@@ -124,6 +143,9 @@ recurs: the *repeat* download.
      (`filter-repo`, not `filter-branch` — the latter is slow and its author recommends against it).
   4. Re-add the media through LFS in a single fresh commit, or move it to release assets — the
      starter media is shipped in `payload.zip` and does not need to be in the source tree at all.
+     ⚠ `.gitattributes` has LFS rules for `*.mp3`/`*.mp4` but **none for `*.jpg`, `*.jpeg` or `*.png`**,
+     so `jpeg/` would be re-added as ordinary Git blobs (and `lfs-guard.yml` only catches files over
+     5 MB). Add those rules first if the images are to go through LFS.
   5. `git push --force --all` and `--tags`, then everyone re-clones. Not "pulls" — **re-clones**.
 
   ⚠️ Expected result is a repository in the low hundreds of MB. ⚠️ Expected cost is that every
@@ -134,8 +156,10 @@ recurs: the *repeat* download.
 ## 5. What CI Watches  {#DIST-CIWATCH}
 
 `SYS-CI`'s `aot-publish` job prints the fifteen largest files in the publish output and the total
-payload size on every push to `main`.
+size on every push to `main`.
 
-⚠️ That number is the one that decides what every user downloads for a one-line fix, and before this
-it appeared nowhere — it was discovered by looking at the file on disk, months after it grew. A
-number nobody prints is a number nobody defends.
+⚠️ **It measures only the app's `dotnet publish` folder, NOT the user download.** CI never runs
+`FvsBuild`, so no `payload.zip` exists and none is embedded (`EmbeddedResource Include="payload.zip"`
+is conditional on the file existing). The printed total is the app alone — roughly what an app-only
+patch would cost — while the 322 MB installer (FFmpeg, libmpv, starter media) is not measured
+anywhere in CI. A number nobody prints is a number nobody defends; this one is only half printed.

@@ -17,6 +17,8 @@
              (GetSegmentOverlayColor RGB 239,68,68) so the legend chip matches the timeline. -->
         <SolidColorBrush x:Key="AppSpeedSlowBrush" Color="#ef4444" />
         <SolidColorBrush x:Key="AppWarningBrush" Color="#facc15" />
+        <!-- MERGERPLAYHEAD_01: the Video Merger's playhead line (top of the time scale down through the waveform). -->
+        <SolidColorBrush x:Key="AppPlayheadBrush" Color="#ef4444" />
 
         <!-- ══════════════════════════════════════════════════════════════════════════════════
              IDEA_6 — THE ZOOM COLOUR. ONE COLOUR, ONE MEANING, EVERYWHERE.

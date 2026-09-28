@@ -28,8 +28,36 @@ public sealed class RecoveryManager
     private readonly ApplicationPaths _paths;
     private readonly TimeSpan _safeModeThreshold = TimeSpan.FromSeconds(120);
     private static readonly object _saveLock = new(); // Shared by the main window and editor writers.
-    private int _saveSequence;
-    private int _latestCommittedSave;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // WRITEORDER_01 — ONE PROCESS-WIDE ORDER FOR EVERY WHOLE-FILE WRITE AND DELETE.
+    //
+    // The sequence used to be PER INSTANCE and covered saves only. There are at least three
+    // RecoveryManager instances (MainWindow._recovery, ProjectRecoveryService, the granular editor),
+    // and ClearState() was not sequenced at all. It ran File.Delete outside the lock. So a
+    // SaveStateAsync queued BEFORE a ClearState could run AFTER it and resurrect the file. Two
+    // real triggers: undoing back to an empty project, and the clean-shutdown CleanupLock(). After
+    // that, the next launch could offer to "recover" work the user had deliberately discarded.
+    //
+    // Now every save and every clear takes a version FROM A STATIC COUNTER AT CALL TIME (the
+    // order the user caused them), and is applied under _saveLock only if it is newer than the
+    // last one applied to that file. An older queued save that loses the race is dropped. The
+    // granular editor's UpdateGranularSession is a read-modify-write MERGE of one sub-key, not a
+    // whole-file replacement, so it is serialised by the lock but not versioned against saves.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private static long _writeVersion;
+    private static readonly Dictionary<string, long> _appliedVersionByFile = new(StringComparer.OrdinalIgnoreCase);
+
+    private static long NextVersion() => Interlocked.Increment(ref _writeVersion);
+
+    /// <summary>Caller holds _saveLock. True when <paramref name="version"/> is newer than anything applied to the file.</summary>
+    private bool TryClaimVersionLocked(long version)
+    {
+        string key = _paths.RecoveryStateFile;
+        if (_appliedVersionByFile.TryGetValue(key, out long applied) && version <= applied) return false;
+        _appliedVersionByFile[key] = version;
+        return true;
+    }
     private bool _skipCleanup;
 
     public RecoveryManager(ApplicationPaths? paths = null)
@@ -334,8 +362,8 @@ public sealed class RecoveryManager
 
     public void SaveStateAsync(JsonObject state)
     {
-        int sequence = Interlocked.Increment(ref _saveSequence);
-        Task.Run(() => SaveState(state, sequence));
+        long version = NextVersion();   // WRITEORDER_01 — ordered by when the edit happened, not when the pool runs it
+        Task.Run(() => SaveStateVersioned(state, version));
     }
 
     /// <summary>GRANULARPERF_01 — atomic editor-node update under the same gate as app-level saves.</summary>
@@ -348,19 +376,36 @@ public sealed class RecoveryManager
             state ??= new JsonObject();
             // Explicit null suppresses SaveState's preservation rule on deliberate close.
             state["granular_session"] = session?.DeepClone();
-            SaveState(state);
+            // WRITEORDER_01 — a sub-key MERGE, serialised by the lock but not versioned: it must
+            // not make a queued main-window save look stale (that would drop the user's edit).
+            WriteLocked(state);
         }
     }
 
-    public void SaveState(JsonObject state, int? sequence = null)
+    public void SaveState(JsonObject state) => SaveStateVersioned(state, NextVersion());
+
+    /// <summary>WRITEORDER_01 test seam: reserve a version now, apply the save later (what SaveStateAsync does).</summary>
+    internal static long ReserveVersionForTests() => NextVersion();
+    internal void ApplySaveForTests(JsonObject state, long version) => SaveStateVersioned(state, version);
+
+    private void SaveStateVersioned(JsonObject state, long version)
     {
         lock (_saveLock)
         {
-            if (sequence.HasValue && sequence.Value < _latestCommittedSave)
+            if (!TryClaimVersionLocked(version))
             {
+                CoreLogger.Debug("Recovery", $"Dropped a stale recovery save (v{version}); a newer save or clear already landed.");
                 return;
             }
 
+            WriteLocked(state);
+        }
+    }
+
+    /// <summary>Caller holds _saveLock. The RECOVERY_03-preserving atomic write.</summary>
+    private void WriteLocked(JsonObject state)
+    {
+        {
             try
             {
                 _paths.EnsureWritableDirectories();
@@ -383,11 +428,6 @@ public sealed class RecoveryManager
                 }
 
                 AtomicJsonFile.WriteObject(_paths.RecoveryStateFile, state);
-
-                if (sequence.HasValue)
-                {
-                    _latestCommittedSave = sequence.Value;
-                }
             }
             catch (Exception ex)
             {
@@ -456,13 +496,18 @@ public sealed class RecoveryManager
 
     public void ClearState()
     {
-        try
+        long version = NextVersion();   // WRITEORDER_01 — any save queued before this is now stale
+        lock (_saveLock)
         {
-            if (File.Exists(_paths.RecoveryStateFile))
+            if (!TryClaimVersionLocked(version)) return;
+            try
             {
-                File.Delete(_paths.RecoveryStateFile);
+                if (File.Exists(_paths.RecoveryStateFile))
+                {
+                    File.Delete(_paths.RecoveryStateFile);
+                }
             }
+            catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
         }
-        catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
     }
 }

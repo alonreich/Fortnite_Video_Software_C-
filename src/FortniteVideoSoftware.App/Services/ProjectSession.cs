@@ -119,6 +119,14 @@ public sealed class ProjectSession
     /// </para>
     /// </summary>
     private readonly Func<bool> _hasUnsavedWork;
+    private readonly Func<ProjectMask?> _readLiveMaskFast;
+
+    /// <summary>
+    /// EDITHOT_01 — the source fingerprint (file size + mtime) probed ONCE per loaded path, not on
+    /// every edit tick. A user-initiated save re-probes, so the saved file always carries the
+    /// fingerprint of the file as it is at that moment.
+    /// </summary>
+    private (string Path, long Size, long Modified)? _probedSource;
 
     private UndoStack<ProjectDocument>? _history;
     private DateTimeOffset _lastAutosaveUtc;
@@ -143,7 +151,8 @@ public sealed class ProjectSession
         Func<bool> hasUnsavedWork,
         Func<ProjectMask?>? readLiveMask = null,
         Func<ProjectMerge?>? readMergeQueue = null,
-        UndoSidecarStore? sidecar = null)
+        UndoSidecarStore? sidecar = null,
+        Func<ProjectMask?>? readLiveMaskFast = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _picker = picker ?? throw new ArgumentNullException(nameof(picker));
@@ -159,6 +168,9 @@ public sealed class ProjectSession
         // honest here in a way it would not be elsewhere: it means "this session has no mask/merge
         // source wired", which is exactly true of a headless session.
         _readLiveMask = readLiveMask ?? (static () => null);
+        // EDITHOT_01 — the non-blocking reader used on every edit tick. It falls back to the
+        // synchronous one when a caller (tests) supplies only that.
+        _readLiveMaskFast = readLiveMaskFast ?? _readLiveMask;
         _readMergeQueue = readMergeQueue ?? (static () => null);
 
         // UNDO_24 — defaults to the real store under ProgramData. A test that wants no disk passes
@@ -389,7 +401,7 @@ public sealed class ProjectSession
         if ((_clock.UtcNow - _lastAutosaveUtc).TotalSeconds < AutosaveIntervalSeconds) return;
 
         _lastAutosaveUtc = _clock.UtcNow;
-        WriteTo(CurrentPath!, announce: false);
+        WriteTo(CurrentPath!, announce: false, explicitSave: false);   // EDITHOT_01 — autosave is not a click.
     }
 
     /// <summary>
@@ -515,7 +527,15 @@ public sealed class ProjectSession
     // ── Document <-> view-model ─────────────────────────────────────────────────────────────
 
     /// <summary>PROJSESSION_02 — projects the live view-model state into an immutable document.</summary>
-    public ProjectDocument Capture()
+    public ProjectDocument Capture() => Capture(forExplicitSave: false);
+
+    /// <summary>
+    /// EDITHOT_01 — <paramref name="forExplicitSave"/> is true only for a save the user asked for.
+    /// Only that path touches the disk: it re-reads the live HUD mask under its mutex and re-stats the
+    /// source file. Edit ticks, undo/redo and autosave use the in-memory snapshots, so they never
+    /// block the UI thread (North Star #6).
+    /// </summary>
+    public ProjectDocument Capture(bool forExplicitSave)
     {
         var timeline = _viewModel.Timeline;
         string path = _viewModel.LoadedVideoPath ?? string.Empty;
@@ -531,7 +551,7 @@ public sealed class ProjectSession
 
         return new ProjectDocument
         {
-            Source = SourceClip.Probe(path, timeline.LoadedVideoDurationMs, width, height, fps),
+            Source = ProbeSourceCached(path, timeline.LoadedVideoDurationMs, width, height, fps, forExplicitSave),
             BaseSpeed = timeline.BaseSpeed,
             SourceCutStartMs = cutStartMs,
             TrimmedDurationMs = trimmedMs,
@@ -558,7 +578,7 @@ public sealed class ProjectSession
             // PROJ_11 — the mask and the merge queue are part of the work, not of the machine.
             // Captured on every edit boundary so an undo step restores the mask the user had, not
             // whatever the shared profile file says at the moment they press Ctrl+Z.
-            Mask = ReadLiveMaskSafely(),
+            Mask = forExplicitSave ? ReadLiveMaskSafely() : ReadLiveMaskFastSafely(),
             Merge = ReadMergeQueueSafely(),
             Title = string.IsNullOrWhiteSpace(path) ? "Untitled" : Path.GetFileNameWithoutExtension(path),
             ModifiedUtc = _clock.UtcNow,
@@ -656,7 +676,7 @@ public sealed class ProjectSession
     {
         if (document.Mask is not { } saved) return;
 
-        ProjectMask? live = ReadLiveMaskSafely();
+        ProjectMask? live = ReadLiveMaskFastSafely();   // EDITHOT_01 — runs on every undo/redo.
 
         // No live mask to compare against is not drift — it is a session with no mask source
         // wired, which is the normal state in a test and during early startup.
@@ -679,9 +699,38 @@ public sealed class ProjectSession
 
     // ── Plumbing ────────────────────────────────────────────────────────────────────────────
 
-    private bool WriteTo(string path, bool announce)
+    private SourceClip ProbeSourceCached(string path, double durationMs, int width, int height, double fps, bool refresh)
     {
-        ProjectIoResult result = _store.Save(Capture(), path);
+        if (refresh || _probedSource is not { } cached || !string.Equals(cached.Path, path, StringComparison.OrdinalIgnoreCase))
+        {
+            SourceClip probed = SourceClip.Probe(path, durationMs, width, height, fps);
+            _probedSource = (path, probed.SizeBytes, probed.ModifiedUtcSeconds);
+            return probed;
+        }
+
+        return new SourceClip
+        {
+            FilePath = path,
+            DurationMs = durationMs,
+            Width = width,
+            Height = height,
+            Fps = fps,
+            SizeBytes = cached.Size,
+            ModifiedUtcSeconds = cached.Modified,
+        };
+    }
+
+    private ProjectMask? ReadLiveMaskFastSafely()
+        => _faults.GuardValue<ProjectMask?>(
+            "PROJECT",
+            "The HUD mask could not be read, so this save will not record which mask you were using. "
+          + "Your edit is saved and export still works — reopening will just use whichever mask is active then.",
+            _readLiveMaskFast,
+            fallback: null);
+
+    private bool WriteTo(string path, bool announce, bool explicitSave = true)
+    {
+        ProjectIoResult result = _store.Save(Capture(forExplicitSave: explicitSave), path);
 
         if (!result.Success)
         {

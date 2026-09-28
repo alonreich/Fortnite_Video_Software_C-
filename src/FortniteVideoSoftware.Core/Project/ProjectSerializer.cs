@@ -207,11 +207,15 @@ public static class ProjectSerializer
                 clips.Add(clip);
             }
 
-            root[KeyMerge] = new JsonObject
+            var mergeObj = new JsonObject
             {
                 ["base_speed"] = merge.BaseSpeed,
                 ["clips"] = clips,
             };
+            // PROJ_12 — the full edit list, in its own source-generated JSON shape (AOT-safe).
+            if (merge.Edl is MergeEdl edl && JsonNode.Parse(edl.ToJson()) is JsonNode edlNode)
+                mergeObj["edl"] = edlNode;
+            root[KeyMerge] = mergeObj;
         }
 
         return root;
@@ -392,8 +396,13 @@ public static class ProjectSerializer
                 }
             }
 
-            if (clips.Count > 0)
-                merge = new ProjectMerge { Clips = clips, BaseSpeed = ReadDouble(mergeObj, "base_speed", 1.0) };
+            // PROJ_12 — a valid edit list wins; a missing or corrupt one leaves Edl null and
+            // ProjectMerge.ToEdl() migrates the legacy clip list instead.
+            MergeEdl? edl = mergeObj["edl"] is JsonObject edlObj ? MergeEdl.FromJson(edlObj.ToJsonString()) : null;
+            if (edl is { Clips.Count: 0 }) edl = null;
+
+            if (clips.Count > 0 || edl is not null)
+                merge = new ProjectMerge { Clips = clips, BaseSpeed = ReadDouble(mergeObj, "base_speed", 1.0), Edl = edl };
         }
 
         JsonObject? unknown = null;

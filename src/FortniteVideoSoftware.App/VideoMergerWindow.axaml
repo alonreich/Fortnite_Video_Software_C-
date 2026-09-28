@@ -29,6 +29,25 @@
         <Style Selector="ListBoxItem Rectangle.MarchingAnts">
             <Setter Property="IsVisible" Value="False"/>
         </Style>
+        <!-- MERGERPLAYHEAD_01: on the Merger timeline the playhead is the red line drawn by VideoMergerWindow.Playhead.cs,
+             so the scrub slider's resting dot is hidden (the slider still carries the value, keyboard and automation). -->
+        <Style Selector="Slider#TimelineSlider /template/ Thumb">
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+        <!-- ANTS_01 (P5.3, D14): the SAME yellow marching ants on the selected clip's block of the merged timeline.
+             MERGERPLAYHEAD_01 (user 2026-09-28): thinner (AntsThickness 1.25, was 2) so they read gentler. -->
+        <Style Selector="Rectangle.TimelineAnts">
+            <Style.Animations>
+                <Animation Duration="0:0:0.6" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="StrokeDashOffset" Value="0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="StrokeDashOffset" Value="6"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
         <Style Selector="ListBoxItem Border.ItemGlow">
             <Setter Property="Transitions">
                 <Transitions>
@@ -130,6 +149,16 @@
 
                                     <local:MpvVideoView Name="VideoHost" Grid.Row="0" />
 
+                                    <!-- MERGEPREVIEW_01 (P8.2) / MEME_07: the veil over the two file swaps of a meme cut-away (MemeSwapOverlay). -->
+                                    <Border Name="MemeSwapOverlay" Grid.Row="0" IsVisible="False" ZIndex="900" Background="{DynamicResource AppScrimBrush}">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                                            <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                                            <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <TextBlock Name="MemeSwapOverlayText" Text="Loading the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="Please wait a moment." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+
                                     <!-- DETACH_01: shared pop-out preview. Own geometry key:
                                          MergerPreviewMonitorBounds. -->
                                     <Border Name="MergerPreviewDetachedWatermark" Grid.Row="0" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="4">
@@ -168,10 +197,21 @@
                                         <Border VerticalAlignment="Bottom" Background="{DynamicResource AppOverlayBrush}" Padding="8,4,8,4" ClipToBounds="False">
                                             <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
                                                 <TextBlock Name="TimeElapsed" Text="00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0" />
-                                                <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto" ClipToBounds="False">
+                                                <Grid Grid.Column="1" VerticalAlignment="Center" RowDefinitions="Auto, Auto, Auto, Auto" ClipToBounds="False">
                                                     <Canvas Grid.Row="0" Name="TimelineScaleCanvas" IsHitTestVisible="False" ClipToBounds="False" HorizontalAlignment="Stretch" MinHeight="14" />
                                                     <Slider Grid.Row="1" Name="TimelineSlider" Classes="CompactSlider" Minimum="0" Maximum="100" MinHeight="44" VerticalAlignment="Center" ClipToBounds="False" KeyboardNavigation.IsTabStop="True" AutomationProperties.Name="Video merger timeline scrub slider" ToolTip.Tip="Drag this left or right to quickly skip through different parts of the video." />
                                                     <Canvas Grid.Row="1" Name="TimelineMarkersCanvas" Classes="TimelineSeekSurface" Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabNavigation="Continue" AutomationProperties.Name="Video merger timeline seek area" IsHitTestVisible="True" ClipToBounds="False" VerticalAlignment="Center" HorizontalAlignment="Stretch" MinHeight="32" Cursor="Hand" />
+                                                    <!-- LANES_01 (P5.1/P5.2): filmstrip and waveform under the merged timeline. Filled left→right in the
+                                                         background by VideoMergerWindow.Lanes.cs; hidden until the merged timeline exists. Not hit-testable.
+                                                         P10 (item 4): the scrub row is 44 px because the shared CompactSlider thumb is 44 px (one permitted
+                                                         thumb style, docs/04 UI-THEME), but the resting knob is a 21 px dot on the centre line, so the lower
+                                                         ~11 px of that band were dead space. The lanes now start 8 px INTO it (Margin -8): still below the
+                                                         resting knob (centre 22 + 10.5 = 32.5 < 36), and being later in the grid they are on top, so the
+                                                         overlap strip is unambiguously the blocks' (drag), never the slider's (seek). -->
+                                                    <Canvas Grid.Row="2" Name="MergerFilmstripLane" IsHitTestVisible="False" ClipToBounds="True" HorizontalAlignment="Stretch" Height="34" Margin="0,-8,0,0" IsVisible="False" />
+                                                    <!-- D20 (P5.4): clip BLOCKS over the filmstrip — click selects, drag reorders, right-click menu. Built by VideoMergerWindow.TimelineSelect.cs. -->
+                                                    <Canvas Grid.Row="2" Name="MergerClipBlocksLane" Background="Transparent" IsHitTestVisible="True" ClipToBounds="False" HorizontalAlignment="Stretch" Height="34" Margin="0,-8,0,0" IsVisible="False" />
+                                                    <Canvas Grid.Row="3" Name="MergerWaveformLane" IsHitTestVisible="False" ClipToBounds="True" HorizontalAlignment="Stretch" Height="18" Margin="0,1,0,0" IsVisible="False" />
                                                 </Grid>
                                                 <TextBlock Grid.Column="2" Name="TimeRemaining" Text="-00:00:00" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Margin="8,0,0,0" />
                                             </Grid>
@@ -231,10 +271,9 @@
                                  beside it. That column alone was ~230px tall, and the transport row
                                  above it spent its entire width on three buttons in the middle and
                                  empty space either side.
-                                 The empty space is now the estimate's home. Row 0 carries the
-                                 readout on the LEFT, the transport in the CENTRE and the output path
-                                 on the RIGHT — three things at the same height, in a row that was
-                                 already being paid for. Row 1 is one line: OUTPUT QUALITY, MERGE
+                                 P10 (2026-09-27): Row 0 mirrors the Main App's upper row — SET
+                                 THUMBNAIL left, transport centre, GRANULAR SPEED right; the size and
+                                 length figures sit at the left of row 1. Row 1 is one line: OUTPUT QUALITY, MERGE
                                  VIDEOS and SPEED side by side, which is the Main App's lower row
                                  exactly (MainWindow.axaml Grid.Row="2": left action, centred
                                  WrapPanel of quality / process / speed).
@@ -243,29 +282,34 @@
 
                             <Grid Grid.Row="0" Margin="0,0,0,6">
 
-                                <!-- ══════════════════════════════════════════════════════════
-                                     MERGERESTIMATE_02 — THE TWO FIGURES THAT ANSWER "WHAT AM I
-                                     ABOUT TO MAKE", parked in the dead space to the left of the
-                                     transport.
-                                     They are the same height as the buttons beside them, so they
-                                     cost NOTHING: this row existed already and was empty here.
-                                     Left-aligned rather than centred because the eye reads this bar
-                                     left to right and these are the facts, not the controls.
-                                     Both are rewritten by UpdateEstimatedSize(), which runs on every
-                                     add, remove, reorder, quality change, speed change and music
-                                     change — so they track the dials in row 1 live.
-                                     ══════════════════════════════════════════════════════════ -->
-                                <StackPanel Orientation="Horizontal" Spacing="26" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                    <StackPanel Orientation="Vertical" Spacing="0">
-                                        <TextBlock Text="TOTAL SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" />
-                                        <TextBlock Name="EstimatedSizeText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold"
-                                                   ToolTip.Tip="Roughly how big the finished file will be, with the music included. It updates whenever you add or remove a clip, or move either dial." />
+                                <!-- MERGERESTIMATE_02 / P10 (2026-09-27): the upper row is now the Main App's upper row —
+                                     SET THUMBNAIL on the left, the transport in the centre, GRANULAR SPEED on the right (with the
+                                     advisory output path beside it). TOTAL SIZE / TOTAL LENGTH moved to row 1, left of the quality
+                                     dial, where the Main App shows its estimated size. -->
+
+
+                                <!-- MERGERUX_01 P10 (item 2) — SCRAPER_04 / SET THUMBNAIL: IDENTICAL to the Main App's SetThumbnailButton
+                                     (same class, padding, icon · text · icon, font size, left of the transport). -->
+                                <Button Name="SetMergerThumbnailButton" Classes="Secondary" Padding="16,8" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" AutomationProperties.Name="Set thumbnail"
+                                        ToolTip.Tip="Save the exact frame you are looking at right now to be the cover image for your video.">
+                                    <StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize18}" Height="{DynamicResource AppFontSize18}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppImageIconGeometry}" />
+                                        <TextBlock Name="SetMergerThumbnailText" Text=" SET THUMBNAIL " FontSize="{DynamicResource AppFontSize9}" VerticalAlignment="Center" Margin="6,0,6,0" />
+                                        <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize18}" Height="{DynamicResource AppFontSize18}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppImageIconGeometry}" />
                                     </StackPanel>
-                                    <StackPanel Orientation="Vertical" Spacing="0">
-                                        <TextBlock Text="TOTAL LENGTH" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" />
-                                        <TextBlock Name="EstimatedLengthText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize24}" FontWeight="Bold"
-                                                   ToolTip.Tip="How long the finished video will run once every clip in the list is joined end to end, at the speed you have chosen." />
+                                </Button>
+
+                                <!-- P10 (item 3) — MERGEEDIT_02: the Granular Speed Editor button where the Main App has it
+                                     (right of the transport, same class and padding, same GRANULAR SPEED / EDIT SPEEDS states). -->
+                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <!-- Where the file lands, and whether the audio will be levelled (advisory; trims, never pushes the transport). -->
+                                    <StackPanel VerticalAlignment="Center" MaxWidth="220" Spacing="1">
+                                        <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                        <!-- ISSUE_005: Normalization info -->
+                                        <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
+                                    <Button Name="MergerGranularButton" Classes="Secondary" Content="GRANULAR SPEED" Padding="16,8" IsEnabled="False" AutomationProperties.Name="Granular edit the merge"
+                                            ToolTip.Tip="Open the Granular Speed Editor on the whole merge: speed ramps, freeze frames, zoom, delete parts and memes. Effects stay inside the clip they are placed on."/>
                                 </StackPanel>
 
                                 <!-- Transport, centred on the player above it — the Main App's upper row. -->
@@ -285,33 +329,50 @@
                                     <Button Name="FastForwardButton" Classes="Secondary" MinWidth="50" Padding="16,8" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Skip forward 10 seconds in the video. Doing this also turns the sound on." IsEnabled="False" AutomationProperties.Name="Fast Forward 10 Seconds">
                                         <Path Data="{DynamicResource AppFastForwardIconGeometry}" Fill="{Binding $parent[Button].Foreground}" Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}" Stretch="Uniform"/>
                                     </Button>
+
                                 </StackPanel>
 
-                                <!-- Where the file lands, and whether the audio will be levelled.
-                                     Advisory text, so it takes the right-hand dead space and trims
-                                     rather than pushing the transport off centre. -->
-                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" MaxWidth="300" Spacing="1">
-                                    <TextBlock Name="OutputPathText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                    <!-- ISSUE_005: Normalization info -->
-                                    <TextBlock Name="NormalizeInfoText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" HorizontalAlignment="Right" TextAlignment="Right" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
+
                             </Grid>
+
+                            <!-- SCRAPER_05 — small, bottom left. Same flag as Settings > Defaults > Video Merger. -->
+                            <CheckBox Grid.Row="1" Name="ThumbnailScraperCheckBox" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,6,0,0" MinHeight="0" Padding="4,0,0,0"
+                                      AutomationProperties.Name="Thumbnail Scraper"
+                                      ToolTip.Tip="Thumbnail Scraper: cut the short cover-picture intro this app adds to every export from the 2nd clip onward, so the joined video has no flashes between clips. The first clip keeps its intro unless you set a custom thumbnail.">
+                                <TextBlock Text="Thumbnail Scraper" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" MaxWidth="70" VerticalAlignment="Center"/>
+                            </CheckBox>
+
+
 
                             <!-- Row 1: OUTPUT QUALITY, MERGE VIDEOS and SPEED on ONE line, in the
                                  Main App's order — the dial that decides the output, the button that
                                  makes it, the dial that decides how fast it runs. -->
-                            <Grid Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,6,0,0" ColumnDefinitions="Auto,28,Auto,28,Auto">
+                            <Grid Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,6,0,0" ColumnDefinitions="Auto,28,Auto,28,Auto,28,Auto">
 
-                                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                <!-- P10 — TOTAL SIZE / TOTAL LENGTH moved here (left of the quality dial, the Main App's place for the size) so the upper row is the Main App's: SET THUMBNAIL · transport · GRANULAR SPEED. -->
+                                <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="4" MinWidth="130" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Vertical" Spacing="0">
+                                        <TextBlock Text="TOTAL SIZE" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
+                                        <TextBlock Name="EstimatedSizeText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"
+                                                   ToolTip.Tip="Roughly how big the finished file will be, with the music included. It updates whenever you add or remove a clip, or move either dial." />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Vertical" Spacing="0">
+                                        <TextBlock Text="TOTAL LENGTH" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" />
+                                        <TextBlock Name="EstimatedLengthText" Text="—" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"
+                                                   ToolTip.Tip="How long the finished video will run once every clip in the list is joined end to end, at the speed you have chosen." />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                     <TextBlock Text="OUTPUT QUALITY" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap"
-                                               ToolTip.Tip="How good you want the finished video to look. Pick it once and leave it — the size it works out to is shown top left." />
+                                               ToolTip.Tip="How good you want the finished video to look. Pick it once and leave it — the size it works out to is shown to its left." />
                                     <controls:SpinningWheelSlider Name="QualitySlider" Value="{Binding $parent[local:VideoMergerWindow].QualitySliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left for a smaller file size, or right for higher video quality." />
                                     <TextBlock Name="QualityLabel" Text="100% — Lossless" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Top" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
 
-                                <Button Grid.Column="2" Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" CornerRadius="10" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Combine all the videos in your list into one single final video." Padding="20,12"/>
+                                <Button Grid.Column="4" Name="MergeButton" Classes="Success" Content="MERGE VIDEOS" CornerRadius="10" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Combine all the videos in your list into one single final video." Padding="20,12"/>
 
-                                <Grid Grid.Column="4" VerticalAlignment="Center" ColumnDefinitions="Auto,8,Auto">
+                                <Grid Grid.Column="6" VerticalAlignment="Center" ColumnDefinitions="Auto,8,Auto">
                                     <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
                                         <TextBlock Text="SPEED" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" HorizontalAlignment="Center" TextWrapping="Wrap" />
                                         <controls:SpinningWheelSlider Name="MainSpeedSlider" Value="{Binding $parent[local:VideoMergerWindow].MainSpeedSliderValue, Mode=TwoWay}" HorizontalAlignment="Center" Width="160" MinHeight="44" Cursor="Hand" ToolTip.Tip="Slide left to make the video slow motion, or right to speed it up." />
@@ -362,6 +423,7 @@
                                         <Path Fill="{DynamicResource AppTextPrimaryBrush}" Width="{DynamicResource AppFontSize14}" Height="{DynamicResource AppFontSize14}" Stretch="Uniform" VerticalAlignment="Center" Data="{DynamicResource AppMusicNoteIconGeometry}" />
                                     </StackPanel>
                                 </Button>
+
                             </StackPanel>
 
                             <!-- ══════════════════════════════════════════════════════════════════

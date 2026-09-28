@@ -172,7 +172,7 @@ public partial class MainWindow
         UpdateThumbnailButtonState();   // THUMB_01
         if (redraw) UpdateTimelineMarkers();
         UpdateEstimatedQuality();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "move thumbnail");
     }
 
     /// <summary>
@@ -304,7 +304,7 @@ public partial class MainWindow
     private void ThumbnailSaveDebounce_Tick(object? sender, EventArgs e)
     {
         _thumbnailSaveDebounce?.Stop();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "move thumbnail");
     }
 
     private void SeekMainPreviewToMarkerMs(double markerMs)
@@ -751,7 +751,7 @@ public partial class MainWindow
                     ShowTimelineGlow(_trimStartMs, Avalonia.Media.Brushes.SeaGreen);
                     UpdateTimelineMarkers();
                     UpdateEstimatedQuality(); 
-                    SaveRecoveryState(); 
+                    SaveRecoveryState(label: "move trim start"); 
                     UpdateDraggingVisuals(canvasWidth, duration);
                 }
             };
@@ -842,7 +842,7 @@ public partial class MainWindow
                     ShowTimelineGlow(_trimEndMs, Avalonia.Media.Brushes.SeaGreen);
                     UpdateTimelineMarkers();
                     UpdateEstimatedQuality(); 
-                    SaveRecoveryState(); 
+                    SaveRecoveryState(label: "move trim end"); 
                     UpdateDraggingVisuals(canvasWidth, duration);
                 }
             };
@@ -993,7 +993,7 @@ public partial class MainWindow
                 _draggingMusicStart = false;
                 e.Pointer.Capture(null);
                 UpdateTimelineMarkers();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "move music start");
             };
             startHitBox.PointerMoved += (s, e) => {
                 if (_draggingMusicStart) {
@@ -1024,7 +1024,7 @@ public partial class MainWindow
                 _draggingMusicEnd = false;
                 e.Pointer.Capture(null);
                 UpdateTimelineMarkers();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "move music end");
             };
             endHitBox.PointerMoved += (s, e) => {
                 if (_draggingMusicEnd) {
@@ -1069,7 +1069,7 @@ public partial class MainWindow
                 _draggingMusicBlock = false;
                 e.Pointer.Capture(null);
                 UpdateTimelineMarkers();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "move music");
             };
             musicRect.PointerMoved += (s, e) => {
                 if (_draggingMusicBlock) {

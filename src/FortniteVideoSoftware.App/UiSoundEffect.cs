@@ -307,7 +307,7 @@ public static class UiSoundEffect
 
         try
         {
-            if (WaveOut.DeviceCount <= 0)
+            if (WaveInterop.waveOutGetNumDevs() <= 0)   // AOTCLEAN_02 — WaveOut (umbrella package) is gone; same winmm call
             {
                 _engineFailed = true;
                 SafeLog("No audio output device present - UI sounds disabled for this session.");

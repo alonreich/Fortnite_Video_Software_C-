@@ -14,7 +14,9 @@ public sealed record EstimateMedia(string Path, double Duration, double VideoKbp
 public sealed record MainSizeRequest(string? Path, double DurationMs, double StartMs, double EndMs,
     double Speed, SpeedSegment[] Segments, CutRange[] Cuts, MemePlacement[] Memes,
     string? LegacyMeme, bool Portrait, int Quality);
-public sealed record MergerSizeRequest(string[] Paths, double Speed, int Quality, EstimateMedia[]? KnownSources = null);
+/// <param name="OutputSeconds">MERGESIZE_01 — the finished length from the Merger's edit list (speed ramps, freezes, memes,
+/// cuts, removed intros, custom thumbnail) when it describes the queue; null = sum of the files ÷ speed.</param>
+public sealed record MergerSizeRequest(string[] Paths, double Speed, int Quality, EstimateMedia[]? KnownSources = null, double? OutputSeconds = null);
 public sealed record OutputSizeEstimate(double? Megabytes, double DurationSeconds, double? TargetMegabytes = null,
     IReadOnlyList<EstimateMedia>? Sources = null, double VideoKbps = 0)
 {
@@ -51,7 +53,7 @@ public sealed class OutputSizeEstimator
 
     public static OutputSizeEstimate? QuickMergerEstimate(MergerSizeRequest request)
         => request.KnownSources is { } known && known.Select(s => s.Path).SequenceEqual(request.Paths)
-            ? CalculateMerger(known, request.Speed, request.Quality) : null;
+            ? CalculateMerger(known, request.Speed, request.Quality, request.OutputSeconds) : null;
 
     public async Task<EstimateMedia?> ReadMediaAsync(string path, CancellationToken token)
     {
@@ -99,7 +101,7 @@ public sealed class OutputSizeEstimator
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            RuntimeLog.Debug("SIZE ESTIMATE", $"Could not read {System.IO.Path.GetFileName(path)}: {ex.Message}");
+            RuntimeLog.WarnThrottled("SIZE ESTIMATE", $"Could not read {System.IO.Path.GetFileName(path)}: {ex.Message}");
             return null;
         }
         finally { _cacheGate.Release(); }
@@ -156,22 +158,20 @@ public sealed class OutputSizeEstimator
             if (media == null) return OutputSizeEstimate.Empty; // Never present a partial queue as the total.
             sources.Add(media);
         }
-        return CalculateMerger(sources, request.Speed, request.Quality);
+        return CalculateMerger(sources, request.Speed, request.Quality, request.OutputSeconds);
     }
 
-    public static OutputSizeEstimate CalculateMerger(IReadOnlyList<EstimateMedia> sources, double speed, int quality)
+    public static OutputSizeEstimate CalculateMerger(IReadOnlyList<EstimateMedia> sources, double speed, int quality, double? outputSeconds = null)
     {
         double duration = sources.Sum(s => s.Duration);
         if (duration <= 0 || speed <= 0 || !double.IsFinite(speed)) return OutputSizeEstimate.Empty;
         double average = sources.Sum(s => s.Duration * s.VideoKbps) / duration;
-        double rate = OutputFileSize.MergerTargetKbps(average);
-        if (quality < 100)
-        {
-            // Constant quality is a rough prediction. Follow the export's CQ curve, not a linear percentage.
-            double normalized = sources.Sum(s => s.Duration * OriginalVideoRate(s, false, normalize1080: true)) / duration;
-            rate = normalized * Math.Pow(2, (15 - OutputFileSize.MergerConstantQuality(quality)) / 6.0);
-        }
-        double seconds = duration / speed;
+        // MERGEQUALITY_01 — below 100% the export targets exactly this bitrate (100% × the quality curve), so the
+        // estimate uses the same number and a lower setting always shows (and produces) a smaller file.
+        double rate = OutputFileSize.MergerTargetKbps(average) * OutputFileSize.MergerQualityRatio(quality);
+        if (quality < 100) rate = Math.Max(300, Math.Round(rate));
+        // MERGESIZE_01 — the edit list's exact finished length when known (effects change it); else files ÷ speed.
+        double seconds = outputSeconds is double exact && exact > 0 && double.IsFinite(exact) ? exact : duration / speed;
         // MergerWorker always writes one 192 kbps AAC soundtrack, including mixed music/voice.
         return new(OutputFileSize.FromBitrate(rate, seconds, 192, seconds) * 1.01,
             seconds, Sources: sources, VideoKbps: rate);

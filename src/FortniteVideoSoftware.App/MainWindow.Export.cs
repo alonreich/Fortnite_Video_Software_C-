@@ -277,20 +277,6 @@ public partial class MainWindow
                 musicDurations.Add(knownDuration);
             }
 
-            for (int i = 0; i < musicPaths.Count; i++)
-            {
-                double offset = i == 0 ? _musicWizardResult.OffsetSeconds : 0.0;
-                double knownDuration = musicDurations[i];
-
-                double availableDuration = knownDuration > 0 ? Math.Max(0.0, knownDuration - offset) : dur;
-                double takeDuration = Math.Min(dur, availableDuration);
-                if (takeDuration <= 0.01) continue;
-
-                musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(musicPaths[i], offset, takeDuration, startDelay, true));
-                dur -= takeDuration;
-                if (dur <= 0.01) break;
-            }
-
             // ══════════════════════════════════════════════════════════════════════════════
             // LOOP_01 — "LOOP MUSIC UNTIL VIDEO ENDS" NOW ACTUALLY DOES THAT HERE.
             //
@@ -307,27 +293,18 @@ public partial class MainWindow
             // an ENTRANCE, and re-entering there each cycle would skip the same opening every time.
             // The guard is a hard stop against a zero-length track spinning this forever.
             // ══════════════════════════════════════════════════════════════════════════════
-            if (_musicWizardResult.LoopMusic && dur > 0.01 && musicPaths.Count > 0)
+            // MUSICSYNC_01 — the first pass (wizard offset into track 1, then each following track
+            // from 0) and the LOOP_01 repeat pass now live in MusicBedPlan.Build, unchanged in
+            // behaviour, so the live preview (MainWindow.PreviewAudio.cs) plays exactly this plan.
+            var bedPlan = FortniteVideoSoftware.Core.Media.MusicBedPlan.Build(
+                musicPaths, musicDurations, _musicWizardResult.OffsetSeconds, dur, _musicWizardResult.LoopMusic, startDelay);
+            foreach (var seg in bedPlan)
             {
-                int loopGuard = 0;
-                while (dur > 0.01 && loopGuard++ < 500)
-                {
-                    bool addedAnything = false;
-                    for (int i = 0; i < musicPaths.Count && dur > 0.01; i++)
-                    {
-                        double full = musicDurations[i];
-                        if (full <= 0.01) continue;
+                musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(seg.Path, seg.FileOffsetSec, seg.DurationSec, startDelay, true));
+            }
 
-                        double takeDuration = Math.Min(dur, full);
-                        if (takeDuration <= 0.01) continue;
-
-                        musicTracks.Add(new FortniteVideoSoftware.Core.Media.MusicTrack(musicPaths[i], 0.0, takeDuration, startDelay, true));
-                        dur -= takeDuration;
-                        addedAnything = true;
-                    }
-                    if (!addedAnything) break;   // every track is unreadable or zero-length
-                }
-
+            if (_musicWizardResult.LoopMusic && musicTracks.Count > musicPaths.Count)
+            {
                 RuntimeLog.Info("UI",
                     $"Loop music: repeated the {musicPaths.Count} selected track(s) to {musicTracks.Count} segment(s) to cover the video.");
             }

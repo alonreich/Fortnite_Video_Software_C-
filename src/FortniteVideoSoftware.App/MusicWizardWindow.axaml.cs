@@ -2449,7 +2449,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (Exception ex)
         {
-            RuntimeLog.Debug("MUSIC_WIZARD", $"Could not learn the best passage of '{Path.GetFileName(track.FilePath)}': {ex.Message}");
+            RuntimeLog.WarnThrottled("MUSIC_WIZARD", $"Could not learn the best passage of '{Path.GetFileName(track.FilePath)}': {ex.Message}");
         }
         finally
         {
@@ -3544,7 +3544,7 @@ public partial class MusicWizardWindow : Window
                     else
                     {
                         var prober = new FortniteVideoSoftware.Core.Media.MediaProber(ffmpeg.Replace("ffmpeg.exe", "ffprobe.exe"), v);
-                        try { dur = await prober.GetDurationAsync(); } catch (System.Exception swallowed7)
+                        try { dur = MergerWindowDuration(videoDurs.Count) ?? await prober.GetDurationAsync(); } catch (System.Exception swallowed7)   // SCRAPER_02
                         {
                             dur = 10.0;
                             global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
@@ -3580,7 +3580,7 @@ public partial class MusicWizardWindow : Window
                 {
                     double vDur = videoDurs[i];
                     int framesCount = Math.Max(1, (int)Math.Round(15 * (vDur / totalDur)));
-                    double startOffset = (_isMergerMode || i > 0) ? 0 : (_trimStartMs / 1000.0);
+                    double startOffset = (_isMergerMode || i > 0) ? MergerWindowStart(i) : (_trimStartMs / 1000.0);   // SCRAPER_02
                     string videoForStrip = videosToThumb[i];
                     var target = laneImages[i];
 
@@ -5124,7 +5124,7 @@ public partial class MusicWizardWindow : Window
 
         CancelMusicScan();
 
-        var files = e.Data.GetFiles();
+        var files = e.DataTransfer.TryGetFiles();
 
         if (files == null) return;
 

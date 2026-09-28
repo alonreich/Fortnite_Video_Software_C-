@@ -545,7 +545,8 @@ namespace FortniteVideoSoftware.App.Controls
         {
             Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
             GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-            Radius = 0.7,
+            RadiusX = new RelativeScalar(0.7, RelativeUnit.Relative),
+            RadiusY = new RelativeScalar(0.7, RelativeUnit.Relative),
             GradientStops = new GradientStops
             {
                 new GradientStop(s0, 0.0),
@@ -618,7 +619,8 @@ namespace FortniteVideoSoftware.App.Controls
         {
             Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
             GradientOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
-            Radius = 0.5,
+            RadiusX = RelativeScalar.Middle,
+            RadiusY = RelativeScalar.Middle,
             GradientStops = new GradientStops
             {
                 new GradientStop(Color.FromArgb(45, 80, 255, 239), 0.0),

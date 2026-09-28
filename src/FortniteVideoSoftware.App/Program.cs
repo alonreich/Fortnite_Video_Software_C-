@@ -16,6 +16,7 @@ if (DeploymentLifecycle.ShouldHandle(args))
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.InfoAction = RuntimeLog.Info;
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.FailAction = RuntimeLog.Fail;
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.DebugAction = RuntimeLog.Debug;
+FortniteVideoSoftware.Core.Infrastructure.CoreLogger.WarnAction = RuntimeLog.WarnThrottled;   // LOGVIS_01
 FortniteVideoSoftware.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
@@ -350,7 +351,7 @@ static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
             }
             catch (Exception ex)
             {
-                RuntimeLog.Debug("TEMP CLEANUP", $"Could not remove {folder}: {ex.Message}");
+                RuntimeLog.WarnThrottled("TEMP CLEANUP", $"Could not remove {folder}: {ex.Message}");
             }
         }
     }

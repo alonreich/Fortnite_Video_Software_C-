@@ -321,7 +321,7 @@ public partial class VoiceOverWindow : Window
 
     private sealed class PreviewPlayer : IDisposable
     {
-        public NAudio.Wave.AudioFileReader Reader { get; }
+        public FortniteVideoSoftware.Core.Media.WavAudioReader Reader { get; }
         public NAudio.Wave.WaveOutEvent Player { get; }
         public VoiceOverSession Session { get; }
         private readonly float _previewGain;
@@ -329,15 +329,18 @@ public partial class VoiceOverWindow : Window
         public PreviewPlayer(VoiceOverSession session, float previewGain = 1.0f)
         {
             Session = session;
-            Reader = new NAudio.Wave.AudioFileReader(session.WavPath);
+            Reader = new FortniteVideoSoftware.Core.Media.WavAudioReader(session.WavPath);
             _previewGain = previewGain;
             ApplyMasterVolume(MpvIpcClient.GlobalMasterVolume);
 
-            Player = new NAudio.Wave.WaveOutEvent();
+            Player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();   // MUSICSYNC_02
             Player.Init(Reader);
         }
 
         public void ApplyMasterVolume(int volume) => Reader.Volume = _previewGain * volume / 100f;
+
+        /// <summary>MUSICSYNC_02 — consecutive out-of-tolerance readings (PreviewAudioSync).</summary>
+        public int DriftStrikes;
 
         public void Dispose()
         {
@@ -707,7 +710,7 @@ public partial class VoiceOverWindow : Window
                                     if (System.IO.File.Exists(t.Path))
                                     {
                                         double dur = 0.1;
-                                        try { using var af = new NAudio.Wave.AudioFileReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch (System.Exception swallowed)
+                                        try { using var af = new FortniteVideoSoftware.Core.Media.WavAudioReader(t.Path); dur = af.TotalTime.TotalSeconds; } catch (System.Exception swallowed)
                                         {
                                             global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                                         }
@@ -802,7 +805,7 @@ public partial class VoiceOverWindow : Window
         // VOASYNC_01 — REBUILDING THE PREVIEW PLAYERS IS NOW A BACKGROUND JOB.
         //
         // This block ran on the interface thread inside a 50 ms timer tick, and for EVERY take it
-        // opened an AudioFileReader (decode + header parse) and initialised a WaveOutEvent (which
+        // opened a WavAudioReader (decode + header parse) and initialised a WaveOutEvent (which
         // opens a WASAPI render endpoint). With three takes that is three device opens in one
         // tick — hundreds of milliseconds of frozen interface immediately after each recording,
         // which is exactly the "stutter and it takes time till the recording appears" complaint.
@@ -871,27 +874,15 @@ public partial class VoiceOverWindow : Window
             double mappedStart = _timeline != null ? _timeline.SourceToOutput(take.StartSec) : take.StartSec;
             double mappedOffset = mappedTime - mappedStart;
             
-            if (shouldPlayVoice && player.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
+            // MUSICSYNC_02 — shared follower rule (seek-only, reader lead compensated, 0.12 s
+            // tolerance confirmed twice). Same behaviour as the main window and the editors.
+            try
             {
-                if (mappedOffset >= 0 && mappedOffset < player.Reader.TotalTime.TotalSeconds)
-                {
-                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(mappedOffset); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
-                }
-                player.Player.Play();
+                Infrastructure.PreviewAudioSync.SyncVoiceTake(player.Reader, player.Player,
+                    shouldPlayVoice && mappedOffset >= 0 && mappedOffset < player.Reader.TotalTime.TotalSeconds,
+                    mappedOffset, ref player.DriftStrikes);
             }
-            else if (!shouldPlayVoice && player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-            {
-                player.Player.Pause();
-            }
-            else if (shouldPlayVoice && player.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-            {
-                double expectedPos = mappedOffset;
-                double actualPos = player.Reader.CurrentTime.TotalSeconds;
-                if (Math.Abs(expectedPos - actualPos) > 0.15)
-                {
-                    try { player.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, expectedPos)); } catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
-                }
-            }
+            catch (System.Exception __ex) { RuntimeLog.SwallowedThrottled(__ex); }
         }
     }
 
@@ -1981,7 +1972,7 @@ public partial class VoiceOverWindow : Window
             }
             catch (Exception ex)
             {
-                CoreLogger.Debug("VoiceOver", $"Could not build the waveform for '{System.IO.Path.GetFileName(path)}': {ex.Message}");
+                CoreLogger.Warn("VoiceOver", $"Could not build the waveform for '{System.IO.Path.GetFileName(path)}': {ex.Message}");
             }
 
             Dispatcher.UIThread.Post(() =>
@@ -3129,7 +3120,7 @@ public partial class VoiceOverWindow : Window
             {
                 if (System.IO.File.Exists(session.WavPath))
                 {
-                    using var af = new NAudio.Wave.AudioFileReader(session.WavPath);
+                    using var af = new FortniteVideoSoftware.Core.Media.WavAudioReader(session.WavPath);
                     dur = af.TotalTime.TotalSeconds;
                 }
             }

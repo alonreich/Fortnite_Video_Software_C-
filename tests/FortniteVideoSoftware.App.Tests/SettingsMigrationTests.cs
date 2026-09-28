@@ -54,7 +54,7 @@ public sealed class SettingsMigrationTests : IDisposable
 
         // Verify disk contents were saved with SchemaVersion = 7 and AutoUpdateChecks = true
         string savedJson = File.ReadAllText(_settingsFile);
-        Assert.Contains("\"SchemaVersion\": 7", savedJson);
+        Assert.Contains($"\"SchemaVersion\": {SettingsManager.CurrentSchemaVersion}", savedJson);
         Assert.Contains("\"AutoUpdateChecks\": true", savedJson);
     }
 
@@ -77,7 +77,7 @@ public sealed class SettingsMigrationTests : IDisposable
         // Assert
         Assert.True(SettingsManager.Instance.AutoUpdateChecks);
         string savedJson = File.ReadAllText(_settingsFile);
-        Assert.Contains("\"SchemaVersion\": 7", savedJson);
+        Assert.Contains($"\"SchemaVersion\": {SettingsManager.CurrentSchemaVersion}", savedJson);
         Assert.Contains("\"AutoUpdateChecks\": true", savedJson);
     }
 
@@ -95,5 +95,72 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.True(SettingsManager.Instance.AutoUpdateChecks);
         string savedJson = File.ReadAllText(_settingsFile);
         Assert.Contains("\"AutoUpdateChecks\": true", savedJson);
+    }
+
+    [Fact]
+    public void MigrateFromSchema7_ForcesThumbnailScraperOn()
+    {
+        // SCRAPER_05 — an upgrader who had the flag OFF (or never had it) gets it ON.
+        File.WriteAllText(_settingsFile, """
+        {
+            "SchemaVersion": 7,
+            "AutoUpdateChecks": true,
+            "MergerThumbnailScraper": false
+        }
+        """);
+
+        SettingsManager.Load();
+
+        Assert.Equal(9, SettingsManager.CurrentSchemaVersion);
+        Assert.True(SettingsManager.Instance.MergerThumbnailScraper);
+        Assert.Contains("\"MergerThumbnailScraper\": true", File.ReadAllText(_settingsFile));
+    }
+
+    [Fact]
+    public void MigrateFromSchema8_TurnsTheMergerRemoveConfirmOff_Once()
+    {
+        // REMOVEUX_01 — an upgrader who had the confirm ON gets it OFF once; a v9 file keeps the user's choice.
+        File.WriteAllText(_settingsFile, """
+        {
+            "SchemaVersion": 8,
+            "AutoUpdateChecks": true,
+            "ConfirmVideoMergerRemove": true
+        }
+        """);
+        SettingsManager.Load();
+        Assert.False(SettingsManager.Instance.ConfirmVideoMergerRemove);
+
+        File.WriteAllText(_settingsFile, """
+        {
+            "SchemaVersion": 9,
+            "AutoUpdateChecks": true,
+            "ConfirmVideoMergerRemove": true
+        }
+        """);
+        SettingsManager.Load();
+        Assert.True(SettingsManager.Instance.ConfirmVideoMergerRemove);
+    }
+
+    [Fact]
+    public void Schema8_UserChoiceOff_IsRespected()
+    {
+        File.WriteAllText(_settingsFile, """
+        {
+            "SchemaVersion": 8,
+            "AutoUpdateChecks": true,
+            "MergerThumbnailScraper": false
+        }
+        """);
+
+        SettingsManager.Load();
+
+        Assert.False(SettingsManager.Instance.MergerThumbnailScraper);
+    }
+
+    [Fact]
+    public void FreshInstall_ThumbnailScraperOn()
+    {
+        SettingsManager.Load();
+        Assert.True(SettingsManager.Instance.MergerThumbnailScraper);
     }
 }

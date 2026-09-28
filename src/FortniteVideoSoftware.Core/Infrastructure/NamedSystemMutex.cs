@@ -18,8 +18,27 @@ public sealed class NamedSystemMutex : IDisposable
 
     private NamedSystemMutex(string name)
     {
-        _mutex = new Mutex(initiallyOwned: false, name);
+        try
+        {
+            _mutex = new Mutex(initiallyOwned: false, name);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException or IOException)
+        {
+            // USERSCOPE_01 — e.g. the name is held by ANOTHER Windows account with a DACL that
+            // excludes this one. Every caller already handles LockException (degrade and move on);
+            // a raw UnauthorizedAccessException from a constructor escaped all of them.
+            throw new LockException($"Named mutex '{name}' could not be opened: {ex.GetType().Name}: {ex.Message}");
+        }
     }
+
+    /// <summary>
+    /// USERSCOPE_01 — a machine-wide ("Global\") name that is private to the current Windows user.
+    /// It stays Global so the same user's processes in different sessions (console + RDP) still
+    /// exclude each other over the per-user data root, while other accounts can never collide
+    /// with it or be denied by its DACL.
+    /// </summary>
+    public static string UserScopedName(string baseName)
+        => $@"Global\{baseName}_{FortniteVideoSoftware.Core.Ipc.IpcProtocol.UserScope}";
 
     public static NamedSystemMutex Acquire(
         string name,

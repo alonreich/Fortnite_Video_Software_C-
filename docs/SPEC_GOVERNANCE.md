@@ -8,7 +8,7 @@
 | `docs/INDEX.md` | Flat Symbol & File Lookup | `Symbol -> Spec Section`, `Stable {#ANCHOR} ids`, `CO-GOVERNED marks` | Zero-Cost Routing Lookup |
 | `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `AppDirectoryName` | System Path Governance |
 | `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Session State & Fault Governance |
-| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `SaveRecoveryState`, `CheckFault`, `AttachPreviewMonitor`, `OnSuccessAction` | Main Process Governance Root |
+| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` (partial class) | `AttachPreviewMonitor`, `OnSuccessAction` (this file); the recovery hooks live in partials governed by their own headers — `SaveRecoveryState` in `MainWindow.Recovery.cs`, the startup `RecoveryManager.CheckFault()` call in `MainWindow.Wireup.cs` | Main Process Governance Root |
 
 ---
 
@@ -24,7 +24,7 @@ Developers and autonomous AI agents are strictly forbidden from inspecting, gene
 ## 2. Mid-Session Context Boundary Rule
 If a debugging session or feature implementation crosses from its initial domain into another (e.g., an FFmpeg export task requiring adjustments to `OutputTimeline.cs`, audio mastering filters, Avalonia UI styles, or disk recovery serialization), EXECUTION MUST HALT IMMEDIATELY.
 * Conversational memory, assumed defaults, or heuristic extrapolations are strictly prohibited.
-* **CO-GOVERNED FILES:** A source file listed in the Code Mini-Map of MORE THAN ONE spec (marked `⚠ CO-GOVERNED BY` on its row, and `⚠` in `docs/INDEX.md`) is bound by ALL of them simultaneously. Reading one of them is NOT compliance. `MainWindow.axaml.cs`, `GranularSpeedEditorWindow.axaml.cs`, `VoiceOverWindow.axaml.cs`, `MusicWizardWindow.axaml.cs`, `PhoneFrameMockup.axaml.cs`, `FluidVolumeSlider.cs` and `WindowBoundsHelper.cs` are the known multi-domain files.
+* **CO-GOVERNED FILES:** A source file listed in the Code Mini-Map of MORE THAN ONE spec (marked `⚠ CO-GOVERNED BY` on its row, and `⚠` in `docs/INDEX.md`) is bound by ALL of them simultaneously. Reading one of them is NOT compliance. The authoritative list of multi-domain files is every `⚠` row in `docs/INDEX.md` §1 (kept in step with the spec mini-maps) — there are dozens. Examples only, not the list: `MainWindow.axaml.cs`, `GranularSpeedEditorWindow.axaml.cs`, `MergeEdl.cs`, `ProjectSession.cs`.
 * The agent must load and parse the governing `docs/0X_*.md` file before inspecting or touching logic in that secondary domain.
 * Cross-domain modifications executed without verifying the target domain's governing specification will be rejected and reverted.
 

@@ -98,16 +98,17 @@ public partial class MainWindow : Window
     private double _loadedVideoDurationMs = 0;
 
     private NAudio.Wave.WaveOutEvent? _voiceOverPlayer;
-    private NAudio.Wave.AudioFileReader? _voiceOverReader;
+    private FortniteVideoSoftware.Core.Media.WavAudioReader? _voiceOverReader;
     private readonly List<VoiceOverPreviewTake> _voiceOverPreviewTakes = new();
-    private Func<double, double>? _voiceOverPreviewTimeMapper;
 
     private sealed class VoiceOverPreviewTake
     {
         public required VoiceOverTake Take { get; init; }
         public required NAudio.Wave.WaveOutEvent Player { get; init; }
-        public required NAudio.Wave.AudioFileReader Reader { get; init; }
+        public required FortniteVideoSoftware.Core.Media.WavAudioReader Reader { get; init; }
         public double StartProjectSec { get; set; }
+        /// <summary>MUSICSYNC_02 — consecutive out-of-tolerance readings (PreviewAudioSync).</summary>
+        public int DriftStrikes;
     }
 
     private Avalonia.Controls.Control? _thumbnailCameraControl;
@@ -342,8 +343,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             // PROJ_11 — the mask and the merge queue are captured on every edit boundary so the
             // .fvsproj records the work the user actually did. Both are callbacks for the same
             // reason the metrics probe is: they read state that outlives and predates this window.
-            Infrastructure.MaskOverlayManager.ReadLiveMask,
-            Services.ToolNavigator.ReadMergeQueue);
+            Infrastructure.LiveMaskCache.ReadNow,
+            Services.ToolNavigator.ReadMergeQueue,
+            // EDITHOT_01 — edit ticks, undo/redo and autosave read the mask snapshot, never the
+            // disk and never the machine-wide mutex, on the UI thread.
+            readLiveMaskFast: () => Infrastructure.LiveMaskCache.Current);
+
+        // EDITHOT_01 — warm the mask snapshot on the thread pool now, so the first edit already
+        // records the real mask (and an untouched editor stays equal to itself for U4).
+        Infrastructure.LiveMaskCache.RequestRefresh();
 
         _projectSession.StateChanged += (_, _) => RefreshProjectTitle();
         // PROJ_11 — the document is carried through now. It has to be: restoring a project has to
@@ -583,7 +591,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 volumeSlider.Value = _previousVolume > 0 ? _previousVolume : 100;
             }
-            SaveRecoveryState();
+            SaveRecoveryState(label: "mute");
         }
     }
 
@@ -660,7 +668,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void OnVideoDragEnter(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.Contains(Avalonia.Input.DataFormats.FileNames) || e.Data.GetFiles()?.Any() == true)
+        if (e.DataTransfer.Contains(Avalonia.Input.DataFormat.File))
         {
             e.DragEffects = DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link;
             var dropzone = AmbientDropzoneCtl;
@@ -691,7 +699,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void OnVideoDragOver(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(Avalonia.Input.DataFormats.Files) || e.Data.Contains(Avalonia.Input.DataFormats.FileNames) || e.Data.GetFiles()?.Any() == true)
+        if (e.DataTransfer.Contains(Avalonia.Input.DataFormat.File))
         {
             e.DragEffects = DragDropEffects.Copy;
         }
@@ -712,7 +720,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             uploadOverlay.Opacity = 0.95;
         }
 
-        var files = e.Data.GetFiles();
+        var files = e.DataTransfer.TryGetFiles();
         if (files == null)
         {
             return;
@@ -1094,7 +1102,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         // here; the list itself still has to be cleared with the rest of the project state.
         _cuts.Clear();
         
-        SaveRecoveryState();
+        SaveRecoveryState(label: "clear edits");
     }
 
     /// <summary>
@@ -1593,7 +1601,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             InvalidateVoiceOverRecordingForTimingChange();
         UpdateEstimatedQuality();
         UpdateSpeedLabel();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "change speed");
+        EndProjectGesture();   // UNDOEQ_02 — a preset click is one discrete step, never part of a dial sweep.
     }
 
     private void SetTimelinePopupsVisible(bool visible)
@@ -1633,48 +1642,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         result.TimelineStartSeconds = Math.Clamp(result.TimelineStartSeconds, 0, Math.Max(0, videoEndSec - 0.5));
         result.TimelineEndSeconds = Math.Clamp(result.TimelineEndSeconds, result.TimelineStartSeconds + 0.5, videoEndSec);
-    }
-
-    private async void StartMusicPreview(double currentVideoTimeSec)
-    {
-        if (_musicWizardResult == null || string.IsNullOrEmpty(_musicWizardResult.MusicFilePath)) return;
-
-        double offsetFromMusicStart = _musicWizardResult.OffsetSeconds + (currentVideoTimeSec - _musicWizardResult.TimelineStartSeconds);
-        if (offsetFromMusicStart < 0) offsetFromMusicStart = 0;
-        if (_musicWizardResult.MusicDurationSeconds > 0 && offsetFromMusicStart >= _musicWizardResult.MusicDurationSeconds)
-            return;
-
-        string mpvExe = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? System.AppContext.BaseDirectory, "binaries", "mpv.exe");
-        if (!System.IO.File.Exists(mpvExe)) mpvExe = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? System.AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "mpv.exe");
-        if (!System.IO.File.Exists(mpvExe)) mpvExe = "mpv.exe";
-
-        if (_musicPreviewIpcClient == null)
-        {
-            _musicPreviewIpcClient = new FortniteVideoSoftware.Core.Media.MpvIpcClient();
-            await _musicPreviewIpcClient.StartAudioOnlyAsync(mpvExe);
-        }
-
-        var volSlider = this.FindControl<Avalonia.Controls.Slider>("VolumeSlider");
-        double masterVol = volSlider?.Value ?? 100.0;
-        double effectiveMusicVol = masterVol * _musicWizardResult.MusicVolume;
-
-        await _musicPreviewIpcClient.SetPreviewVolumeAsync(effectiveMusicVol);
-        await _musicPreviewIpcClient.LoadFileAsync(_musicWizardResult.MusicFilePath, offsetFromMusicStart);
-        await _musicPreviewIpcClient.SetPropertyAsync("pause", "no");
-
-        _isMusicPreviewPlaying = true;
-        _lastMusicPreviewSyncTime = currentVideoTimeSec;
-        _playingMusicTimelineStartSeconds = _musicWizardResult.TimelineStartSeconds;
-    }
-
-    private async void StopMusicPreview()
-    {
-        if (_musicPreviewIpcClient != null)
-        {
-            await _musicPreviewIpcClient.SetPropertyAsync("pause", "yes");
-            await _musicPreviewIpcClient.SendCommandAsync("stop");
-        }
-        _isMusicPreviewPlaying = false;
     }
 
     private void ApplyMasterVolume(int masterVolumePercentage)
@@ -1735,7 +1702,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 var markEndBtn = MarkEndButtonCtl;
                 if (markEndBtn != null) markEndBtn.Content = $"MARK END [{FormatTime(TimeSpan.FromSeconds(dur))}]";
                 UpdateTimelineMarkers();
-                SaveRecoveryState();
+                SaveRecoveryState(label: "reset trim");
             }
         }
     }
@@ -1847,64 +1814,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         bool videoEnded = ActiveVideoHost.IpcClient.IsEof || (dur > 0 && time >= dur - 0.05);
 
-        if (_musicWizardResult != null && !string.IsNullOrEmpty(_musicWizardResult.MusicFilePath))
-        {
-            bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
-            if (_isCurrentlyFrozen) isPaused = false;
-            double songTime = _musicWizardResult.OffsetSeconds + (time - _musicWizardResult.TimelineStartSeconds);
-            bool songHasAudio = _musicWizardResult.MusicDurationSeconds <= 0 || songTime < _musicWizardResult.MusicDurationSeconds;
-            bool shouldPlayMusic = !isPaused && !videoEnded && time >= _musicWizardResult.TimelineStartSeconds && time <= _musicWizardResult.TimelineEndSeconds && songHasAudio;
-            bool isDraggingAnyMarker = _draggingStartMarker || _draggingEndMarker || _draggingMusicStart || _draggingMusicEnd || _draggingMusicBlock;
-
-            if (shouldPlayMusic && _isMusicPreviewPlaying && (Math.Abs(time - _lastMusicPreviewSyncTime) > 0.5 || Math.Abs(_musicWizardResult.TimelineStartSeconds - _playingMusicTimelineStartSeconds) > 0.05))
-            {
-                StopMusicPreview();
-            }
-
-            if (shouldPlayMusic && !_isMusicPreviewPlaying && !isDraggingAnyMarker)
-            {
-                StartMusicPreview(time);
-            }
-            else if (!shouldPlayMusic && _isMusicPreviewPlaying)
-            {
-                StopMusicPreview();
-            }
-
-            if (_isMusicPreviewPlaying)
-            {
-                _lastMusicPreviewSyncTime = time;
-            }
-        }
-
-        if (_voiceOverResult != null && _voiceOverPreviewTakes.Count > 0)
-        {
-            bool isPaused = ActiveVideoHost.IpcClient.IsPaused;
-            if (_isCurrentlyFrozen) isPaused = false;
-
-            double editedTime = GetEditedPreviewTimeSeconds(time);
-            foreach (var take in _voiceOverPreviewTakes)
-            {
-                double voiceTime = editedTime - take.StartProjectSec;
-                bool shouldPlayVoice = !isPaused && !videoEnded && voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
-
-                if (shouldPlayVoice && take.Player.PlaybackState != NAudio.Wave.PlaybackState.Playing)
-                {
-                    take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
-                    take.Player.Play();
-                }
-                else if (!shouldPlayVoice && take.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-                {
-                    take.Player.Pause();
-                }
-                else if (shouldPlayVoice && take.Player.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-                {
-                    if (Math.Abs(take.Reader.CurrentTime.TotalSeconds - voiceTime) > 0.5)
-                    {
-                        take.Reader.CurrentTime = TimeSpan.FromSeconds(voiceTime);
-                    }
-                }
-            }
-        }
+        // MUSICSYNC_01/02 — music bed and voice-over takes follow the video in OUTPUT time
+        // (MainWindow.PreviewAudio.cs). Music always plays at 1.0x; drift is corrected by seeking.
+        UpdateMusicPreview(time, videoEnded);
+        UpdateVoiceOverPreview(time, videoEnded);
 
         double currentAbsMs = time * 1000.0;
 
@@ -2068,36 +1981,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         return _baseSpeed;
     }
 
-    private async void InitializeMpv()
-    {
-        _videoHost = this.FindControl<MpvVideoView>("VideoHost");
-        if (_videoHost != null)
-        {
-            string mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "frontend", "mpv.exe");
-            if (!System.IO.File.Exists(mpvPath)) mpvPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory, "..", "..", "..", "..", "..", "binaries", "mpv.exe");
-            if (!System.IO.File.Exists(mpvPath))
-            {
-                mpvPath = "mpv.exe";
-            }
-            try
-            {
-                await _videoHost.StartMpvProcessAsync(mpvPath);
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog.Fail("UI", $"Video preview initialization failed. {ex}");
-                ShowTacticalFeedback("Video preview unavailable on this hardware.");
-                PlayUiSound();
-                return;
-            }
-
-            if (_videoHost.IpcClient != null)
-            {
-                _videoHost.IpcClient.SeekCompleted -= OnSeekCompleted;
-                _videoHost.IpcClient.SeekCompleted += OnSeekCompleted;
-            }
-        }
-    }
+    private async void InitializeMpv() => await StartVideoHostAsync();   // TOOLRETURN_01 — body in MainWindow.ToolReturn.cs
 
     private void OnSeekCompleted()
     {
@@ -2383,7 +2267,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 global::FortniteVideoSoftware.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
             }
             UpdateTimelineMarkers();
-            SaveRecoveryState();
+            SaveRecoveryState(label: "drag marker");
         }
     }
 
@@ -2592,7 +2476,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 : null);
         }
 
-        SaveRecoveryState();
+        SaveRecoveryState(label: "granular speed edits");
     }
 
     /// <summary>
@@ -2623,7 +2507,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (txt != null) txt.Text = " ADD MUSIC ";
             ToolTip.SetTip(btn, "Add background music to the video");
         }
-        SaveRecoveryState();
+        SaveRecoveryState(label: "music");
     }
 
     /// <summary>
@@ -2689,46 +2573,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _voiceOverPreviewTakes.Clear();
     }
 
-    private Func<double, double> GetVoiceOverPreviewTimeMapper()
-    {
-        if (_voiceOverPreviewTimeMapper != null)
-        {
-            return _voiceOverPreviewTimeMapper;
-        }
-
-        double durationMs = ActiveVideoHost?.IpcClient?.Duration > 0
-            ? ActiveVideoHost.IpcClient.Duration * 1000.0
-            : Math.Max(_trimEndMs, _trimStartMs + 1000.0);
-        double endMs = _trimEndMs > _trimStartMs ? _trimEndMs : durationMs;
-        double totalMs = Math.Max(1.0, endMs - _trimStartMs);
-
-        _voiceOverPreviewTimeMapper = GranularSpeedBuilder.CreateTimeMapper(
-            totalMs,
-            BuildExportSpeedSegments(),
-            _baseSpeed,
-            _trimStartMs);
-
-        foreach (var take in _voiceOverPreviewTakes)
-        {
-            take.StartProjectSec = _voiceOverPreviewTimeMapper(take.Take.StartSec);
-        }
-
-        return _voiceOverPreviewTimeMapper;
-    }
-
-    private double GetEditedPreviewTimeSeconds(double sourceTimeSec)
-    {
-        var mapper = GetVoiceOverPreviewTimeMapper();
-        if (_isCurrentlyFrozen && _freezeTimeMs >= 0)
-        {
-            double freezeBaseSec = mapper(_freezeTimeMs / 1000.0);
-            double elapsedFreezeSec = Math.Clamp((DateTime.UtcNow - _freezeStartTime).TotalSeconds, 0, Math.Max(0, _freezeDurationS));
-            return freezeBaseSec + elapsedFreezeSec;
-        }
-
-        return mapper(sourceTimeSec);
-    }
-
     private void ApplyVoiceOverState(VoiceOverWindow.VoiceOverResult? result, bool isRestore = false)
     {
         var oldResult = _voiceOverResult;
@@ -2741,7 +2585,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _voiceOverReader?.Dispose();
         _voiceOverReader = null;
         DisposeVoiceOverPreviewTakes();
-        _voiceOverPreviewTimeMapper = null;
 
         if (!isRestore && oldResult != null && oldResult != _voiceOverResult)
         {
@@ -2786,8 +2629,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 {
                     try
                     {
-                        var reader = new NAudio.Wave.AudioFileReader(take.Path);
-                        var player = new NAudio.Wave.WaveOutEvent();
+                        var reader = new FortniteVideoSoftware.Core.Media.WavAudioReader(take.Path);
+                        var player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();   // MUSICSYNC_02
                         player.Init(reader);
                         _voiceOverPreviewTakes.Add(new VoiceOverPreviewTake
                         {
@@ -2817,15 +2660,16 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (text != null) text.Text = "VOICE OVER";
         }
 
-        if (!isRestore) SaveRecoveryState();
+        if (!isRestore) SaveRecoveryState(label: "voice over");
     }
 
     private void InvalidateVoiceOverRecordingForTimingChange()
     {
+        // MUSICSYNC_01 — nothing to invalidate any more. Preview timing is read through
+        // TimelineViewModel.PreviewSourceToOutputSeconds, whose OutputTimeline rebuilds itself
+        // whenever trim, speed, segments, freeze or cuts change. (The old cached mapper missed
+        // cut and trim edits entirely, and ignored cuts even when fresh.)
         if (!HasVoiceOverWav(_voiceOverResult)) return;
-        
-        _voiceOverPreviewTimeMapper = null;
-        GetVoiceOverPreviewTimeMapper();
     }
 
     private Avalonia.Threading.DispatcherTimer? _recoveryDebounceTimer;
@@ -2953,7 +2797,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             this,
             payload,
             shutdownVideoPipeline: ShutdownVideoPipeline,
-            restoreVideoPipeline: null);
+            restoreVideoPipeline: RestoreVideoPipelineAfterTool);   // TOOLRETURN_01
 
         // The overlay is a "we are leaving" card. We are not leaving any more, so it comes down
         // either way — on success the tool window is already in front of it.
@@ -3008,7 +2852,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
         catch (System.Exception ex)
         {
-            RuntimeLog.Debug("UI", $"Handoff overlay could not be shown: {ex.Message}");
+            RuntimeLog.WarnThrottled("UI", $"Handoff overlay could not be shown: {ex.Message}");
         }
     }
 
@@ -3022,7 +2866,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             }
             _companionHandoffOverlay = null;
         }
-        catch (System.Exception ex) { RuntimeLog.Debug("UI", $"Handoff overlay could not be hidden: {ex.Message}"); }
+        catch (System.Exception ex) { RuntimeLog.WarnThrottled("UI", $"Handoff overlay could not be hidden: {ex.Message}"); }
     }
 
     private Border? _companionHandoffOverlay;
@@ -3058,67 +2902,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
 
     private bool HasUnsavedWork() => _recoveryService.HasUnsavedWork(_viewModel, _viewModel.Timeline, _viewModel.Export);
-
-    private void SaveRecoveryState(bool sync = false, bool isUserEdit = true)
-    {
-        if (_isRestoring) return;
-        if (isUserEdit) UpdateEstimatedQuality();
-
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        // UNDO_20 / PROJSESSION_03 — ONE HOOK FOR THE WHOLE EDIT SURFACE.
-        //
-        // This method is already wired to ~25 UI events and already means exactly "the user
-        // changed something", already honours _isRestoring, and already distinguishes a genuine
-        // edit from a bookkeeping save via isUserEdit. Every one of those properties is a
-        // precondition the undo stack needs, so hooking here gives the main window undo across its
-        // whole surface in one place instead of 25 hand-placed PushEdit calls that the 26th edit
-        // would then forget.
-        //
-        // The label is generic because this hook cannot know which control fired. A specific label
-        // is better UX and belongs at the individual call sites; a generic label that works
-        // everywhere beats a specific one that covers a third of the surface.
-        //
-        // ⚠️ ORDER: push BEFORE the HasUnsavedWork early-return below. That return fires when the
-        // user has just UNDONE their way back to an empty project — which is itself a state the
-        // redo stack must be able to come back from.
-        // ══════════════════════════════════════════════════════════════════════════════════════
-        if (isUserEdit)
-        {
-            PushProjectEdit("edit");
-            ProjectAutosaveTick();
-        }
-
-        try
-        {
-            if (isUserEdit && _exportedCleanSinceLastEdit)
-            {
-                _exportedCleanSinceLastEdit = false;
-                RuntimeLog.Info("RECOVERY", "Edit made after a successful export - project is dirty again, recovery re-armed.");
-            }
-
-            if (!HasUnsavedWork())
-            {
-                _recovery.ClearState();
-                return;
-            }
-
-            RuntimeLog.Info("RECOVERY",
-                $"Saving project state: trim[{_trimStartMs:F0}-{_trimEndMs:F0}ms set={_trimStartSet}/{_trimEndSet}] " +
-                $"speed[base={_baseSpeed:F2}x segs={_speedSegments.Count}] " +
-                $"freeze[at={_freezeTimeMs:F0}ms for={_freezeDurationS:F2}s] " +
-                $"cuts[{_cuts.Count} removing {RemovedCutSeconds():F2}s] " +
-                $"thumb[set={_thumbnailSet} at={_thumbnailPosMs:F0}ms] " +
-                $"voiceOver[{(_voiceOverResult != null ? "yes" : "no")}] " +
-                $"music[{(_musicWizardResult != null ? "yes" : "no")}].");
-
-            var state = _recoveryService.SerializeState(_viewModel, _viewModel.Timeline, _viewModel.Export);
-            _recoveryService.SaveState(state, sync);
-        }
-        catch (System.Exception ex)
-        {
-            RuntimeLog.Fail("RECOVERY", ex);
-        }
-    }
 
     private async void OnExportConfigClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -3272,7 +3055,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         DropMemesInsideCuts();   // MEME_06
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
-        SaveRecoveryState();
+        SaveRecoveryState(label: "edit cuts");
 
         if (_musicWizardResult != null && _cuts.Count > 0)
         {
@@ -3351,7 +3134,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     {
                         cb.SelectedItem = match;
                         if (addMemeCb != null) addMemeCb.IsChecked = true;
-                        SaveRecoveryState();
+                        SaveRecoveryState(label: "choose meme");
                         TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height / 2),
                             Controls.ParticleBurstCanvas.BurstPreset.TogglePop);
                     }

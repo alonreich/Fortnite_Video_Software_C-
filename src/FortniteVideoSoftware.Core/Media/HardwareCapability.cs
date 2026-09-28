@@ -230,7 +230,7 @@ public static class HardwareCapability
     private static void Write(JsonObject root)
     {
         try { UiStateStore.WriteText(FileName, root.ToJsonString()); }
-        catch (Exception ex) { CoreLogger.Debug("Hardware", $"Shared capability not written: {ex.Message}"); }
+        catch (Exception ex) { CoreLogger.Warn("Hardware", $"Shared capability not written: {ex.Message}"); }
     }
 
     /// <summary>

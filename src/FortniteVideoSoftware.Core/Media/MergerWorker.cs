@@ -105,6 +105,85 @@ public class MergerWorker : IDisposable
     public readonly record struct ClipTrim(double StartSec, double EndSec);
 
     /// <summary>
+    /// SCRAPER_02 — per clip, the SOURCE second where the kept content must start because a tagged
+    /// thumbnail intro is removed there (0 = nothing removed). Index-aligned with
+    /// <see cref="InputFiles"/> and produced by <see cref="MergedTimeline.ContentStarts"/>, the same
+    /// object the preview and the Music Wizard use, so export and preview cut at the same frame.
+    /// </summary>
+    public List<double>? ClipIntroSkipSec { get; set; }
+
+    /// <summary>SCRAPER_01 — per clip, the tagged intro length (0 = untagged). Decides whether the merged file itself starts with an intro.</summary>
+    public List<double>? ClipIntroTagSec { get; set; }
+
+    /// <summary>
+    /// SCRAPER_04 — custom thumbnail. When <see cref="ThumbnailClipIndex"/> is a valid index, a
+    /// <see cref="IntroTag.StandardIntroSec"/> still of that clip's frame at
+    /// <see cref="ThumbnailSourceSec"/> (SOURCE seconds) is prepended to the finished picture, with
+    /// silence under it, AFTER the music mix. Same construction as the Main App's intro.
+    /// </summary>
+    public int ThumbnailClipIndex { get; set; } = -1;
+    public double ThumbnailSourceSec { get; set; }
+
+    /// <summary>SCRAPER_01 — intro length (output seconds) the finished file starts with; stamped as its tag.</summary>
+    private double _outputIntroSec;
+
+    /// <summary>
+    /// MERGEGRAPH_01 — the Merger's edit list. When it describes <see cref="InputFiles"/> (same count,
+    /// same paths, same order), clips with granular effects are rendered through
+    /// <see cref="MergeClipGraph"/> and the output length comes from <see cref="CompositeTimeline"/>.
+    /// Null, or a mismatch, keeps the plain per-clip chain for every clip.
+    /// </summary>
+    public MergeEdl? Edl { get; set; }
+
+    private bool EdlMatchesInputs()
+    {
+        if (Edl is not MergeEdl edl || edl.Clips.Count != InputFiles.Count) return false;
+        for (int i = 0; i < InputFiles.Count; i++)
+            if (!string.Equals(edl.Clips[i].Path, InputFiles[i], StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    /// <summary>A meme file opened as an extra FFmpeg input for one clip's graph.</summary>
+    private sealed record MemeInputFile(int Clip, string Path, bool IsImage, bool HasAudio, double DurationSec, double AtRelSec, double GainDb = 0);
+
+    /// <summary>
+    /// TIMINGTAG_02 — the merged file's timing tag. Merges are CFR 60. Fades are UNKNOWN (null) until
+    /// Video-Merger-Migration.md P7.3 computes them from clip 1 / the last clip.
+    /// </summary>
+    private ExportTiming MergedOutputTiming() => new(60, 1, ExportTiming.SecToFrames(_outputIntroSec, 60), _outputFadeInFrames, _outputFadeOutFrames);
+
+    /// <summary>
+    /// OUTTAG_01 (P7.3) — the merged file's own fades, in its 60 fps frames: clip 1's fade-in and the
+    /// last clip's fade-out, when they survive into the output unchanged (tag known, the kept window
+    /// still contains the fade, no granular effects on that clip, no meme at that edge). Otherwise
+    /// null = unknown, never a guess. The base speed shortens a fade like any other footage.
+    /// </summary>
+    private int? _outputFadeInFrames;
+    private int? _outputFadeOutFrames;
+
+    private void ResolveOutputFades((double start, double end, bool trimmed)[] windows, double[] durations, double speed)
+    {
+        _outputFadeInFrames = null;
+        _outputFadeOutFrames = null;
+        if (!EdlMatchesInputs() || InputFiles.Count == 0) return;
+        var first = Edl!.Clips[0];
+        var last = Edl!.Clips[^1];
+        if (first.Effects.IsEmpty && first.Timing is ExportTiming t0 && t0.FadeInFrames is int fi && t0.Fps > 0)
+        {
+            double introEnd = CompositeTimeline.IntroCutUs(first) / 1_000_000.0;
+            bool fadeKept = windows[0].start <= Math.Max(introEnd, 0) + 0.0005;
+            if (fadeKept) _outputFadeInFrames = (int)Math.Round(fi / t0.Fps * 60.0 / speed);
+        }
+        int n = InputFiles.Count - 1;
+        if (last.Effects.IsEmpty && last.Timing is ExportTiming tn && tn.FadeOutFrames is int fo && tn.Fps > 0)
+        {
+            bool reachesEnd = durations[n] > 0 && windows[n].end >= durations[n] - 0.001;
+            if (reachesEnd) _outputFadeOutFrames = (int)Math.Round(fo / tn.Fps * 60.0 / speed);
+        }
+        CoreLogger.Info("Merger", $"Output fades for the timing tag: in={(_outputFadeInFrames?.ToString(CultureInfo.InvariantCulture) ?? "unknown")}, out={(_outputFadeOutFrames?.ToString(CultureInfo.InvariantCulture) ?? "unknown")} frame(s).");
+    }
+
+    /// <summary>
     /// Resolves the effective in/out window for one clip, clamped to the real file duration.
     /// Returns the untrimmed window when no usable trim is configured. A window that would be
     /// shorter than this is treated as a mistake and ignored — a zero-length clip in a concat
@@ -112,7 +191,29 @@ public class MergerWorker : IDisposable
     /// </summary>
     private const double MinTrimmedClipSec = 0.05;
 
+    /// <summary>
+    /// FRAMESNAP_01 — trim starts are backed off by 0.5 ms. Cuts are real frame pts, so the frame AT
+    /// the cut must be kept; at any rate below 2000 fps this can never pull in the previous frame.
+    /// </summary>
+    internal const double TrimStartEpsilonSec = 0.0005;
+
+    internal static double TrimStartSec(double startSec) => Math.Max(0, startSec - TrimStartEpsilonSec);
+
     private (double start, double end, bool trimmed) ResolveClipWindow(int index, double fileDuration)
+    {
+        var (start, end, trimmed) = ResolveUserWindow(index, fileDuration);
+
+        // SCRAPER_02 — a removed thumbnail intro moves the start past it, never before the user's own in-point.
+        double skip = ClipIntroSkipSec != null && index >= 0 && index < ClipIntroSkipSec.Count ? ClipIntroSkipSec[index] : 0;
+        if (skip > start + 0.0005 && end - skip >= MinTrimmedClipSec)
+        {
+            CoreLogger.Info("Merger", $"  [{index + 1}] thumbnail intro removed: content starts at {skip:F3}s.");
+            return (skip, end, true);
+        }
+        return (start, end, trimmed);
+    }
+
+    private (double start, double end, bool trimmed) ResolveUserWindow(int index, double fileDuration)
     {
         double fullEnd = fileDuration > 0 ? fileDuration : 0;
         if (ClipTrims == null || index < 0 || index >= ClipTrims.Count || fullEnd <= 0)
@@ -248,6 +349,7 @@ public class MergerWorker : IDisposable
                 var fileResolutions = new (int width, int height)[InputFiles.Count];
                 var clipWindows = new (double start, double end, bool trimmed)[InputFiles.Count];
                 var clipDurations = new double[InputFiles.Count];
+                var fileColors = new VideoColorInfo[InputFiles.Count];   // COLOR_01
                 double peakSourceVideoBitrateKbps = 0;
                 double durationWeightedBitrateKbps = 0;
                 for (int fi = 0; fi < InputFiles.Count; fi++)
@@ -256,6 +358,7 @@ public class MergerWorker : IDisposable
                     double dur = await prober.GetDurationAsync();
                     bool hasAudio = await prober.HasAudioAsync();
                     fileResolutions[fi] = await prober.GetResolutionAsync();
+                    fileColors[fi] = await prober.GetVideoColorInfoAsync();
                     fileDurations[fi] = dur;
                     fileHasAudio[fi] = hasAudio;
 
@@ -291,6 +394,62 @@ public class MergerWorker : IDisposable
                 double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
                 double outputDuration = totalDuration / speedFactor;
 
+                ResolveOutputFades(clipWindows, fileDurations, speedFactor);   // OUTTAG_01
+
+                // MERGEGRAPH_01 — clips with granular effects, and their meme files.
+                bool edlMatches = EdlMatchesInputs();
+                var fxClips = new EdlClip?[InputFiles.Count];
+                var memeFiles = new List<MemeInputFile>();
+                var memeGainByPath = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);   // MEMELEVEL_01 — one measurement per file
+                CompositeTimeline? frameAuthority = null;   // CLIPFRAMES_01 — per-clip frame counts for the plain chain
+                if (edlMatches)
+                {
+                    var composite = CompositeTimeline.Build(Edl!);
+                    frameAuthority = composite;
+                    for (int i = 0; i < InputFiles.Count; i++)
+                    {
+                        var c = Edl!.Clips[i];
+                        if (c.Effects.IsEmpty) continue;
+                        fxClips[i] = c;
+                        long keepIn = (long)Math.Round(clipWindows[i].start * 1_000_000.0);
+                        long keepOut = (long)Math.Round(clipWindows[i].end * 1_000_000.0);
+                        double keepSec = clipWindows[i].end - clipWindows[i].start;
+                        foreach (var m in c.Effects.Memes)
+                        {
+                            if (!File.Exists(m.FilePath))
+                            {
+                                CoreLogger.Fail("Merger", $"  [{i + 1}] meme file missing, skipped: {Path.GetFileName(m.FilePath)}");
+                                continue;
+                            }
+                            string ext = Path.GetExtension(m.FilePath).ToLowerInvariant();
+                            bool isImage = ext is ".png" or ".jpg" or ".jpeg";
+                            bool memeAudio = false;
+                            double dur = m.DurationSec;
+                            if (!isImage)
+                            {
+                                var mp = new MediaProber(_ffprobePath, m.FilePath);
+                                memeAudio = await mp.HasAudioAsync();
+                                if (dur <= 0) dur = await mp.GetDurationAsync();
+                            }
+                            if (dur <= 0) dur = MemePlacement.StillImageDurationSec;
+                            double gainDb = 0;
+                            if (memeAudio && !memeGainByPath.TryGetValue(m.FilePath, out gainDb))
+                            {
+                                gainDb = await MemeLoudness.GainDbAsync(_ffmpegPath, m.FilePath, cancellationToken).ConfigureAwait(false);
+                                memeGainByPath[m.FilePath] = gainDb;
+                            }
+                            memeFiles.Add(new MemeInputFile(i, m.FilePath, isImage, memeAudio, dur,
+                                CompositeTimeline.MemeAtRelSec(c, m, keepIn, keepOut, keepSec), gainDb));
+                        }
+                        CoreLogger.Info("Merger", $"  [{i + 1}] granular effects: {c.Effects.Speed.Count} speed, {c.Effects.Freezes.Count} freeze, {c.Effects.Cuts.Count} cut, {c.Effects.Memes.Count} meme.");
+                    }
+                    if (fxClips.Any(c => c != null))
+                    {
+                        outputDuration = composite.ClipsOutputSec;
+                        CoreLogger.Info("Merger", $"Output length from the edit list: {outputDuration:F3}s (effects applied).");
+                    }
+                }
+
                 {
                     long estimatedBytes = DiskSpaceGuard.EstimateOutputBytes(
                         outputDuration,
@@ -323,6 +482,9 @@ public class MergerWorker : IDisposable
                 var effectiveMusicTracks = await BuildEffectiveMusicTracksAsync(outputDuration);
 
                 int musicInputIndex = InputFiles.Count;
+                bool hasThumbIntro = ThumbnailClipIndex >= 0 && ThumbnailClipIndex < InputFiles.Count;
+                int thumbInputIndex = InputFiles.Count + effectiveMusicTracks.Count;
+                var clipCanvasChains = new string[InputFiles.Count];
 
                 List<string> BuildInputArgs(ExportVideoPipeline pipeline)
                 {
@@ -336,6 +498,23 @@ public class MergerWorker : IDisposable
                     foreach (var musicTrack in effectiveMusicTracks)
                     {
                         args.AddRange(["-i", musicTrack.Path]);
+                    }
+                    if (hasThumbIntro)
+                    {
+                        // SCRAPER_04 — the custom thumbnail frame, read from its own clip.
+                        double thumbDur = fileDurations[ThumbnailClipIndex];
+                        double thumbAt = Math.Max(0, ThumbnailSourceSec);
+                        if (thumbDur > 0.35) thumbAt = Math.Min(thumbAt, thumbDur - 0.3);
+                        args.AddRange(decodeFlags);
+                        args.AddRange(["-ss", thumbAt.ToString("F3", CultureInfo.InvariantCulture), "-t", "0.300", "-i", InputFiles[ThumbnailClipIndex]]);
+                    }
+                    // MERGEGRAPH_01 — meme files, software-decoded (small, and any format).
+                    foreach (var mf in memeFiles)
+                    {
+                        if (mf.IsImage)
+                            args.AddRange(["-loop", "1", "-framerate", "60", "-t", mf.DurationSec.ToString("F3", CultureInfo.InvariantCulture), "-i", mf.Path]);
+                        else
+                            args.AddRange(["-i", mf.Path]);
                     }
                     return args;
                 }
@@ -362,14 +541,63 @@ public class MergerWorker : IDisposable
                     }
 
                     var win = clipWindows[i];
-                    string vTrim = win.trimmed
-                        ? $"trim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},"
-                        : "";
-                    string aTrim = win.trimmed
-                        ? $"atrim=start={win.start.ToString("F3", CultureInfo.InvariantCulture)}:end={win.end.ToString("F3", CultureInfo.InvariantCulture)},"
-                        : "";
+                    // FRAMESNAP_01 — microsecond precision, and the start backed off by an epsilon so the
+                    // frame whose pts IS the cut survives decimal rounding.
+                    string trimStart = TrimStartSec(win.start).ToString("F6", CultureInfo.InvariantCulture);
+                    string trimEnd = win.end.ToString("F6", CultureInfo.InvariantCulture);
+                    string vTrim = win.trimmed ? $"trim=start={trimStart}:end={trimEnd}," : "";
+                    string aTrim = win.trimmed ? $"atrim=start={trimStart}:end={trimEnd}," : "";
 
-                    filters.Add($"[{i}:v]{vTrim}setpts=PTS-STARTPTS,{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near[v{i}]");
+                    // COLOR_01 — each input is normalised to SDR BT.709 TV range BEFORE concat, so a
+                    // mixed HDR/SDR (or full/limited-range) queue cannot concat mismatched pixels.
+                    VideoColorInfo clipColor = fileColors[i] ?? VideoColorInfo.Unknown;
+                    bool clipCanToneMap = clipColor.IsHdr
+                        && await ExportColorPolicy.HasFilterAsync(_ffmpegPath, "zscale")
+                        && await ExportColorPolicy.HasFilterAsync(_ffmpegPath, "tonemap");
+                    string? clipColorChain = ExportColorPolicy.BuildConversionChain(clipColor, clipCanToneMap, out string clipColorNote, out string? clipColorDegraded);
+                    CoreLogger.Info("COLOR", $"Merge input [{i + 1}] {clipColor}. {clipColorNote}");
+                    if (clipColorDegraded != null)
+                        FortniteVideoSoftware.Core.Abstractions.Faults.Degraded("EXPORT", clipColorDegraded, technicalDetail: clipColorNote);
+                    string colorPart = clipColorChain != null ? clipColorChain + "," : "";
+                    clipCanvasChains[i] = $"{colorPart}{scaleFilter},setsar=1";
+
+                    if (fxClips[i] is EdlClip fxClip)
+                    {
+                        // MERGEGRAPH_01 — the Main App's granular engine for this clip, then its memes.
+                        int memeBase = InputFiles.Count + effectiveMusicTracks.Count + (hasThumbIntro ? 1 : 0);
+                        var clipMemes = new List<MergeMemeInput>();
+                        for (int k = 0; k < memeFiles.Count; k++)
+                            if (memeFiles[k].Clip == i)
+                                clipMemes.Add(new MergeMemeInput(memeBase + k, memeFiles[k].IsImage, memeFiles[k].HasAudio, memeFiles[k].DurationSec, memeFiles[k].AtRelSec, memeFiles[k].GainDb));
+                        string memeCanvas = $"scale={canvasW}:{canvasH}:force_original_aspect_ratio=decrease:flags=lanczos,pad={canvasW}:{canvasH}:(ow-iw)/2:(oh-ih)/2,format=yuv420p";
+                        var fxGraph = MergeClipGraph.Build(i, $"[{i}:v]", fileHasAudio[i] ? $"[{i}:a]" : null,
+                            win.start, win.end, fxClip.Effects, speedFactor, clipCanvasChains[i], memeCanvas, clipMemes);
+                        filters.AddRange(fxGraph.Filters);
+                        filters.Add($"{fxGraph.VideoLabel}null[v{i}]");
+                        filters.Add($"{fxGraph.AudioLabel}anull[a{i}]");
+                        CoreLogger.Info("Merger", $"  [{i + 1}] effects graph: {fxGraph.DurationSec:F3}s out, {fxGraph.MemeCount} meme(s) spliced.");
+                        avInputs += $"[v{i}][a{i}]";
+                        continue;
+                    }
+
+                    // CLIPFRAMES_01 (P9, closes the P2.3 note) — fps=60 on a whole file emits frames up to the LAST
+                    // frame's end, one more than the composite's round(keep × 60) on e.g. a 59.94 clip (measured: 381
+                    // vs 380 over 3 odd-length clips). When the edit list describes the queue, every plain clip is
+                    // bounded to exactly the composite's frame count (a cloned frame pads a short one) and its audio to
+                    // the same length, so the file, the preview and the music all agree to the frame.
+                    string frameBound = "", audioBound = "";
+                    double boundSec = 0;
+                    if (frameAuthority != null && i < frameAuthority.Clips.Count)
+                    {
+                        long nf = (long)Math.Round(frameAuthority.Clips[i].OutputLengthSec * CompositeTimeline.MergeFps);
+                        if (nf > 0)
+                        {
+                            frameBound = $",tpad=stop_mode=clone:stop=1,trim=end_frame={nf}";
+                            boundSec = nf / (double)CompositeTimeline.MergeFps;
+                            audioBound = $",apad,atrim=end={boundSec.ToString("F6", CultureInfo.InvariantCulture)}";
+                        }
+                    }
+                    filters.Add($"[{i}:v]{vTrim}setpts=PTS-STARTPTS,{colorPart}{scaleFilter},setsar=1,setpts=PTS/{speedFactor.ToString("F4", CultureInfo.InvariantCulture)},fps=60:start_time=0:round=near{frameBound}[v{i}]");
                     double clipDur = clipDurations[i] > 0 ? clipDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
@@ -378,11 +606,11 @@ public class MergerWorker : IDisposable
                         while (atempoSpeed > 2.0) { atempoFilters.Add("atempo=2.0"); atempoSpeed /= 2.0; }
                         while (atempoSpeed < 0.5) { atempoFilters.Add("atempo=0.5"); atempoSpeed /= 0.5; }
                         atempoFilters.Add($"atempo={atempoSpeed.ToString("F4", CultureInfo.InvariantCulture)}");
-                        filters.Add($"[{i}:a]{aTrim}asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}[a{i}]");
+                        filters.Add($"[{i}:a]{aTrim}asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}{audioBound}[a{i}]");
                     }
                     else
                     {
-                        filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={(clipDur / speedFactor).ToString("F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}]");
+                        filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={(boundSec > 0 ? boundSec : clipDur / speedFactor).ToString(boundSec > 0 ? "F6" : "F3", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}]");
                     }
                     avInputs += $"[v{i}][a{i}]";
                 }
@@ -438,6 +666,32 @@ public class MergerWorker : IDisposable
                     finalAudioLabel = "[a_flattened]";
                 }
 
+                // SCRAPER_04 — custom thumbnail: a still intro built from the chosen frame, prepended
+                // AFTER speed, concat and the music mix, so it moves nothing the user placed.
+                const double thumbIntroSec = IntroTag.StandardIntroSec;
+                if (hasThumbIntro)
+                {
+                    string introF = thumbIntroSec.ToString("F4", CultureInfo.InvariantCulture);
+                    int introFrames = Math.Max(1, (int)Math.Round(thumbIntroSec * 60.0));
+                    filters.Add($"[{thumbInputIndex}:v]trim=duration=0.3000,setpts=PTS-STARTPTS,select='eq(n\\,0)',{clipCanvasChains[ThumbnailClipIndex]}," +
+                                $"loop=loop={Math.Max(0, introFrames - 1)}:size=1:start=0,fps=60:round=near," +
+                                $"trim=duration={introF},setpts=PTS-STARTPTS[v_thumb_intro]");
+                    filters.Add($"{vOutputLabel}setsar=1[v_thumb_body]");
+                    filters.Add("[v_thumb_intro][v_thumb_body]concat=n=2:v=1:a=0[v_with_thumb]");
+                    vOutputLabel = "[v_with_thumb]";
+                    filters.Add($"anullsrc=r=48000:cl=stereo,atrim=duration={introF},asetpts=PTS-STARTPTS[a_thumb_silence]");
+                    filters.Add($"[a_thumb_silence]{finalAudioLabel}concat=n=2:v=0:a=1[a_with_thumb]");
+                    finalAudioLabel = "[a_with_thumb]";
+                    outputDuration += thumbIntroSec;
+                    _outputIntroSec = thumbIntroSec;
+                    CoreLogger.Info("Merger", $"Custom thumbnail: clip [{ThumbnailClipIndex + 1}] at {ThumbnailSourceSec:F3}s, {thumbIntroSec:F3}s still intro.");
+                }
+                else
+                {
+                    double leadTag = ClipIntroTagSec != null && ClipIntroTagSec.Count > 0 ? ClipIntroTagSec[0] : 0;
+                    _outputIntroSec = leadTag > 0 && clipWindows[0].start < 0.0005 ? leadTag / speedFactor : 0;
+                }
+
                 string filterScript = string.Join(";", filters.Where(p => !string.IsNullOrEmpty(p)));
                 string filterScriptPath = Path.Combine(tempJobDir, "filter_complex.txt");
                 await File.WriteAllTextAsync(filterScriptPath, filterScript, cancellationToken);
@@ -476,6 +730,18 @@ public class MergerWorker : IDisposable
                     losslessMaxrateKbps = Math.Max(losslessBitrateKbps.Value, (int)Math.Min(EncoderManager.MaxBitrateKbps, peakSourceVideoBitrateKbps));
                     CoreLogger.Info("Merger", $"Lossless target bitrate {losslessBitrateKbps} kbps (avg), maxrate {losslessMaxrateKbps} kbps (peak) — output size will track the combined source size.");
                 }
+                else if (QualityPercent < 100 && averageSourceVideoBitrateKbps > 0)
+                {
+                    // MERGEQUALITY_01 — below 100% the old path was an UNCAPPED constant quality (CQ 16–35):
+                    // on high-motion gameplay CQ 16–17 easily out-spent the 100% bitrate, so 95% made a BIGGER
+                    // file than 100%. Now: VBR at the 100% bitrate × the quality curve, never above the 100%
+                    // peak, the same number the TOTAL SIZE estimate shows.
+                    int full = OutputFileSize.MergerTargetKbps(averageSourceVideoBitrateKbps);
+                    int target = Math.Max(300, (int)Math.Round(full * OutputFileSize.MergerQualityRatio(QualityPercent)));
+                    losslessBitrateKbps = target;
+                    losslessMaxrateKbps = Math.Min(Math.Max(target, (int)Math.Min(EncoderManager.MaxBitrateKbps, peakSourceVideoBitrateKbps)), target * 2);
+                    CoreLogger.Info("Merger", $"Quality {QualityPercent}%: target {target} kbps (= {full} kbps × {OutputFileSize.MergerQualityRatio(QualityPercent):F3}), maxrate {losslessMaxrateKbps} kbps — smaller than 100% by construction.");
+                }
 
                 string corePath = Path.Combine(tempJobDir, "merged_output.mp4");
                 string? successOutputPath = null;
@@ -506,7 +772,7 @@ public class MergerWorker : IDisposable
                     LastVideoPipeline = videoPipeline.Description;
                     CoreLogger.Info("FFmpeg", LastVideoPipeline);
 
-                    if (QualityPercent >= 100 && losslessMaxrateKbps > 0)
+                    if (losslessMaxrateKbps > 0)   // MERGEQUALITY_01 — 100% and the capped VBR below it
                     {
                         for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
@@ -517,7 +783,7 @@ public class MergerWorker : IDisposable
                         }
                     }
 
-                    if (QualityPercent < 100)
+                    if (QualityPercent < 100 && !losslessBitrateKbps.HasValue)   // legacy CQ only when the source bitrate is unknown
                     {
                         for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
@@ -624,7 +890,7 @@ public class MergerWorker : IDisposable
                             pass2Args.AddRange(["-filter_complex_script", filterScriptPath]);
                             pass2Args.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                             pass2Args.AddRange(TwoPassEncoding.PassArgs(passKbps, 2, twoPassLogPrefix));
-                            pass2Args.AddRange(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+                            pass2Args.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);   // SCRAPER_01
                             pass2Args.Add(corePath);
 
                             var pass2Attempt = new ExportAttemptIdentity
@@ -664,7 +930,7 @@ public class MergerWorker : IDisposable
                         attemptArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         attemptArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         attemptArgs.AddRange(codecArgs);
-                        attemptArgs.AddRange(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+                        attemptArgs.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);   // SCRAPER_01
                         attemptArgs.Add(corePath);
 
                         CoreLogger.Debug("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
@@ -1014,7 +1280,7 @@ public class MergerWorker : IDisposable
 
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
-        pass2.AddRange(["-c:a", "copy", "-movflags", "+faststart", finalPath]);
+        pass2.AddRange(["-c:a", "copy", ..IntroTag.OutputArgs(MergedOutputTiming()), finalPath]);   // SCRAPER_01
 
         CoreLogger.Info("FFmpeg", "Two-pass merge: encoding (3 of 3).");
         var pass2Attempt = new ExportAttemptIdentity

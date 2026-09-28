@@ -28,77 +28,94 @@ Route by FILE (below) or by SYMBOL (`INDEX.md`). Full paths live in each spec's 
 **[`01_TIMELINE_COORDINATE_MATH.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/01_TIMELINE_COORDINATE_MATH.md)** — Timeline & coordinate math — 16:9->9:16 geometry, OutputTimeline chunk model, markers, freezes, cuts, zoom spans, meme anchors, hitboxes.
 
 ```
-CanvasMath.cs  CoordinateMath.cs  ⚠GranularSpeedEditorWindow.axaml.cs  KineticScrubController.cs
-MainWindow.Canvas.cs  MainWindow.Shortcuts.cs  MainWindow.Wireup.cs  ⚠MainWindow.axaml.cs
-⚠MusicWizardWindow.axaml.cs  OutputTimeline.cs  ⚠PhoneFrameMockup.axaml.cs  TimelineKnob.cs
-TimelineLanesControl.axaml.cs  ⚠VoiceOverWindow.axaml.cs
+CanvasMath.cs  ⚠CompositeTimeline.cs  CoordinateMath.cs  ⚠GranularSpeedEditorWindow.axaml.cs
+⚠GranularSpeedEditorWindow.Merge.cs  KineticScrubController.cs  ⚠MainWindow.axaml.cs
+MainWindow.Canvas.cs  ⚠MainWindow.Controls.cs  MainWindow.Shortcuts.cs  MainWindow.Wireup.cs
+⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs  ⚠MergeEdl.cs  ⚠MergerPreviewPlan.cs
+⚠MergerSession.cs  ⚠MusicPadAlignment.cs  ⚠MusicWizardWindow.axaml.cs  ⚠OutputTimeline.cs
+⚠PhoneFrameMockup.axaml.cs  TimelineKnob.cs  TimelineLanesControl.axaml.cs  TimelineViewModel.cs
+⚠VideoMergerWindow.EdlPreview.cs  ⚠VideoMergerWindow.History.cs  ⚠VideoMergerWindow.Lanes.cs
+⚠VideoMergerWindow.Session.cs  ⚠VideoMergerWindow.Timeline.cs  ⚠VideoMergerWindow.TimelineSelect.cs
+⚠VoiceOverWindow.axaml.cs
 ```
 
 **[`02_AUDIO_ENGINE_MASTERING.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/02_AUDIO_ENGINE_MASTERING.md)** — Audio engine & mastering — PID preview volume, LUFS targets, sidechain ducking, Voice Over Studio, WASAPI threading, music bed fades.
 
 ```
 AudioFilterChain.cs  AudioLoudnessProbe.cs  ⚠FluidVolumeSlider.cs  ⚠MainWindow.axaml.cs
-MicLevelMonitor.cs  MpvIpcClient.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPreviewPlayer.cs
+⚠MainWindow.Controls.cs  ⚠MemeLoudness.cs  MicLevelMonitor.cs  MpvIpcClient.cs
+⚠MusicPadAlignment.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPreviewPlayer.cs
 ⚠VoiceOverWindow.axaml.cs  VoiceRecorder.cs
 ```
 
 **[`03_FFMPEG_EXPORT_PIPELINE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/03_FFMPEG_EXPORT_PIPELINE.md)** — FFmpeg export pipeline — encoder discovery, zoom filtergraph, concat/bitrate, meme concat & cutaway preview, fades, progress, binary paths, meme library.
 
 ```
-ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  GpuCapabilityProbe.cs
-GranularSpeedBuilder.cs
-HardwareScanner.cs  QualityLadder.cs  MainWindow.SizeEstimate.cs  OutputFileSize.cs  OutputSizeEstimator.cs
-MemePreviewDirector.cs  ⚠MergerWorker.cs  MobileFilterBuilder.cs  ⚠ProcessWorker.cs
-TextOverlayGenerator.cs  ZoomPreviewSimulator.cs
+⚠CompositeTimeline.cs  EncoderManager.cs  ExportColorPolicy.cs  ExportTimingTag.cs
+ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  FramePtsProbe.cs
+GpuCapabilityProbe.cs  GranularSpeedBuilder.cs  HardwareScanner.cs  IntroTag.cs
+MainWindow.SizeEstimate.cs  ⚠MemeLoudness.cs  MemePreviewDirector.cs  MergeClipAnalyzer.cs
+⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs  ⚠MergeEdl.cs  ⚠MergerPreviewPlan.cs
+MergerWorker.cs  MobileFilterBuilder.cs  ⚠MusicPadAlignment.cs  OutputFileSize.cs
+OutputSizeEstimator.cs  ProcessWorker.cs  QualityLadder.cs  TextOverlayGenerator.cs
+TwoPassEncoding.cs  ⚠VideoMergerWindow.EdlPreview.cs  ⚠VideoMergerWindow.Timeline.cs
+ZoomPreviewSimulator.cs
 ```
 
 **[`04_UI_UX_AVALONIA_SPEC.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/04_UI_UX_AVALONIA_SPEC.md)** — UI/UX & Avalonia — design tokens, high-DPI layout, tooltips, confirmations, coach tours, granular editor layout, undo/redo, detachable previews, merger queue.
 
 ```
 AmbientBubblesBackground.cs  AvaloniaApp.axaml  CoachOverlay.cs  ConfirmDialogWindow.axaml.cs
-WindowResizeGrip.cs
-FloatingNotice.cs  ⚠FluidVolumeSlider.cs  ⚠GranularSpeedEditorWindow.axaml.cs
-⚠MainWindow.axaml.cs  ⚠PhoneFrameMockup.axaml.cs  SpinningWheelSlider.cs  ⚠WindowBoundsHelper.cs
+FloatingNotice.cs  ⚠FluidVolumeSlider.cs  GrabCursors.cs  ⚠GranularSpeedEditorWindow.axaml.cs
+⚠GranularSpeedEditorWindow.History.cs  ⚠GranularSpeedEditorWindow.Merge.cs  ⚠IUserNotifier.cs
+⚠LaneDiskCache.cs  ⚠MainWindow.axaml.cs  ⚠MainWindow.Controls.cs  ⚠PhoneFrameMockup.axaml.cs
+ProgressiveLanes.cs  SettingsWindow.axaml.cs  VideoMergerWindow.Playhead.cs  SpinningWheelSlider.cs  UpdateAvailableWindow.axaml.cs
+⚠VideoMergerWindow.EdlPreview.cs  ⚠VideoMergerWindow.Lanes.cs  ⚠VideoMergerWindow.Session.cs
+⚠VideoMergerWindow.TimelineSelect.cs  WaveformPeaks.cs  ⚠WindowBoundsHelper.cs  WindowResizeGrip.cs
 ```
 
 **[`05_SYSTEM_LIFECYCLE_STORAGE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/05_SYSTEM_LIFECYCLE_STORAGE.md)** — System lifecycle & storage — mutexes, logging pipeline, window bounds, deferred-close contract, crash recovery, atomic writes, dev build harness & fix sentinels, signing.
 
 ```
-⚠ApplicationPaths.cs  AtomicJsonFile.cs  Build.cmd  DeploymentLifecycle.cs  dev.cmd
-⚠GranularSpeedEditorWindow.axaml.cs  MaskOverlayManager.cs  ProjectRecoveryService.cs
-⚠RecoveryManager.cs  RuntimeLog.cs  ⚠ToolNavigator.cs  UiStateStore.cs  ⚠WindowBoundsHelper.cs
-LatestEstimateWorker.cs
+⚠ApplicationPaths.cs  ⚠AtomicJsonFile.cs  Build.cmd  ⚠CodeSigning.cs  CoreLogger.cs
+CropConfigStore.cs  DeploymentLifecycle.cs  ⚠dev.cmd  FvsBuild/Program.cs
+⚠GranularSpeedEditorWindow.axaml.cs  ⚠LaneDiskCache.cs  LatestEstimateWorker.cs
+⚠MainWindow.ToolReturn.cs  MaskOverlayManager.cs  MergerAutosaveStore.cs  ⚠MergerSession.cs
+NamedPipeStateServer.cs  ProjectRecoveryService.cs  ⚠RecoveryManager.cs  RuntimeLog.cs
+SettingsManager.cs  ⚠StorageProviderFilePicker.cs  ⚠ToolNavigator.cs  UiStateStore.cs
+⚠UpdateService.cs  ⚠VideoMergerWindow.Session.cs  ⚠WindowBoundsHelper.cs
 ```
 
 **[`06_PROJECT_DOCUMENT_MODEL.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/06_PROJECT_DOCUMENT_MODEL.md)** — Project document model — the saveable `.fvsproj`, schema versioning & the amputation rule, AOT-safe JSON, atomic persistence & backup, source integrity, recent projects, trim/AOT analyser policy.
 
 ```
-⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠IProjectStore.cs  ⚠MainWindow.Project.cs
-⚠OutputTimeline.cs  ProjectDocument.cs  ⚠ProjectSession.cs  ProjectSerializer.cs  ProjectStore.cs
-RecentProjects.cs
+AotJson.cs  ⚠AtomicJsonFile.cs  FortniteVideoSoftware.App.csproj  ⚠IProjectStore.cs
+⚠MainWindow.Project.cs  ⚠MergeEdl.cs  ⚠OutputTimeline.cs  ⚠ProjectDocument.cs  ProjectSerializer.cs
+⚠ProjectSession.cs  ProjectStore.cs  RecentProjects.cs  ⚠VideoMergerWindow.History.cs
 ```
 
 **[`07_UNDO_AND_HISTORY.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/07_UNDO_AND_HISTORY.md)** — Undo, redo & edit history — the four inherited rules (gesture coalescing, ceiling on push, redo invalidation, no-op rejection), immutable state contract, re-entrancy guard, persistence.
 
 ```
-⚠GranularSpeedEditorWindow.axaml.cs  ⚠MainWindow.Project.cs  ⚠ProjectDocument.cs
-⚠ProjectSession.cs  UndoStack.cs
+⚠GranularSpeedEditorWindow.axaml.cs  ⚠GranularSpeedEditorWindow.History.cs  ⚠MainWindow.Project.cs
+⚠ProjectDocument.cs  ⚠ProjectSession.cs  UndoSidecarStore.cs  UndoStack.cs
 ```
 
 **[`08_APPLICATION_COMPOSITION.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/08_APPLICATION_COMPOSITION.md)** — Application composition, seams & fault reporting — the composition root, the service interfaces, fault tiers (Recoverable/Degraded/Fatal), and the architecture tests that enforce the other specs' rules.
 
 ```
-AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  Fault.cs  FfmpegJobLifetime.cs
-IClock.cs  IFaultSink.cs  ⚠IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs
-⚠MainWindow.Project.cs  ⚠ProjectSession.cs  ⚠StorageProviderFilePicker.cs
-⚠ToolNavigator.cs  UserFacingFaultSink.cs
+AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  ⚠dev.cmd  Fault.cs  FaultCounters.cs
+Faults.cs  ⚠FfmpegJobLifetime.cs  ⚠.github/workflows/ci.yml  IClock.cs  IFaultSink.cs
+IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs  ⚠MainWindow.Project.cs
+⚠MainWindow.ToolReturn.cs  ⚠ProjectSession.cs  ⚠StorageProviderFilePicker.cs  ⚠ToolNavigator.cs
+UserFacingFaultSink.cs  WindowsOnlyFactAttribute.cs
 ```
 
 **[`09_DISTRIBUTION_AND_RELEASE.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/09_DISTRIBUTION_AND_RELEASE.md)** — Distribution, update size & repository weight — the 322MB installer, the runtime/app package split, the fingerprint that decides which one a patch downloads, LFS enforcement and the history-rewrite runbook.
 
 ```
-RuntimePayloadManifest.cs  ⚠UpdateService.cs  ⚠Staging.cs  .github/workflows/ci.yml
-.github/workflows/lfs-guard.yml  build/sentinels.txt  ⚠dev.cmd
+.gitattributes  ⚠.github/workflows/ci.yml  .github/workflows/lfs-guard.yml
+RuntimePayloadManifest.cs  Staging.cs  ⚠UpdateService.cs
 ```
 
 ---
@@ -107,4 +124,4 @@ RuntimePayloadManifest.cs  ⚠UpdateService.cs  ⚠Staging.cs  .github/workflows
 2. **Context Routing:** Know the FILE -> use §3 above. Know only a SYMBOL, CONSTANT or TAG (e.g. `SnapInsertionPoint`, `QuietBoostReductionFactor`, `ZOOMLIVE_07`) -> grep [`INDEX.md`](file:///C:/Fortnite_Video_Software%20-%20C%23/docs/INDEX.md). Read the ONE spec you land on; do not pre-load the others.
 3. **Co-Governed Files (⚠):** A file listed under more than one spec is bound by ALL of them. Reading one is NOT compliance — this is the exact leakage `SPEC_GOVERNANCE.md` §2 exists to prevent.
 4. **Cite Anchors, Not Numbers:** Quote the stable `{#ANCHOR}` id (e.g. `FFM-BINPATH`) in the Proof-of-Read header. Section numbers shift as specs grow.
-5. **Land The Sentinel With The Fix:** Any fix worth an engineering tag gets a `CHECK_TAG` line in `dev.cmd`'s `VERIFY_PATCHES` in the SAME change, so a revert halts the build instead of surviving to the next test cycle — `05_SYSTEM_LIFECYCLE_STORAGE.md` §4a (SYS-DEVBUILD). That section also states why a correct source file is not evidence that the running binary contains the fix.
+5. **Land The Sentinel With The Fix:** Any fix worth an engineering tag gets a `TAG=path` line in `build/sentinels.txt` in the SAME change (checked by `build/FvsVerify`, which `dev.cmd`'s `VERIFY_PATCHES` runs, and by `ArchitectureRuleTests.EveryFixSentinelStillResolves` in CI), so a revert halts the build instead of surviving to the next test cycle — `05_SYSTEM_LIFECYCLE_STORAGE.md` §4a (SYS-DEVBUILD). That section also states why a correct source file is not evidence that the running binary contains the fix.

@@ -74,6 +74,25 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
     /// when there is nothing pending. Guarded by <see cref="_stateLock"/>.</summary>
     private long _firstDirtyTicks;
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // WRITEORDER_02 — FLUSHES ARE SERIALISED END-TO-END AND NEVER GO BACKWARDS.
+    //
+    // FlushToDiskSafe used to snapshot under _stateLock, release it, and only THEN compete for
+    // the named mutex. The debounce timer and the FLUSHCEILING_01 forced Task.Run can run it
+    // concurrently. NamedSystemMutex polls WaitOne(100), which gives no FIFO order, so an older
+    // snapshot could be written AFTER a newer one and the disk kept stale state. Dispose's final
+    // flush could also return early (nothing dirty) while the flush holding the newest state was
+    // still in flight, and a failed write cleared the dirty flag anyway, losing that state.
+    //
+    // Now: _flushGate is held from snapshot to rename. Every mutation bumps _stateVersion, and a
+    // snapshot whose version is not newer than the last one written is skipped. A failed
+    // write re-arms the dirty flag. Dispose's flush therefore waits for any in-flight flush and
+    // then writes the latest state.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private readonly object _flushGate = new();
+    private long _stateVersion;
+    private long _flushedVersion;
+
     public bool IsRunning => !_isDisposed && !_cts.IsCancellationRequested;
 
     private NamedPipeStateServer(ApplicationPaths paths, JsonObject initialState, Mutex serverLease)
@@ -110,7 +129,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             }
             catch (Exception ex)
             {
-                CoreLogger.Debug("IpcServer", $"Could not create the IPC server lease: {ex.Message}");
+                CoreLogger.Warn("IpcServer", $"Could not create the IPC server lease: {ex.Message}");
                 return null;
             }
 
@@ -177,7 +196,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                         }
                         catch (Exception ex)
                         {
-                            CoreLogger.Debug("IpcServer", $"Error handling client connection: {ex.Message}");
+                            CoreLogger.Warn("IpcServer", $"Error handling client connection: {ex.Message}");
                         }
                     }
                 }, ct);
@@ -199,7 +218,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             catch (Exception ex)
             {
                 serverStream?.Dispose();
-                CoreLogger.Debug("IpcServer", $"Error in IPC server listener: {ex.Message}");
+                CoreLogger.Warn("IpcServer", $"Error in IPC server listener: {ex.Message}");
                 try { await Task.Delay(100, ct).ConfigureAwait(false); } catch (System.Exception swallowed)
                 {
                     global::FortniteVideoSoftware.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
@@ -243,6 +262,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                         StateTransferStore.ApplySanitizedUpdatesInternal(_currentState, updates, "ipc update");
                         _currentState["schema_version"] = StateTransferStore.SchemaVersion;
                         _isDirty = true;
+                        _stateVersion++;   // WRITEORDER_02
                     }
                     ScheduleDiskFlush();
                 }
@@ -260,6 +280,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                         _currentState = StateTransferStore.SanitizeObjectInternal(newState, "ipc save");
                         _currentState["schema_version"] = StateTransferStore.SchemaVersion;
                         _isDirty = true;
+                        _stateVersion++;   // WRITEORDER_02
                     }
                     ScheduleDiskFlush();
                 }
@@ -273,6 +294,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                 {
                     _currentState = new JsonObject { ["schema_version"] = StateTransferStore.SchemaVersion };
                     _isDirty = true;
+                    _stateVersion++;   // WRITEORDER_02
                 }
                 ScheduleDiskFlush();
                 await IpcProtocol.WriteFrameAsync(stream, IpcOpcode.ClearStateAck, ReadOnlyMemory<byte>.Empty, ct).ConfigureAwait(false);
@@ -289,6 +311,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
                         StateTransferStore.ApplySanitizedUpdatesInternal(_currentState, handoff, "ipc handoff");
                         _currentState["schema_version"] = StateTransferStore.SchemaVersion;
                         _isDirty = true;
+                        _stateVersion++;   // WRITEORDER_02
                     }
                     ScheduleDiskFlush();
                 }
@@ -325,6 +348,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             StateTransferStore.ApplySanitizedUpdatesInternal(_currentState, updates, "in-proc update");
             _currentState["schema_version"] = StateTransferStore.SchemaVersion;
             _isDirty = true;
+            _stateVersion++;   // WRITEORDER_02
         }
         ScheduleDiskFlush();
     }
@@ -336,6 +360,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             _currentState = StateTransferStore.SanitizeObjectInternal(state, "in-proc save");
             _currentState["schema_version"] = StateTransferStore.SchemaVersion;
             _isDirty = true;
+            _stateVersion++;   // WRITEORDER_02
         }
         ScheduleDiskFlush();
     }
@@ -346,6 +371,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
         {
             _currentState = new JsonObject { ["schema_version"] = StateTransferStore.SchemaVersion };
             _isDirty = true;
+            _stateVersion++;   // WRITEORDER_02
         }
         ScheduleDiskFlush();
     }
@@ -396,51 +422,41 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
 
     public void FlushToDiskSafe()
     {
-        JsonObject snapshot;
-        lock (_stateLock)
+        lock (_flushGate)
         {
-            if (!_isDirty) return;
-            snapshot = _currentState.DeepClone().AsObject();
-            _isDirty = false;
-            _firstDirtyTicks = 0;   // FLUSHCEILING_01 — the pending window closes with the write.
-        }
+            JsonObject snapshot;
+            long version;
+            lock (_stateLock)
+            {
+                if (!_isDirty) return;
+                snapshot = _currentState.DeepClone().AsObject();
+                version = _stateVersion;
+                _isDirty = false;
+                _firstDirtyTicks = 0;   // FLUSHCEILING_01 — the pending window closes with the write.
+            }
 
-        try
-        {
-            _paths.EnsureWritableDirectories();
-            using var guard = NamedSystemMutex.Acquire(
-                StateTransferStore.MutexName,
-                TimeSpan.FromSeconds(2),
-                CancellationToken.None);
+            if (version <= _flushedVersion) return;
 
-            AtomicJsonFile.WriteObject(_paths.SessionStateFile, snapshot);
-        }
-        catch (Exception ex)
-        {
-            CoreLogger.Debug("IpcServer", $"Background disk flush error: {ex.Message}");
+            try
+            {
+                _paths.EnsureWritableDirectories();
+                using var guard = NamedSystemMutex.Acquire(
+                    StateTransferStore.MutexName,
+                    TimeSpan.FromSeconds(2),
+                    CancellationToken.None);
+                AtomicJsonFile.WriteObject(_paths.SessionStateFile, snapshot);
+                _flushedVersion = version;
+            }
+            catch (Exception ex)
+            {
+                // WRITEORDER_02 — the state is still only in memory. Re-arm so the next flush
+                // (or Dispose) retries instead of silently forgetting it.
+                lock (_stateLock) { _isDirty = true; }
+                CoreLogger.Warn("IpcServer", $"Background disk flush error (will retry): {ex.Message}");
+            }
         }
     }
 
-    /// <summary>
-    /// IPCTEARDOWN_01 — SIGNAL, THEN WAIT, THEN DISPOSE. In that order, always.
-    ///
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// WHAT WAS WRONG: this called _cts.Cancel() and then _cts.Dispose() IMMEDIATELY, while
-    /// ListenLoopAsync was still suspended inside WaitForConnectionAsync(ct). The NamedPipeServerStream
-    /// in flight at that moment was not deterministically closed, so the pipe instance stayed held
-    /// until the GC finalised it. A restart inside that window hit TryStart's !createdNew path and
-    /// silently returned null — quietly degrading every subsequent LoadSync/SaveState in the process
-    /// to the slow direct-disk path with no error anywhere.
-    ///
-    /// It also released a THREAD-AFFINE Mutex from the wrong thread (see IPCLEASE_01), and the
-    /// synchronous path never awaited _listenTask at all — only DisposeAsync did, and IDisposable
-    /// is the path most callers reach.
-    ///
-    /// The order below is the fix: stop producing work, flush what is pending, signal cancellation,
-    /// WAIT for the listener to actually finish (bounded — a wedged listener must not hang app
-    /// shutdown), and only then free the objects the listener was using.
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// </summary>
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -472,7 +488,7 @@ public sealed class NamedPipeStateServer : IAsyncDisposable, IDisposable
             {
                 if (!_listenTask.Wait(TimeSpan.FromSeconds(2)))
                 {
-                    CoreLogger.Debug("IpcServer", "IPC listener did not stop within 2s; continuing teardown.");
+                    CoreLogger.Warn("IpcServer", "IPC listener did not stop within 2s; continuing teardown.");
                 }
             }
             catch (Exception ex) { CoreLogger.Swallowed(ex); }

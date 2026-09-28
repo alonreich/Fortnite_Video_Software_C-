@@ -11,7 +11,7 @@ namespace FvsBuild;
 internal static class Cli
 {
     /// <summary>Runs a child process, streaming stdout+stderr to console+log live. Returns its exit code.</summary>
-    public static int RunStreaming(string fileName, IEnumerable<string> args, BuildLog log)
+    public static int RunStreaming(string fileName, IEnumerable<string> args, BuildLog log, Action<string>? onLine = null)
     {
         using Process process = Start(fileName, args, redirect: true);
         DateTime lastActivity = DateTime.UtcNow;
@@ -25,6 +25,7 @@ internal static class Cli
             {
                 lock (sync) { lastActivity = DateTime.UtcNow; }
                 log.Info(e.Data);
+                onLine?.Invoke(e.Data);
                 if (e.Data.Contains("Generating native code", StringComparison.OrdinalIgnoreCase))
                 {
                     log.Info("  -> [NativeAOT] Compiling native machine code via ilc.exe / link.exe (~30-60s expected)...");
@@ -37,6 +38,7 @@ internal static class Cli
             {
                 lock (sync) { lastActivity = DateTime.UtcNow; }
                 log.Info(e.Data);
+                onLine?.Invoke(e.Data);
             }
         };
 

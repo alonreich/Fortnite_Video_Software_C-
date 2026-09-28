@@ -15,7 +15,7 @@ public static class Phase2Gate
         RecoveryManager recovery = new(paths);
         
         recovery.AcquireLock();
-        recovery.SaveState(new System.Text.Json.Nodes.JsonObject { ["status"] = "crashed" }, 1);
+        recovery.SaveState(new System.Text.Json.Nodes.JsonObject { ["status"] = "crashed" });
         
         Console.WriteLine($"Lock acquired at {paths.AppSessionLockFile}, PID {Environment.ProcessId}");
         Console.WriteLine("Exiting without cleanup to simulate crash.");

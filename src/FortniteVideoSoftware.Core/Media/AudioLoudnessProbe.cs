@@ -291,7 +291,7 @@ public static class AudioLoudnessProbe
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("LoudnessProbe", $"Loudness measurement threw: {ex.Message}");
+            CoreLogger.Warn("LoudnessProbe", $"Loudness measurement threw: {ex.Message}");
             return null;
         }
         finally

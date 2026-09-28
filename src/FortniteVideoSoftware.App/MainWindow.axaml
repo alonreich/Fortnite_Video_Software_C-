@@ -103,7 +103,7 @@
 
                     <TextBlock Name="RdpWarningOverlay" Text="RDP SESSION" Foreground="{DynamicResource AppDangerBrush}" Opacity="0.5" FontSize="{DynamicResource AppFontSize60}" FontWeight="Black" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20" IsHitTestVisible="False" IsVisible="False" ZIndex="1" />
 
-                    <Border IsVisible="{Binding #VideoHost.IsSoftwareFallbackActive}"
+                    <Border Name="PreviewFallbackBadge" IsVisible="False"
                             HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10"
                             Background="{DynamicResource AppOverlayBrush}" CornerRadius="4" Padding="6"
                             ToolTip.Tip="Live preview could not initialize on this graphics session.">

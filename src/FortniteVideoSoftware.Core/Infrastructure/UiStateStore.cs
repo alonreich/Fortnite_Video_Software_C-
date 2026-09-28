@@ -81,7 +81,7 @@ public static class UiStateStore
     {
         MigrateLegacyFilesOnce();
         string dir = Directory_;
-        try { Directory.CreateDirectory(dir); } catch (Exception ex) { CoreLogger.Debug("UiState", $"Failed to create directory '{dir}': {ex.Message}"); }
+        try { Directory.CreateDirectory(dir); } catch (Exception ex) { CoreLogger.Warn("UiState", $"Failed to create directory '{dir}': {ex.Message}"); }
         return Path.Combine(dir, fileName);
     }
 
@@ -95,7 +95,7 @@ public static class UiStateStore
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("UiState", $"Failed to read text from '{fileName}': {ex.Message}");
+            CoreLogger.Warn("UiState", $"Failed to read text from '{fileName}': {ex.Message}");
             return fallback;
         }
     }

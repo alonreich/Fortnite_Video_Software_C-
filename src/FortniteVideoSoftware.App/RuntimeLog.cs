@@ -46,6 +46,10 @@ public static class RuntimeLog
 
     private static string? _cachedLogPath;
     private static Mutex? _globalMutex;
+
+    /// <summary>USERSCOPE_01 — the log file now lives in the per-user root, so its lock is per user too.</summary>
+    private static readonly string LogMutexName =
+        FortniteVideoSoftware.Core.Infrastructure.NamedSystemMutex.UserScopedName("FortniteVideoSoftwareLogMutex");
     private static readonly BlockingCollection<string> _logQueue = new(10000);
     private static long _estimatedSize = -1;
     private static long _droppedCount;
@@ -250,37 +254,64 @@ public static class RuntimeLog
         try
         {
             string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
-            long now = DateTime.UtcNow.Ticks;
-
-            bool emit = false;
-            int suppressed = 0;
-            _throttleState.AddOrUpdate(
-                where,
-                _ => { emit = true; return (now, 0); },
-                (_, prev) =>
-                {
-                    if (now - prev.LastTicks >= ThrottleTicks)
-                    {
-                        emit = true;
-                        suppressed = prev.Suppressed;
-                        return (now, 0);
-                    }
-                    return (prev.LastTicks, prev.Suppressed + 1);
-                });
-
-            if (!emit) return;
+            if (!TryPassThrottle(where, out int suppressed)) return;
 
             string tail = suppressed > 0 ? $" (+{suppressed} identical in the last 30s)" : string.Empty;
 
-            // FAULTTIER_02 — same routing as Swallowed above. The throttle stays HERE rather than
-            // relying on the sink's FAULTSTORM_01 gate: this one is keyed by CALL SITE and holds
-            // for 30s, which is what a per-frame failure needs, and the sink's is keyed by message
-            // text, which a message embedding a changing value defeats.
             FortniteVideoSoftware.Core.Abstractions.Faults.Recoverable(
                 "SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}{tail}", ex);
         }
         catch (Exception)
         {
+        }
+    }
+
+    /// <summary>
+    /// LOGVIS_01 — the per-key 30s gate shared by <see cref="SwallowedThrottled"/>, the production
+    /// Recoverable breadcrumb and <see cref="WarnThrottled"/>. True = emit now;
+    /// <paramref name="suppressed"/> = how many were swallowed by the gate since the last emission.
+    /// Allocation-free after the first hit per key; bounded because keys are call sites, not values.
+    /// </summary>
+    public static bool TryPassThrottle(string key, out int suppressed)
+    {
+        long now = DateTime.UtcNow.Ticks;
+        bool emit = false;
+        int dropped = 0;
+        _throttleState.AddOrUpdate(
+            key,
+            _ => { emit = true; return (now, 0); },
+            (_, prev) =>
+            {
+                if (now - prev.LastTicks >= ThrottleTicks)
+                {
+                    emit = true;
+                    dropped = prev.Suppressed;
+                    return (now, 0);
+                }
+                return (prev.LastTicks, prev.Suppressed + 1);
+            });
+        suppressed = dropped;
+        return emit;
+    }
+
+    /// <summary>LOGVIS_01 — a failure that did not change the user's outcome, written in production too.</summary>
+    public static void Warn(string step, string detail) => Write("WARN", step, detail);
+
+    /// <summary>
+    /// LOGVIS_01 — <see cref="Warn"/> behind the shared 30s gate, keyed by step + the message's
+    /// leading text, so a failure repeating at frame rate costs one line per 30s plus a count.
+    /// </summary>
+    public static void WarnThrottled(string step, string detail)
+    {
+        try
+        {
+            string key = "WARN|" + step + "|" + (detail.Length > 48 ? detail[..48] : detail);
+            if (!TryPassThrottle(key, out int suppressed)) return;
+            Warn(step, suppressed > 0 ? $"{detail} (+{suppressed} similar in the last 30s)" : detail);
+        }
+        catch (Exception)
+        {
+            /* L7/ISSUE_13: the logger may NEVER log its own failure — that recurses. */
         }
     }
 
@@ -305,7 +336,7 @@ public static class RuntimeLog
         {
             try
             {
-                _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+                _globalMutex ??= new Mutex(false, LogMutexName);
                 acquired = _globalMutex.WaitOne(500);
             }
             catch (AbandonedMutexException) { acquired = true; }
@@ -388,7 +419,7 @@ public static class RuntimeLog
     {
         try
         {
-            _globalMutex ??= new Mutex(false, "Global\\FortniteVideoSoftwareLogMutex");
+            _globalMutex ??= new Mutex(false, LogMutexName);
         }
         catch
         {

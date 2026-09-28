@@ -196,12 +196,12 @@ public class VoiceRecorder : IDisposable
         if (waveIn != null)
         {
             try { waveIn.StopRecording(); }
-            catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"StopRecording threw: {ex.Message}"); }
+            catch (Exception ex) { CoreLogger.Warn("VoiceRecorder", $"StopRecording threw: {ex.Message}"); }
 
             if (wasRecording)
             {
                 try { _recordingStopped?.Wait(StopDrainTimeoutMs); }
-                catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Wait for RecordingStopped failed: {ex.Message}"); }
+                catch (Exception ex) { CoreLogger.Warn("VoiceRecorder", $"Wait for RecordingStopped failed: {ex.Message}"); }
             }
 
             _stopping = true;
@@ -209,7 +209,7 @@ public class VoiceRecorder : IDisposable
             try { waveIn.DataAvailable -= OnDataAvailable; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             try { waveIn.RecordingStopped -= OnRecordingStopped; } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             try { waveIn.Dispose(); }
-            catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Disposing the capture device threw: {ex.Message}"); }
+            catch (Exception ex) { CoreLogger.Warn("VoiceRecorder", $"Disposing the capture device threw: {ex.Message}"); }
 
             _waveIn = null;
         }
@@ -224,7 +224,7 @@ public class VoiceRecorder : IDisposable
             {
                 try { _writer.Flush(); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
                 try { _writer.Dispose(); }
-                catch (Exception ex) { CoreLogger.Debug("VoiceRecorder", $"Closing the WAV writer threw: {ex.Message}"); }
+                catch (Exception ex) { CoreLogger.Warn("VoiceRecorder", $"Closing the WAV writer threw: {ex.Message}"); }
                 _writer = null;
             }
         }

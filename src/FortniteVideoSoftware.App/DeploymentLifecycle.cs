@@ -473,23 +473,14 @@ internal static class DeploymentLifecycle
 
         await CopyFileAggressiveAsync(DeploymentFootprint.InstallPath, DeploymentFootprint.UninstallPath).ConfigureAwait(false);
 
-        await DeploymentReporter.StepAsync("DEPLOY PROGRAMDATA", $"Creating writable ProgramData root: {DeploymentFootprint.ProgramDataFolder}", 72).ConfigureAwait(false);
-        Directory.CreateDirectory(DeploymentFootprint.ProgramDataFolder);
-        
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "icacls.exe",
-                Arguments = $"\"{DeploymentFootprint.ProgramDataFolder}\" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            })?.WaitForExit();
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Fail("ACL", ex);
-        }
+        // USERSCOPE_01 — no machine-wide writable folder any more. App state lives per user under
+        // %LOCALAPPDATA% (ApplicationPaths.DefaultUserRoot), created by the app itself on first
+        // launch. This step used to create %ProgramData%\Fortnite Video Software and grant
+        // BUILTIN\Users FULL CONTROL over it, which is what let every account on the machine read
+        // and overwrite every other account's settings and crash-recovery state. A legacy folder
+        // from an older install is left for the one-time per-user migration, and it is still purged
+        // by the uninstaller (DeploymentFootprint.GetDirectoryPurgeTargets).
+        await DeploymentReporter.StepAsync("DEPLOY PROGRAMDATA", "Per-user data root (created by the app on first launch); no machine-wide writable folder is created.", 72).ConfigureAwait(false);
 
         await DeploymentReporter.StepAsync("DEPLOY REGISTRY", "Writing Windows Apps & Features uninstall entry.", 78).ConfigureAwait(false);
         await WriteUninstallRegistryAsync().ConfigureAwait(false);
@@ -841,7 +832,7 @@ internal static class DeploymentLifecycle
                     }
                     catch (Exception ex)
                     {
-                        RuntimeLog.Debug("DEPLOY DESKTOP", $"Could not remove the existing shortcut first: {ex.Message}");
+                        RuntimeLog.WarnThrottled("DEPLOY DESKTOP", $"Could not remove the existing shortcut first: {ex.Message}");
                     }
                 }
 

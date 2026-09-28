@@ -143,6 +143,23 @@ internal static class Program
                 return ExitOk;
             }
 
+            if (CodeSigning.SignedWithLocalDevCertificate)
+            {
+                // SIGNLOCAL_02 (supersedes the SIGNLOCAL_01 refusal) — USER DECISION (2026-09-26, option A): publish even when signed with the
+                // local development certificate. Consequences, stated every time so nobody forgets:
+                //   • the in-app "new version available" notification works for every user (it is a
+                //     version check against the GitHub release);
+                //   • in-app INSTALL stays refused on user machines (UPDATETRUST_02): their Windows does
+                //     not trust this private root, so the publisher cannot be verified and the user is
+                //     sent to the release page to install by hand;
+                //   • SmartScreen still shows "unknown publisher" to new downloaders.
+                // A publicly trusted certificate (FVS_SIGN_PFX / FVS_SIGN_PASS) removes all three.
+                log.Banner(string.Empty);
+                log.Warn("[PUBLISH] Signed with the LOCAL DEVELOPMENT certificate (SIGNLOCAL_02, publishing by user decision).");
+                log.Warn("[PUBLISH] Users WILL see the update notification; in-app install sends them to the release page");
+                log.Warn("[PUBLISH] (publisher not verifiable on their PCs). A public code-signing certificate fixes this.");
+            }
+
             log.Banner(string.Empty);
             log.Banner("###########################################################");
             log.Banner("PUBLISHING RELEASE TO GITHUB...");

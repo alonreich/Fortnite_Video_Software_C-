@@ -175,4 +175,42 @@ public class RecoveryManagerTests : IDisposable
         Assert.Equal(2700, item["zoom_start_ms"]?.GetValue<double>());
         Assert.Equal(5800, item["zoom_end_ms"]?.GetValue<double>());
     }
+
+    // ── WRITEORDER_01 ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void WriteOrder_AQueuedSaveThatLosesTheRaceToAClearIsDropped()
+    {
+        long queued = RecoveryManager.ReserveVersionForTests();   // SaveStateAsync queued first...
+        _recovery.ClearState();                                    // ...the user undoes to empty...
+        _recovery.ApplySaveForTests(new JsonObject { ["stale"] = true }, queued);   // ...then the pool runs it
+
+        Assert.False(File.Exists(_paths.RecoveryStateFile));
+    }
+
+    [Fact]
+    public void WriteOrder_OrderingSpansInstances()
+    {
+        var other = new RecoveryManager(_paths);   // e.g. ProjectRecoveryService vs MainWindow._recovery
+        long queued = RecoveryManager.ReserveVersionForTests();
+        other.SaveState(new JsonObject { ["newer"] = true });
+        _recovery.ApplySaveForTests(new JsonObject { ["older"] = true }, queued);
+
+        var loaded = _recovery.LoadState();
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.ContainsKey("newer"));
+        Assert.False(loaded.ContainsKey("older"));
+    }
+
+    [Fact]
+    public void WriteOrder_GranularMergeDoesNotStaleAQueuedMainSave()
+    {
+        long queued = RecoveryManager.ReserveVersionForTests();
+        _recovery.UpdateGranularSession(new JsonObject { ["open"] = true });
+        _recovery.ApplySaveForTests(new JsonObject { ["main"] = 1 }, queued);
+
+        var loaded = _recovery.LoadState()!;
+        Assert.True(loaded.ContainsKey("main"));
+        Assert.NotNull(loaded["granular_session"]);
+    }
 }

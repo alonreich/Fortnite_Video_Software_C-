@@ -3,9 +3,13 @@
 ## Code Mini-Map: Bound Source Files & Symbols
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Undo/UndoStack.cs` | `UndoStack<T>`, `UndoEntry<T>` | `Apply`, `Undo`, `Redo`, `Reset`, `Restore`, `EndGesture`, `DefaultMaxDepth`, `GestureIdleMs` | Application-wide history |
+| `src/FortniteVideoSoftware.Core/Undo/UndoStack.cs` | `UndoStack<T>`, `UndoEntry<T>` | `Apply`, `Undo`, `Redo`, `Reset`, `Restore`, `ReplaceCurrent`, `EndGesture`, `NextUndoLabel`, `NextRedoLabel`, `DefaultMaxDepth`, `GestureIdleMs` | Application-wide history |
 | ⚠ `src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs` | `ProjectDocument` | immutable state carried by the stack | CO-GOVERNED by `06_PROJECT_DOCUMENT_MODEL.md` |
 | ⚠ `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs` | `PushUndo`, `CaptureSnapshot`, `_undoStack` | the ORIGIN of U1–U4; to be migrated onto `UndoStack<T>` | CO-GOVERNED by `01`, `04`, `05` |
+| ⚠ `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.History.cs` | `GranularSpeedEditorWindow` (Partial) | `ParkHistoryForReopen`, `AdoptParkedHistory`, `_parkedHistory`, `HistoryKey` | CO-GOVERNED by `04` |
+| `src/FortniteVideoSoftware.Core/Undo/UndoSidecarStore.cs` | `UndoSidecarStore`, `UndoSidecar` | `Save`, `Load`, `Delete`, `PathFor`, `MaxEntries`, `SchemaVersion` | Per-machine history sidecar (UNDO_24) |
+| ⚠ `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `BeginHistory`, `PushEdit`, `EndGesture`, `Undo`, `Redo`, `NextUndoLabel`, `NextRedoLabel` | CO-GOVERNED by `06`, `08` |
+| ⚠ `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `PushProjectEdit`, `EndProjectGesture`, `BeginProjectHistory`, `OnProjectDocumentApplied` | CO-GOVERNED by `06`, `08` |
 
 ---
 
@@ -42,6 +46,9 @@ These come from the editor's `PushUndo`. They were paid for in bug reports. Do n
   broken and then stop trusting.
   ⚠ Checked BEFORE gesture bookkeeping, so a no-op cannot open a gesture window and swallow the
   user's next real edit.
+* **`UNDO_20` — one entry point records an edit.** `MainWindow.PushProjectEdit(label, gestureKey)` → `ProjectSession.PushEdit`
+  records the state AFTER the edit with the label the user reads in the undo notice; every Main App
+  edit goes through it (the Video Merger's equivalent is `MERGEUNDO_01`, `docs/06` item 5).
 
 ---
 
@@ -109,6 +116,15 @@ covering U1–U4, re-entrancy, reset and restore).
    keeps its own stack over `EditorSnapshot`, which carries editor-local state (the freeze, the
    selected segment) that `ProjectDocument` does not model. `UNDO_25` closes the user-visible half
    of this — history no longer dies with the window — but there are still two implementations.
-2. Undo/Redo in the Crop Tool, Music Wizard and Video Merger. None of them have any.
+2. Undo/Redo in the Music Wizard. It has none. (The Video Merger has it — `MERGEUNDO_01`, `docs/06`
+   item 5. The Crop Tool keeps its own `Stack<EditorSnapshot>` undo/redo — Undo/Redo buttons,
+   Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — not yet on `UndoStack<T>`.)
 3. Undo/Redo menu labels driven by `NextUndoLabel` / `NextRedoLabel` in the main window. The
    Granular editor already does this.
+
+---
+
+## 6. Edit-State Equality & Gesture Keys (UNDOEQ_01 / UNDOEQ_02)  {#UNDO-EQUALITY}
+* **UNDOEQ_01:** `ProjectDocument` overrides `Equals`/`GetHashCode`. Lists are compared element-wise, the mask by `ProfileName`+`Fingerprint`, and `Merge` element-wise. `CreatedUtc`, `ModifiedUtc`, `Title` and `UnknownFields` are excluded. The compiler default compared the per-capture arrays BY REFERENCE and included `UtcNow` stamps, so U4 never fired in production.
+* **UNDOEQ_02:** `SaveRecoveryState(label:, gestureKey:)`. Continuous controls pass a key (`speed-dial`, `quality-dial`, `music-nudge`) and call `EndProjectGesture()` on `ValueChangeCompleted`. Every call site names its action.
+* Tests: `ProjectDocumentTests.UndoEq_*`.

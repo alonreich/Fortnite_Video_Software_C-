@@ -84,12 +84,25 @@ public sealed class UserFacingFaultSink : IFaultSink
             case FaultTier.Recoverable:
                 // Breadcrumb only. By definition the user's outcome did not change, so anything
                 // on screen here would be noise about an event they have no action to take on.
-                RuntimeLog.Debug(fault.Area, detail);
+                //
+                // LOGVIS_01 — the breadcrumb used to be RuntimeLog.Debug, which is a no-op unless
+                // FVS_DEV_LOG_DIR is set, i.e. in EVERY shipped build. ~560 Swallowed() sites wrote
+                // nothing at all where users actually run the app. Now: one INFO line per call site
+                // per 30s (with a count of what the gate held back), in every build. The full stack
+                // trace stays dev-only.
+                FaultCounters.Record(fault);
+                if (RuntimeLog.TryPassThrottle("REC|" + fault.Area + "|" + CallSiteKey(detail), out int held))
+                {
+                    RuntimeLog.Info(fault.Area, held > 0
+                        ? $"[RECOVERABLE] {detail} (+{held} from this site in the last 30s)"
+                        : $"[RECOVERABLE] {detail}");
+                }
                 if (fault.Exception is not null)
                     RuntimeLog.Debug(fault.Area, fault.Exception.ToString());
                 return;
 
             case FaultTier.Degraded:
+                FaultCounters.Record(fault);
                 RuntimeLog.Fail(fault.Area, $"[DEGRADED] {fault.UserMessage} :: {detail}");
                 if (fault.Exception is not null)
                     RuntimeLog.Debug(fault.Area, fault.Exception.ToString());
@@ -99,6 +112,7 @@ public sealed class UserFacingFaultSink : IFaultSink
                 return;
 
             case FaultTier.Fatal:
+                FaultCounters.Record(fault);
                 RuntimeLog.Fail(fault.Area, $"[FATAL] {fault.UserMessage} :: {detail}");
                 if (fault.Exception is not null)
                     RuntimeLog.Fail(fault.Area, fault.Exception);
@@ -117,6 +131,17 @@ public sealed class UserFacingFaultSink : IFaultSink
     }
 
     /// <summary>FAULTSTORM_01 — true when this exact fault has not been shown inside the window.</summary>
+    /// <summary>
+    /// LOGVIS_01 — Swallowed() details start "File.cs:123 Member() — …". That prefix identifies the
+    /// call site. Other details are keyed by their first 48 characters.
+    /// </summary>
+    private static string CallSiteKey(string detail)
+    {
+        int dash = detail.IndexOf(" — ", StringComparison.Ordinal);
+        if (dash > 0) return detail[..dash];
+        return detail.Length > 48 ? detail[..48] : detail;
+    }
+
     private bool ShouldSurface(Fault fault, int windowSeconds)
     {
         if (string.IsNullOrWhiteSpace(fault.UserMessage)) return false;

@@ -59,7 +59,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"GetStateAsync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"GetStateAsync failed: {ex.Message}");
             return null;
         }
     }
@@ -84,7 +84,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"GetStateSync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"GetStateSync failed: {ex.Message}");
             return null;
         }
     }
@@ -107,7 +107,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"UpdatePropertiesAsync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"UpdatePropertiesAsync failed: {ex.Message}");
             return false;
         }
     }
@@ -127,7 +127,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"UpdatePropertiesSync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"UpdatePropertiesSync failed: {ex.Message}");
             return false;
         }
     }
@@ -150,7 +150,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"SaveStateAsync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"SaveStateAsync failed: {ex.Message}");
             return false;
         }
     }
@@ -170,7 +170,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"SaveStateSync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"SaveStateSync failed: {ex.Message}");
             return false;
         }
     }
@@ -193,7 +193,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"ClearStateAsync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"ClearStateAsync failed: {ex.Message}");
             return false;
         }
     }
@@ -213,7 +213,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"ClearStateSync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"ClearStateSync failed: {ex.Message}");
             return false;
         }
     }
@@ -236,7 +236,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"SendHandoffAsync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"SendHandoffAsync failed: {ex.Message}");
             return false;
         }
     }
@@ -256,7 +256,7 @@ public static class NamedPipeStateClient
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcClient", $"SendHandoffSync failed: {ex.Message}");
+            CoreLogger.Warn("IpcClient", $"SendHandoffSync failed: {ex.Message}");
             return false;
         }
     }

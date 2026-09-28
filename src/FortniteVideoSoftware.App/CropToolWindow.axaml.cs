@@ -1371,9 +1371,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
 
     private void OnVideoDragOver(object? sender, Avalonia.Input.DragEventArgs e)
     {
-        bool hasFiles = e.Data.Contains(Avalonia.Input.DataFormats.Files)
-                        || e.Data.Contains(Avalonia.Input.DataFormats.FileNames)
-                        || e.Data.GetFiles()?.Any() == true;
+        bool hasFiles = e.DataTransfer.Contains(Avalonia.Input.DataFormat.File);
 
         e.DragEffects = hasFiles ? Avalonia.Input.DragDropEffects.Copy : Avalonia.Input.DragDropEffects.None;
         e.Handled = true;
@@ -1383,7 +1381,7 @@ public partial class CropToolWindow : Window, System.ComponentModel.INotifyDataE
     {
         try
         {
-            var files = e.Data.GetFiles();
+            var files = e.DataTransfer.TryGetFiles();
             if (files == null) return;
 
             foreach (var file in files)

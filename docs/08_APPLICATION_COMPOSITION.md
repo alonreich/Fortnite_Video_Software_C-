@@ -18,6 +18,14 @@
 | `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` | `ArchitectureRuleTests` | `ARCHTEST_01`, `ASYNCUI_01`, `ASYNCUI_02`, `NoControlCarriesBothCommandAndClick` | The specs' rules, made executable. |
 | `build/FvsBuild/CodeSigning.cs` | `CodeSigning` | `SignIfNeeded`, `SIGNMANDATE_01` | Signing mandate. **⚠ CO-GOVERNED BY: 05** |
 | `dev.cmd` | Developer Harness | `VERIFY_PATCHES`, `VERIFYHALT_01` | Fix-sentinel enforcement. **⚠ CO-GOVERNED BY: 05** |
+| `src/FortniteVideoSoftware.Core/Abstractions/Faults.cs` | `Faults` | `Install`, `Recoverable`, `Degraded`, `Fatal`, `FAULTTIER_02` | Ambient fault channel installed once from the composition root. |
+| `src/FortniteVideoSoftware.App/Services/FaultCounters.cs` | `FaultCounters` | `Record`, `Describe`, `LOGVIS_01` | Per-session fault totals by tier and area, printed in the diagnostic bundle. |
+| `tests/FortniteVideoSoftware.Core.Tests/WindowsOnlyFactAttribute.cs` | `WindowsOnlyFactAttribute` | `Skip`, `CITEST_01` | Windows-only tests skip, not fail, off Windows. |
+| `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `PushEdit`, `SaveAsync`, `OpenAsync`, `PROJSESSION_01` | The document being edited and its history. **⚠ CO-GOVERNED BY: 06, 07** |
+| `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | The main window's half of the document session. **⚠ CO-GOVERNED BY: 06, 07** |
+| `src/FortniteVideoSoftware.App/Services/ToolNavigator.cs` | `ToolNavigator` | `OpenAsync`, `PublishMergeEdl`, `ReadMergeQueue`, `TOOLNAV_01` | Opens companion tools in-process and returns from them. **⚠ CO-GOVERNED BY: 05** |
+| `src/FortniteVideoSoftware.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `TOOLRETURN_01` | Main App preview revival after a tool closes. **⚠ CO-GOVERNED BY: 05** |
+| `.github/workflows/ci.yml` | CI | `sentinels`, `build-and-test`, `aot-publish`, `CITEST_01` | Runs the sentinels, the tests and the ratchets. **⚠ CO-GOVERNED BY: 09** |
 
 ---
 
@@ -77,7 +85,7 @@
 
 * **`UserFacingFaultSink` must never throw.** A reporter that can fault is a reporter that call sites wrap in `try { } catch { }` — the exact shape being retired. Its outermost guard writes through `RuntimeLog.EmergencyWrite` and returns.
 
-* **Migration is a ratchet, not a sweep.** 59 unexplained empty catches cannot be triaged correctly in one change; each needs a human decision about tier. `ArchitectureRuleTests.UnexplainedEmptyCatchBlocksDoNotIncrease` is green today at that baseline and can only get stricter. **A permanently red test gets deleted, so no rule here starts red.**
+* **Migration is a ratchet, not a sweep.** 59 unexplained empty catches could not be triaged correctly in one change; each needs a human decision about tier. `ArchitectureRuleTests.UnexplainedEmptyCatchBlocksDoNotIncrease` is green at its baseline (now **25**, §3) and can only get stricter. **A permanently red test gets deleted, so no rule here starts red.**
 
 ---
 
@@ -135,23 +143,25 @@ plumbing change does not happen. The vocabulary was right and the route was miss
 
 * **The rules run on source TEXT, deliberately** — every defect they catch is something the compiler is happy with. They strip comments and string literals first (`BlankCommentsAndStrings`), because this codebase documents its rules by quoting the offending pattern; without that, the docs trip the tests that enforce them.
 
-* **Current rules and their standing** (11 rules; every one green at the time of writing):
+* **Current rules and their standing** (13 rules; every one green at the time of writing):
 
   | Rule | Enforces | Standing |
   | :--- | :--- | :--- |
   | `NoControlCarriesBothCommandAndClick` | `DOUBLEFIRE_01` (04 §4) | **clean — 0** |
   | `NoRawHexColoursInSharedStyling` | Invariant #5 (04 §1) | **clean — 0** (10 fixed; see §4) |
   | `ZoompanFilterIsNeverEmitted` | Invariant #4 | **clean — 0** |
-  | `UnexplainedEmptyCatchBlocksDoNotIncrease` | `FAULTTIER_01` | ratchet, baseline **59** |
+  | `UnexplainedEmptyCatchBlocksDoNotIncrease` | `FAULTTIER_01` | ratchet, baseline **25** |
+  | `EveryCatchBlockReportsSomewhere` | `FAULTTIER_02` | ratchet, baseline **8** (seven reporting-path files exempt by name) |
   | `EveryProductionSourceFileCarriesTheSpecContract` | `SPEC_GOVERNANCE.md` §4 | **clean — 0** (121 fixed; see §4) |
   | `BlockingWaitsOnAsyncCodeDoNotIncrease` | `ASYNCUI_01` | ratchet, baseline **5** |
   | `AsyncVoidMethodsDoNotIncrease` | `ASYNCUI_02` | ratchet, baseline **31** |
   | `ServiceLocatorUsageDoesNotIncrease` | `COMPOSITION_02` | ratchet, baseline **3** |
-  | `ImperativeControlLookupsDoNotIncrease` | `MVVM_01` (§3a) | ratchet, baseline **973** |
-  | `WindowCodeBehindDoesNotGrow` | `MVVM_02` (§3a) | grandfathered ceilings; **1,000** for new files |
-  | `EveryDevCmdSentinelStillResolves` | `SYS-DEVBUILD` | **clean — 158** |
+  | `ImperativeControlLookupsDoNotIncrease` | `MVVM_01` (§3a) | ratchet, baseline **700** (lowered from 973 by `MVVM_03`) |
+  | `WindowCodeBehindDoesNotGrow` | `MVVM_02` (§3a) | 8 grandfathered ceilings; **1,000** for new files |
+  | `EveryFixSentinelStillResolves` | `SYS-DEVBUILD` / `SYS-VERIFYTOOL` | **clean** — every `build/sentinels.txt` entry |
+  | `DevCmdDelegatesTheSentinelCheckRatherThanParsingIt` | `SYS-VERIFYTOOL` / `VERIFYHALT_01` | **clean** — `dev.cmd` runs `build/FvsVerify` and reads its exit code |
 
-* **Sentinel or test?** When a fix earns a `CHECK_TAG` in `dev.cmd`, ask whether it could be a test instead. **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Prefer the test. Keep the sentinel when the fix is a configuration value or a comment-documented ordering that no assertion can see.
+* **Sentinel or test?** When a fix earns a `TAG=path` line in `build/sentinels.txt` (checked by `build/FvsVerify`), ask whether it could be a test instead. **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Prefer the test. Keep the sentinel when the fix is a configuration value or a comment-documented ordering that no assertion can see.
 
 * **`ASYNCUI_01` / `ASYNCUI_02`.** 5 blocking waits (`.Result` / `.Wait()` / `GetAwaiter().GetResult()`) and 31 `async void` methods, against 106 `Dispatcher.UIThread` call sites. On the UI thread a blocking wait is a deadlock of exactly the shape `SEEKSTORM_01` describes: the UI thread waiting on work that needs the UI thread. An `async void` that throws bypasses every catch in the stack and lands in `AppDomain.UnhandledException` — the process goes down from a background continuation, with nothing on screen. An `async void` that survives review must be an event handler bound directly to an Avalonia event, **and its whole body must sit inside one try/catch reporting through `IFaultSink`**.
 
@@ -184,13 +194,14 @@ plumbing change does not happen. The vocabulary was right and the route was miss
     deltas, hit-testing, render transforms, animation clocks. Forcing those into a view-model buys
     nothing and costs the clarity that `04_UI_UX_AVALONIA_SPEC.md` §6 depends on.
 
-* **`MVVM_02` — the ceilings.** The five oversized files are grandfathered at their current length
-  and may only shrink. A window created after this specification is capped at **1,000 lines**,
-  because by the time anyone notices a new one has passed four figures, extracting it is the
-  multi-week job the existing five already represent.
+* **`MVVM_02` — the ceilings.** Eight oversized window code-behind files are grandfathered at a
+  measured ceiling and may only shrink (`WindowCodeBehindDoesNotGrow` holds the table). A window
+  created after this specification is capped at **1,000 lines**, because by the time anyone notices
+  a new one has passed four figures, extracting it is the multi-week job the existing ones already
+  represent.
 
-* **Both rules are RATCHETS, enforced by `ArchitectureRuleTests`.** 973 call sites cannot be
-  converted without a compiler in the loop, and a sweep that cannot be built and run is a sweep
+* **Both rules are RATCHETS, enforced by `ArchitectureRuleTests`.** Hundreds of call sites (baseline
+  **700**) cannot be converted without a compiler in the loop, and a sweep that cannot be built and run is a sweep
   that ships a broken editor. The numbers may only fall; lower the baseline in the same change
   that lowers the count.
 
@@ -234,3 +245,11 @@ only at publish, in the linker.
   * Four `ZOOMCARD_01` states in the Granular editor's "How should the zoom arrive?" dialog (`#222234` rest, `#181824` bullet well, `#2f2f45` hover, `#3a2b48` checked) — **dark-theme values in a suite that ships a Light variant**, so in Light mode the dialog rendered as a block of near-black cards. Invisible to anyone who never switched theme. Now `AppZoomCard*Brush`, defined in both `ThemeDictionaries`. The Light `checked` state is a desaturated tint because the card border already carries the full accent, and two saturated accents stacked read as a rendering fault rather than a selection.
 
 * **`SIGNMANDATE_01` / `UPDATETRUST_02` — the signing gap.** See `05_SYSTEM_LIFECYCLE_STORAGE.md` §5 (SYS-SIGNING), amended by this change.
+
+---
+
+### `LOGVIS_01` — RECOVERABLE MEANS "NO NOTICE", NOT "NO LOG"  {#COMP-LOGVIS}
+* The `Recoverable` tier was `RuntimeLog.Debug`, which is a no-op unless `FVS_DEV_LOG_DIR` is set, so ~560 `Swallowed()` sites wrote NOTHING in shipped builds. Now each call site writes one `[RECOVERABLE]` INFO line per 30 s (with a held-back count) in every build. The stack trace stays dev-only. The user still sees nothing, which is the definition of the tier.
+* `CoreLogger.Warn` / `RuntimeLog.WarnThrottled`: handled FAILURE lines (e.g. "disk flush error", "StopRecording threw") are production-visible and throttled. `Debug` is for traces and full exception dumps only.
+* `FaultCounters` counts every fault by tier/area, and `DiagnosticBundle` prints it under `FAULTS`.
+* ⚠ This supersedes "DEBUG log only" in the tier table (§2): Recoverable = no UI + throttled INFO breadcrumb.

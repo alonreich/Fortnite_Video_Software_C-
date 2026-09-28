@@ -40,9 +40,36 @@ namespace FvsBuild;
 /// </summary>
 internal static class CodeSigning
 {
+    /// <summary>
+    /// SIGNLOCAL_01 — the repository's own development certificate (created by
+    /// ssl-certificate\create-dev-codesign-cert.ps1). Used ONLY when FVS_SIGN_PFX is not set.
+    /// It chains to a private root that exists on the developer's machine alone. By user decision
+    /// (SIGNLOCAL_02) such a build IS published, with a warning (see <see cref="SignedWithLocalDevCertificate"/>).
+    /// </summary>
+    public const string LocalPfx = @"ssl-certificate\fvs-codesign.pfx";
+    public const string LocalPasswordFile = @"ssl-certificate\fvs-codesign.password.txt";
+    public const string LocalRootInstaller = @"ssl-certificate\install-dev-root.cmd";
+
+    /// <summary>True after a successful sign with the local development certificate.</summary>
+    public static bool SignedWithLocalDevCertificate { get; private set; }
+
     public static bool SignIfNeeded(string exePath, BuildLog log)
     {
+        SignedWithLocalDevCertificate = false;
         string? pfx = Environment.GetEnvironmentVariable("FVS_SIGN_PFX");
+        string? password = Environment.GetEnvironmentVariable("FVS_SIGN_PASS");
+        bool localDev = false;
+        if (string.IsNullOrEmpty(pfx) && File.Exists(LocalPfx) && File.Exists(LocalPasswordFile))
+        {
+            // SIGNLOCAL_01 — no release certificate configured, but the repository carries the
+            // developer's own. Sign with it; the publish step refuses to ship the result.
+            pfx = Path.GetFullPath(LocalPfx);
+            password = File.ReadAllText(LocalPasswordFile).Trim();
+            localDev = true;
+            log.Info("[Sign] FVS_SIGN_PFX not set: using the local development certificate " + LocalPfx + ".");
+            log.Info("[Sign] It is trusted on THIS machine only. Other users: update notification yes, in-app install no (SIGNLOCAL_02).");
+        }
+
         if (string.IsNullOrEmpty(pfx))
         {
             // SIGNMANDATE_01 - the deliberate, acknowledged escape hatch.
@@ -55,7 +82,8 @@ internal static class CodeSigning
                 log.Error("       An unsigned build gets the full SmartScreen wall AND disables");
                 log.Error("       UPDATETRUST_01 publisher pinning, which downgrades auto-update to a");
                 log.Error("       hash supplied by the same document that supplies the download URL.");
-                log.Error("       To sign:              set FVS_SIGN_PFX and FVS_SIGN_PASS, re-run Build.cmd.");
+                log.Error("       To sign:              set FVS_SIGN_PFX and FVS_SIGN_PASS, re-run Build.cmd,");
+                log.Error("                             or create the local dev certificate: ssl-certificate\\create-dev-codesign-cert.ps1");
                 log.Error("       To build unsigned:    set FVS_ALLOW_UNSIGNED=1 (acknowledged, recorded, NOT for release).");
                 return false;
             }
@@ -73,7 +101,7 @@ internal static class CodeSigning
             log.Error($"ERROR: FVS_SIGN_PFX is set but the file does not exist: {pfx}");
             return false;
         }
-        string password = Environment.GetEnvironmentVariable("FVS_SIGN_PASS") ?? string.Empty;
+        password ??= string.Empty;
 
         // signtool.exe is NOT on PATH in a plain shell - it lives in the Windows SDK.
         // Probe PATH first, then fall back to the newest x64 SDK copy.
@@ -99,9 +127,15 @@ internal static class CodeSigning
         if (verifyExit != 0)
         {
             log.Error($"ERROR: Signature verification failed for {exePath}");
+            if (localDev)
+            {
+                log.Error("       The local development root is not trusted on this machine yet.");
+                log.Error("       Run once (a Windows confirmation appears):  " + LocalRootInstaller);
+            }
             return false;
         }
-        log.Success("[Sign] Signed and verified.");
+        SignedWithLocalDevCertificate = localDev;
+        log.Success(localDev ? "[Sign] Signed and verified (local development certificate)." : "[Sign] Signed and verified.");
         return true;
     }
 

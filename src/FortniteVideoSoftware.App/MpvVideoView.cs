@@ -13,9 +13,7 @@ using Avalonia.Rendering.Composition;
 using FortniteVideoSoftware.App.Interop;
 using FortniteVideoSoftware.Core.Media;
 using System.Runtime.CompilerServices;
-using Vortice.Direct3D;
-using Vortice.Direct3D11;
-using Vortice.DXGI;
+using FortniteVideoSoftware.App.Interop.D3D;   // AOTCLEAN_03 — first-party D3D11/DXGI calls (was Vortice)
 
 namespace FortniteVideoSoftware.App;
 
@@ -938,8 +936,58 @@ public sealed class MpvVideoView : Control, IDisposable
 
                 EnsureRenderTexture(width, height);
 
-                _currentBufferIndex = (_currentBufferIndex + 1) % SwapChainSize;
+                // ══════════════════════════════════════════════════════════════════════════════
+                // GPUPRESENT_02 — TAKE THE SLOT'S PRESENT PERMIT *BEFORE* TOUCHING ITS KEYED MUTEX.
+                //
+                // GPUPRESENT_01 checked the permit AFTER rendering, i.e. after ReleaseSync had
+                // already handed the texture to the compositor's key (ConsumerKey). A frame dropped
+                // at that point left the texture parked on key 1 with NO consumer ever coming for
+                // it. The compositor frees key 0 on its own thread, but the permit is only released
+                // later by the UI-thread continuation. So any UI stall of more than ~16 frames let
+                // the producer lap a slot whose permit was still held, and every drop poisoned one more
+                // slot. Each poisoned slot then cost a 1000ms AcquireSync timeout, while holding
+                // _renderLock, on every lap. The preview slid towards 1 fps until the next resize.
+                //
+                // Now:
+                //   1. The permit is taken first. A slot whose previous present is still in flight
+                //      is SKIPPED (the next free slot is used), so nothing is rendered that cannot
+                //      be presented.
+                //   2. Holding the permit proves no present is in flight for this slot. If the
+                //      texture is nevertheless sitting on ConsumerKey, it is an orphan (a present
+                //      that failed before the compositor acquired it), and it is reclaimed.
+                //   3. Two consecutive unrecoverable timeouts on a slot rebuild the swap chain
+                //      instead of paying the timeout forever.
+                // ══════════════════════════════════════════════════════════════════════════════
+                int slotIndex = -1;
+                for (int probe = 1; probe <= SwapChainSize; probe++)
+                {
+                    int candidate = (_currentBufferIndex + probe) % SwapChainSize;
+                    if (_presentGates[candidate].Wait(0))
+                    {
+                        slotIndex = candidate;
+                        break;
+                    }
+                }
 
+                if (slotIndex < 0)
+                {
+                    System.Threading.Interlocked.Increment(ref _droppedPresentCount);
+                    if (!_presentDropLogged)
+                    {
+                        _presentDropLogged = true;
+                        RuntimeLog.Debug(InteropLogStep,
+                            "Dropped a frame: every swap-chain slot still has a present in flight. " +
+                            "Further drops are counted, not logged.");
+                    }
+                    PumpEmptyRender();
+                    return;
+                }
+
+                _currentBufferIndex = slotIndex;
+                bool permitHandedOff = false;
+
+                try
+                {
                 if (_sharedTextures[_currentBufferIndex] == null || _dxInteropObjects[_currentBufferIndex] == nint.Zero)
                 {
                     PumpEmptyRender();
@@ -958,16 +1006,10 @@ public sealed class MpvVideoView : Control, IDisposable
                 {
                     if (keyedMutex != null)
                     {
-                        unsafe
+                        if (!TryAcquireProducerKey(keyedMutex, _currentBufferIndex))
                         {
-                            void** vtbl = *(void***)keyedMutex.NativePointer;
-                            delegate* unmanaged[Stdcall]<nint, ulong, int, int> acquireSync = (delegate* unmanaged[Stdcall]<nint, ulong, int, int>)vtbl[8];
-                            int hresult = acquireSync(keyedMutex.NativePointer, ProducerKey, KeyedMutexWaitMs);
-                            if (hresult != 0)
-                            {
-                                PumpEmptyRender();
-                                return;
-                            }
+                            PumpEmptyRender();
+                            return;
                         }
                         keyedMutexAcquired = true;
                     }
@@ -1050,11 +1092,23 @@ public sealed class MpvVideoView : Control, IDisposable
                 {
                     _retryPending = false;
                     _consecutiveDeclines = 0;
+                    // GPUPRESENT_02 — the permit travels with the frame. ImportAndPresentTexture
+                    // owns releasing it from here on, on every path.
+                    permitHandedOff = true;
                     ImportAndPresentTexture(_currentBufferIndex, surfaceForAvalonia, imageForAvalonia);
                 }
                 else
                 {
                     PumpEmptyRender();
+                }
+                }
+                finally
+                {
+                    if (!permitHandedOff)
+                    {
+                        try { _presentGates[slotIndex].Release(); }
+                        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
+                    }
                 }
             }
             catch (Exception ex)
@@ -1070,6 +1124,77 @@ public sealed class MpvVideoView : Control, IDisposable
     }
 
     private bool _pumpFailLogged;
+
+    /// <summary>DXGI WAIT_TIMEOUT: AcquireSync returns it when the requested key is not current.</summary>
+    private const int DxgiWaitTimeout = 0x102;
+
+    /// <summary>GPUPRESENT_02 — consecutive unrecoverable producer-key timeouts, per slot.</summary>
+    private readonly int[] _producerKeyTimeouts = new int[SwapChainSize];
+
+    /// <summary>GPUPRESENT_02 — set when a slot is wedged; EnsureRenderTexture rebuilds the chain.</summary>
+    private volatile bool _forceSwapChainRebuild;
+
+    private volatile bool _orphanReclaimLogged;
+
+    private static unsafe int AcquireSyncRaw(IDXGIKeyedMutex keyedMutex, ulong key, int timeoutMs)
+    {
+        void** vtbl = *(void***)keyedMutex.NativePointer;
+        var acquireSync = (delegate* unmanaged[Stdcall]<nint, ulong, int, int>)vtbl[8];
+        return acquireSync(keyedMutex.NativePointer, key, timeoutMs);
+    }
+
+    /// <summary>
+    /// GPUPRESENT_02 — acquire the producer key for a slot whose present permit the caller HOLDS.
+    ///
+    /// Holding the permit proves no UpdateWithKeyedMutexAsync is in flight for this slot. So a
+    /// texture found on ConsumerKey is an orphan: a present failed, or was never posted, before the
+    /// compositor acquired it. It is reclaimed (AcquireSync(ConsumerKey, 0) + ReleaseSync(ProducerKey))
+    /// instead of waiting for a consumer that will never come. Render thread only, _renderLock held.
+    /// </summary>
+    private bool TryAcquireProducerKey(IDXGIKeyedMutex keyedMutex, int index)
+    {
+        int hr = AcquireSyncRaw(keyedMutex, ProducerKey, 0);
+        if (hr == 0)
+        {
+            _producerKeyTimeouts[index] = 0;
+            return true;
+        }
+
+        if (hr == DxgiWaitTimeout && AcquireSyncRaw(keyedMutex, ConsumerKey, 0) == 0)
+        {
+            keyedMutex.ReleaseSync(ProducerKey);
+            if (!_orphanReclaimLogged)
+            {
+                _orphanReclaimLogged = true;
+                RuntimeLog.Info(InteropLogStep,
+                    $"GPUPRESENT_02 — reclaimed swap-chain slot {index} from an abandoned present. Further reclaims are not logged.");
+            }
+            hr = AcquireSyncRaw(keyedMutex, ProducerKey, 0);
+            if (hr == 0)
+            {
+                _producerKeyTimeouts[index] = 0;
+                return true;
+            }
+        }
+
+        // Not an orphan we can take back. Something really does own the key, so give it the
+        // bounded wait the old code always paid, but only on this abnormal path.
+        hr = AcquireSyncRaw(keyedMutex, ProducerKey, KeyedMutexWaitMs);
+        if (hr == 0)
+        {
+            _producerKeyTimeouts[index] = 0;
+            return true;
+        }
+
+        if (++_producerKeyTimeouts[index] >= 2)
+        {
+            _producerKeyTimeouts[index] = 0;
+            _forceSwapChainRebuild = true;
+            RuntimeLog.Fail(InteropLogStep,
+                $"GPUPRESENT_02 — swap-chain slot {index} could not be acquired twice in a row (HRESULT 0x{hr:X8}); rebuilding the swap chain.");
+        }
+        return false;
+    }
 
     /// <summary>
     /// ISSUE_05 — set whenever a frame had to be declined, cleared as soon as one is presented.
@@ -1155,8 +1280,12 @@ public sealed class MpvVideoView : Control, IDisposable
 
     private void EnsureRenderTexture(int width, int height)
     {
-        if (_sharedTextures[0] != null && _renderTextureW == width && _renderTextureH == height)
+        // GPUPRESENT_02 — a wedged slot forces a rebuild even at an unchanged size.
+        bool forced = _forceSwapChainRebuild;
+        if (!forced && _sharedTextures[0] != null && _renderTextureW == width && _renderTextureH == height)
             return;
+        _forceSwapChainRebuild = false;
+        if (forced) Array.Clear(_producerKeyTimeouts, 0, SwapChainSize);
 
         if (_gpuInterop != null)
         {
@@ -1303,31 +1432,18 @@ public sealed class MpvVideoView : Control, IDisposable
     }
 
     /// <summary>
-    /// GPUSLOT_01 / GPUPRESENT_01 — hand one slot's image to the compositor.
+    /// GPUSLOT_01 / GPUPRESENT_01 / GPUPRESENT_02 — hand one slot's image to the compositor.
     ///
     /// Takes the SLOT, not a bare image, so the completion callback can prove the slot is still the
-    /// one it was given before it destroys anything. Serialised per slot by
-    /// <see cref="_presentGates"/>; a frame that cannot take its permit promptly is dropped.
+    /// one it was given before it destroys anything.
+    /// ⚠️ GPUPRESENT_02: the caller has ALREADY taken this slot's present permit (UpdateSurface takes
+    /// it before AcquireSync). This method owns releasing it on every path. A failed present
+    /// leaves the texture on ConsumerKey. That is safe now, because the next producer to take the
+    /// permit reclaims it (TryAcquireProducerKey) instead of timing out on it.
     /// </summary>
     private void ImportAndPresentTexture(int index, CompositionDrawingSurface surface, ImportedImageSlot slot)
     {
         var gate = _presentGates[index];
-
-        // GPUPRESENT_01 — never queue. If the previous present for this slot is still running, this
-        // frame is already stale; drop it. Logged ONCE per control, not 60 times a second, and with
-        // no per-frame allocation — the same discipline as ZOOMHANG_01's _importTimeoutLogged.
-        if (!gate.Wait(0))
-        {
-            System.Threading.Interlocked.Increment(ref _droppedPresentCount);
-            if (!_presentDropLogged)
-            {
-                _presentDropLogged = true;
-                RuntimeLog.Debug(InteropLogStep,
-                    $"Dropped a frame for buffer {index}: the previous present had not completed. " +
-                    "Further drops are counted, not logged.");
-            }
-            return;
-        }
 
         bool handedOff = false;
         try

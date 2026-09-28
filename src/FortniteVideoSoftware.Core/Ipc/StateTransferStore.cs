@@ -10,7 +10,8 @@ namespace FortniteVideoSoftware.Core.Ipc;
 
 public sealed class StateTransferStore
 {
-    public const string MutexName = @"Global\FvsStateTransferMutex";
+    /// <summary>USERSCOPE_01 — per Windows user (the data root it guards is per user).</summary>
+    public static readonly string MutexName = NamedSystemMutex.UserScopedName("FvsStateTransferMutex");
     public const int SchemaVersion = 1;
     public static readonly TimeSpan DefaultMutexTimeout = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan InteractiveMutexTimeout = TimeSpan.FromSeconds(2);

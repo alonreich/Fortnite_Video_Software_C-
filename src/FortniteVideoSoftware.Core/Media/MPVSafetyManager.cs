@@ -342,7 +342,7 @@ public class MPVSafetyManager : IDisposable
         try
         {
             if (thread.Join(TeardownJoinCeiling)) return true;
-            CoreLogger.Debug("MPV", $"{name} did not stop within {TeardownJoinCeiling.TotalSeconds:F0}s; continuing teardown.");
+            CoreLogger.Warn("MPV", $"{name} did not stop within {TeardownJoinCeiling.TotalSeconds:F0}s; continuing teardown.");
             return false;
         }
         catch (Exception ex)

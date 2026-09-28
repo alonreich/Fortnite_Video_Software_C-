@@ -188,7 +188,7 @@ public static class IpcProtocol
         }
         catch (Exception ex)
         {
-            CoreLogger.Debug("IpcProtocol", $"Could not verify client identity: {ex.Message}");
+            CoreLogger.Warn("IpcProtocol", $"Could not verify client identity: {ex.Message}");
             return false;
         }
     }
