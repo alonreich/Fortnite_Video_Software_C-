@@ -1,12 +1,15 @@
-﻿# SPECIFICATION 01: TIMELINE & COORDINATE MATH
+# SPECIFICATION 01: TIMELINE & COORDINATE MATH
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Media/CoordinateMath.cs` | `CoordinateConstants`, `CoordinateMath`, `Frac` | `CoordinateConstants.PortraitW`, `PortraitH`, `InternalW`, `InternalH`, `BackendScale`; `CoordinateMath.ScaleRound`, `SnapZoomWindow` | Canvas size constants (`CoordinateConstants`) and the exact-fraction transforms between 16:9 landscape source and 9:16 portrait export. |
-| `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` | `OutputTimeline`, `Chunk`, `Cut`, `Insertion` | `SourceToOutput`, `OutputToSourceRelative`, `SnapInsertionPoint`, `NormalizeCuts`, `InsertionAt`, `Create` | Sole authoritative mathematical model for output durations and frame-to-output conversions. |
+| `src/FortniteVideoSoftware.Core/Media/CoordinateMath.cs` | `CoordinateConstants`, `CoordinateMath`, `Frac` | `CoordinateConstants.PortraitW`, `PortraitH`, `InternalW`, `InternalH`, `BackendScale`; `Frac.ScaleRound`, `SnapZoomWindow` | Canvas size constants (`CoordinateConstants`) and the exact-fraction transforms between 16:9 landscape source and 9:16 portrait export. |
+| `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` | `OutputTimeline`, `Chunk`, `Cut`, `Insertion` | `SourceToOutput`, `OutputToSourceRelative`, `SnapInsertionPoint`, `NormalizeCuts`, `InsertionAt`, `Create` | Authoritative mathematical model for single-clip linear output durations and frame-to-output conversions. |
+| `src/FortniteVideoSoftware.Core/Media/HudAutoDetector.cs` | `HudAutoDetector` | `DetectHudRegions`, `ScanFrame` | Automated HUD element detection and coordinate bounds discovery via computer vision. |
+| `src/FortniteVideoSoftware.Core/Media/HudConfig.cs` | `HudConfig` | `Sanitize`, `HudKeys`, `GetContentCrop` | HUD configuration schema validation, profile definitions, and content-space coordinates. |
+| `src/FortniteVideoSoftware.Core/Media/HudImageOps.cs` | `HudImageOps` | `Crop`, `Threshold`, `MatchTemplate` | Low-level pixel buffer extraction and template matching for HUD auto-detection. |
 | `src/FortniteVideoSoftware.Core/Media/CanvasMath.cs` | `CanvasMath` | `FinalWidth`, `FinalHeight`, `ContentWidth`, `ContentHeight`, `BackendWidth`, `BackendHeight`, `ProtectCropDrift` | Canvas sizes (re-exported from `CoordinateConstants`) and HUD crop-drift rounding. |
 | `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `SourceMsToOutputSeconds`, `UpdateTimelineMarkers`, `UpdateThumbnailButtonState`, `TogglePlayPauseTransport`, `MainTimelineEndSeconds`, `IsMainPreviewAtEnd`, `_lastFreezeTriggerMs`, `_mainEndParkIssued` | Master timeline UI coordination, playhead tracking, transport, freeze trigger and double-counting avoidance. **⚠ CO-GOVERNED BY: 02, 04, GOV**|
 | `src/FortniteVideoSoftware.App/MainWindow.Canvas.cs` | `MainWindow` (Partial) | `AttachThumbnailCameraMarkerInteractions`, `EndThumbnailMarkerDrag`, `SeekMainPreviewToMarkerMs`, `TimelineCameraStickName` | Primary timeline canvas drawing, hitbox evaluation, marker drag lifecycle, and caret positioning. |
@@ -55,7 +58,7 @@
 ---
 
 ## 2. Authoritative OutputTimeline Model  {#TL-OUTPUTTIMELINE}
-`src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` is the sole mathematical authority mapping source time to finished output time across preview playback and FFmpeg rendering.
+`src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` is the mathematical authority mapping source time to finished output time for single-clip linear editing and per-clip segment evaluations across preview playback and FFmpeg rendering. For multi-clip NLE virtual timelines, `CompositeTimeline.cs` and `MergeEdl.cs` govern the composite multi-clip mapping across `edl://` libmpv preview and FFmpeg concat filtergraphs (see §10 `TL-COMPOSITE`).
 
 ### Chunk Classification
 $$\text{TotalOutputSeconds} = \sum_{c \in \text{Chunks}} \text{Duration}(c)$$

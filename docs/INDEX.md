@@ -1,10 +1,11 @@
-﻿# SYMBOL & FILE INDEX (routing lookup)
+# SYMBOL & FILE INDEX (routing lookup)
 
 Flat lookup. Grep for a filename, symbol, constant or engineering tag; read ONLY the spec it names.
 Notation: `03 §9 FFM-BINPATH` = `03_FFMPEG_EXPORT_PIPELINE.md`, section 9, stable anchor `FFM-BINPATH`.
 Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote anchors in Proof-of-Read headers, never bare numbers.
 `mini-map only` = the symbol is bound to the spec but not discussed in its prose body; read that spec's Code Mini-Map row.
 `[code-only: File]` = the tag/symbol is named in that source file but in NO spec's text; the route given is the closest spec section, or just the spec governing that file. Treat the missing prose as a documentation gap, not as permission.
+`Mechanical Sentinels vs Spec Anchors`: Engineering tags in `build/sentinels.txt` are compile/verify gates enforced by `build/FvsVerify`. Tags listed below without a `build/sentinels.txt` line serve as specification section anchors and architectural invariant markers.
 
 ---
 
@@ -163,6 +164,27 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ MainWindow.Recovery.cs                     05 07
   FaultCounters.cs                           08
   .gitattributes                             09
+  CooperativeShutdownGate.cs                 05
+  CrashLogDigest.cs                          05
+  CropConfigDefaults.cs                      05
+  DiskSpaceGuard.cs                          05
+  HardwareCapability.cs                      03
+  HudAutoDetector.cs                         01
+  HudConfig.cs                               01
+  HudImageOps.cs                             01
+  MainViewModel.cs                           04 08
+  MemeAssets.cs                              03
+  MemeCatalog.cs                             03
+  MemePickerWindow.axaml                     04
+  MemeWallControl.axaml                      04
+  NamedPipeStateClient.cs                    05
+  PreviewDetachController.cs                 04
+  PreviewMonitorWindow.axaml                 04
+  SingleInstanceGuard.cs                     05
+  StateTransferStore.cs                      05
+  ViewModelBase.cs                           04
+  WavAudioReader.cs                          02
+  WaveformGenerator.cs                       02
 ```
 
 Full paths: see each spec's Code Mini-Map.

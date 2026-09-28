@@ -1,4 +1,4 @@
-﻿# SPECIFICATION 02: AUDIO ENGINE & MASTERING
+# SPECIFICATION 02: AUDIO ENGINE & MASTERING
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -15,6 +15,8 @@
 | `src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
 | `src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `Name`, `FilePath`, `Title`, `Artist` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
 | `src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider` | `OnPointerMoved`, `Render`, `IsInteracting`, `FluidVolumeSlider` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
+| `src/FortniteVideoSoftware.Core/Media/WavAudioReader.cs` | `WavAudioReader`, `WavAudioHeader` | `ReadSamples`, `ParseHeader` | Low-level NativeAOT-safe linear PCM WAV audio reader replacing NAudio umbrella (AOTCLEAN_02). |
+| `src/FortniteVideoSoftware.Core/Media/WaveformGenerator.cs` | `WaveformGenerator` | `GeneratePeaks`, `ExtractRms` | Asynchronous multi-scale audio waveform peak cache generation for timeline visualization. |
 
 ---
 

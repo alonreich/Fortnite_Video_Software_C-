@@ -1,4 +1,4 @@
-﻿# SPECIFICATION 03: FFMPEG EXPORT PIPELINE
+# SPECIFICATION 03: FFMPEG EXPORT PIPELINE
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -21,6 +21,7 @@
 | `src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
 | `src/FortniteVideoSoftware.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
 | `src/FortniteVideoSoftware.Core/Media/EncoderManager.cs` | `EncoderManager` | `EncoderPreference`, `AvailableEncoders`, `PrimaryEncoder`, `GetInitialEncoder`, `GetFallbackList`, `GetCodecFlags`, `GetDecodeFlags`, `MaxBitrateKbps` | Export-time encoder list (`ffmpeg -encoders`), NVENC → AMF → QSV → libx264 fallback order, per-encoder rate-control flags. |
+| `src/FortniteVideoSoftware.Core/Media/ExportEncoderStrategy.cs` | `ExportEncoderStrategy` | `Resolve` | Centralized suite-wide hardware encoder decision engine (Settings override → boot scan cache → export-time probe). |
 | `src/FortniteVideoSoftware.Core/Media/TwoPassEncoding.cs` | `TwoPassEncoding` | `MasterCodecArgs`, `PassArgs`, `Cleanup` | libx264 two-pass size targeting (scratch master, pass 1/2 args), shared by both workers. |
 | `src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs` | `FfmpegJobLifetime` | `SetCurrentProcess`, `TakeCurrentProcess`, `PeekCurrentProcess`, `Cancel`, `DisposeJob`, `EmitFinished`, `FinishEmitted` | PIPELIFE_01 — one shared FFmpeg job lifetime (process gate, cancel, dispose, finish) for both workers. **⚠ CO-GOVERNED BY: 08**|
 | `src/FortniteVideoSoftware.Core/Media/ExportColorPolicy.cs` | `ExportColorPolicy`, `VideoColorInfo` | `BuildConversionChain`, `OutputTagArgs`, `HdrToneMapChain`, `IsHdr`, `IsFullRange` | COLOR_01 — SDR BT.709 TV-range conversion and output colour tags. |
@@ -34,11 +35,15 @@
 | `src/FortniteVideoSoftware.Core/Media/MergeClipGraph.cs` | `MergeClipGraph`, `MergeMemeInput`, `MergeClipGraphResult` | `Build` | MERGEGRAPH_01 — one Merger clip with granular effects and memes. **⚠ CO-GOVERNED BY: 01**|
 | `src/FortniteVideoSoftware.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `GainDbAsync`, `GainFor`, `Chain` | MEMELEVEL_01 — Merger meme loudness gain + limiter. **⚠ CO-GOVERNED BY: 02**|
 | `src/FortniteVideoSoftware.Core/Media/MusicPadAlignment.cs` | `MusicPadAlignment` | `Align` | MUSICPAD_01 — shifts Main App music by the fade-in pad. **⚠ CO-GOVERNED BY: 01, 02**|
+| `src/FortniteVideoSoftware.Core/Media/HardwareCapability.cs` | `HardwareCapability`, `HardwareCapabilityCache` | `Detect`, `LoadCached`, `Persist`, `SchemaVersion` (1) | Cached hardware acceleration capabilities profile and encoder feature levels. |
+| `src/FortniteVideoSoftware.App/MemeCatalog.cs` | `MemeCatalog`, `MemeItem` | `Discover`, `AllMemes`, `GetById` | Shipped and user meme asset catalog indexing and lookup. |
+| `src/FortniteVideoSoftware.App/Infrastructure/MemeAssets.cs` | `MemeAssets` | `ResolvePath`, `EnsureExtracted` | Embedded meme video asset unpacking and filesystem caching. |
 
 ---
 
 ## 1. Hardware Encoding & Gatekeeper  {#FFM-HWENC}
-* **Probe Hierarchy:** `HardwareScanner` test-encodes one black frame with NVIDIA NVENC (`h264_nvenc`), AMD AMF (`h264_amf`) and Intel QSV (`h264_qsv`), in that order, and keeps the first that works (shared suite-wide). At export `EncoderManager` reads `ffmpeg -encoders` and falls back NVENC → AMF → QSV → `libx264`. `GpuCapabilityProbe` does NOT test encoders: it only decides hardware vs CPU software PREVIEW (D3D11 device/feature level, real adapter) and logs RDP sessions.
+* **Unified Encoder Strategy (`ExportEncoderStrategy.Resolve`):** Every export surface in the suite (Main App and Video Merger) determines its encoder by calling `ExportEncoderStrategy.Resolve`. Precedence: (1) Explicit user setting override (Settings ▸ Performance: "NVIDIA", "AMD", "INTEL", "CPU"), (2) Suite-wide boot hardware scan result (`HardwareCapability.cs` via `HardwareScanner`), (3) Export-time fallback probe via `EncoderManager` (NVENC → AMF → QSV → `libx264`).
+* **Probe Hierarchy:** `HardwareScanner` test-encodes one black frame with NVIDIA NVENC (`h264_nvenc`), AMD AMF (`h264_amf`) and Intel QSV (`h264_qsv`), in that order, and caches the first working hardware encoder in `HardwareCapability`. At export `EncoderManager` reads `ffmpeg -encoders` and validates codec flags. `GpuCapabilityProbe` does NOT test encoders: it only decides hardware vs CPU software PREVIEW (D3D11 device/feature level, real adapter) and logs RDP sessions.
 * **Graceful CPU Fallback:** Missing drivers, unaccelerated GPUs, or VM/RDP sessions fall back to software CPU encoding (`libx264`). With a size target it runs two-pass (`TwoPassEncoding`); otherwise CRF 23/20/17 by quality level (presets veryfast/fast/medium).
 * **RDP Detection & Registry Auto-Fix:**
   * When a Remote Desktop session is detected and `fEnableWddmDriver` is missing or 0 (`ExportViewModel.CheckRdpGpuBlocked`), the UI displays red indicator badges: `RDP SESSION` and `RDP: CPU BLOCKED`.

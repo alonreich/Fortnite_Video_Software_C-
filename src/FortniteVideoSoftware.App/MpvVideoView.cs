@@ -53,7 +53,7 @@ public sealed class MpvVideoView : Control, IDisposable
     private const int SwapChainSize = 16;
     private const ulong ProducerKey = 0;
     private const ulong ConsumerKey = 1;
-    private const int KeyedMutexWaitMs = 1000;
+    private const int KeyedMutexWaitMs = 0;
 
     private uint[] _glFramebuffers = new uint[SwapChainSize];
     private uint[] _glTextures = new uint[SwapChainSize];
@@ -955,17 +955,30 @@ public sealed class MpvVideoView : Control, IDisposable
                 //   2. Holding the permit proves no present is in flight for this slot. If the
                 //      texture is nevertheless sitting on ConsumerKey, it is an orphan (a present
                 //      that failed before the compositor acquired it), and it is reclaimed.
-                //   3. Two consecutive unrecoverable timeouts on a slot rebuild the swap chain
-                //      instead of paying the timeout forever.
+                //   3. Non-blocking candidate probing: If a slot's producer key cannot be acquired
+                //      immediately (0ms), its permit is released and the search continues across
+                //      the 16-slot ring, eliminating the 1000ms render lock stall entirely.
                 // ══════════════════════════════════════════════════════════════════════════════
                 int slotIndex = -1;
+                bool keyedMutexAcquired = false;
+                IDXGIKeyedMutex? acquiredKeyedMutex = null;
+
                 for (int probe = 1; probe <= SwapChainSize; probe++)
                 {
                     int candidate = (_currentBufferIndex + probe) % SwapChainSize;
                     if (_presentGates[candidate].Wait(0))
                     {
-                        slotIndex = candidate;
-                        break;
+                        var candidateMutex = _sharedTextureMutexes[candidate];
+                        if (candidateMutex == null || TryAcquireProducerKey(candidateMutex, candidate))
+                        {
+                            slotIndex = candidate;
+                            acquiredKeyedMutex = candidateMutex;
+                            keyedMutexAcquired = candidateMutex != null;
+                            break;
+                        }
+
+                        try { _presentGates[candidate].Release(); }
+                        catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
                     }
                 }
 
@@ -978,6 +991,10 @@ public sealed class MpvVideoView : Control, IDisposable
                         RuntimeLog.Debug(InteropLogStep,
                             "Dropped a frame: every swap-chain slot still has a present in flight. " +
                             "Further drops are counted, not logged.");
+                    }
+                    if (_consecutiveDeclines > 30)
+                    {
+                        _forceSwapChainRebuild = true;
                     }
                     PumpEmptyRender();
                     return;
@@ -994,25 +1011,15 @@ public sealed class MpvVideoView : Control, IDisposable
                     return;
                 }
 
-                bool keyedMutexAcquired = false;
                 bool dxObjectLocked = false;
                 bool frameReady = false;
                 ImportedImageSlot? imageForAvalonia = null;   // GPUSLOT_01 — slot, not bare image.
                 CompositionDrawingSurface? surfaceForAvalonia = null;
 
-                var keyedMutex = _sharedTextureMutexes[_currentBufferIndex];
+                var keyedMutex = acquiredKeyedMutex;
 
                 try
                 {
-                    if (keyedMutex != null)
-                    {
-                        if (!TryAcquireProducerKey(keyedMutex, _currentBufferIndex))
-                        {
-                            PumpEmptyRender();
-                            return;
-                        }
-                        keyedMutexAcquired = true;
-                    }
 
                     WglInterop.wglMakeCurrent(_dummyHdc, _hglrc);
                     glContextCurrent = true;
@@ -1150,6 +1157,10 @@ public sealed class MpvVideoView : Control, IDisposable
     /// texture found on ConsumerKey is an orphan: a present failed, or was never posted, before the
     /// compositor acquired it. It is reclaimed (AcquireSync(ConsumerKey, 0) + ReleaseSync(ProducerKey))
     /// instead of waiting for a consumer that will never come. Render thread only, _renderLock held.
+    ///
+    /// NON-BLOCKING GUARANTEE: Never blocks for 1000ms while holding _renderLock. If the slot is
+    /// still being sampled by the compositor, it returns false immediately (0ms) so the search
+    /// loop can test the remaining slots in the 16-slot ring.
     /// </summary>
     private bool TryAcquireProducerKey(IDXGIKeyedMutex keyedMutex, int index)
     {
@@ -1177,22 +1188,8 @@ public sealed class MpvVideoView : Control, IDisposable
             }
         }
 
-        // Not an orphan we can take back. Something really does own the key, so give it the
-        // bounded wait the old code always paid, but only on this abnormal path.
-        hr = AcquireSyncRaw(keyedMutex, ProducerKey, KeyedMutexWaitMs);
-        if (hr == 0)
-        {
-            _producerKeyTimeouts[index] = 0;
-            return true;
-        }
-
-        if (++_producerKeyTimeouts[index] >= 2)
-        {
-            _producerKeyTimeouts[index] = 0;
-            _forceSwapChainRebuild = true;
-            RuntimeLog.Fail(InteropLogStep,
-                $"GPUPRESENT_02 — swap-chain slot {index} could not be acquired twice in a row (HRESULT 0x{hr:X8}); rebuilding the swap chain.");
-        }
+        // Texture is currently in use by the compositor.
+        // Return false immediately with zero blocking wait so the caller can check other slots.
         return false;
     }
 

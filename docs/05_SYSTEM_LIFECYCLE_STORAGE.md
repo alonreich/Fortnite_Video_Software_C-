@@ -12,6 +12,14 @@
 | `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
 | `src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `CurrentSchemaVersion` (9), `SETTINGSATOMIC_01` | Cross-process settings persistence under a named mutex and the atomic write protocol. |
 | `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
+| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateClient.cs` | `NamedPipeStateClient` | `GetStateAsync`, `SetStateAsync`, `FastProbeTimeout` | IPC client communicating with the running session state server. |
+| `src/FortniteVideoSoftware.Core/Ipc/StateTransferStore.cs` | `StateTransferStore` | `LoadAsync`, `SaveAsync`, `ClearAsync`, `SchemaVersion` (1) | Cross-process state persistence and named mutex coordination. |
+| `src/FortniteVideoSoftware.Core/Ipc/IpcProtocol.cs` | `IpcProtocol`, `IpcFrame`, `IpcOpcode` | `WriteFrameAsync`, `ReadFrameAsync`, `PipeName`, `ServerMutexName` | Wire framing protocol and serialization context for IPC pipes. |
+| `src/FortniteVideoSoftware.Core/Ipc/CropConfigDefaults.cs` | `CropConfigDefaults` | `Create`, `CreateNoMask`, `SchemaVersion` (4), `MinimumUsableSchemaVersion` (3) | Factory for default HUD crop profiles and schema version definitions. |
+| `src/FortniteVideoSoftware.Core/Infrastructure/CooperativeShutdownGate.cs` | `CooperativeShutdownGate` | `BeginShutdown`, `RegisterTask`, `IsShutdown` | Coordinated graceful process and thread pool task shutdown gate. |
+| `src/FortniteVideoSoftware.Core/Infrastructure/DiskSpaceGuard.cs` | `DiskSpaceGuard` | `CheckFreeSpaceBytes`, `MinimumFreeBytes` | Pre-render disk space verification preventing corrupt half-written files. |
+| `src/FortniteVideoSoftware.App/CrashLogDigest.cs` | `CrashLogDigest` | `RunAsync`, `DigestLatestCrash` | Background crash report analyzer and automated log summary generator. |
+| `src/FortniteVideoSoftware.App/SingleInstanceGuard.cs` | `SingleInstanceGuard` | `TryAcquire`, `Release`, `AppliesTo` | Single application instance enforcement and focus delegation via named mutex. |
 | `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `DefaultUserRoot`, `RecoveryStateFile`, `SessionStateFile`, `MergerSessionFile`, `LaneCacheDirectory`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
 | `src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `MigrateLegacyFilesOnce`, `ReadText` | Lightweight persistent key-value configuration and coach tour launch counts. |
 | `src/FortniteVideoSoftware.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `SaveBoundsSync`, `SaveBoundsAsync`, `Capture` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
@@ -21,7 +29,8 @@
 | `src/FortniteVideoSoftware.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService` | `SerializeState`, `SaveState`, `HasUnsavedWork`, `LoadState` | Main App state serialization bridge for project recovery. |
 | `src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs` | `LatestEstimateWorker` | `Request`, `RunAsync`, `Dispose`, `Completion` | Bounded background estimates, cancellation and stale UI result rejection. |
 | `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `RunStartupCheckAsync`, `CheckManualAsync`, `GetSkippedVersion`, `ClearSkippedVersion` | Background GitHub release query, 24h throttle, SHA-256 verification, and quiet updater. |
-| `build/FvsBuild/Program.cs` | `Program` | `SynchronizeVersionFiles`, `RunPipeline`, `Staging.Publish` | Unified build pipeline synchronizing version.txt, Directory.Build.props, and project files. |
+| `build/FvsBuild/Program.cs` | `Program` | `SynchronizeVersionFiles`, `RunPipeline` | Unified build pipeline synchronizing version.txt, Directory.Build.props, and project files. |
+| `build/FvsBuild/Staging.cs` | `Staging` | `Publish`, `RunPublish`, `StageDependencies` | Build output staging, packaging, and publish validation. |
 | `build/FvsBuild/CodeSigning.cs` | `CodeSigning` | `SignIfNeeded`, `FVS_SIGN_PFX`, `FVS_SIGN_PASS`, `FVS_ALLOW_UNSIGNED` | Mandatory Authenticode digital signing of the release executable. **⚠ CO-GOVERNED BY: 08**|
 | `Build.cmd` | Build Script | `dotnet run build\FvsBuild`, `--no-publish` | Thin entry-point wrapper; the whole release pipeline lives in `build/FvsBuild`. |
 | `dev.cmd` | Developer Harness | `VERIFY_PATCHES`, `build/FvsVerify`, `NUKE_BUILD`, `KILL_STALE`, `TRACE`, `FVS_DEV_LOG_DIR`, `FVS_PROGRAMDATA_ROOT` | Sandboxed dev launch, stale-process purge, cache nuke, pre-build fix verification, and in-repo trace logging. |
@@ -117,7 +126,7 @@
   Eliminates half-baked, partial, or corrupted states during power outages or system crashes.
 * **Config Backup Cascade:** `CropConfigStore` (`RotateBackupsUnlocked`) enforces a 5-tier `.bak` cascade on `crops_coordinations.conf` prior to writes:
   $$\text{.bak4} \to \text{.bak5}, \quad \text{.bak3} \to \text{.bak4}, \quad \text{.bak2} \to \text{.bak3}, \quad \text{.bak1} \to \text{.bak2}, \quad \text{current} \to \text{.bak1}$$
-* **Crop defaults and recovery (FORTNITEDEFAULT_02 / CROPFALLBACK_02):** The shipped Fortnite layout is the dev sandbox's saved Apex Legends layout from 2026-09-13, including exact rational scales and source rectangles, excluding Boss HP. `CropConfigDefaults.Create()` is the shared factory and final recovery fallback. A damaged live document first tries `.bak1` through `.bak5` without rotating backups. Malformed layer rectangles, scales, positions, or z orders are rejected along with malformed JSON; a rejected save leaves the live file and backups intact. Valid schema v3 profiles and explicitly disabled layers remain supported. Missing Fortnite profiles are seeded from the shipped defaults, never the shared active config; malformed Fortnite profile files are backed up before replacement, while valid user edits are preserved.
+* **Crop defaults and recovery (FORTNITEDEFAULT_02 / CROPFALLBACK_02):** The shipped Fortnite layout is the dev sandbox's saved Apex Legends layout from 2026-09-13, including exact rational scales and source rectangles, excluding Boss HP. `CropConfigDefaults.Create()` is the shared factory and final recovery fallback. A damaged live document first tries `.bak1` through `.bak5` without rotating backups. Malformed layer rectangles, scales, positions, or z orders are rejected along with malformed JSON; a rejected save leaves the live file and backups intact. Valid schema v3 and v4 profiles and explicitly disabled layers remain supported (`SchemaVersion = 4`, `MinimumUsableSchemaVersion = 3`). Schema v4 adds the optional `"crops_source"` section (`SourceCropsSection`) for unscaled source coordinate mapping without modifying content space geometry. Missing Fortnite profiles are seeded from the shipped defaults, never the shared active config; malformed Fortnite profile files are backed up before replacement, while valid user edits are preserved.
 
 * **First-run crop initialization (CROPFIRSTBOOT_01):** `EnsureDefaults` seeds a missing live configuration directly under the config mutex from a valid active profile or the shipped fallback. It must not call `ApplyProfile`, which calls `EnsureDefaults` itself. A profile save failure must be reported to Crop Tools so unsaved edits remain open.
 
@@ -255,6 +264,14 @@
   slow direct-disk path. The order is now fixed and mandatory: stop the timer → flush → cancel →
   **wait (bounded, 2 s) for `_listenTask`** → drop the lease → dispose the CTS and the ready event.
   `DisposeAsync` awaits rather than blocks; the synchronous path must never be left without a wait.
+
+* **In-Process Navigation vs. Standalone CLI & Named Pipe Architecture (`TOOLNAV_01`–`TOOLNAV_04`):**
+  Companion tools (Crop Tool, Video Merger) were originally launched via "process suicide": `CompanionAppService` serialized state, invoked `Process.Start(sameExe, "--crop-tool")`, and terminated the host via `Environment.Exit(0)`.
+  This was replaced by in-process navigation via `ToolNavigator.cs`:
+  1. **In-Process Modal Windowing (`TOOLNAV_01`):** Companion tools open within the same application process.
+  2. **Main Window Hidden, Not Closed (`TOOLNAV_03`):** The main editor window is hidden to keep view-models, the document session (`ProjectSession`), and undo history intact.
+  3. **Video Pipeline Teardown & Revival (`TOOLNAV_02` / `TOOLRETURN_01`):** The mpv playback pipeline is cleanly torn down before the tool opens to avoid D3D11/OpenGL GPU lock contention, and reconstituted via `MainWindow.ToolReturn.cs` upon the tool's close.
+  4. **Standalone CLI & Named Pipe Persistence:** Standalone execution via CLI flags (`--crop-tool`, `--merger`, `--install-worker`, `--cleanup-worker` routed in `Program.cs` and `AvaloniaApp.axaml.cs`) and named pipe state synchronization (`NamedPipeStateServer.cs`, `NamedPipeStateClient.cs`, `StateTransferStore.cs`, `CropConfigStore.cs`) remain active for installer workers, test automation, and independent tool invocations.
 
 ---
 

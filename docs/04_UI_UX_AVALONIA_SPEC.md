@@ -1,4 +1,4 @@
-﻿# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
+# SPECIFICATION 04: UI/UX & AVALONIA SYSTEM SPECIFICATION
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -28,6 +28,12 @@
 | src/FortniteVideoSoftware.App/Infrastructure/LaneDiskCache.cs | LaneDiskCache | MaxFiles = 800 | On-disk lane cache under `ApplicationPaths.LaneCacheDirectory` (LANECACHE_02). **⚠ CO-GOVERNED BY: 05**|
 | src/FortniteVideoSoftware.Core/Media/ProgressiveLanes.cs | LanePlanner, ThumbGrid, ProgressiveLaneRunner, LaneCache<T> | Plan, Slots, Pick, Generation, Cancel, MaxFrames = 90 | Lane tile planning, fixed thumbnail grid, progressive runner, LRU cache. |
 | src/FortniteVideoSoftware.Core/Media/WaveformPeaks.cs | WaveformPeaks | SampleRate = 4000, PeaksPerSecond = 40, MaxPeaks = 6000 | Vector waveform peaks for the Merger waveform lane (LANECACHE_02). |
+| src/FortniteVideoSoftware.App/PreviewDetachController.cs | PreviewDetachController | Attach, Detach, IsDetached | Multi-monitor video preview decoupling and full-screen window lifecycle. |
+| src/FortniteVideoSoftware.App/PreviewMonitorWindow.axaml.cs | PreviewMonitorWindow | AttachHost, ReleaseHost | Dedicated secondary monitor video preview window. |
+| src/FortniteVideoSoftware.App/Controls/MemePickerWindow.axaml.cs | MemePickerWindow | SelectMemeAsync, RefreshCatalog | Modal catalog picker for meme video/image insertions. |
+| src/FortniteVideoSoftware.App/Controls/MemeWallControl.axaml.cs | MemeWallControl | PopulateMemes, SelectedMeme | Interactive meme selection tile grid and search filter. |
+| src/FortniteVideoSoftware.App/ViewModels/MainViewModel.cs | MainViewModel | IsPortraitMode, IsVideoLoaded, PlaybackTimeText | Core application view model driving top-level UI states and tool bindings. |
+| src/FortniteVideoSoftware.App/ViewModels/ViewModelBase.cs | ViewModelBase | RaiseAndSetIfChanged, PropertyChanged | Base MVVM reactive observable notification implementation. |
 
 ---
 
@@ -318,5 +324,11 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 
 ## 12. Present Permit Before Keyed Mutex (GPUPRESENT_02)  {#UI-GPUPRESENT2}
 * **Defect:** GPUPRESENT_01 checked the per-slot present permit AFTER `ReleaseSync(ConsumerKey)`. A dropped frame left the texture on key 1 with no consumer, and every later lap paid a 1000 ms `AcquireSync` timeout while holding `_renderLock`. Each UI stall of about 250 ms poisoned one more slot, so the preview decayed towards 1 fps until a resize.
-* **Rule:** `UpdateSurface` takes the permit FIRST and skips to the next free slot. Holding the permit proves no present is in flight, so a texture found on ConsumerKey is an orphan and `TryAcquireProducerKey` reclaims it (`AcquireSync(1,0)` + `ReleaseSync(0)`). Two consecutive unrecoverable timeouts on one slot force a swap-chain rebuild (`_forceSwapChainRebuild`). `ImportAndPresentTexture` receives the permit and owns releasing it on every path.
+* **Rule:** `UpdateSurface` takes the permit FIRST and non-blockingly probes `TryAcquireProducerKey` with a 0 ms timeout across the 16-slot ring. If a slot's producer key cannot be acquired immediately (the compositor is still actively sampling it), its permit is released on the spot and the search loop hops to the next candidate in the 16-slot pool without stalling `_renderLock`. Holding the permit proves no present is in flight, so a texture found on ConsumerKey is an orphan and `TryAcquireProducerKey` reclaims it (`AcquireSync(1,0)` + `ReleaseSync(0)`). If all 16 slots are genuinely in flight under extreme UI lag, `PumpEmptyRender` advances libmpv's frame clock via `MPV_RENDER_PARAM_SKIP_RENDERING=1` without blocking. `ImportAndPresentTexture` receives the permit and owns releasing it on every path.
 * Avalonia's `UpdateWithKeyedMutexAsync` runs as a compositor server job, so its task completes after the compositor's acquire/release. A released permit therefore means the compositor is finished with the slot.
+* ⚠️ **IMMUTABLE ARCHITECTURAL LOCK — libmpv PREVIEW PIPELINE (DO NOT MODIFY):**
+  * `libmpv`'s Render API (`mpv_render_context_create`) does NOT support Direct3D 11 (`"d3d11"` returns `-19 / MPV_ERROR_NOT_IMPLEMENTED`).
+  * The `WGL_NV_DX_interop` bridge (OpenGL FBO rendering directly to D3D11 shared textures inside GPU VRAM) is the **sole proven zero-copy pipeline** that permits interactive Avalonia XAML overlays without Win32 HWND airspace occlusion.
+  * Attempting to replace WGL with non-existent libmpv D3D11 APIs results in a pitch-black screen with audio only.
+  * Reintroducing any blocking wait on `AcquireSync` (e.g. `KeyedMutexWaitMs > 0`) or taking locks across timeouts causes 1 FPS degradation and `0x80070057` COM exceptions.
+  * The non-blocking 0 ms 16-slot ring probing architecture is frozen and locked against future modifications.
