@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:CompileBindings="True"
+        x:Class="FreeVideoStudio.App.Controls.AiSetupWizardWindow"
+        Title="AI Smart Tracking Setup"
+        Width="580" MinHeight="560" SizeToContent="Height"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, *">
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Text="AI Smart Tracking Setup" Classes="WindowTitleText" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,20" Spacing="18">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Set Up Universal AI Zoom" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            <TextBlock Text="Google Gemini provides a free vision API that powers automatic broadcast-camera tracking. No paid subscription or credit card is required."
+                                       Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- STEP 1: Get Your Free Key -->
+                        <Border Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="12" Width="24" Height="24">
+                                        <TextBlock Text="1" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"/>
+                                    </Border>
+                                    <TextBlock Text="Step 1: Get Your Free Gemini Key" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Follow these quick steps in Google AI Studio:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+
+                                <StackPanel Margin="10,0,0,0" Spacing="4">
+                                    <TextBlock Text="1. Sign in with any Google account." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                    <TextBlock Text="2. Click the button to Create API Key." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                    <TextBlock Text="3. Select 'Create in new project'." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                    <TextBlock Text="4. Click the copy icon next to your generated key." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                </StackPanel>
+
+                                <Button Name="OpenAiStudioBtn" Classes="Primary" Content="Get Free Gemini API Key" Cursor="Hand" Margin="0,4,0,0"
+                                        ToolTip.Tip="Opens https://aistudio.google.com/app/apikey in your default web browser."/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- STEP 2: Paste and Verify -->
+                        <Border Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="12" Width="24" Height="24">
+                                        <TextBlock Text="2" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"/>
+                                    </Border>
+                                    <TextBlock Text="Step 2: Paste and Verify" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                                    <TextBox Name="ApiKeyInputBox" Watermark="Paste your Gemini API key here..."
+                                             Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,0,10,0"/>
+                                    <Button Name="TestAndSaveBtn" Grid.Column="1" Classes="Success" Content="Test and Save Key" Cursor="Hand"
+                                            ToolTip.Tip="Tests connection to Google AI servers and verifies key validity."/>
+                                </Grid>
+
+                                <TextBlock Name="VerificationStatusLabel" Text="Paste key and click Test and Save Key."
+                                           Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- STEP 3: Ready Action -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,10,0,0">
+                            <Button Name="CancelWizardBtn" Classes="Secondary" Content="CANCEL" MinWidth="100" Cursor="Hand" IsCancel="True"/>
+                            <Button Name="StartAiZoomBtn" Classes="Success" Content="Start Using AI Zoom" MinWidth="160" Cursor="Hand" IsEnabled="False" IsDefault="True"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

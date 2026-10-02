@@ -6,12 +6,64 @@
 
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Infrastructure/RuntimePayloadManifest.cs` | `RuntimePayloadManifest` | `FromFolder`, `Read`, `Write`, `SYS-PAYLOADSPLIT` | Runtime fingerprint. |
-| `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `AppOnlyAssetName`, `RuntimeAlreadyMatchesAsync`, `SYS-PAYLOADSPLIT` | Which package to download. **⚠ CO-GOVERNED BY: 05** |
-| `build/FvsBuild/Staging.cs` | `Staging` | `CreatePayloadZip`, `SYS-PAYLOADSPLIT` | Writes the manifest into the staging folder (after the zip is built, see §3 OPEN KNOWN DEFECTS) and to `obj\ReleaseAssets`. |
+| `src/FreeVideoStudio.Core/Infrastructure/RuntimePayloadManifest.cs` | `RuntimePayloadManifest` | `FromFolder`, `Read`, `Write`, `SYS-PAYLOADSPLIT` | Runtime fingerprint. |
+| `src/FreeVideoStudio.App/Services/UpdateService.cs` | `UpdateService` | `AppOnlyAssetName`, `RuntimeAlreadyMatchesAsync`, `SYS-PAYLOADSPLIT` | Which package to download. **⚠ CO-GOVERNED BY: 05** |
+| `build/FvsBuild/Staging.cs` | `Staging` | `CreatePayloadZip`, `SYS-PAYLOADSPLIT` | Writes the manifest before zipping the payload; produces the app-only archive and manifest in `obj\ReleaseAssets`. |
 | `.github/workflows/ci.yml` | CI | `SYS-CI`, `aot-publish` | Runs the ratchets; reports the app publish size. **⚠ CO-GOVERNED BY: 08** |
 | `.github/workflows/lfs-guard.yml` | LFS guard | `SYS-REPOWEIGHT` | Proves LFS is real and stops new large files. |
 | `.gitattributes` | EOL + LFS policy | `EOL_01`, `SYS-REPOWEIGHT` | What is stored where. |
+| `Build.cmd` | Production Release Script | `dotnet run build\FvsBuild` | **STRICT AGENT BAN**: Deploys release assets and publishes publicly to GitHub Cloud. Never run by autonomous agents. **⚠ CO-GOVERNED BY: 05, GOV** |
+| `dev_build.cmd` | Local Dev Build Harness | `dotnet run build\FvsBuild -- --dev` | Local compilation check and NativeAOT publish verification. Zero git tags, zero GitHub Cloud publishing. **⚠ CO-GOVERNED BY: 05, GOV** |
+
+---
+
+## 0. Build Harness Disclaimers & Agent Execution Rules  {#DIST-AGENTS}
+
+> [!CAUTION]
+> ### STRICT BAN ON `Build.cmd` FOR AI AGENTS
+> **Autonomous AI agents are strictly forbidden from executing `.\Build.cmd` or `Build.cmd`.**
+> `Build.cmd` is reserved exclusively for intentional human-triggered production deployments. Running `Build.cmd` compiles `FreeVideoStudio.exe` and **immediately deploys/replaces the public release on GitHub Cloud**, making the resulting binary live and downloadable to all end users.
+>
+> **For all local compilation checks and build verification, agents MUST use `.\dev_build.cmd`:**
+> * `.\dev_build.cmd` passes the `--dev` flag to `FvsBuild`.
+> * It performs local compilation only.
+> * It never creates git release tags and **never touches GitHub or publishes to the cloud**.
+> * Testing compilation with `.\dev_build.cmd` is permitted; running `.\Build.cmd` is never permitted under any circumstances.
+
+---
+
+## Product and build identity  {#DIST-IDENTITY}
+
+| Scope | Canonical identity |
+| :--- | :--- |
+| Display name and Win32 product metadata | `Free Video Studio` |
+| Solution | `FreeVideoStudio.sln` |
+| App project | `src/FreeVideoStudio.App/FreeVideoStudio.App.csproj` |
+| App assembly / package ID / manifest identity | `FreeVideoStudio` |
+| App C# and XAML root namespace | `FreeVideoStudio.App` |
+| Core project | `src/FreeVideoStudio.Core/FreeVideoStudio.Core.csproj` |
+| Core assembly / package ID / root namespace | `FreeVideoStudio.Core` |
+| Test projects and assemblies | `FreeVideoStudio.App.Tests`, `FreeVideoStudio.Core.Tests` |
+| Standalone installer output | `compiled/FreeVideoStudio.exe` |
+| Raw payload executable and installed executable | `FreeVideoStudio.exe` |
+| Embedded payload resource | `FreeVideoStudio.App.payload.zip` (the explicit app root namespace is retained) |
+| App-only archive | `obj/ReleaseAssets/FreeVideoStudio.App.update.zip`, containing a signed compact installer named `FreeVideoStudio.exe` |
+| Runtime manifest | `runtime.manifest.json` inside the payload and under `obj/ReleaseAssets` |
+
+The internal tool names `FvsBuild` and `FvsVerify` are unchanged. The GitHub repository remains `alonreich/Fortnite_Video_Software_C-`; local project renames do not rename the hosted repository. Game-specific `Fortnite` crop profiles and recording-discovery folders remain gameplay identifiers, not product branding. Historical storage names are compatibility data in `LegacyAppDataNames.txt` (`05` SYS-REBRAND).
+
+Run the local verification gates from the repository root:
+
+```powershell
+.\dev_build.cmd
+dotnet build FreeVideoStudio.sln -c Release -warnaserror
+dotnet test tests/FreeVideoStudio.Core.Tests/FreeVideoStudio.Core.Tests.csproj
+dotnet test tests/FreeVideoStudio.App.Tests/FreeVideoStudio.App.Tests.csproj
+dotnet run --project build/FvsVerify/FvsVerify.csproj -v q
+git grep -i "FortniteVideoSoftware" -- "*.cs" "*.axaml" "*.csproj" "*.sln" "*.manifest"
+```
+
+The last command should return no matches (Git exit code 1 means no matches). The embedded legacy-name text resource is intentionally outside this source-identity scan. Project GUIDs stay unchanged; solution paths, project references, source-generated serializer types, XAML namespaces and sentinel paths use the renamed projects. `ProductionNamespacesUseTheProductRoot` enforces production namespace declarations; `AppDataPathsTests` guards migration behavior. Build output must contain only the standalone executable, with release sidecars under `obj/ReleaseAssets`.
 
 ---
 
@@ -21,7 +73,7 @@ Numbers taken on 2026-09-21, against `arch/04-mvvm`:
 
 | Thing | Size | What it means |
 | :--- | ---: | :--- |
-| `compiled/FortniteVideoSoftware.exe` | **322 MB** | what a user downloads to install |
+| `compiled/FreeVideoStudio.exe` | **322 MB** | what a user downloads to install |
 | `binaries/` (FFmpeg + libmpv) | 368 MB | of which `avcodec-62.dll` alone is 97 MB |
 | `mp3/` + `mp4/` + `jpeg/` in the repo | 269 MB | starter media, committed |
 | `.git` | **2.7 GB** | a fresh clone |
@@ -68,17 +120,15 @@ recurs: the *repeat* download.
 
   | Asset | Contents | When it is used |
   | :--- | :--- | :--- |
-  | `FortniteVideoSoftware.exe` | everything (322 MB) | first install, or the runtime changed |
-  | `FortniteVideoSoftware.App.update.zip` | the application only | the runtime already matches |
+  | `FreeVideoStudio.exe` | everything (322 MB) | first install, or the runtime changed |
+  | `FreeVideoStudio.App.update.zip` | the application only | the runtime already matches |
   | `runtime.manifest.json` | a fingerprint, a few hundred bytes | always read first |
 
-* **The fingerprint is names and sizes, not content hashes.** `RuntimePayloadManifest.FromFolder`
-  lists every `.dll`/`.exe`/`.com` in the folder — including the app's own
-  `FortniteVideoSoftware.App.exe`, which the build publishes into the same staging folder (defect 3
-  below) — sorts ordinally by relative path, and hashes
-  `path:length` lines. Hashing 368 MB on every update check would be a worse bug than the one being
-  fixed; two different FFmpeg builds do not coincidentally keep every file at the same byte length.
-
+* **The fingerprint includes content hashes of reusable payload files.** It is computed during
+  packaging, over ordinal-sorted paths, lengths and SHA-256 hashes. Application executables,
+  manifests and debug symbols are excluded; codec libraries and starter assets are included.
+  An equal-size binary or asset change therefore selects the full installer. Startup checks read
+  the stored sidecar; the user-approved update also verifies installed file bytes before reuse.
 * **⚠️ EVERY UNCERTAINTY RESOLVES TO THE BIG DOWNLOAD.** `RuntimeAlreadyMatchesAsync` returns true
   only when the release published a small package AND advertised a fingerprint AND it matches what
   is installed. No small package, no sidecar, an unreadable local manifest, a network failure, a
@@ -93,31 +143,26 @@ recurs: the *repeat* download.
   (`05` §5 SYS-SIGNING, `UPDATETRUST_02`). A manifest is a hint, and hints are not a security
   boundary.
 
-* **A release that publishes only the installer behaves exactly as before.** That is deliberate:
-  the updater change ships ahead of the release-pipeline change that starts producing the small
-  package, and does nothing until one appears.
+* **Current packaging behavior.** `Staging.CreatePayloadZip` writes `runtime.manifest.json` into the staging folder **before** building `payload.zip`, so fresh installs receive the fingerprint. It also writes `obj/ReleaseAssets/runtime.manifest.json` and builds `obj/ReleaseAssets/FreeVideoStudio.App.update.zip` containing the signed compact installer. These artifacts stay outside `compiled/`, which contains only the standalone installer.
 
-* **Open work.** The build writes `obj\ReleaseAssets\runtime.manifest.json` (RELEASEASSETS_01: `compiled\` holds only the exe, MANDATE #2).
-  Producing and uploading `FortniteVideoSoftware.App.update.zip` and the `runtime.manifest.json` sidecar
-  is a release-pipeline change in `GitHubReleasePublisher` and is **not yet done**. The consumer side is
-  inert today, but it is **NOT complete** — see the defects below.
-
-* **⚠ OPEN KNOWN DEFECTS — NOT FIXED (tracked as R9 in `Video-Merger-Migration.md`).** Each one alone
-  keeps the patch path from ever working; all three must be fixed before the release pipeline starts
-  publishing the small package.
-  1. **Installs never receive the runtime fingerprint.** `Staging.CreatePayloadZip` builds and closes
-     `payload.zip` FIRST and only then calls `manifest.Write(StagingDir)`, so `runtime.manifest.json`
-     is not inside the payload that is embedded and extracted on install. `RuntimeAlreadyMatchesAsync`
-     reads it from `AppContext.BaseDirectory`, finds nothing, and always picks the full installer.
-  2. **The app-only package is never downloaded.** `UpdateService.DownloadVerifyLaunchAsync` computes
-     `appOnly` via `RuntimeAlreadyMatchesAsync`, but only logs it: the download always fetches
-     `release.DownloadUrl` (the full installer). `AppOnlyUrl` is read only by `HasAppOnlyPackage`, and
-     nothing extracts or applies an app-only zip.
-  3. **The fingerprint could never match across releases.** The staging folder fingerprinted by
-     `CreatePayloadZip` also holds the NativeAOT `FortniteVideoSoftware.App.exe`, and `FromFolder`
-     includes every `.exe`. The app binary's length changes with virtually every build, so a new
-     release's advertised fingerprint would differ from the installed one even when FFmpeg/libmpv are
-     identical.
+* **Operational compact updates.** `FromFolder` excludes the root application and uninstaller.
+  Before selecting a compact update, the updater verifies the installed file manifest, requires
+  the canonical install location, a published package digest and a matching runtime fingerprint.
+  It fetches the selected asset and verifies its digest. The archive must contain exactly one
+  installer executable, which is Authenticode-checked before launch. The installer embeds the
+  new complete manifest and refuses to reuse any installed file with different bytes.
+* **Build ordering.** Publish and sign the raw app; stage dependencies; generate manifests and
+  the full payload; publish/sign the full installer; replace the embedded payload with the app
+  and manifests only; publish/sign the compact installer; archive it; restore the full payload.
+  Both installers use the same source and transactional worker. `compiled` still contains only
+  the full standalone executable; sidecars and the legacy filename alias live in `obj/ReleaseAssets`.
+* **Old updater bridge.** The legacy executable filename, taken from `LegacyProductIdentity`,
+  remains a release asset containing identical bytes to the full installer. This lets old
+  clients discover the rebrand without maintaining a separate app. Do not remove this alias
+  until dropping automatic migration from those released clients is an explicit product decision.
+* **Publication transaction.** Upload all four assets to a draft, verify every asset by name and
+  SHA-256, then publish it as latest. Failed uploads stay unpublished. Existing releases and tags
+  are retained, supporting interrupted downloads and recovery; publication never deletes them first.
 
 ---
 

@@ -5,42 +5,50 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Media/AudioFilterChain.cs` | `AudioFilterChain` | `MusicTrack`, `AudioFilterChain` | Authoritative audio filtergraph generation for export and mastering. |
-| `src/FortniteVideoSoftware.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe` | `TargetLufs`, `PeakCeilingDbtp`, `QuietBoostReductionFactor`, `MusicBedLufs` | EBU R128 integrated loudness measurement and quiet boost attenuation. |
-| `src/FortniteVideoSoftware.Core/Media/VoiceRecorder.cs` | `VoiceRecorder` | `StartRecording`, `StopRecording`, `GetInputDeviceNames`, `Dispose` | Low-latency WASAPI audio capture lifecycle on serialized worker thread. |
-| `src/FortniteVideoSoftware.Core/Media/MicLevelMonitor.cs` | `MicLevelMonitor` | `Start`, `Stop`, `Dispose`, `MicLevelMonitor` | Idle microphone level polling with proactive endpoint release before recording. |
-| `src/FortniteVideoSoftware.App/Controls/VoiceOverPreviewPlayer.cs` | `VoiceOverPreviewPlayer` | `Reload`, `Dispose`, `UpdatePlayback`, `DisposeTakes` | Timeline-synchronized voiceover take playback (plays takes only; waveforms are drawn by `VoiceOverWindow`). |
-| `src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetGlobalMasterVolume`, `ObserveProperty`, `CurrentTime`, `TimePosChanged`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and the shared master preview volume (`GlobalMasterVolume`). |
-| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `OnGlobalMasterVolumeChanged`, `SaveRecoveryState`, `AttachPreviewMonitor` | Master preview volume scaling (master × wizard balance per player). **⚠ CO-GOVERNED BY: 01, 04, GOV**|
-| `src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `Name`, `FilePath`, `Title`, `Artist` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider` | `OnPointerMoved`, `Render`, `IsInteracting`, `FluidVolumeSlider` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
-| `src/FortniteVideoSoftware.Core/Media/WavAudioReader.cs` | `WavAudioReader`, `WavAudioHeader` | `ReadSamples`, `ParseHeader` | Low-level NativeAOT-safe linear PCM WAV audio reader replacing NAudio umbrella (AOTCLEAN_02). |
-| `src/FortniteVideoSoftware.Core/Media/WaveformGenerator.cs` | `WaveformGenerator` | `GeneratePeaks`, `ExtractRms` | Asynchronous multi-scale audio waveform peak cache generation for timeline visualization. |
+| `src/FreeVideoStudio.Core/Media/AudioFilterChain.cs` | `AudioFilterChain` | `MusicTrack`, `AudioFilterChain` | Authoritative audio filtergraph generation for export and mastering. |
+| `src/FreeVideoStudio.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe` | `TargetLufs`, `PeakCeilingDbtp`, `QuietBoostReductionFactor`, `MusicBedLufs` | EBU R128 integrated loudness measurement and quiet boost attenuation. |
+| `src/FreeVideoStudio.Core/Media/VoiceRecorder.cs` | `VoiceRecorder` | `StartRecording`, `StopRecording`, `GetInputDeviceNames`, `Dispose` | Low-latency WASAPI audio capture lifecycle on serialized worker thread. |
+| `src/FreeVideoStudio.Core/Media/MicLevelMonitor.cs` | `MicLevelMonitor` | `Start`, `Stop`, `Dispose`, `MicLevelMonitor` | Idle microphone level polling with proactive endpoint release before recording. |
+| `src/FreeVideoStudio.App/Controls/VoiceOverPreviewPlayer.cs` | `VoiceOverPreviewPlayer` | `Reload`, `Dispose`, `UpdatePlayback`, `DisposeTakes` | Timeline-synchronized voiceover take playback (plays takes only; waveforms are drawn by `VoiceOverWindow`). |
+| `src/FreeVideoStudio.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetGlobalMasterVolume`, `ObserveProperty`, `CurrentTime`, `TimePosChanged`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and the shared master preview volume (`GlobalMasterVolume`). |
+| `src/FreeVideoStudio.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `OnGlobalMasterVolumeChanged`, `SaveRecoveryState`, `AttachPreviewMonitor` | Master preview volume scaling (master × wizard balance per player). **⚠ CO-GOVERNED BY: 01, 04, GOV**|
+| `src/FreeVideoStudio.App/CropToolWindow.Volume.cs` | `CropToolWindow` | `WireUpVolumeSlider`, `ApplyCurrentVolumeToMpvAsync`, `OnGlobalMasterVolumeChangedInCrop` | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs` | `VideoMergerWindow` | `OnGlobalMasterVolumeChanged` | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `Name`, `FilePath`, `Title`, `Artist` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider` | `OnPointerMoved`, `Render`, `IsInteracting`, `FluidVolumeSlider` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.Core/Media/WavAudioReader.cs` | `WavAudioReader`, `WavAudioHeader` | `ReadSamples`, `ParseHeader` | Low-level NativeAOT-safe linear PCM WAV audio reader replacing NAudio umbrella (AOTCLEAN_02). |
+| `src/FreeVideoStudio.Core/Media/WaveformGenerator.cs` | `WaveformGenerator` | `GeneratePeaks`, `ExtractRms` | Asynchronous multi-scale audio waveform peak cache generation for timeline visualization. |
 
 ---
 
 ## 1. Master Application Volume Control  {#AUD-MASTERVOL}
-* **Preview Only:** The vertical master volume slider sets `MpvIpcClient.GlobalMasterVolume` (0–100) via `SetGlobalMasterVolume`, which raises `GlobalMasterVolumeChanged`. It drives each preview player's own mpv `volume` property — not the Windows process volume — and has zero impact on FFmpeg export filtergraphs.
+* **Global Master Volume Synchronization Across All Three Apps:**
+  The vertical fluid "test tube" volume slider (`FluidVolumeSlider`) is present, wired, and actively synchronized across the **Main App** (`MainWindow`), **Video Merger** (`VideoMergerWindow`), and **Crop Tools** (`CropToolWindow`).
+  Any adjustment to the slider or click of the mute hitbox in any window updates `MpvIpcClient.GlobalMasterVolume` (0–100) via `SetGlobalMasterVolume`, firing `GlobalMasterVolumeChanged`.
+  Each window receives the notification on its UI dispatcher thread, synchronizes its slider value, volume readout badge (`VolumeBadgeText`), and mute speaker icon (`VolumeSpeakerIcon`), and applies the volume to its local mpv player via `IpcClient.SetPreviewVolumeAsync` without re-entrant loop feedback (`_isSyncingMasterVolume` guard).
+  In `CropToolWindow`, video playback is no longer forced into a muted state on load; it loads and plays at the active global master volume.
+* **Preview Only:** Master volume controls the mpv player preview; it has zero impact on FFmpeg export filtergraphs.
 * **Proportional Scaling:** Each mpv player's volume is the master multiplied by that player's Music Wizard balance (`MainWindow.OnGlobalMasterVolumeChanged`; the balance is 1.0 when no music is active), converted through `ToMpvVolume` for mpv's cubic curve:
   $$V_{\text{preview, game}} = V_{\text{master}} \times V_{\text{game}}, \quad V_{\text{preview, music}} = V_{\text{master}} \times V_{\text{music}}$$
 * **No Mute Cache:** The balance lives in the wizard result, not in the players, so 0% simply sends 0 to every player and any value above 0% re-applies the same product. Nothing is cached.
 
 ---
 
-## 2. Audio Mastering & Normalization Pipeline  {#AUD-MASTERING}
-* **Target Integrated Loudness:**
-  * Gameplay audio bus normalizes to -14.0 LUFS (I = -14.0 LUFS, TP = -1.5 dBTP, LRA = 11.0).
-  * Background Music bed normalizes to `MusicBedLufs` = -14.0 LUFS (equal to the game bus) before user faders are applied; a 50% fader lands it near -20 LUFS.
-* **Quiet Boost Ceiling & Attenuation:**
-  Gameplay boost is capped via `AudioLoudnessProbe.QuietBoostReductionFactor = 0.70`. The engine delivers only 30% of positive lift to prevent amplifying background noise floors:
-  $$\text{Gain}_{\text{boost}} = \text{TargetLUFS} - \text{MeasuredLUFS}$$
-  $$\text{Gain}_{\text{applied}} = \begin{cases} \text{Gain}_{\text{boost}} \times (1.0 - 0.70) = 0.30 \times \text{Gain}_{\text{boost}}, & \text{if } \text{Gain}_{\text{boost}} > 0 \\ \text{Gain}_{\text{boost}}, & \text{if } \text{Gain}_{\text{boost}} \le 0 \end{cases}$$
-  *(Example: A calculated +18 dB lift delivers +5.4 dB, landing at -26.6 LUFS. Downward cuts on hot audio apply 100%.)*
-* **Sum Mix Normalization:** Lift adjustments apply to the finished mix sum, never the gameplay bus alone, locking relative voice and music balance.
-* **Pre-Export Measurement Across DELETE PARTS:** EBU R128 integrated loudness is measured over ONE contiguous range. When the project carries `Cut` chunks, the surviving source ranges MUST be trimmed and concatenated FIRST, and the probe run against that concatenation:
-  $$\text{MeasuredLUFS} = \text{R128}\left(\bigoplus_{r \in \text{SurvivingRanges}} \text{Audio}(r)\right)$$
-  Probing the raw source measures audio the viewer never hears. A cut that removed 20 seconds of loud combat would suppress the quiet-boost lift for the whole video and ship the export under-levelled. The probe input is always the finished audio body, never the original file on disk. Cut normalization rules: `01_TIMELINE_COORDINATE_MATH.md` §5 (TL-CUTS).
+## 2. Audio Mastering & Peak Protection Pipeline  {#AUD-MASTERING}
+* **Original Recorded Volume Preservation (No Loudness Standardization):**
+  * Clips, background music, voiceovers, and preview playback retain their 100% raw, uncorrected recorded volume.
+  * The historical two-pass `loudnorm` standardisation pipeline (which previously normalized clips and mixes to -14.0 LUFS) is **completely removed** from both preview playback and FFmpeg export filtergraphs.
+  * `ProcessWorker` omits Phase 1 loudnorm analysis entirely (`willAnalyzeAudio = false`) and builds no second-pass `loudnorm` filter (`hasSecondPass = false`).
+  * Music tracks are not shifted to match any target loudness; `MeasureMusicBedGainsAsync` delivers 0.0 dB gain adjustment, leaving the music bed at original recorded level subject only to the user's fader settings.
+  * Voiceover takes are not standardized to -14.0 LUFS; preview offset is 0.0 dB (`VoicePreviewOffsetDb => 0.0`) and wizard preview balance is 0.0 dB (`PreviewMusicBalanceDb => 0.0`).
+  * The quiet-boost lift and trim (`quietBoostTrimDb`) and user prompts for loudness standardisation during ingest and in Settings have been completely removed.
+* **Momentary Peak Spike Flattening (-1.5 dB Limiter):**
+  * When `AutoSpikeFlattening` is enabled (default on), the engine auto-flattens sudden momentary bursts and harsh sound spikes across the Main App export, Video Merger, and Voiceovers:
+    ```text
+    alimiter=limit=-1.5dB:level_in=1:level_out=1
+    ```
+  * Crucially, this limiter operates directly on the audio bus without a preceding `loudnorm` filter, protecting ears and speakers against clipping while keeping the clip's natural dynamics and perceived volume untouched.
 * **Preview Balance Contract:** Sidechain dynamic ducking and EQ speech carving are export-only. Live preview reflects static fader balance across separate media players.
 
 ---
@@ -81,7 +89,7 @@
 ---
 
 ## 4. Voice Over Studio  {#AUD-VOICEOVER}
-* **Normalization:** Each take is matched to the game bus loudness: `loudnorm=I={gameLufs}:LRA=11:TP=-1.5`, where `gameLufs` is `TargetLufs` (-14.0) when the second-pass loudnorm runs and otherwise the measured source loudness (clamped -70 to -5). It is optional: with the `AutoVoiceNormalization` setting off (default on) takes pass through unchanged.
+* **Normalization & Limiting:** Voiceovers are not normalized to -14.0 LUFS. Takes retain original recording volume; when `AutoSpikeFlattening` is active, takes pass through `alimiter=limit=-1.5dB:level_in=1:level_out=1,aresample=48000` to suppress momentary burst peaks.
 * **Sidechain Integration:** Voiceover muxes into the game bus before sidechain trigger generation, ducking background music automatically.
 * **Take Management:** Chunks render 40% semi-transparent red overlays on timeline with visual waveform rendering. Export mixes chunks via `adelay` and `amix`, each delayed to the take's position in OUTPUT time: `granularTimeMapper` maps the take start through speed segments and cuts (without it: take start minus extract start, divided by the base speed), and when the music is mixed after the meme splice the thumbnail intro and any memes inserted before the take are added. A take starting before the body is `atrim`med:
   $$\text{Delay}_{\text{ms}} = \left(\text{granularTimeMapper}(t_{\text{take\_start}}) + t_{\text{intro}} + t_{\text{memes before}}\right) \times 1000$$

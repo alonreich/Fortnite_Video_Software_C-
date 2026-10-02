@@ -1,0 +1,265 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FreeVideoStudio.App"
+        xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
+        x:Class="FreeVideoStudio.App.VoiceOverWindow"
+        Title="Microphone Voice-Over Studio"
+
+        Background="{DynamicResource AppSurfaceBrush}"
+        MinWidth="980" MinHeight="640"
+        WindowStartupLocation="Manual"
+        CanResize="True"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" Cursor="DragMove" ToolTip.Tip="Drag to move. Double-click to maximize.">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
+                </Border>
+                <Grid Grid.Row="1" RowDefinitions="*, Auto">
+
+                    <!-- MAIN BODY -->
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto">
+
+                        <!-- LEFT: Video preview + timeline -->
+                        <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="12" MinWidth="0">
+
+                            <!-- Video preview -->
+                            <Border Name="VideoAreaBorder" Grid.Row="0" Background="{DynamicResource AppVideoSurfaceBrush}" CornerRadius="6" ClipToBounds="True">
+                                <Grid>
+                                    <local:MpvVideoView Name="VideoHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                    <!-- Playhead overlay (optional) -->
+
+                                    <!-- DETACH_01: shared pop-out preview. Same control, same persistence,
+                                         its own remembered geometry (VoiceOverPreviewMonitorBounds). -->
+                                    <Border Name="VoiceOverPreviewDetachedWatermark" IsVisible="False" ZIndex="65" Background="{DynamicResource AppVideoSurfaceBrush}">
+                                        <TextBlock Text="Preview Detached" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <Button Name="VoiceOverDetachPreviewBtn" Classes="Secondary" Content="◳ Detach Monitor"
+                                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0" Padding="8,4"
+                                            FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold"
+                                            Background="{DynamicResource AppOverlayBrush}" ZIndex="9999"
+                                            ToolTip.Tip="Pop the preview out into its own floating window. It remembers its size, position and which screen you left it on."/>
+
+                                    <!-- MEME_07: the preview plays each meme where it will actually
+                                         appear by swapping the file in the one mpv host. That costs
+                                         a black moment at each end, so it is announced. -->
+                                    <Border Name="MemeSwapOverlay" IsVisible="False" ZIndex="900" Background="{DynamicResource AppScrimBrush}" CornerRadius="6">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                                            <TextBlock Text="&#x1F921;" FontSize="{DynamicResource AppFontSize36}" HorizontalAlignment="Center"/>
+                                            <ProgressBar IsIndeterminate="True" MinWidth="180" MinHeight="6" Foreground="{DynamicResource AppMemeBrush}" Background="{DynamicResource AppPanelBrush}"/>
+                                            <TextBlock Name="MemeSwapOverlayText" Text="Loading the meme..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="Please wait a moment." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <!-- Timeline and controls -->
+                            <Grid Grid.Row="1" Margin="0,10,0,0">
+                                <StackPanel Orientation="Vertical" Spacing="6">
+
+                                    <!-- ════════════════════════════════════════════════════════════
+                                         VOROW_01 — ONE TRANSPORT ROW.
+                                         Was a WrapPanel holding a vertical stack of
+                                         [lamp+READY] / [EQ meter] / [live waveform], roughly 130px of
+                                         height for three things that are each one line tall. The row
+                                         below is 50px and carries all of it:
+
+                                           [● REC]  [MIC]  [PAUSE]  [═══ EQ ═══]  [PLAY]  [● READY]
+
+                                         The two lamps mean DIFFERENT things and that is the point:
+                                           RecordingLight (left, red)  — lit ONLY while capture is live.
+                                           ReadyLamp      (right, green) — lit when a microphone is
+                                                                           present and the preview is up.
+                                         ⚠️ Avalonia Grid has NO ColumnSpacing (that is WinUI/WPF and it
+                                         fails the WHOLE file with AVLN:0004). Gaps are Margins.
+                                         ════════════════════════════════════════════════════════════ -->
+                                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" VerticalAlignment="Center">
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,10,0">
+                                            <Ellipse Name="RecordingLight" Width="14" Height="14" Opacity="0.18"
+                                                     Fill="{DynamicResource AppDangerBrush}"
+                                                     ToolTip.Tip="Lit and pulsing only while your microphone is actually capturing"/>
+                                            <TextBlock Text="REC" VerticalAlignment="Center" FontWeight="Bold"
+                                                       FontSize="{DynamicResource AppFontSize12}"
+                                                       Foreground="{DynamicResource AppTextMutedBrush}"/>
+                                        </StackPanel>
+
+                                        <!-- Realistic Mic Button -->
+                                        <Button Grid.Column="1" Name="MicRecordButton" Classes="Danger" MinWidth="70" MinHeight="50" Margin="0,0,10,0" ToolTip.Tip="Start or stop voiceover recording (V)" AutomationProperties.Name="Start or stop voiceover recording" IsEnabled="False">
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="MicIcon" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" Data="M12,14c1.66,0,3-1.34,3-3V5c0-1.66-1.34-3-3-3S9,3.34,9,5v6C9,12.66,10.34,14,12,14z M17,11c0,2.76-2.24,5-5,5s-5-2.24-5-5H5c0,3.53,2.61,6.43,6,6.92V21h2v-3.08c3.39-0.49,6-3.39,6-6.92H17z" />
+                                            </Panel>
+                                        </Button>
+
+                                        <!-- Pause / Resume for an in-progress take.
+                                             Hidden until recording starts (code-behind drives IsVisible).
+                                             Pausing CLOSES the current take and resuming opens a new one that
+                                             re-anchors itself to the video clock, so pausing as often as you
+                                             like cannot push the voiceover out of sync. -->
+                                        <Button Grid.Column="2" Name="RecordPauseButton" Classes="Secondary"
+                                                MinWidth="70" MinHeight="50" Margin="0,0,10,0"
+                                                IsVisible="False"
+                                                AutomationProperties.Name="Pause or resume the voiceover recording"
+                                                ToolTip.Tip="Stop recording and pause the video. You can resume and keep going. (Spacebar)">
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="RecordPauseIcon" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" IsVisible="True" />
+                                                <Path Name="RecordResumeIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform" IsVisible="False" />
+                                            </Panel>
+                                        </Button>
+
+                                        <!-- EQ meter — live from the moment a microphone is selected,
+                                             not only while recording (MicLevelMonitor). -->
+                                        <Border Grid.Column="3" Name="EqMeterTrack" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" MinWidth="140" Height="34" Margin="0,0,10,0" ClipToBounds="True"
+                                                ToolTip.Tip="Live input level from the selected microphone. Speak — it should move even before you press record.">
+                                            <Canvas Name="EqMeterCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                        </Border>
+
+                                        <!-- Play Pause -->
+                                        <Button Grid.Column="4" Name="PlayPauseButton" Classes="Primary" MinWidth="70" MinHeight="50" Margin="0,0,10,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" ToolTip.Tip="Play or pause the preview video" AutomationProperties.Name="Play or pause the preview video">
+                                            <Panel Width="{DynamicResource AppFontSize16}" Height="{DynamicResource AppFontSize16}">
+                                                <Path Name="PlayIcon" Data="{DynamicResource AppPlayIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                                <Path Name="PauseIcon" IsVisible="False" Data="{DynamicResource AppPauseIconGeometry}" Fill="{DynamicResource AppOnAccentTextBrush}" Stretch="Uniform"/>
+                                            </Panel>
+                                        </Button>
+
+                                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Ellipse Name="ReadyLamp" Width="14" Height="14" Opacity="0.18"
+                                                     Fill="{DynamicResource AppSuccessBrush}"
+                                                     ToolTip.Tip="Green when a microphone is connected and the studio is ready to record"/>
+                                            <TextBlock Name="RecordingStatusText" Text="READY" VerticalAlignment="Center" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- ════════════════════════════════════════════════════════════
+                                         VOTL_01 — THE TIMELINE STACK.
+
+                                         Row 0  clock strip   elapsed / total / remaining, same
+                                                              wording and format as the main screen.
+                                         Row 1  ruler         ticks + labels + the big playhead caret.
+                                         Row 2  film lane     60px, and where TAKES now live.
+                                         Row 3  game audio    60px.
+
+                                         All four rows are FULL WIDTH and share one X axis. That is not
+                                         cosmetic: the caret and all three playhead lines are positioned
+                                         from the same `fraction`, so insetting any one row (e.g. putting
+                                         the clock labels beside the ruler) would silently desynchronise
+                                         the caret from the lanes. The clock therefore gets its own row.
+                                         ════════════════════════════════════════════════════════════ -->
+                                    <Border BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0" ClipToBounds="True">
+                                        <Grid RowDefinitions="Auto, Auto, 60, 60">
+
+                                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Background="{DynamicResource AppOverlayBrush}" Height="20">
+                                                <TextBlock Name="VoTimeElapsed" Grid.Column="0" Text="00:00:00" Margin="8,0,0,0" VerticalAlignment="Center" MinWidth="64" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Playhead position inside the trimmed clip"/>
+                                                <TextBlock Name="VoTimeTotal" Grid.Column="1" Text="00:00:00" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="Total length of the trimmed clip"/>
+                                                <TextBlock Name="VoTimeRemaining" Grid.Column="2" Text="-00:00:00" Margin="0,0,8,0" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Time left until the end of the trimmed clip"/>
+                                            </Grid>
+
+                                            <!-- Ruler: ticks, time labels and the caret. Still the seek surface. -->
+                                            <Canvas Name="TimelineRulerCanvas" Classes="TimelineSeekSurfacePanel" Grid.Row="1" Height="34" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="False" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek inside the trimmed voiceover range" AutomationProperties.Name="Voiceover timeline ruler" />
+
+                                            <!-- Film lane. 60px so all three lanes read as one block. -->
+                                            <Grid Name="ThumbnailLaneGrid" Classes="TimelineSeekSurfaceSurface" Grid.Row="2" Height="60" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by frame preview. Recorded takes appear here in red — click one to select it." AutomationProperties.Name="Voiceover thumbnail seek lane">
+                                                <Image Name="ThumbnailLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <!-- VOTAKE_01: takes were drawn on the ruler, which is a 34px
+                                                     strip of tick marks. They belong over the picture they were
+                                                     recorded against. The voice waveform is drawn INSIDE each
+                                                     red block by a background worker (see EnsureTakePeaksAsync). -->
+                                                <Canvas Name="TakeOverlayCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True"/>
+                                                <Border Name="ThumbLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppWarningBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
+                                                        <TextBlock Text="Generating Frames..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <TextBlock Name="ThumbFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <Border Name="ThumbPlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="False"/>
+                                            </Grid>
+
+                                            <!-- Game audio waveform -->
+                                            <Grid Name="WaveformLaneGrid" Classes="TimelineSeekSurfaceSurface" Grid.Row="3" Height="60" Cursor="Hand" Focusable="True" KeyboardNavigation.IsTabStop="True" ToolTip.Tip="Click or drag to seek by the game's audio waveform" AutomationProperties.Name="Voiceover waveform seek lane">
+                                                <Image Name="WaveformLaneImage" Stretch="Fill" RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                                                <Border Name="WaveformLoadingOverlay" Background="{DynamicResource AppOverlayBrush}" IsHitTestVisible="False" IsVisible="False">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="5">
+                                                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" Foreground="{DynamicResource AppInfoBrush}" Background="{DynamicResource AppControlTrackBrush}"/>
+                                                        <TextBlock Text="Generating Waveform..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Canvas Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                <TextBlock Name="WaveformFallbackText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False" IsVisible="False"/>
+                                                <Border Name="WavePlayheadLine" Width="2" Background="{DynamicResource AppDangerBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="False"/>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+
+                        <!-- RIGHT PANEL: Options -->
+                        <Border Grid.Column="1" Background="{DynamicResource AppPanelBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1,0,0,0" Padding="15" MinWidth="260" MaxWidth="340">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Orientation="Vertical" Spacing="15">
+                                <TextBlock Text="MICROPHONE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                <ComboBox Name="MicDeviceComboBox" MinWidth="220" HorizontalAlignment="Stretch" PlaceholderText="No microphone found" ToolTip.Tip="Choose which microphone records the voiceover" />
+                                
+                                <!-- ════════════════════════════════════════════════════════
+                                     VOPROT_01 — TWO INDEPENDENT PROTECTIONS, NAMED FOR WHAT THEY DO.
+                                     "Auto-Duck Game Audio" described the mechanism, not the goal, and
+                                     it only ever covered the GAME bus — music added in the wizard was
+                                     left to fight the voice at full level. Each box now ducks AND
+                                     EQ-carves one competing bus, and only across the takes themselves.
+                                     ════════════════════════════════════════════════════════ -->
+                                <StackPanel Orientation="Vertical" Spacing="5" Margin="0,15,0,0">
+                                    <TextBlock Text="PROTECT THE VOICE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                    <Border Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4" Padding="10">
+                                        <StackPanel Orientation="Vertical" Spacing="10">
+                                            <CheckBox Name="DuckAudioCb" IsChecked="True" Content="Protect VoiceOver Recording from Game-Play Sound" ToolTip.Tip="Across your recorded takes only: drops the gameplay volume and scoops the frequencies your voice sits in, so what you said stays intelligible." />
+                                            <CheckBox Name="DuckMusicCb" IsChecked="True" Content="Protect VoiceOver Recording from Music" ToolTip.Tip="Across your recorded takes only: does the same to any background music you added in the Add Music wizard. Has no effect if this video has no music." />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                                
+                                <Border BorderBrush="{DynamicResource AppWarningBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Background="{DynamicResource AppPanelBrush}">
+                                    <TextBlock Text="Each protection drops its bus by 85% and carves the 2 kHz speech band, only while one of your takes is playing.&#x0a;&#x0a;⚠️ IMPORTANT: This studio is for recording your own voice over the video. It does NOT contain AI to scan the video and mute other players' voices from the original game audio." FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap"/>
+                                </Border>
+                                
+                                <Border Name="SelectedTakeToolbar" IsVisible="False" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,15,0,0">
+                                    <StackPanel Orientation="Vertical" Spacing="8">
+                                        <TextBlock Text="SELECTED TAKE" FontSize="{DynamicResource AppFontSize11}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Button Name="MuteTakeButton" Classes="Secondary" Content="MUTE" Padding="15,4" ToolTip.Tip="Mute or unmute this specific take" />
+                                            <Button Name="DeleteTakeButton" Classes="Danger" Content="DELETE" Padding="15,4" ToolTip.Tip="Delete this take" />
+                                        </StackPanel>
+                                        <TextBlock Text="You can also trim by dragging its edges in the timeline" FontSize="{DynamicResource AppFontSize10}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+
+                    <!-- BOTTOM ROW (Apply / Cancel) -->
+                    <Border Grid.Row="1" Background="{DynamicResource AppSurfaceBrush}" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource AppBorderBrush}" Padding="12,12,12,12">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Name="VoiceOverHintText" Grid.Column="0" Text="Record a take before applying. Cancel discards unapplied takes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="15" HorizontalAlignment="Right">
+                                <!-- ISSUE_04: the permanent, always-available way back into this screen's walkthrough.
+                                     The walkthrough auto-plays only on the first few opens; this button is
+                                     how a returning user gets it again. Every screen in the suite has one. -->
+                                <Button Name="VoiceOverHelpButton" Classes="Secondary" Content="?" MinWidth="{DynamicResource AppSpeedPresetMinWidth}" MinHeight="{DynamicResource AppButtonMinHeight}" Padding="0" FontWeight="Bold" AutomationProperties.Name="Show me around the voice over recorder" ToolTip.Tip="New here? Play the short walkthrough that points out what everything on this screen does."/>
+                                <Button Name="CancelButton" Classes="Secondary" Content="CANCEL" MinWidth="100" ToolTip.Tip="Close without applying this voiceover session"/>
+                                <Button Name="ApplyButton" Classes="Success" Content="APPLY &amp; CLOSE" MinWidth="140" IsEnabled="False" ToolTip.Tip="Record a take before applying"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+        <Border Name="ResizeGrip" MinWidth="24" MinHeight="24" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="Transparent" Cursor="BottomRightCorner" ToolTip.Tip="Resize Voice Over Studio" AutomationProperties.Name="Resize Voice Over Studio">
+            <Path Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="1.5" StrokeLineCap="Round" Data="M 8,20 L 20,8 M 13,20 L 20,13 M 18,20 L 20,18" />
+        </Border>
+    </Grid>
+</Window>

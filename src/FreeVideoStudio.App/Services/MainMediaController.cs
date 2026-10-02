@@ -1,0 +1,161 @@
+﻿using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using FreeVideoStudio.App.Models;
+using FreeVideoStudio.Core;
+using FreeVideoStudio.Core.Infrastructure;
+using FreeVideoStudio.Core.Media;
+
+namespace FreeVideoStudio.App.Services;
+
+public class MainMediaController
+{
+    public async Task<ExportResult> ExecuteExportAsync(
+        ExportPayload payload, 
+        CancellationToken ct, 
+        Action<int> onProgress, 
+        Action<int, string, int> onPhase)
+    {
+        var paths = ApplicationPaths.CreateDefault();
+
+        using var worker = new ProcessWorker(paths);
+
+        try
+        {
+            RuntimeLog.Info("Process", "Starting video processing pipeline via MainMediaController.");
+            worker.OutputDirectory = payload.OutputDirectory;
+            
+            worker.ProgressUpdate += (percent) => onProgress(percent);
+            worker.PhaseUpdate += (phase, title, prog) => onPhase(phase, title, prog);
+            
+            var tcs = new TaskCompletionSource<ExportResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            
+            using var cancelReg = ct.Register(() => {
+                try { worker.Cancel(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+            });
+
+            worker.Finished += (success, message) =>
+            {
+                if (!success && (worker.WasCanceled || ct.IsCancellationRequested))
+                {
+                    RuntimeLog.Info("Process", "Worker cleaned up after cancellation.");
+                    tcs.TrySetResult(new ExportResult { Canceled = true });
+                    return;
+                }
+
+                if (success)
+                {
+                    RuntimeLog.Success("Process", $"Video processing completed successfully. Saved to: {message}");
+                    tcs.TrySetResult(new ExportResult { Success = true, OutputPath = message, Warning = worker.CompletionWarning });
+                }
+                else
+                {
+                    RuntimeLog.Fail("Process", $"Video processing failed: {message}");
+                    tcs.TrySetResult(new ExportResult 
+                    { 
+                        Success = false, 
+                        ErrorMessage = worker.LastFailure?.Summary ?? worker.FailureDetail ?? message,
+                        Failure = worker.LastFailure 
+                    });
+                }
+            };
+            
+            worker.InputPath = payload.InputPath;
+            worker.StartTimeMs = payload.TrimStartMs;
+            
+            double effectiveEndMs = payload.TrimEndMs > 0 ? payload.TrimEndMs : payload.LoadedVideoDurationMs;
+            worker.EndTimeMs = effectiveEndMs;
+            
+            if (payload.SpeedSegments != null) worker.SpeedSegments = payload.SpeedSegments;
+            if (payload.Cuts != null) worker.Cuts = payload.Cuts;
+            worker.SpeedFactor = payload.BaseSpeed;
+            worker.HardwareStrategy = payload.HardwareMode;
+            
+            if (payload.ThumbnailSet && payload.ThumbnailPosMs > 0)
+            {
+                worker.ThumbnailPosMs = payload.ThumbnailPosMs;
+                worker.IntroAbsTimeMs = payload.ThumbnailPosMs;
+                worker.IntroStillSec = payload.ThumbnailDurationSec > 0 ? payload.ThumbnailDurationSec : 0.1;
+            }
+            else
+            {
+                worker.IntroAbsTimeMs = payload.ThumbnailPosMs > 0 ? payload.ThumbnailPosMs : payload.TrimStartMs;
+                worker.IntroStillSec = 0.1;
+            }
+            
+            var audioPrefs = Infrastructure.SettingsManager.Instance;
+            worker.SourceMeasuredLufs = payload.SourceMeasuredLufs;
+            worker.ApplyLoudnessNormalization = payload.ApplyLoudnessNormalization ?? audioPrefs.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.NeverApply;
+            bool peakWanted = payload.ApplyPeakFlattening ?? audioPrefs.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.NeverApply;
+            worker.AutoSpikeFlattening = audioPrefs.Defaults.AutoSpikeFlattening && peakWanted;
+            worker.AutoVoiceNormalization = audioPrefs.Defaults.AutoVoiceNormalization;
+            
+            worker.IsMobileFormat = payload.IsMobileFormat;
+            worker.EnableFades = payload.EnableFades;
+            worker.ShowTeammates = payload.ShowTeammates;
+            worker.ShowSpectating = payload.ShowSpectating;
+            worker.MemeFile = payload.MemeFile;
+            worker.MemeAtStart = payload.MemeAtStart;
+            if (payload.MemePlacements != null && payload.MemePlacements.Count > 0)
+                worker.MemePlacements = payload.MemePlacements;
+            worker.PortraitText = payload.PortraitText;
+            
+            worker.QualityLevel = payload.QualityLevel;
+            worker.TargetMbOverride = payload.TargetMbOverride;
+            
+            worker.MusicLeadFadeIn = payload.MusicLeadFadeIn;
+            worker.MusicTailFadeOut = payload.MusicTailFadeOut;
+            if (payload.MusicTracks != null) worker.MusicTracks = payload.MusicTracks;
+            if (payload.MusicConfig != null) worker.MusicConfig = payload.MusicConfig;
+            worker.KeepMusicDuringMeme = payload.KeepMusicDuringMeme;
+            
+            worker.VoiceOverWavPath = payload.VoiceOverWavPath;
+            worker.VoiceOverStartSec = payload.VoiceOverStartSec;
+            if (payload.VoiceOverTakes != null) worker.VoiceOverTakes = payload.VoiceOverTakes;
+            
+            worker.VoiceOverDuckAudio = payload.VoiceOverDuckAudio;
+            worker.VoiceOverProtectFromMusic = payload.VoiceOverProtectFromMusic;
+            
+            _ = worker.RunAsync(ct).ContinueWith(t =>
+            {
+                if (t.IsFaulted && t.Exception != null)
+                {
+                    RuntimeLog.Fail("Process", $"Export pipeline faulted outside its own handler: {t.Exception.GetBaseException().Message}");
+                    var escaped = FfmpegErrorClassifier.ClassifyException(
+                        t.Exception.GetBaseException(),
+                        ExportStage.Preflight,
+                        new ExportAttemptIdentity { AttemptIndex = 1, Operation = "ExportPipeline", Description = "Export pipeline" });
+                    tcs.TrySetResult(new ExportResult
+                    {
+                        Success = false,
+                        ErrorMessage = escaped.Summary,
+                        Failure = escaped
+                    });
+                }
+                else if (t.IsCanceled)
+                {
+                    tcs.TrySetResult(new ExportResult { Canceled = true });
+                }
+                else
+                {
+                    tcs.TrySetResult(new ExportResult
+                    {
+                        Success = false,
+                        ErrorMessage = worker.LastFailure?.Summary ?? "The export pipeline stopped without reporting a result.",
+                        Failure = worker.LastFailure
+                    });
+                }
+            }, TaskScheduler.Default);
+
+            return await tcs.Task;
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Fail("Process", ex);
+            var failure = FfmpegErrorClassifier.ClassifyException(ex, ExportStage.Preflight,
+                new ExportAttemptIdentity { AttemptIndex = 1, Operation = "ExportSetup", Description = "Export preparation" });
+            return new ExportResult { Success = false, ErrorMessage = failure.Summary, Failure = failure };
+        }
+    }
+}

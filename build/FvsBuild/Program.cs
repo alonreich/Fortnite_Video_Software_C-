@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace FvsBuild;
 
@@ -26,17 +26,15 @@ internal static class Program
         if (args.Any(a => a.Equals("--help", StringComparison.OrdinalIgnoreCase) || a.Equals("-h", StringComparison.OrdinalIgnoreCase)))
         {
             Console.WriteLine("Usage: FvsBuild [--no-publish] [--dev]");
-            Console.WriteLine("  (default)   build .\\compiled\\FortniteVideoSoftware.exe, then replace the GitHub release");
+            Console.WriteLine("  (default)   build .\\compiled\\FreeVideoStudio.exe, then replace the GitHub release");
             Console.WriteLine("  --no-publish  build only; GitHub is not touched");
             Console.WriteLine("  --dev         local dev build: no GitHub, and .\\compiled is not wiped first");
             Console.WriteLine("  --zip-only    diagnostic: stage dependencies and create payload.zip, then stop.");
-            Console.WriteLine("                Leaves src\\FortniteVideoSoftware.App\\payload.zip and the staging");
+            Console.WriteLine("                Leaves src\\FreeVideoStudio.App\\payload.zip and the staging");
             Console.WriteLine("                folder in place for inspection. GitHub and .\\compiled are untouched.");
             return ExitOk;
         }
 
-        // The orchestrator may be launched from any CWD (CI checkout, double-click);
-        // anchor everything to the repository that contains this build project.
         Environment.CurrentDirectory = FindRepoRoot();
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch (IOException) { }
 
@@ -51,7 +49,7 @@ internal static class Program
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "FortniteVideoSoftware.sln")))
+            if (File.Exists(Path.Combine(directory.FullName, "FreeVideoStudio.sln")))
             {
                 return directory.FullName;
             }
@@ -62,9 +60,6 @@ internal static class Program
 
     private static int RunPipeline(BuildLog log, bool noPublish, bool devMode, bool zipOnly, DateTimeOffset started)
     {
-        // yyyy.MM.dd.HHmm - each part must stay under 65535 for a Windows version resource,
-        // and the time keeps two same-day builds from colliding on one tag. Computed ONCE
-        // so the exe, the release tag and the published notes all say the same thing.
         string buildVersion = DateTime.Now.ToString("yyyy.MM.dd.HHmm", CultureInfo.InvariantCulture);
         string tag = "v" + buildVersion;
         string flavor = devMode ? "Local Dev" : "NativeAOT win-x64";
@@ -75,9 +70,6 @@ internal static class Program
         {
             if (zipOnly)
             {
-                // Diagnostic path for CI and hand checks: reproduce the exact payload.zip the
-                // shipping build embeds, without publishing the installer. Nothing outside
-                // obj\StandaloneTemp and src\...\App\payload.zip is touched.
                 log.Banner("###########################################################");
                 log.Banner("ZIP-ONLY: staging + payload.zip, then stop. .\\compiled is untouched.");
                 log.Banner("###########################################################");
@@ -115,7 +107,7 @@ internal static class Program
 
             log.Banner(string.Empty);
             log.Banner("###########################################################");
-            log.Banner($"BUILDING Fortnite Video Software: {flavor}");
+            log.Banner($"BUILDING Free Video Studio: {flavor}");
             log.Banner("###########################################################");
             if (!RunNativeAotStages(log, buildVersion))
             {
@@ -145,15 +137,6 @@ internal static class Program
 
             if (CodeSigning.SignedWithLocalDevCertificate)
             {
-                // SIGNLOCAL_02 (supersedes the SIGNLOCAL_01 refusal) — USER DECISION (2026-09-26, option A): publish even when signed with the
-                // local development certificate. Consequences, stated every time so nobody forgets:
-                //   • the in-app "new version available" notification works for every user (it is a
-                //     version check against the GitHub release);
-                //   • in-app INSTALL stays refused on user machines (UPDATETRUST_02): their Windows does
-                //     not trust this private root, so the publisher cannot be verified and the user is
-                //     sent to the release page to install by hand;
-                //   • SmartScreen still shows "unknown publisher" to new downloaders.
-                // A publicly trusted certificate (FVS_SIGN_PFX / FVS_SIGN_PASS) removes all three.
                 log.Banner(string.Empty);
                 log.Warn("[PUBLISH] Signed with the LOCAL DEVELOPMENT certificate (SIGNLOCAL_02, publishing by user decision).");
                 log.Warn("[PUBLISH] Users WILL see the update notification; in-app install sends them to the release page");
@@ -173,7 +156,7 @@ internal static class Program
             log.Banner(string.Empty);
             log.Banner("###########################################################");
             log.Warn("BUILD OK - but the release was NOT updated.");
-            log.Warn(".\\compiled\\FortniteVideoSoftware.exe is good and usable.");
+            log.Warn(".\\compiled\\FreeVideoStudio.exe is good and usable.");
             log.Warn("Only the GitHub publish step did not finish - reason above.");
             log.Banner("###########################################################");
             return ExitPublishIncomplete;
@@ -198,6 +181,7 @@ internal static class Program
         {
             return false;
         }
+        if (!CodeSigning.SignIfNeeded(Path.Combine(Staging.StagingDirPath, "FreeVideoStudio.exe"), log)) return false;
         if (!Staging.CreatePayloadZip(log))
         {
             return false;
@@ -214,6 +198,7 @@ internal static class Program
         {
             return false;
         }
+        if (!Staging.CreateCompactInstaller(buildVersion, log)) return false;
         if (!Staging.ValidateCompiledOutput(log))
         {
             return false;
@@ -239,7 +224,6 @@ internal static class Program
         string root = FindRepoRoot();
         log.Info($"[VERSION] Synchronizing version '{buildVersion}' across project files...");
 
-        // 1. version.txt
         string versionTxtPath = Path.Combine(root, "version.txt");
         try
         {
@@ -251,7 +235,6 @@ internal static class Program
             log.Warn($"[VERSION] Failed to update version.txt: {ex.Message}");
         }
 
-        // 2. Directory.Build.props
         string propsPath = Path.Combine(root, "Directory.Build.props");
         string propsContent = $"""
 <Project>
@@ -275,11 +258,10 @@ internal static class Program
             log.Warn($"[VERSION] Failed to update Directory.Build.props: {ex.Message}");
         }
 
-        // 3. Update csproj files directly so IDE and standalone builds always match
-        string appCsproj = Path.Combine(root, "src", "FortniteVideoSoftware.App", "FortniteVideoSoftware.App.csproj");
+        string appCsproj = Path.Combine(root, "src", "FreeVideoStudio.App", "FreeVideoStudio.App.csproj");
         UpdateCsprojVersion(appCsproj, buildVersion, log);
 
-        string coreCsproj = Path.Combine(root, "src", "FortniteVideoSoftware.Core", "FortniteVideoSoftware.Core.csproj");
+        string coreCsproj = Path.Combine(root, "src", "FreeVideoStudio.Core", "FreeVideoStudio.Core.csproj");
         UpdateCsprojVersion(coreCsproj, buildVersion, log);
     }
 

@@ -1,0 +1,236 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+             xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
+             x:Class="FreeVideoStudio.App.Controls.PhaseOverlayControl"
+             Background="{DynamicResource AppOverlayBrush}"
+             IsVisible="False"
+             ZIndex="999">
+    <Grid PointerPressed="OnOverlayPointerPressed">
+        <!-- Procedural Stick-Fighter Canvas (silent - no audio).
+             IDEA_A: Fighter A = accent (blue), Fighter B = danger (red), thicker strokes,
+             higher opacity + code-applied glow so they read clearly on the dark overlay. -->
+        <Canvas x:Name="FightCanvas" IsHitTestVisible="False" ZIndex="999" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0.9">
+
+            <!-- IDEA_1: a real floor. Without this the fighters read as floating in a void.
+                 GroundLine is stretched across the canvas in code (OnVectorAnimTick); the two
+                 contact shadows track each fighter and shrink as he leaves the ground. -->
+            <Line x:Name="GroundLine" Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="2" Opacity="0.35" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="ShadowA" Width="54" Height="12" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0.30" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="ShadowB" Width="54" Height="12" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0.30" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- Dust puffs on entrance landing -->
+            <Ellipse x:Name="DustA" Width="60" Height="18" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="DustB" Width="60" Height="18" Fill="{DynamicResource AppTextMutedBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- Power-up: a mushroom a fighter can grab to grow 2x and ground-pound -->
+            <Canvas x:Name="Mushroom" Width="26" Height="24" IsVisible="False" IsHitTestVisible="False">
+                <Path Fill="{DynamicResource AppDangerBrush}" Data="M 0,12 A 13,12 0 0,1 26,12 Z"/>
+                <Ellipse Fill="{DynamicResource AppOnAccentTextBrush}" Width="6" Height="6" Canvas.Left="6" Canvas.Top="4"/>
+                <Ellipse Fill="{DynamicResource AppOnAccentTextBrush}" Width="5" Height="5" Canvas.Left="15" Canvas.Top="5"/>
+                <Rectangle Fill="{DynamicResource AppWarningBrush}" Width="10" Height="12" Canvas.Left="8" Canvas.Top="12"/>
+            </Canvas>
+
+            <!-- Expanding shockwave ring for the ground-pound smash and the boss stomp -->
+            <Ellipse x:Name="ShockRing" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="4" Fill="Transparent" Opacity="0" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- ===== Skit props (randomized comedy vignettes) ===== -->
+            <!-- Door: a fighter hides behind it, then slams it open onto the other -->
+            <Canvas x:Name="Door" Width="60" Height="150" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="60" Height="150" Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="3"/>
+                <Rectangle Width="40" Height="60" Canvas.Left="10" Canvas.Top="12" Fill="Transparent" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2"/>
+                <Ellipse Width="7" Height="7" Canvas.Left="48" Canvas.Top="78" Fill="{DynamicResource AppWarningBrush}"/>
+            </Canvas>
+
+            <!-- Ladder + light bulb: one climbs to fix the bulb, the other gets zapped -->
+            <Canvas x:Name="Ladder" Width="50" Height="130" IsVisible="False" IsHitTestVisible="False">
+                <Path Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="4" Data="M 8,130 L 20,0 M 44,130 L 32,0 M 11,100 L 41,100 M 14,70 L 38,70 M 17,40 L 35,40"/>
+            </Canvas>
+            <Canvas x:Name="Bulb" Width="26" Height="34" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="10" Height="8" Canvas.Left="8" Fill="{DynamicResource AppTextMutedBrush}"/>
+                <Ellipse x:Name="BulbGlass" Width="24" Height="24" Canvas.Left="1" Canvas.Top="8" Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="2"/>
+            </Canvas>
+            <Path x:Name="ZapBolt" Stroke="{DynamicResource AppWarningBrush}" StrokeThickness="4" Fill="Transparent" IsVisible="False" IsHitTestVisible="False" Data="M 0,0 L 10,14 L 2,16 L 14,34"/>
+
+            <!-- LOG TANGLE (replaces the old wooden-logs prop, which was a bad pun made literal).
+                 These are the app's OWN green console log lines: real text taken from the live log
+                 box below, which erupts up out of that box, grows toward the viewer (fake 3D via
+                 font size + opacity) and wraps around a fighter until the other one untangles him.
+                 The strands are created in code (BuildLogStrands) so the count and the text can
+                 follow whatever the encoder is actually printing. -->
+            <Canvas x:Name="LogTangle" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- SKIT: banana peel -->
+            <Path x:Name="BananaPeel" IsVisible="False" IsHitTestVisible="False"
+                  Fill="{DynamicResource AppWarningBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="1"
+                  Data="M 0,10 Q 10,-6 22,4 Q 14,2 12,10 Q 22,12 30,6 Q 26,18 12,18 Q 2,18 0,10 Z"/>
+
+            <!-- SKIT: fake tunnel painted on thin air; the victim runs face-first into it -->
+            <Canvas x:Name="FakeTunnel" Width="96" Height="128" IsVisible="False" IsHitTestVisible="False">
+                <Ellipse Width="96" Height="128" Fill="{DynamicResource AppVideoSurfaceBrush}" Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="3"/>
+                <Ellipse Width="66" Height="92" Canvas.Left="15" Canvas.Top="18" Fill="Transparent" Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="1" Opacity="0.5"/>
+            </Canvas>
+
+            <!-- SKIT: a piano falls out of nowhere -->
+            <Canvas x:Name="Piano" Width="96" Height="66" IsVisible="False" IsHitTestVisible="False">
+                <Rectangle Width="96" Height="48" Fill="{DynamicResource AppPanelBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="3" RadiusX="4" RadiusY="4"/>
+                <Rectangle Width="86" Height="16" Canvas.Left="5" Canvas.Top="46" Fill="{DynamicResource AppOnAccentTextBrush}" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="2"/>
+                <Path Canvas.Left="5" Canvas.Top="46" Stroke="{DynamicResource AppBorderBrush}" StrokeThickness="3"
+                      Data="M 8,0 L 8,10 M 20,0 L 20,10 M 32,0 L 32,10 M 46,0 L 46,10 M 58,0 L 58,10 M 70,0 L 70,10"/>
+            </Canvas>
+
+            <!-- SKIT: tug of war. The rope curve is rebuilt every frame in code. -->
+            <Path x:Name="TugRope" Stroke="{DynamicResource AppTextMutedBrush}" StrokeThickness="4" Fill="Transparent" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- SKIT: one falls asleep standing up, the other doodles on his face -->
+            <TextBlock x:Name="SleepZzz" Text="z  Z  Z" Foreground="{DynamicResource AppInfoBrush}" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" IsVisible="False" IsHitTestVisible="False"/>
+            <Path x:Name="FaceDoodle" Stroke="{DynamicResource AppTextPrimaryBrush}" StrokeThickness="2" Fill="Transparent" IsVisible="False" IsHitTestVisible="False"
+                  Data="M 0,6 L 8,0 L 14,8 M 2,14 Q 9,20 16,13 M 20,2 L 26,10"/>
+
+            <!-- Spinning "seeing stars" above a knocked-out fighter's head -->
+            <TextBlock x:Name="StarsA" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
+            <TextBlock x:Name="StarsB" Text="✦   ✦   ✦" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize16}" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- IDEA_4: health bars that ARE the export progress. The designated loser's bar drains
+                 in lock-step with the encode, so the knockout lands exactly when the file is done.
+                 Both panels are positioned from code so they stay put at any window size. -->
+            <Border x:Name="HealthPanelA" Width="260" Height="26" IsVisible="False" IsHitTestVisible="False"
+                    BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2" CornerRadius="6" Background="{DynamicResource AppOverlayBrush}" Padding="3">
+                <Grid>
+                    <ProgressBar x:Name="HealthBarA" Minimum="0" Maximum="100" Value="100" Height="16" Foreground="{DynamicResource AppSuccessBrush}" Background="Transparent" CornerRadius="4" ShowProgressText="False"/>
+                    <TextBlock x:Name="HealthLabelA" Text="BLUE" HorizontalAlignment="Left" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                </Grid>
+            </Border>
+            <Border x:Name="HealthPanelB" Width="260" Height="26" IsVisible="False" IsHitTestVisible="False"
+                    BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2" CornerRadius="6" Background="{DynamicResource AppOverlayBrush}" Padding="3">
+                <Grid>
+                    <ProgressBar x:Name="HealthBarB" Minimum="0" Maximum="100" Value="100" Height="16" Foreground="{DynamicResource AppSuccessBrush}" Background="Transparent" CornerRadius="4" ShowProgressText="False"/>
+                    <TextBlock x:Name="HealthLabelB" Text="RED" HorizontalAlignment="Right" Margin="0,0,6,0" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                </Grid>
+            </Border>
+
+            <!-- Hype Meter (IDEA_7). Filled by SPACEBAR (or a click anywhere on the overlay);
+                 the overlay swallows Space while it is up so it no longer reaches the player. -->
+            <Border x:Name="HypeContainer" Canvas.Top="20" Width="220" Height="20" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="2" CornerRadius="10" IsVisible="True" IsHitTestVisible="False">
+                <Grid>
+                    <ProgressBar x:Name="HypeMeterBar" Minimum="0" Maximum="100" Value="0" Height="16" Foreground="{DynamicResource AppSuccessBrush}" Background="Transparent" CornerRadius="8" ShowProgressText="False"/>
+                    <TextBlock x:Name="HypeMeterLabel" Text="MASH SPACEBAR FOR ULTIMATE!" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                </Grid>
+            </Border>
+
+            <!-- Boss Fight UI -->
+            <TextBlock x:Name="BossLabel" Text="WARNING: BOSS ENCOUNTER" Foreground="{DynamicResource AppDangerBrush}" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Canvas.Top="20" Canvas.Left="0" IsVisible="False" IsHitTestVisible="False" Opacity="0.8"/>
+
+            <Canvas x:Name="FighterA" IsHitTestVisible="False">
+                <Ellipse x:Name="A_Head" Width="30" Height="30" Fill="{DynamicResource AppAccentBrush}" />
+                <!-- IDEA_2: one eye dot per fighter. It is moved to whichever side he is facing,
+                     which is what actually sells the turn - the limbs alone are symmetric. -->
+                <Ellipse x:Name="A_Eye" Width="6" Height="6" Fill="{DynamicResource AppOverlayBrush}" />
+                <Line x:Name="A_Body" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_LArm" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_RArm" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_LLeg" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="A_RLeg" Stroke="{DynamicResource AppAccentBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+            </Canvas>
+
+            <Canvas x:Name="FighterB" IsHitTestVisible="False">
+                <Ellipse x:Name="B_Head" Width="30" Height="30" Fill="{DynamicResource AppDangerBrush}" />
+                <Ellipse x:Name="B_Eye" Width="6" Height="6" Fill="{DynamicResource AppOverlayBrush}" />
+                <Line x:Name="B_Body" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_LArm" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_RArm" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_LLeg" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+                <Line x:Name="B_RLeg" Stroke="{DynamicResource AppDangerBrush}" StrokeThickness="9" StrokeLineCap="Round" />
+            </Canvas>
+
+            <!-- Full-canvas flash for rare "super" moves -->
+            <Rectangle x:Name="SuperFlash" Fill="{DynamicResource AppOnAccentTextBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+            <!-- IDEA_7: the beam the hype meter pays out. Sized/positioned in code. -->
+            <Rectangle x:Name="UltBeam" Fill="{DynamicResource AppInfoBrush}" Opacity="0" IsVisible="False" IsHitTestVisible="False" RadiusX="10" RadiusY="10"/>
+
+            <!-- Thrown projectiles arcing between fighters (two, for spread/double throws) -->
+            <Ellipse x:Name="Projectile" Width="16" Height="16" Fill="{DynamicResource AppWarningBrush}" IsVisible="False" IsHitTestVisible="False"/>
+            <Ellipse x:Name="Projectile2" Width="14" Height="14" Fill="{DynamicResource AppInfoBrush}" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- IDEA_B: comic impact burst ("POW/BAM/WHAM") flashed on hit -->
+            <TextBlock x:Name="ImpactBurst" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize36}" FontWeight="Black" IsVisible="False" IsHitTestVisible="False"/>
+
+            <!-- IDEA_C: rotating taunt bubble during the fight -->
+            <Path x:Name="ComicBubble" Fill="{DynamicResource AppSurfaceBrush}" Stroke="{DynamicResource AppTextPrimaryBrush}" StrokeThickness="3" IsVisible="False" />
+            <TextBlock x:Name="ComicText" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" IsVisible="False" />
+
+            <!-- IDEA_D/E: dramatic "FIGHT!" entrance flash + "VICTORY" finisher -->
+            <TextBlock x:Name="TitleFlash" Foreground="{DynamicResource AppOnAccentTextBrush}" FontSize="{DynamicResource AppFontSize60}" FontWeight="Black" IsVisible="False" IsHitTestVisible="False"/>
+        </Canvas>
+        
+        <Grid Margin="40">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Progress Bar Area -->
+        <Border Grid.Row="0" Margin="0,0,0,20" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,0,0,10">
+                    <!-- Indeterminate Spinner -->
+                    <ProgressBar IsIndeterminate="True" Width="20" Height="20" Foreground="{DynamicResource AppWarningBrush}" />
+                    <TextBlock x:Name="PhaseTitleText" Text="Phase 1: Preparing..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" VerticalAlignment="Center"/>
+                </StackPanel>
+                <!-- Massive Glowing Progress Bar -->
+                <Border CornerRadius="4" Background="Transparent" BoxShadow="{DynamicResource AppPhaseGlowShadow}">
+                    <Grid>
+                        <ProgressBar x:Name="PhaseProgressBar" Minimum="0" Maximum="100" Value="0" Height="30" Foreground="{DynamicResource AppSuccessBrush}" Background="{DynamicResource AppOverlayBrush}" CornerRadius="4"/>
+                    </Grid>
+                </Border>
+                <Grid Margin="0,5,0,0">
+                    <TextBlock x:Name="PhaseProgressText" Text="0%" Foreground="{DynamicResource AppSuccessBrush}" FontSize="{DynamicResource AppFontSize16}" FontWeight="SemiBold" HorizontalAlignment="Left"/>
+                    <TextBlock x:Name="TimeRemainingText" Text="Estimating time remaining..." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" FontStyle="Italic" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Graph Area -->
+        <Border Grid.Row="1" MinHeight="240" Background="{DynamicResource AppOverlayBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+            <controls:HardwareGraphControl x:Name="GraphCanvas" />
+        </Border>
+        
+        <!-- Live Log Area.
+             ISSUE_12 (audit round 5): FontFamily was "Consolas, monospace". "monospace" is not a
+             real installed family on Windows, so this was the only one of the suite's three
+             monospaced surfaces with no usable fallback. Now matches DeploymentProgressWindow and
+             ErrorDialogWindow exactly. -->
+        <TextBox Grid.Row="2" x:Name="LiveLogTextBox" Margin="0,20,0,0"
+                 IsReadOnly="True"
+                 FontFamily="Consolas,Courier New,monospace"
+                 FontSize="{DynamicResource AppFontSize11}"
+                 Foreground="{DynamicResource AppSuccessBrush}"
+                 Background="{DynamicResource AppControlTrackBrush}"
+                 BorderBrush="{DynamicResource AppSuccessBrush}"
+                 BorderThickness="1"
+                 CornerRadius="4"
+                 Padding="8"
+                 TextWrapping="Wrap" />
+
+        <!-- Cancel Button Area -->
+        <!-- ISSUE_06: this is the ONLY cancel control on screen during an export and it used to
+             fire immediately, throwing away a long GPU encode on a single misplaced click. Every
+             other destructive action in the suite is flyout-guarded (MainWindow CANCEL, Merger
+             REMOVE SELECTED, CropTool RESET/DELETE, Granular DELETE/CLEAR ALL). Now matched. -->
+        <Button Grid.Row="3" x:Name="CancelProcessButton" Classes="Danger" Content="CANCEL" MinWidth="125" CornerRadius="10" HorizontalAlignment="Center" Margin="0,20,0,0" ToolTip.Tip="Cancel the current operation">
+            <Button.Flyout>
+                <Flyout Placement="Top" FlyoutPresenterClasses="CustomFlyout">
+                    <StackPanel Spacing="8" Margin="8" MaxWidth="260">
+                        <TextBlock Text="⚠️ Cannot be undone" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize12}" FontWeight="Bold" />
+                        <TextBlock Text="All progress on this export is discarded and the partly-written file is removed. You will have to start the export again from the beginning."
+                                   Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" />
+                        <Button x:Name="ConfirmCancelProcessButton" Classes="Danger" Content="CONFIRM CANCEL" HorizontalAlignment="Stretch" ToolTip.Tip="Permanently stop the current operation." />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+        </Button>
+        </Grid>
+    </Grid>
+</UserControl>

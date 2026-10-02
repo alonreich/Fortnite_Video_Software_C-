@@ -2,21 +2,21 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set "PROJECT=src\FortniteVideoSoftware.App\FortniteVideoSoftware.App.csproj"
+set "PROJECT=src\FreeVideoStudio.App\FreeVideoStudio.App.csproj"
 set "CONFIG=Debug"
 set "RUNTIME=win-x64"
 set "DOTNET_WATCH_SUPPRESS_EMOJIS=1"
 set "REPO_ROOT=%CD%"
 
 REM Sandbox the developer config to prevent corrupting the real installed app settings.
-set "FVS_PROGRAMDATA_ROOT=%TMP%\Fortnite_Video_Software_DEV\.dev_data"
+set "FVS_PROGRAMDATA_ROOT=%TMP%\FreeVideoStudio_DEV\.dev_data"
 
 REM ----------------------------------------------------------------------
 REM DEV LOG DIRECTORY: All dev-mode logs go EXCLUSIVELY to
-REM %TMP%\Fortnite_Video_Software_DEV\. Never in the project root, %TMP%,
+REM %TMP%\FreeVideoStudio_DEV\. Never in the project root, %TMP%,
 REM or %PROGRAMDATA%. This includes the app log and detailed MPV debug logs.
 REM ----------------------------------------------------------------------
-set "FVS_DEV_LOG_DIR=%TMP%\Fortnite_Video_Software_DEV"
+set "FVS_DEV_LOG_DIR=%TMP%\FreeVideoStudio_DEV"
 if not exist "%FVS_DEV_LOG_DIR%" mkdir "%FVS_DEV_LOG_DIR%"
 
 REM ======================================================================
@@ -158,8 +158,7 @@ REM build silently reuse a stale binary.
 REM ======================================================================
 :KILL_STALE
 echo [DEV] Purging stale processes owned by this repo...
-taskkill /F /IM FortniteVideoSoftware.exe /T >nul 2>nul
-taskkill /F /IM FortniteVideoSoftware.App.exe /T >nul 2>nul
+taskkill /F /IM FreeVideoStudio.exe /T >nul 2>nul
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$root = '%REPO_ROOT%';" ^

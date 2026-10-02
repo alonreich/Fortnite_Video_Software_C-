@@ -1,0 +1,152 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FreeVideoStudio.App.Controls.TimelineLanesControl"
+             ClipToBounds="False">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════════════════
+         SHARED TWO-LANE TIMELINE (LANES_03)
+
+         ONE control, used by BOTH the Granular Speed Editor and Music Wizard phase 3. It owns
+         everything the two windows had been duplicating: the ruler, the gridlines, the caret and
+         all click-to-seek behaviour. The windows supply only their own lane CONTENT.
+
+           col 0 : elapsed clock   (counts UP   — time into the clip)
+           col 1 : row 0 marker headroom 0px    <- ZOOM_01, height set by MarkerHeadroomPx
+                   row 1 ruler 22px
+                   row 2 LANE A host 60px   <- window fills this
+                   row 3 LANE B host 60px   <- window fills this
+                   overlays spanning rows 1-3: gridlines, seek surfaces, caret
+           col 2 : remaining clock (counts DOWN — time left)
+
+         ⚠️ THE SEEK SURFACES ARE PER-ROW, NOT ONE BIG ONE. Granular's upper lane handles its own
+         pointer input (block drag, edge resize, drag-to-create), so a single surface spanning
+         everything would swallow it. Each row gets its own, switched on independently.
+
+         ⚠️ THE CARET GRAB BOX SITS ABOVE THE SEEK SURFACES on purpose — grabbing the playhead must
+         never register as a click-to-seek. That is the whole reason it has a widened hit area.
+
+         ZOOM_01 — HORIZONTAL AFFINE SCALING (viewport virtualization). LanesGrid is sized IN
+         CODE to viewport-width × ZoomFactor and lives inside a horizontal ScrollViewer that
+         supplies the pan extent. Every layer stretches to that width, so every `fraction ×
+         Bounds.Width` computation — this control's ruler, gridlines and caret, and the host
+         windows' SrcMsToX/XToSrcMs pairs — is zoom-correct with no per-layer scaling code.
+         ⚠️ DO NOT "fix" this with a RenderTransform ScaleTransform instead: a RenderTransform
+         does not affect layout, so the ScrollViewer would have no extent to scroll, and
+         combining a transform with zoom-aware pixel math double-scales. The zoom factor enters
+         through the layer WIDTH, exactly once.
+         ⚠️ THE MARKER HEADROOM ROW IS LOAD-BEARING WHEN ZOOM IS ON. The floating camera markers
+         paint up to 52px ABOVE the ruler; inside a ScrollViewer that band must be real content
+         space or the presenter clip deletes the marker heads. The host sets MarkerHeadroomPx
+         (56 in the Granular editor) and cancels the on-screen growth with a matching negative
+         top margin so the ruler stays exactly where it was.
+         ═══════════════════════════════════════════════════════════════════════════════════════ -->
+
+    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" ClipToBounds="False">
+
+        <TextBlock Grid.Column="0" Name="ElapsedLabel" Text="00:00"
+                   Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                   MinWidth="52" FontSize="{DynamicResource AppFontSize10}" Margin="0,0,8,0"
+                   ToolTip.Tip="Time into the clip"/>
+
+        <!-- ZOOM_01 — the horizontal viewport. LanesGrid's width is driven from this viewport in
+             code (viewport × ZoomFactor), never from the window, so the pan extent and every
+             layer's pixel math share one definition of "how zoomed are we". -->
+        <ScrollViewer Grid.Column="1" Name="LanesScroll"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled">
+            <Grid Name="LanesGrid" ClipToBounds="False">
+                <Grid.RowDefinitions>
+                    <!-- ZOOM_01 — headroom for the floating markers (see the header note). Height 0
+                         by default so non-zoomed hosts (Music Wizard phase 3) are laid out exactly
+                         as before; MarkerHeadroomPx sets it from code. -->
+                    <RowDefinition Height="0"/>
+                    <RowDefinition Height="22"/>
+                    <RowDefinition Height="Auto" MinHeight="60"/>
+                    <RowDefinition Height="Auto" MinHeight="60"/>
+                </Grid.RowDefinitions>
+
+            <!-- Ruler. Explicit Height, NOT MinHeight: a Canvas reports zero desired size, so an
+                 Auto row would rest entirely on MinHeight surviving the measure pass. -->
+            <Border Grid.Row="1" Background="Transparent" Height="22" ClipToBounds="False">
+                <Canvas Name="RulerCanvas" IsHitTestVisible="False" ClipToBounds="False"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+
+            <Border Grid.Row="2" Name="LaneABorder" BorderBrush="{DynamicResource AppPanelBrush}"
+                    BorderThickness="2" CornerRadius="2" Height="60" MinHeight="60" ClipToBounds="False">
+                <Panel Name="LaneAHostPanel" ClipToBounds="False"/>
+            </Border>
+
+            <Border Grid.Row="3" Name="LaneBBorder" BorderBrush="{DynamicResource AppPanelBrush}"
+                    BorderThickness="2" CornerRadius="2" Height="60" MinHeight="60">
+                <Panel Name="LaneBHostPanel"/>
+            </Border>
+
+            <!-- Faint vertical gridlines dropping from every ruler tick through both lanes, so a
+                 moment can be read straight down the screen. Never hit-testable. -->
+            <Canvas Grid.Row="1" Grid.RowSpan="3" Name="GridlinesCanvas"
+                    IsHitTestVisible="False" ClipToBounds="False" ZIndex="50"/>
+
+            <!-- Per-row seek surfaces (see the header note). -->
+            <Canvas Grid.Row="1" Name="RulerSeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" ClipToBounds="False"
+                    AutomationProperties.Name="Seek using the time ruler"/>
+            <Canvas Grid.Row="2" Name="LaneASeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" IsVisible="False"
+                    AutomationProperties.Name="Seek using the upper lane"/>
+            <Canvas Grid.Row="3" Name="LaneBSeekCanvas" Background="Transparent" Cursor="Hand"
+                    ZIndex="100" IsVisible="False"
+                    AutomationProperties.Name="Seek using the lower lane"/>
+
+            <!-- MARKER_01 — FLOATING MARKER LAYER.
+                 For markers that must sit ON TOP OF the timeline rather than inside a lane: a
+                 "popsicle" camera head above the ruler with its stick dropping down through the
+                 lanes, exactly like the thumbnail mark on the Main App's timeline.
+
+                 ⚠️ IT HAS TO LIVE HERE, NOT IN A LANE. Avalonia's ZIndex only orders SIBLINGS, so a
+                 marker parented inside LaneABorder can never rise above the seek surfaces at
+                 ZIndex 100 however high its own ZIndex is — its whole lane sits below them. Drawn
+                 in a lane, a marker had its head swallowed by the ruler's seek surface the instant
+                 it poked up out of that lane. To the user that is not a z-order subtlety, it is a
+                 marker that cannot be grabbed.
+
+                 150 is deliberate: above both seek surfaces so a marker takes the click, below the
+                 caret at 200 so grabbing the playhead still wins.
+
+                 NO Background on purpose — an empty Canvas is not hit-testable, so ordinary clicks
+                 fall straight through to the seek surfaces underneath and only real marker children
+                 take input. ClipToBounds=False lets a head float above the ruler INTO THE HEADROOM
+                 ROW (ZOOM_01: inside a ScrollViewer that only works if the headroom row reserves
+                 the space). -->
+            <Canvas Grid.Row="1" Grid.RowSpan="3" Name="MarkerOverlayCanvas"
+                    ZIndex="150" ClipToBounds="False"/>
+
+            <!-- Caret: a wide invisible grab column carrying a thin visible line, plus the time
+                 badge. Spans the ruler and both lanes so all three always agree. -->
+            <Panel Grid.Row="1" Grid.RowSpan="3" Name="CaretHost" ZIndex="200"
+                   IsHitTestVisible="False" ClipToBounds="False">
+                <!-- ISSUE_34: 14px was narrower than the playhead itself was easy to aim at, so most grab
+                 attempts missed and registered as a click-to-seek jump instead of a drag. -->
+            <Border Name="CaretGrab" Width="28" Background="Transparent" Cursor="SizeWestEast"
+                        HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="True"
+                        ToolTip.Tip="Drag to scrub through the video">
+                    <Border Name="CaretLine" Width="3" Background="{DynamicResource AppDangerBrush}"
+                            HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                            IsHitTestVisible="False"/>
+                </Border>
+                    <Border Name="CaretBadge" IsVisible="False" Background="{DynamicResource AppOverlayBrush}"
+                            CornerRadius="3" Padding="5,2" Margin="4,2,0,0"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+                        <TextBlock Name="CaretBadgeText" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                   FontSize="{DynamicResource AppFontSize10}" FontWeight="Bold"/>
+                    </Border>
+            </Panel>
+            </Grid>
+        </ScrollViewer>
+
+        <TextBlock Grid.Column="2" Name="RemainingLabel" Text="00:00"
+                   Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"
+                   MinWidth="52" TextAlignment="Right" FontSize="{DynamicResource AppFontSize10}"
+                   Margin="8,0,0,0" ToolTip.Tip="Time left in the clip"/>
+    </Grid>
+</UserControl>

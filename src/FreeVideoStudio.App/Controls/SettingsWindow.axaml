@@ -1,0 +1,372 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
+        x:CompileBindings="True"
+        x:DataType="controls:SettingsWindow"
+        x:Class="FreeVideoStudio.App.Controls.SettingsWindow"
+        Title="Settings"
+        MinWidth="800" MinHeight="600"
+        Background="{DynamicResource AppSurfaceBrush}"
+        CanResize="True"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30"
+        WindowStartupLocation="Manual">
+    <!-- ISSUE_09 (audit round 4): Topmost="True" removed — Settings floated above every OTHER
+         application on the OS. It now yields to other apps like the rest of the 8 tracked windows. -->
+    <Grid>
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" TextTrimming="CharacterEllipsis" />
+                </Border>
+                <Grid Grid.Row="1" Margin="15" RowDefinitions="*, Auto">
+                    <TabControl Name="SettingsTabControl" Grid.Row="0" Background="Transparent">
+                        <TabItem Header="Appearance">
+                            <StackPanel Margin="10" Spacing="15" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Appearance Settings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="Customize how the application looks. Changes to font size and theme are applied immediately and remembered between sessions." />
+
+                                <!-- Font Scale -->
+                                <StackPanel Spacing="5" Margin="0,10,0,0">
+                                    <TextBlock Text="Font Size" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" Text="Scale all text in the app proportionally. Normal is the default size."/>
+                                    <ComboBox Name="FontScaleComboBox" MinWidth="250" HorizontalAlignment="Left" Margin="0,5,0,0" ToolTip.Tip="Choose how large or small text appears throughout the app."/>
+                                </StackPanel>
+
+                                <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,5,0,0"/>
+
+                                <!-- Theme -->
+                                <StackPanel Spacing="5" Margin="0,5,0,0">
+                                    <TextBlock Text="Theme" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" Text="Choose a color scheme. Follow OS Theme automatically matches your Windows preference."/>
+                                    <ComboBox Name="ThemeComboBox" MinWidth="250" HorizontalAlignment="Left" Margin="0,5,0,0" ToolTip.Tip="Select the color scheme for the app interface."/>
+                                </StackPanel>
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Defaults">
+                            <ScrollViewer>
+                                <StackPanel Spacing="0">
+                                <StackPanel Name="DefaultsPanel" Margin="10" Spacing="10" MaxWidth="500" HorizontalAlignment="Left">
+                                    <TextBlock Text="Default values applied when the app opens." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,0,0,5" />
+                                </StackPanel>
+                                <!-- SCRAPER_05 — same flag as the small checkbox at the bottom left of the Video Merger. -->
+                                <StackPanel Margin="10,0,10,10" Spacing="6" MaxWidth="500" HorizontalAlignment="Left">
+                                    <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <CheckBox Name="MergerThumbnailScraperCheckBox" Content="Thumbnail Scraper" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding MergerThumbnailScraper, Mode=TwoWay}"
+                                              ToolTip.Tip="When merging, cut the short cover-picture intro that this app adds to every export from the 2nd clip onward, so the joined video has no flashes between clips. The first clip keeps its intro unless you pick a custom thumbnail in the merger." />
+                                </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <!-- Sound & Music — the single home for EVERY audio setting in the suite.
+                             Previously split across a "Music" tab and a separate audio-warnings tab,
+                             which meant the master limiter switch lived on one screen and the warning
+                             that offers to use it lived on another. -->
+                        <TabItem Header="Sound &amp; Music">
+                            <ScrollViewer>
+                                <StackPanel Name="GeneralPanel" Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="660">
+
+                                    <!-- ===== 1. What happens to the video's own sound ===== -->
+                                    <TextBlock Text="Your Video's Sound" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
+                                               Text="When you upload a video the app checks for sudden bursts of extreme sound. The video's original recorded volume is kept completely untouched." />
+
+                                    <TextBlock Text="Sudden loud moments" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="An explosion or a shout that is far louder than the rest of the video can hurt somebody wearing headphones, because it arrives with no warning."/>
+                                    <ComboBox Name="PeakPromptComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Choose whether the app asks before softening sudden loud moments."/>
+
+                                    <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Master switch: allow softening of sudden loud moments" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Turn this off and sudden loud moments are never softened, even if you answer YES to the warning." />
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 2. Voice over ===== -->
+                                    <TextBlock Text="Voice Over" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Match my recorded voice to the game's volume" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="Keeps your voice sitting at the same level as the gameplay instead of being much louder or quieter than it." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
+                                    <!-- AUDIO_09: moved here from a per-export button in Music Wizard phase 3. It is a
+                                         set-once preference, and phase 3 could not demonstrate its effect anyway (the
+                                         preview does not simulate ducking). Default ON; OFF removes ALL protection. -->
+                                    <CheckBox Name="AudioProtectionCheckbox" Content="Protect game sounds from the music (ducking + smooth blend)" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="ON: the music automatically steps back whenever gunshots or game sounds get loud, and its frequencies are shaped so the two do not clash. OFF: the music plays at a fixed level over everything and your game sounds get no protection at all." IsChecked="{Binding AudioProtection, Mode=TwoWay}" />
+
+                                    <!-- VOPROT_02: the two Voice Over Studio protection checkboxes start ON and are
+                                         remembered between projects. These two lists decide WHO owns that decision:
+                                         the studio (remember what I picked), or this screen (always / never). On an
+                                         Always choice the studio still SHOWS the box in the matching state, disabled,
+                                         with a tooltip pointing back here — a silently overridden checkbox reads as
+                                         a bug. Combo index maps 1:1 onto VoiceProtectionMode. -->
+                                    <TextBlock Text="Keeping your voice on top" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,14,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="While one of your recorded takes is playing, the Voice Over Studio can push the gameplay sound and the background music out of the way so what you said stays clear. Here you decide whether those two switches follow what you picked last time, or are simply always on or always off."/>
+
+                                    <TextBlock Text="Protect my voice from the gameplay sound" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <ComboBox Name="VoiceProtectGameComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Controls the 'Protect VoiceOver Recording from Game-Play Sound' checkbox in the Voice Over Studio."/>
+
+                                    <TextBlock Text="Protect my voice from the background music" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <ComboBox Name="VoiceProtectMusicComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
+                                              ToolTip.Tip="Controls the 'Protect VoiceOver Recording from Music' checkbox in the Voice Over Studio. Has no effect on videos with no music."/>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 3. Background music ===== -->
+                                    <TextBlock Text="Background Music" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <CheckBox Name="RememberVolumesCheckbox" Content="Remember the music and video volumes I set last time" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding RememberMusicVolumes, Mode=TwoWay}" ToolTip.Tip="Save and recall the music/video volume levels you selected last time." />
+
+                                    <TextBlock Text="Music (mp3) Folder" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" MaxWidth="700">
+                                        <DataValidationErrors Grid.Column="0">
+                                            <TextBox Name="DefaultMusicFolderTextBox" Watermark="C:\Users\...\Music" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" Text="{Binding DefaultMusicFolder, Mode=TwoWay}"/>
+                                        </DataValidationErrors>
+                                        <Button Grid.Column="1" Name="BrowseMusicFolderBtn" Content="Browse..." Classes="Secondary" Margin="10,0,0,0" Cursor="Hand" ToolTip.Tip="Pick the folder containing your background music."/>
+                                    </Grid>
+
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap" Margin="0,12,0,0"
+                                               Text="Ducking, frequency carving and the music/voice balance you set in the Music Wizard all move together with these settings, so the mix keeps the same balance whatever your recording level was."/>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
+
+                                    <!-- ===== 4. The app's own button sounds =====
+                                         AUDIO_06 (audit round 5): this tab described itself as "the single home for
+                                         EVERY audio setting in the suite" while the one sound the app makes on its
+                                         own — the click/open/close effects on every button — had no volume control
+                                         and no off switch anywhere. That is worst in the two screens built for
+                                         critical listening (Music Wizard step 3 and the Voice Over Studio), where
+                                         UI chirps land on top of the mix the user is judging. -->
+                                    <TextBlock Text="Interface Sounds" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
+                                               Text="The small clicks and chimes the app plays when you press a button. These are never part of your exported video — they only come out of your speakers while you work." />
+
+                                    <CheckBox Name="UiSoundsEnabledCheckbox" Content="Play a sound when I press buttons" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding UiSoundsEnabled, Mode=TwoWay}" ToolTip.Tip="Turn every interface sound effect on or off." />
+
+                                    <TextBlock Text="Interface sound volume" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <Grid ColumnDefinitions="*, Auto" MaxWidth="480" IsEnabled="{Binding #UiSoundsEnabledCheckbox.IsChecked}">
+                                        <Slider Name="UiSoundVolumeSlider" Grid.Column="0" Minimum="0" Maximum="100" MinWidth="200" MaxWidth="400" MinHeight="44"
+                                                Value="{Binding UiSoundVolume, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                                ToolTip.Tip="How loud the interface sound effects are. Does not affect your video, your music or your voiceover." />
+                                        <TextBlock Name="UiSoundVolumeLabel" Grid.Column="1" Text="70%" Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="Bold" FontSize="{DynamicResource AppFontSize12}" MinWidth="48" TextAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                    </Grid>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap"
+                                               Text="Interface sounds are muted automatically while the Voice Over Studio is recording, so they can never leak into your microphone take."/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="Memes">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="700">
+                                <TextBlock Text="Meme Folder" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="All your meme videos and pictures live in one folder. The app scans this folder to fill the meme list on the main screen. You can open it to add your own files, or move it somewhere else entirely." />
+                                <TextBlock Text="Current meme folder:" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                <TextBox Name="MemeFolderTextBox" IsReadOnly="True" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="The folder the app currently scans for memes."/>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Name="OpenMemeFolderBtn" Classes="Secondary" Content="OPEN FOLDER" MinWidth="130" Cursor="Hand" ToolTip.Tip="Open the meme folder in Windows Explorer."/>
+                                    <Button Name="ChangeMemeFolderBtn" Classes="Primary" Content="CHANGE FOLDER..." MinWidth="150" Cursor="Hand" ToolTip.Tip="Pick a different folder to keep your memes in."/>
+                                </StackPanel>
+                                <TextBlock Name="MemeFolderStatusText" Text="" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Key Binds">
+                            <Grid RowDefinitions="*, Auto">
+                                <ScrollViewer Grid.Row="0">
+                                    <StackPanel Name="KeyBindsPanel" Margin="10" Spacing="8" MaxWidth="500" HorizontalAlignment="Left">
+                                        <TextBlock Text="Click a button below and press a new key to rebind." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,0,0,5" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <Button Grid.Row="1" Name="ResetKeyBindsBtn" Content="Reset to Factory Defaults" Classes="Danger" HorizontalAlignment="Right" Margin="0,10,10,10" ToolTip.Tip="Reset all keys to default"/>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="Mask Overlay">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Mask Overlay Settings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="What is this section for?&#x0a;This section lets you pick which game or device you are making a video for. Different games have their menus and health bars in different places. By telling the software which game you are playing (like Fortnite or Counter Strike), the software will automatically know exactly where to crop the video so your health bar, weapons, and map look perfect in your final video! Changing this setting will immediately switch the crop layouts." />
+                                
+                                <TextBlock Text="Current Mask Overlay Profile:" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,0"/>
+                                <ComboBox Name="MaskOverlayProfileComboBox" MinWidth="300" ToolTip.Tip="Select which game profile controls the crop overlay positions." />
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Performance">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Video Encoder" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="What is this section for?&#x0a;When you export a video, the heavy work can be done either by your graphics card (fast) or by your processor (slow). Normally the software checks your computer at startup and picks the best one for you — that is 'Automatic'.&#x0a;&#x0a;If that check ever goes wrong, your exports can quietly end up on the slow processor without telling you. This setting lets you take control and say exactly which chip to use." />
+
+                                <TextBlock Text="Which chip should encode your videos?" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,0"/>
+                                <ComboBox Name="VideoEncoderComboBox" MinWidth="300" ToolTip.Tip="Automatic is recommended. Pick a specific chip only if exports are running on the wrong one." />
+                                <TextBlock Name="VideoEncoderStatusText" Text="" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Foreground="{DynamicResource AppWarningBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize11}" Margin="0,6,0,0"
+                                           Text="If you pick a chip your computer does not actually have, the export will stop with a clear message instead of silently using something else."/>
+                            </StackPanel>
+                        </TabItem>
+                        <TabItem Header="Confirmation Dialogs">
+                            <!-- ISSUE_12: this tab grew from 4 rows to 10. A bare StackPanel inside a
+                                 TabItem does not scroll, so at the largest Settings font scale the last
+                                 checkboxes fell off the bottom of an 600px-min window with no way to
+                                 reach them. Wrapped, like the other long panels in this file. -->
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="600">
+                                <TextBlock Text="Destructive Actions &amp; Warnings" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="Choose whether the software should double check with you before deleting data. If you uncheck these, actions will happen instantly without warning." Margin="0,0,0,10" />
+                                
+                                <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                                <CheckBox Content="Video Merger: ask before removing clips (Delete key, right-click, Remove)" ToolTip.Tip="Off: clips are removed at once and a notice tells you Ctrl+Z brings them back. On: a confirmation box asks first." Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmVideoMergerRemove, Mode=TwoWay}" />
+                                <CheckBox Content="Show warning before 'Clear All' videos" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmVideoMergerClearAll, Mode=TwoWay}" />
+                                
+                                <TextBlock Text="Crop Tools" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before 'Reset' entire layout" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmCropToolReset, Mode=TwoWay}" />
+                                <CheckBox Content="Show warning before 'Delete' layer" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmCropToolDelete, Mode=TwoWay}" />
+
+                                <!-- ISSUE_12: the Speed Editor's two destructive buttons were absent from this
+                                     tab entirely, even though they are the most damaging edits in the suite.
+                                     They are listed here now, and (ISSUE_01) their prompts actually work. -->
+                                <TextBlock Text="Speed Editor" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before deleting the selected speed segment" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmGranularDeleteSegment, Mode=TwoWay}" ToolTip.Tip="There is no undo in the Speed Editor. Leaving this on is strongly recommended." />
+                                <CheckBox Content="Show warning before 'Clear All Segments'" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmGranularClearAll, Mode=TwoWay}" ToolTip.Tip="Clear All wipes every speed segment, freeze and zoom in one click and cannot be undone." />
+
+                                <!-- ISSUE_12 / ISSUE_02 -->
+                                <TextBlock Text="Main App" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,15,0,5"/>
+                                <CheckBox Content="Show warning before the CANCEL button closes the app" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppCancel, Mode=TwoWay}" />
+                                <!-- CUT_01 / DIALOG_02: OFF by default. Cutting is a high-frequency
+                                     editing gesture and the Speed Editor has undo, so an accidental
+                                     cut is one Ctrl+Z away — unlike the confirmations above it. -->
+                                <CheckBox Content="Ask before deleting a section from the middle of the video (DELETE PARTS)" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppCut, Mode=TwoWay}" ToolTip.Tip="Off by default so cutting stays fast. The Speed Editor has undo (Ctrl+Z), so a cut made by accident can be taken straight back." />
+                                <CheckBox Content="Show warning before switching to Video Merger / Crop Tools" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding ConfirmMainAppSwitchTool, Mode=TwoWay}" ToolTip.Tip="Those tools replace the Main App window. You are only asked when you actually have edits in progress — never straight after uploading a video." />
+                        <CheckBox Content="Show warning before deleting a voice-over take"
+                                  Foreground="{DynamicResource AppTextMutedBrush}"
+                                  ToolTip.Tip="Off by default. The take's audio file is deleted from disk straight away and cannot be undone."
+                                  IsChecked="{Binding ConfirmVoiceOverDeleteTake, Mode=TwoWay}" />
+                        <CheckBox Content="Show warning before 'Exit App' / 'New File' on the finished screen"
+                                  Foreground="{DynamicResource AppTextMutedBrush}"
+                                  ToolTip.Tip="Off by default. These two buttons sit next to OPEN FOLDER and either close the app or discard the current project."
+                                  IsChecked="{Binding ConfirmFinishedDialogExit, Mode=TwoWay}" />
+
+                            </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="AI Tracking">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="15" Spacing="14" HorizontalAlignment="Left" MaxWidth="680">
+                                    <TextBlock Text="AI Smart Tracking Zoom" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
+                                               Text="Universal AI subject tracking automatically pans and zooms into any selected target (characters, people, vehicles, or creatures) with smooth broadcast-camera easing."/>
+
+                                    <!-- Gemini API Key Section -->
+                                    <Border Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,5,0,0">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="Google Gemini Vision API Key" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize13}"/>
+                                            <TextBlock Text="AI Zoom uses Google Gemini's vision model to track targets across frames. A free API key from Google AI Studio is required."
+                                                       Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
+
+                                            <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                                                <TextBox Name="AiGeminiApiKeyTextBox" PasswordChar="•" Watermark="Paste your Gemini API Key here..."
+                                                         Foreground="{DynamicResource AppTextPrimaryBrush}" MinWidth="320" HorizontalAlignment="Stretch" Margin="0,0,10,0"/>
+                                                <Button Name="AiTestConnectionBtn" Grid.Column="1" Classes="Primary" Content="Test Connection" Cursor="Hand" MinWidth="130"
+                                                        ToolTip.Tip="Verifies the Gemini API key against Google servers."/>
+                                            </Grid>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0">
+                                                <Button Name="AiGetFreeKeyBtn" Classes="Secondary" Content="Get Free Gemini API Key" Cursor="Hand"
+                                                        ToolTip.Tip="Opens Google AI Studio in your browser to generate a free key."/>
+                                                <TextBlock Name="AiConnectionStatusText" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"
+                                                           Foreground="{DynamicResource AppTextMutedBrush}" Text="Status: Not Tested" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Camera Zoom Tuning -->
+                                    <StackPanel Spacing="12" Margin="0,8,0,0">
+                                        <TextBlock Text="Camera Motion &amp; Breathing Dynamics" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+
+                                        <!-- Base Zoom Depth -->
+                                        <StackPanel Spacing="4">
+                                            <Grid ColumnDefinitions="*, Auto">
+                                                <TextBlock Text="Base Zoom Depth (Stationary Target)" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                <TextBlock Name="AiBaseZoomLabel" Grid.Column="1" Text="2.2x" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}"/>
+                                            </Grid>
+                                            <TextBlock Text="How close the camera punches in when the subject is still or moving slowly." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                            <Slider Name="AiBaseZoomSlider" Minimum="1.5" Maximum="4.0" Value="2.2" SmallChange="0.1" LargeChange="0.5" Margin="0,2,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- Fast Movement Zoom-Out -->
+                                        <StackPanel Spacing="4">
+                                            <Grid ColumnDefinitions="*, Auto">
+                                                <TextBlock Text="Fast Movement Zoom-Out (Dynamic Breathing)" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                <TextBlock Name="AiMinZoomLabel" Grid.Column="1" Text="1.3x" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}"/>
+                                            </Grid>
+                                            <TextBlock Text="When the subject sprints or moves rapidly, camera expands to this scale to keep them comfortably in view." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                            <Slider Name="AiMinZoomSlider" Minimum="1.1" Maximum="2.0" Value="1.3" SmallChange="0.1" LargeChange="0.2" Margin="0,2,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- HUD Avoidance -->
+                                        <CheckBox Name="AiAvoidHudCheckbox" Content="Avoid HUD overlays (Health, Minimap, Loot) during camera framing"
+                                                  Foreground="{DynamicResource AppTextPrimaryBrush}" IsChecked="True"
+                                                  ToolTip.Tip="Pushes camera crop boundaries away from active HUD plates so interface elements are never magnified."/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="About" Name="AboutTab">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="15" Spacing="14" HorizontalAlignment="Left" MaxWidth="680">
+                                    <!-- App Brand & Identity -->
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Free Video Studio" FontSize="{DynamicResource AppFontSize18}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Name="AboutVersionText" Text="Version 2026.09.17" FontSize="{DynamicResource AppFontSize13}" FontWeight="SemiBold" Foreground="{DynamicResource AppAccentBrush}"/>
+                                        <TextBlock Text="Free Video Studio — Trim, speed-ramp, add music and export gameplay clips." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                        <TextBlock Text="Copyright © 2026 Alon Reich. All rights reserved." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}"/>
+                                    </StackPanel>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+
+                                    <!-- System & Hardware Capabilities -->
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="System &amp; Hardware Status" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto, Auto" Margin="4,0,0,0">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Platform Runtime: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}"/>
+                                            <TextBlock Name="AboutPlatformText" Grid.Row="0" Grid.Column="1" Text=".NET 9.0 (win-x64, NativeAOT)" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Active Hardware: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                            <TextBlock Name="AboutGpuText" Grid.Row="1" Grid.Column="1" Text="Detecting..." Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Storage Root: " Foreground="{DynamicResource AppTextMutedBrush}" FontWeight="SemiBold" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                            <TextBlock Name="AboutStorageText" Grid.Row="2" Grid.Column="1" Text="%LOCALAPPDATA%\Free Video Studio" Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize12}" Margin="0,4,0,0"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1"/>
+
+                                    <!-- Software Updates -->
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Software Updates" FontSize="{DynamicResource AppFontSize14}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="Stay up to date with the newest features, performance optimizations, and bug fixes." Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap"/>
+
+                                        <CheckBox Name="AutoUpdateChecksCheckbox" Content="Automatically check for updates on startup"
+                                                  Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                  IsChecked="{Binding AutoUpdateChecks, Mode=TwoWay}"
+                                                  ToolTip.Tip="When enabled, the app quietly checks GitHub releases on startup and prompts if a newer version is available. When disabled, checks are never performed automatically." />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0">
+                                            <Button Name="CheckUpdatesNowBtn" Classes="Primary" Content="Check For Updates Now" MinWidth="180" Cursor="Hand"
+                                                    ToolTip.Tip="Immediately checks GitHub for a newer version of Free Video Studio."/>
+                                            <TextBlock Name="UpdateStatusText" VerticalAlignment="Center" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}" TextWrapping="Wrap" MaxWidth="400"/>
+                                        </StackPanel>
+
+                                        <!-- Skipped Releases Reset -->
+                                        <Border Name="SkippedReleaseBorder" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,6,0,0" IsVisible="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <TextBlock Name="SkippedReleaseLabel" Text="Skipped release: v2026.00.00" Foreground="{DynamicResource AppWarningBrush}" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize12}"/>
+                                                <Button Name="ClearSkipBtn" Classes="Secondary" Content="Clear Skip" Cursor="Hand" ToolTip.Tip="Clears the ignored version so it can be offered again."/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
+                        <!-- ISSUE_08 (audit round 4): CANCEL is Secondary suite-wide (red = destructive data loss only) -->
+                        <Button Name="CancelBtn" Classes="Secondary" Content="CANCEL" MinWidth="90" ToolTip.Tip="Discard changes and close"/>
+                        <Button Name="SaveBtn" Classes="Success" Content="APPLY" MinWidth="90" ToolTip.Tip="Apply settings and close"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

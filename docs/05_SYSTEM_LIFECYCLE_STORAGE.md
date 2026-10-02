@@ -5,45 +5,50 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.App/DeploymentLifecycle.cs` | `DeploymentLifecycle` | `RunUninstallWorkerAsync`, `ShouldHandle`, `RunAsync`, `ExtractAvaloniaDependencies` | OS installation/uninstallation installer-gate semaphore and elevated install/uninstall workers. |
-| `src/FortniteVideoSoftware.App/RuntimeLog.cs` | `RuntimeLog` | `LogMutexName`, `InitializeAppName`, `ResetForProcess`, `Info` | Decoupled asynchronous producer-consumer logging pipeline. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/CoreLogger.cs` | `CoreLogger` | `InfoAction`, `FailAction`, `Warn`, `Swallowed` | Core-side logging facade; the App wires its actions to `RuntimeLog` at startup. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
-| `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
-| `src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `CurrentSchemaVersion` (9), `SETTINGSATOMIC_01` | Cross-process settings persistence under a named mutex and the atomic write protocol. |
-| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
-| `src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateClient.cs` | `NamedPipeStateClient` | `GetStateAsync`, `SetStateAsync`, `FastProbeTimeout` | IPC client communicating with the running session state server. |
-| `src/FortniteVideoSoftware.Core/Ipc/StateTransferStore.cs` | `StateTransferStore` | `LoadAsync`, `SaveAsync`, `ClearAsync`, `SchemaVersion` (1) | Cross-process state persistence and named mutex coordination. |
-| `src/FortniteVideoSoftware.Core/Ipc/IpcProtocol.cs` | `IpcProtocol`, `IpcFrame`, `IpcOpcode` | `WriteFrameAsync`, `ReadFrameAsync`, `PipeName`, `ServerMutexName` | Wire framing protocol and serialization context for IPC pipes. |
-| `src/FortniteVideoSoftware.Core/Ipc/CropConfigDefaults.cs` | `CropConfigDefaults` | `Create`, `CreateNoMask`, `SchemaVersion` (4), `MinimumUsableSchemaVersion` (3) | Factory for default HUD crop profiles and schema version definitions. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/CooperativeShutdownGate.cs` | `CooperativeShutdownGate` | `BeginShutdown`, `RegisterTask`, `IsShutdown` | Coordinated graceful process and thread pool task shutdown gate. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/DiskSpaceGuard.cs` | `DiskSpaceGuard` | `CheckFreeSpaceBytes`, `MinimumFreeBytes` | Pre-render disk space verification preventing corrupt half-written files. |
-| `src/FortniteVideoSoftware.App/CrashLogDigest.cs` | `CrashLogDigest` | `RunAsync`, `DigestLatestCrash` | Background crash report analyzer and automated log summary generator. |
-| `src/FortniteVideoSoftware.App/SingleInstanceGuard.cs` | `SingleInstanceGuard` | `TryAcquire`, `Release`, `AppliesTo` | Single application instance enforcement and focus delegation via named mutex. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `DefaultUserRoot`, `RecoveryStateFile`, `SessionStateFile`, `MergerSessionFile`, `LaneCacheDirectory`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
-| `src/FortniteVideoSoftware.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `MigrateLegacyFilesOnce`, `ReadText` | Lightweight persistent key-value configuration and coach tour launch counts. |
-| `src/FortniteVideoSoftware.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `SaveBoundsSync`, `SaveBoundsAsync`, `Capture` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
-| `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs` | `GranularSpeedEditorWindow` | `OnClosing`, `OnClosed`, `_isSafeToClose`, `ResultSegments` | Deferred-close dispatcher contract governing dialog resolution and edit hand-off. **⚠ CO-GOVERNED BY: 01, 04**|
-| `src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs` | `MaskOverlayManager` | `ApplyProfile`, `EnsureDefaults`, `IsNoMask`, `SanitizeProfileName` | HUD profile configuration and first-run crop defaults. |
-| `src/FortniteVideoSoftware.Core/Ipc/CropConfigStore.cs` | `CropConfigStore` | `LoadAsync`, `SaveAsync`, `RotateBackupsUnlocked`, `IsUsableConfig` | Crop configuration persistence and the 5-tier `.bak` rotation cascade. |
-| `src/FortniteVideoSoftware.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService` | `SerializeState`, `SaveState`, `HasUnsavedWork`, `LoadState` | Main App state serialization bridge for project recovery. |
-| `src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs` | `LatestEstimateWorker` | `Request`, `RunAsync`, `Dispose`, `Completion` | Bounded background estimates, cancellation and stale UI result rejection. |
-| `src/FortniteVideoSoftware.App/Services/UpdateService.cs` | `UpdateService` | `RunStartupCheckAsync`, `CheckManualAsync`, `GetSkippedVersion`, `ClearSkippedVersion` | Background GitHub release query, 24h throttle, SHA-256 verification, and quiet updater. |
+| `src/FreeVideoStudio.App/DeploymentLifecycle.cs` | `DeploymentLifecycle` | `RunUninstallWorkerAsync`, `ShouldHandle`, `RunAsync`, `ExtractAvaloniaDependencies` | OS installation/uninstallation installer-gate semaphore and elevated install/uninstall workers. |
+| `src/FreeVideoStudio.App/RuntimeLog.cs` | `RuntimeLog` | `LogMutexName`, `InitializeAppName`, `ResetForProcess`, `Info` | Decoupled asynchronous producer-consumer logging pipeline. |
+| `src/FreeVideoStudio.Core/Infrastructure/CoreLogger.cs` | `CoreLogger` | `InfoAction`, `FailAction`, `Warn`, `Swallowed` | Core-side logging facade; the App wires its actions to `RuntimeLog` at startup. |
+| `src/FreeVideoStudio.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
+| `src/FreeVideoStudio.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
+| `src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Update(Action<AppSettings>)`, `SetAutoUpdateChecks`, `Committed`, `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `CurrentSchemaVersion` (10), `SETTINGSATOMIC_01`, `SETTX_01` | Cross-process settings persistence under a named mutex and the atomic write protocol; the ONLY settings mutation path is `Update`. |
+| `src/FreeVideoStudio.App/Services/GeminiTrackingService.cs` | `GeminiTrackingService` | `PostWithRetryAsync`, `TestApiKeyAsync` | Transient retry loop with exponential backoff and API key sanitization in logs. **⚠ CO-GOVERNED BY: 01, 03, 04**|
+| `src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
+| `src/FreeVideoStudio.Core/Ipc/NamedPipeStateClient.cs` | `NamedPipeStateClient` | `GetStateAsync`, `SetStateAsync`, `FastProbeTimeout` | IPC client communicating with the running session state server. |
+| `src/FreeVideoStudio.Core/Ipc/StateTransferStore.cs` | `StateTransferStore` | `LoadAsync`, `SaveAsync`, `ClearAsync`, `SchemaVersion` (1) | Cross-process state persistence and named mutex coordination. |
+| `src/FreeVideoStudio.Core/Ipc/IpcProtocol.cs` | `IpcProtocol`, `IpcFrame`, `IpcOpcode` | `WriteFrameAsync`, `ReadFrameAsync`, `PipeName`, `ServerMutexName` | Wire framing protocol and serialization context for IPC pipes. |
+| `src/FreeVideoStudio.Core/Ipc/CropConfigDefaults.cs` | `CropConfigDefaults` | `Create`, `CreateNoMask`, `SchemaVersion` (4), `MinimumUsableSchemaVersion` (3) | Factory for default HUD crop profiles and schema version definitions. |
+| `src/FreeVideoStudio.Core/Infrastructure/CooperativeShutdownGate.cs` | `CooperativeShutdownGate` | `BeginShutdown`, `RegisterTask`, `IsShutdown` | Coordinated graceful process and thread pool task shutdown gate. |
+| `src/FreeVideoStudio.Core/Infrastructure/DiskSpaceGuard.cs` | `DiskSpaceGuard` | `CheckFreeSpaceBytes`, `MinimumFreeBytes` | Pre-render disk space verification preventing corrupt half-written files. |
+| `src/FreeVideoStudio.App/CrashLogDigest.cs` | `CrashLogDigest` | `RunAsync`, `DigestLatestCrash` | Background crash report analyzer and automated log summary generator. |
+| `src/FreeVideoStudio.App/SingleInstanceGuard.cs` | `SingleInstanceGuard` | `TryAcquire`, `Release`, `AppliesTo` | Single application instance enforcement and focus delegation via named mutex. |
+| `src/FreeVideoStudio.Core/Infrastructure/AppDataPaths.cs` | `AppDataPaths` | `AppDataDir`, `LocalCacheDir`, `MigrateDirectory`, `REBRAND_01` | Copy-only rebrand migration before default state initialization. |
+| `src/FreeVideoStudio.Core/Infrastructure/LegacyAppDataNames.txt` | Embedded legacy directory identities | `LegacyAppDataNames.txt` | Historical names retained only as migration data. |
+| `tests/FreeVideoStudio.Core.Tests/AppDataPathsTests.cs` | `AppDataPathsTests` | migration, retry, collision and existing-destination tests | Rebrand data-preservation regression coverage. |
+| `src/FreeVideoStudio.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `DefaultUserRoot`, `RecoveryStateFile`, `SessionStateFile`, `MergerSessionFile`, `LaneCacheDirectory`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
+| `src/FreeVideoStudio.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `MigrateLegacyFilesOnce`, `ReadText` | Lightweight persistent key-value configuration and coach tour launch counts. |
+| `src/FreeVideoStudio.App/WindowBoundsHelper.cs` | `WindowBoundsHelper` | `Track`, `SaveBoundsSync`, `SaveBoundsAsync`, `Capture` | Multi-display window geometry tracking and per-screen bounds persistence. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs` | `GranularSpeedEditorWindow` | `OnClosing`, `OnClosed`, `_isSafeToClose`, `ResultSegments` | Deferred-close dispatcher contract governing dialog resolution and edit hand-off. **⚠ CO-GOVERNED BY: 01, 04**|
+| `src/FreeVideoStudio.App/Infrastructure/MaskOverlayManager.cs` | `MaskOverlayManager` | `ApplyProfile`, `EnsureDefaults`, `IsNoMask`, `SanitizeProfileName` | HUD profile configuration and first-run crop defaults. |
+| `src/FreeVideoStudio.Core/Ipc/CropConfigStore.cs` | `CropConfigStore` | `LoadAsync`, `SaveAsync`, `RotateBackupsUnlocked`, `IsUsableConfig` | Crop configuration persistence and the 5-tier `.bak` rotation cascade. |
+| `src/FreeVideoStudio.App/Services/ProjectRecoveryService.cs` | `ProjectRecoveryService`, `RecoverySnapshot` | `WireDocumentSource`, `SaveState` (canonical `ProjectDocument` + transient), `SaveCurrentState`, `LoadSnapshot`, `HasUnsavedWork`, `ClearState` | Recovery BRIDGE over the canonical document (RECOVERYDOC): one envelope, no parallel project schema. |
+| `src/FreeVideoStudio.App/Services/LatestEstimateWorker.cs` | `LatestEstimateWorker` | `Request`, `RunAsync`, `Dispose`, `Completion` | Bounded background estimates, cancellation and stale UI result rejection. |
+| `src/FreeVideoStudio.App/Services/UpdateService.cs` | `UpdateService` | `RunStartupCheckAsync`, `CheckManualAsync`, `GetSkippedVersion`, `ClearSkippedVersion` | Background GitHub release query, 24h throttle, SHA-256 verification, and quiet updater. |
 | `build/FvsBuild/Program.cs` | `Program` | `SynchronizeVersionFiles`, `RunPipeline` | Unified build pipeline synchronizing version.txt, Directory.Build.props, and project files. |
 | `build/FvsBuild/Staging.cs` | `Staging` | `Publish`, `RunPublish`, `StageDependencies` | Build output staging, packaging, and publish validation. |
 | `build/FvsBuild/CodeSigning.cs` | `CodeSigning` | `SignIfNeeded`, `FVS_SIGN_PFX`, `FVS_SIGN_PASS`, `FVS_ALLOW_UNSIGNED` | Mandatory Authenticode digital signing of the release executable. **⚠ CO-GOVERNED BY: 08**|
-| `Build.cmd` | Build Script | `dotnet run build\FvsBuild`, `--no-publish` | Thin entry-point wrapper; the whole release pipeline lives in `build/FvsBuild`. |
+| `Build.cmd` | Production Release Script | `dotnet run build\FvsBuild` | **STRICT AGENT BAN**: Thin entry-point triggering production release, git tagging, and live GitHub Cloud release deployment. Never execute by autonomous agents. **⚠ CO-GOVERNED BY: 09, GOV** |
+| `dev_build.cmd` | Dev Compile Harness | `dotnet run build\FvsBuild -- --dev` | Safe local-only build and NativeAOT publish compilation test harness. Zero git tags, zero GitHub Cloud publishing. Mandatory for agent build tests. **⚠ CO-GOVERNED BY: 09, GOV** |
 | `dev.cmd` | Developer Harness | `VERIFY_PATCHES`, `build/FvsVerify`, `NUKE_BUILD`, `KILL_STALE`, `TRACE`, `FVS_DEV_LOG_DIR`, `FVS_PROGRAMDATA_ROOT` | Sandboxed dev launch, stale-process purge, cache nuke, pre-build fix verification, and in-repo trace logging. |
-| `src/FortniteVideoSoftware.Core/Infrastructure/MergerAutosaveStore.cs` | `MergerAutosaveStore` | `Schedule`, `FlushAsync`, `Clear`, `Load`, `DefaultDebounce` | Video Merger edit-list autosave (`merger_session.json`, MERGESESSION_01). |
-| `src/FortniteVideoSoftware.Core/Media/MergerSession.cs` | `MergerSession`, `ClipIdList` | `Capture`, `Plan`, `DescribeRestoreProblems`, `SyncQueue` | Merger session capture and restore planning (MERGESESSION_01, RESTOREMISS_01). **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `BindFallbackBadge`, `TOOLRETURN_01` | Main App preview revival after a companion tool closes. **⚠ CO-GOVERNED BY: 08**|
-| `src/FortniteVideoSoftware.App/Infrastructure/LaneDiskCache.cs` | `LaneDiskCache` | `PathFor`, `TryRead`, `Write`, `MaxFiles` (800) | Best-effort on-disk lane cache under `ApplicationPaths.LaneCacheDirectory`. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.Core/Infrastructure/MergerAutosaveStore.cs` | `MergerAutosaveStore` | `Schedule`, `FlushAsync`, `Clear`, `Load`, `DefaultDebounce` | Video Merger edit-list autosave (`merger_session.json`, MERGESESSION_01). |
+| `src/FreeVideoStudio.Core/Media/MergerSession.cs` | `MergerSession`, `ClipIdList` | `Capture`, `Plan`, `DescribeRestoreProblems`, `SyncQueue` | Merger session capture and restore planning (MERGESESSION_01, RESTOREMISS_01). **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `BindFallbackBadge`, `TOOLRETURN_01` | Main App preview revival after a companion tool closes. **⚠ CO-GOVERNED BY: 08**|
+| `src/FreeVideoStudio.App/Infrastructure/LaneDiskCache.cs` | `LaneDiskCache` | `PathFor`, `TryRead`, `Write`, `MaxFiles` (800) | Best-effort on-disk lane cache under `ApplicationPaths.LaneCacheDirectory`. **⚠ CO-GOVERNED BY: 04**|
 
 ---
 
 ## 1. Concurrency & System Mutex Locks  {#SYS-MUTEX}
-* **Deployment Installer Gate:** `DeploymentLifecycle` gates the elevated install/upgrade worker (`RunInstallAsync`, dispatched by `RunAsync`) and the uninstall worker (`RunUninstallWorkerAsync`) on a named machine-wide semaphore of count 1, `Global\FortniteVideoSoftware_InstallerGate` (`DeploymentFootprint.InstallerGateName`), preventing concurrent installation or uninstallation. A second operation waits up to 15 s for the gate, then fails with a `MUTEX` report and an error dialog.
-* **Cross-Process Logging Mutex:** `Global\FortniteVideoSoftwareLogMutex_<user SID>` (`NamedSystemMutex.UserScopedName`, USERSCOPE_01) serializes log appends across the Main App, Video Merger, and Crop Tool processes on a shared file append stream handle.
+* **Deployment Installer Gate:** `DeploymentLifecycle` gates the elevated install/upgrade worker (`RunInstallAsync`, dispatched by `RunAsync`) and the uninstall worker (`RunUninstallWorkerAsync`) on a named machine-wide semaphore of count 1, `Global\FreeVideoStudio_InstallerGate` (`DeploymentFootprint.InstallerGateName`), preventing concurrent installation or uninstallation. A second operation waits up to 15 s for the gate, then fails with a `MUTEX` report and an error dialog.
+* **Cross-Process Logging Mutex:** `Global\FreeVideoStudioLogMutex_<user SID>` (`NamedSystemMutex.UserScopedName`, USERSCOPE_01) serializes log appends across the Main App, Video Merger, and Crop Tool processes on a shared file append stream handle.
 
 ---
 
@@ -58,7 +63,7 @@
   * Active log file is capped at 10 MB.
   * Rotates automatically before overflow using Unix-millisecond timestamp + GUID naming:
     ```text
-    Fortnite_Video_Software.log.{unixMs}.{Guid:N}.old
+    FreeVideoStudio.log.{unixMs}.{Guid:N}.old
     ```
   * Retention policy trims oldest files when exceeding 5 files, 50 MB total directory size, or 14 days of age.
 * **Privacy & Security Gating:**
@@ -90,6 +95,28 @@
   * **The historic defect this encodes:** the Granular Speed Editor was the one sibling that never re-posted. `await editor.ShowDialog(this)` therefore never returned, the `MainWindow` continuation that copies `editor.ResultSegments` into `_speedSegments` never ran, and **EVERY granular edit — speed segments, freezes AND zooms — was silently discarded at export**, with FFmpeg receiving a uniform base-speed graph. Nothing failed loudly; the feature simply did nothing.
   * **Required chain:** `OnClosing` (`_isSafeToClose = true` + re-post `Close`) → `ShowDialog` resolves → `ResultSegments` → `_speedSegments` → `BuildExportSpeedSegments()` → `worker.SpeedSegments` → `GranularSpeedBuilder` split/concat graph.
   * **Teardown ordering:** re-posting also lets `OnClosed` actually run, which disposes the editor's mpv preview host instead of leaking it on every open. The preview is shut down BEFORE the window is hidden, and every render-thread/UI-thread hand-off is bounded by a timeout with a defined give-up behaviour — this is what closes the OpenGL teardown deadlock window.
+  * **MPVSHUTDOWN_01 — preview teardown is two-phase, awaitable, and cannot lie (2026-09-29).**
+    `MpvVideoView.Dispose()` was a UI-thread call that `Thread.Join`-ed the render/software workers
+    (seconds of frozen UI per tool switch) and, when a worker would not stop, ABANDONED the render
+    context / WGL+D3D / GCHandle / `mpv_terminate_destroy` — then the still-living process built a
+    fresh `MpvVideoView` beside the abandoned stack on every in-process navigation (TOOLNAV_01).
+    The supported interactive lifecycle is now `MpvVideoView.ShutdownAsync(CancellationToken)` →
+    `Task<PreviewShutdownResult>` (`App/PreviewShutdown.cs`):
+    1. **Phase A — async quiescence:** stop signals are synchronous and immediate; PROOF of worker
+       exit is awaited via completion tasks the loops set in their `finally` blocks, bounded by
+       `Task.WhenAny` (5 s). No `Thread.Join` from the UI thread, ever.
+    2. **Phase B — thread-affine finalization:** only after every worker (and an in-flight startup)
+       is proven stopped, the UI thread runs the ordered native release (slots → render context →
+       GL/WGL/D3D → IPC → `mpv_terminate_destroy` → GCHandle), each resource exactly once.
+    3. **Failure is a result, not a silence:** a timeout returns `FailedWorkerDidNotStop` and frees
+       NOTHING; it is logged, sets `MpvVideoView.HasUnverifiedTeardown`, and the callers obey it —
+       `ToolNavigator.OpenAsync` cancels the navigation instead of opening a second preview stack,
+       and `RestoreVideoPipelineAfterTool` refuses to build a replacement until restart.
+    4. **Idempotent:** repeated calls attach to the same operation or report `AlreadyStopped`.
+    5. `Dispose()` remains ONLY as the process-final fallback (callers are immediately followed by
+       `Environment.Exit`); its bounded joins are annotated `SHUTDOWNFALLBACK_01`, and
+       `PreviewShutdownTests` fails the build if a blocking join appears anywhere else.
+
 * **Tool return (TOOLRETURN_01):** opening Video Merger / Crop Tools disposes the Main App preview (TOOLNAV_02). A disposed `MpvVideoView` cannot restart, so on the tool's close `MainWindow.RestoreVideoPipelineAfterTool` swaps a NEW `MpvVideoView` into the old slot, starts it off the UI thread and reloads the open clip paused at MARK START. Passing `restoreVideoPipeline: null` left the player dead (Upload did nothing). The software-fallback badge is bound in code, never by `#VideoHost`.
 * **Persistent Directory Memory:**
   1. `Upload Video`: Opens in the last-used folder (`UploadVideoDirectory` in `session_state.json`). If that is unset or gone, it probes, in order, `Videos\Fortnite` → `Videos\Highlights\Fortnite` → `LocalAppData\Temp\Highlights\Fortnite` → `LocalAppData\Temp\Highlights` → `LocalAppData\NVIDIA Corporation\GeForce Experience\Highlights` → `Videos\Highlights` → `Documents\Highlights`, and falls back to the Windows user `Videos` folder.
@@ -102,6 +129,8 @@
 * **Post-Processing Reset:** Clicking "New File" executes the "Upload Video" command, triggering garbage collection of prior timeline chunks, speed segments, audio waveforms, and markers before opening the file picker.
 * **Continuous Session Serialization:**
   * `RecoveryManager` maintains continuous session state serialization to `recovery_v2.json`.
+  * **RECOVERYDOC_01 — the payload IS the project.** The recovery payload is the `fvsrecovery` envelope (`Core/Project/RecoveryEnvelope.cs`): exactly ONE canonical `ProjectDocument` (captured by `ProjectSession.Capture(forExplicitSave: false)`, serialised by the canonical `ProjectSerializer`) plus crash-only `transient` metadata. There is NO second project schema; a project field missing from recovery is a missing document field. Legacy `schemaVersion:1` payloads are migrated one-way by `App/Services/LegacyRecoveryMigrator.cs` (the legacy schema never carried the HUD mask or the merger queue); the legacy format is never written.
+  * Restore applies the recovered document through `ProjectSession.OpenDocument` — the same document-application path Open Project uses — and then restores only the crash-only transient state.
   * The boot sequence evaluates `CheckFault()` and prompts the user to restore unclosed sessions.
   * Corrupted, truncated, or incompatible JSON recovery files are discarded cleanly to prevent startup crash loops.
 * **Video Merger session (MERGESESSION_01):** the Merger's edit list (`MergeEdl`) is autosaved to
@@ -133,6 +162,18 @@
 ---
 
 ## 4a. Developer Build Harness & Fix Sentinels  {#SYS-DEVBUILD}
+
+> [!CAUTION]
+> ### STRICT BAN ON `Build.cmd` FOR AI AGENTS (USE `dev_build.cmd` FOR COMPILE TESTS)
+> Autonomous AI agents are **STRICTLY FORBIDDEN from ever executing `.\Build.cmd` or `Build.cmd`**.
+> `Build.cmd` compiles `FreeVideoStudio.exe` and **OFFICIALLY PUBLISHES A VERSION ON GIT CLOUD (GITHUB RELEASES)**, deploying downloadable binaries worldwide.
+> If an agent needs to test or verify compilation, NativeAOT builds, or packaging, it **MUST ONLY RUN `.\dev_build.cmd`** (or `dotnet build` / `dotnet test`).
+> `.\dev_build.cmd` passes `--dev` to `build\FvsBuild\FvsBuild.csproj`:
+> * Builds purely locally.
+> * Never pushes git tags.
+> * Never publishes or uploads assets to GitHub Cloud.
+> * Does not wipe `.\compiled` beforehand.
+
 `dev.cmd` is the only supported way to run a development build. Three guarantees, in order, before every mode:
 
 1. **KILL_STALE** — kills every process whose executable lives under the repo (the app, its companion windows, and orphaned `mpv.exe` / `ffmpeg.exe` children), then shuts down the Roslyn/MSBuild servers. An orphaned app holds a lock on `bin\`, which is what makes the next build silently reuse a stale binary.
@@ -176,7 +217,7 @@
     `DevCmdBracketsBalance` (`BATCHPARENS_02`) asserted both cases while the list lived in `dev.cmd`;
     both were retired with it (SYS-VERIFYTOOL). `DevCmdDelegatesTheSentinelCheckRatherThanParsingIt`
     now fails if the list ever moves back into the script.
-* **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Where a rule can be asserted, prefer `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` (`08_APPLICATION_COMPOSITION.md` §3). `EveryFixSentinelStillResolves` re-checks every `build/sentinels.txt` entry from CI, on any platform, naming the file and tag. It is the authority on the current count, not this paragraph.
+* **A sentinel proves a fix has not been DELETED; a test proves it has not been BROKEN.** Where a rule can be asserted, prefer `tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs` (`08_APPLICATION_COMPOSITION.md` §3). `EveryFixSentinelStillResolves` re-checks every `build/sentinels.txt` entry from CI, on any platform, naming the file and tag. It is the authority on the current count, not this paragraph.
 * **`dev.cmd trace` — a log that can leave the machine (TRANSPORT_TRACE_01).** Identical to the default watch mode except `FVS_DEV_LOG_DIR` points at `.devlogs\` inside the repo instead of `%TMP%`. The rule that dev logs never land in the project tree exists so an ordinary run cannot litter it and so a log can never be committed; this mode is opt-in, announces itself, and `.devlogs/` is gitignored, so neither risk applies.
   It exists because **a log nobody can reach is a log nobody can read.** A fault that cannot be reproduced from source is diagnosed from a log, and a log sitting in a temp folder on one machine is unavailable to whoever is helping.
 * **Instrument before the third guess.** The main window writes one `TRANSPORT` line for every play and pause it issues — who issued it, and the player state at that instant (`t`, `dur`, `eof`, `pausedBefore`, `frozen`, `freezeAt`, `freezeArmed`, `endParked`, `seeking`). It is per transport change, not per tick, so it is cheap enough to leave in permanently. A transport fault that survives two source-level fixes is not a reading problem; ship the trace and let the log name the line.
@@ -210,9 +251,28 @@
   without a `JsonNode` round-trip that could silently reshape them. `WriteObject` and `WriteText` share
   one `WriteCore`. **Never reimplement this sequence at a call site.**
 * **Locks are held around the WRITE, never around serialisation and never across a UI `await`.**
-  `SerializeGate` (in-process monitor) snapshots the document; `Global\FvsSettingsMutex_<user SID>` (USERSCOPE_01) serialises the
+  `SerializeGate` (in-process monitor) snapshots the document; `Global\FvsFreeVideoStudioMutex_<user SID>` (USERSCOPE_01) serialises the
   disk write with the 2-second `InteractiveMutexTimeout` so a wedged sibling process cannot freeze a
   click. A `LockException` is logged and reported as a failed save, not swallowed.
+* **`SETTX_01` — the MUTATION boundary, not just the serialisation boundary.**
+  Atomic disk writing alone still allowed two logical updates to race on the shared `Instance`
+  object before the snapshot was taken (last-writer-wins, torn preferences). All settings
+  mutation therefore goes through ONE transaction API, `SettingsManager.Update(Action<AppSettings>)`
+  (plus the typed `SetAutoUpdateChecks` helper):
+  1. acquire the in-process `SerializeGate`;
+  2. re-read the FRESHEST persisted settings under the cross-process settings mutex
+     (defaults + `Migrate` + corrupt-file quarantine applied exactly as `Load` does) — a patch is
+     never applied to a stale snapshot, so a sibling process's newer values survive;
+  3. apply the patch, stamp the schema version;
+  4. serialize the one consistent snapshot inside the gate, outside the mutex;
+  5. `AtomicJsonFile.WriteText` under the mutex — same durable protocol as above;
+  6. publish the new snapshot and raise `SettingsManager.Committed` ONLY after the durable
+     commit succeeded. A failed commit publishes nothing, changes nothing, returns false.
+  External code may READ `SettingsManager.Instance.*` but must never ASSIGN through it; the
+  public `Save()` is now private (a final-sink for `Load`'s own recovery paths only). This is
+  guarded by `SettingsTransactionArchitectureTests.NoExternalDirectAssignmentThroughSettingsManagerInstance`
+  and behaviourally by `SettingsTransactionTests` (one-click-one-commit, concurrent updates,
+  stale cross-process snapshot defence, write-failure semantics, migration, corruption).
 
 ## 4d. Bounded Flush Scheduling & Ordered IPC Teardown  {#SYS-IPCLIFETIME}
 * **`FLUSHCEILING_01` — a debounce without a maximum-wait ceiling is not a debounce.**
@@ -279,6 +339,7 @@
 * **Win32 Executable Metadata:** The compiled `.exe` embeds complete production metadata (Product Name, Publisher, Assembly Version, File Version, Legal Copyright).
 * **Authenticode Integrity Enforcement:**
   `Build.cmd` executes Authenticode signing when `FVS_SIGN_PFX` and `FVS_SIGN_PASS` environment variables are detected.
+  ⚠️ **Agent Restriction**: `Build.cmd` triggers public GitHub Cloud release deployment and is strictly banned for autonomous agents. For local compilation checks and signing validation, agents must run `dev_build.cmd`.
 * **`SIGNMANDATE_01` — AN ABSENT CERTIFICATE IS A BUILD FAILURE, NOT A DEFAULT.**
   `CodeSigning.SignIfNeeded` previously returned success with one informational line when `FVS_SIGN_PFX` was unset, so the normal outcome of running `Build.cmd` on a machine without a certificate was a **shipped, unsigned release** — and the line saying so scrolled past between two hundred others. Two controls depended on that signature and both were silently disarmed:
   1. **SmartScreen.** An unsigned download gets the full *"Windows protected your PC"* wall. The Win32 metadata block (`ISSUE_03`) exists precisely so the user has something reassuring to read at that moment; unsigned, it is a publisher field with no cryptographic backing.
@@ -300,11 +361,22 @@
 * **Universal Build Version Synchronization:** Every execution of `Build.cmd` via `FvsBuild` generates a uniform four-part timestamp version (`yyyy.MM.dd.HHmm`). `SynchronizeVersionFiles` synchronizes this exact version across:
   1. `version.txt` in the repository root.
   2. `Directory.Build.props` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>`, `<ProductVersion>`).
-  3. `src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj`.
-  4. `src/FortniteVideoSoftware.Core/FortniteVideoSoftware.Core.csproj`.
+  3. `src/FreeVideoStudio.App/FreeVideoStudio.App.csproj`.
+  4. `src/FreeVideoStudio.Core/FreeVideoStudio.Core.csproj`.
   5. NativeAOT compilation and publish flags (`-p:Version=`, `-p:AssemblyVersion=`, `-p:FileVersion=`, `-p:InformationalVersion=`).
-* **Title Bar Version Invariant:** The running executable extracts its stamped version via `DeploymentLifecycle.GetCurrentVersion()` (reading Win32 `ProductVersion` and `FileVersion`, assembly metadata, and root `version.txt` fallbacks). Custom window title bars format `Fortnite Video Software v{version}` and `Fortnite Video Software - Merger v{version}` directly, ensuring zero discrepancies.
+* **Title Bar Version Invariant:** The running executable extracts its stamped version via `DeploymentLifecycle.GetCurrentVersion()` (reading Win32 `ProductVersion` and `FileVersion`, assembly metadata, and root `version.txt` fallbacks). Custom window title bars format `Free Video Studio v{version}` and `Free Video Studio - Video Merger v{version}` directly, ensuring zero discrepancies.
 * **Version Parsing Robustness:** `DeploymentLifecycle.TryParseVersion` trims leading `'v'`/`'V'` prefixes before filtering numeric dot segments. Tags such as `v2026.09.12.0159` parse accurately into .NET `Version` objects (`2026.9.12.159`) with strict numerical comparison. Invalid or non-numeric inputs return `false` and guarantee a safe non-null `0.0` fallback.
+* **Schema v10 (SYS-AISETTINGS):** Introduces configuration for Universal AI Smart Tracking Zoom:
+  * `GeminiApiKey` (string, default `""`): Google Gemini API key used for vision model calls, persisted under the settings mutex.
+  * `GeminiModelName` (string, default `"gemini-2.5-flash"`): selected Gemini model endpoint.
+  * `AiZoomBaseScale` (double, default `2.2`): camera scale during still or slow gameplay ($v \le v_{\text{slow}}$).
+  * `AiZoomMinScale` (double, default `1.3`): minimum wide camera scale during high-velocity gameplay ($v \ge v_{\text{fast}}$).
+  * `AiZoomAvoidHud` (bool, default `true`): steers camera crop bounds away from game HUD regions.
+  * `AiZoomDeadbandPercent` (double, default `2.0`): suppresses micro-jitter below $2\%$ of frame dimensions.
+  * **Migration Invariant:** Upgrading from schema v9 or older preserves all existing preferences and initializes AI tracking fields to defaults. Files from a higher schema version are loaded best-effort without destructive rewrites.
+* **API Key Redaction & Transient Network Retries (`PostWithRetryAsync`):**
+  * HTTP request URLs containing API keys are redacted before writing to log sinks (`Regex.Replace(url, @"key=[^&]+", "key=REDACTED")`).
+  * Network drops and transient HTTP status codes (`429`, `500`, `503`, `504`) execute up to 3 automatic retries with exponential backoff delays ($2\,\text{s}, 4\,\text{s}, 6\,\text{s}$). Terminal failures log full HTTP response bodies to `RuntimeLog.Fail("GEMINI_API", ...)` and `CoreLogger.Warn` for rapid diagnostics.
 * **Schema v9 (REMOVEUX_01):** upgrading from v8 or older sets `ConfirmVideoMergerRemove = false` once (product decision 2026-09-27: removal is instant and undoable); a v9 file keeps the user's choice. `ApplicationPaths.LaneCacheDirectory` (`ProgramDataRoot/cache/lanes`) holds the Merger's per-clip filmstrip PNGs and waveform peaks (LANECACHE_02), best-effort, pruned to 800 files.
 * **Schema v7 Migration Invariant:** When upgrading from older application installations lacking update checking (or whenever `settings.json` lacks an explicit `AutoUpdateChecks` configuration), `SettingsManager` automatically initializes and persists `AutoUpdateChecks = true`. On fresh installs without an existing config file, default settings with `AutoUpdateChecks = true` are saved immediately to disk, ensuring new releases are never silently missed.
 * **Network Stall Guard:** `UpdateService.DownloadVerifyLaunchAsync` wraps chunk stream reads in a 45-second stall cancellation timeout (`CancellationTokenSource.CreateLinkedTokenSource`). A frozen HTTP pipe cancels cleanly rather than leaving the download modal hanging indefinitely.
@@ -341,7 +413,7 @@ CI. `DevCmdDelegatesTheSentinelCheckRatherThanParsingIt` fails if the list is ev
 
 ## SYS-DIAGREPORT — A Bundle The User Can Actually Send  {#SYS-DIAGREPORT}
 
-The fault tiers route every classified failure to a rotating log under the per-user root (`%LOCALAPPDATA%\Fortnite Video Software\logs`, SYS-USERSCOPE). That is the
+The fault tiers route every classified failure to a rotating log under the per-user root (`%LOCALAPPDATA%\FreeVideoStudio\logs`, SYS-USERSCOPE). That is the
 right destination for the failure and the wrong one for the DIAGNOSIS: nobody navigates there, finds
 the right file among the rotation, and attaches it to a report.
 
@@ -351,7 +423,7 @@ runtime against a matrix validated on one machine. "Export fails on some AMD car
 
 `DiagnosticReport` (Core) builds a plain-text bundle — machine profile, the chosen encoder, the tail
 of the log, the recovery state — and `DiagnosticBundle` (App) writes it under
-`ProgramDataRoot\Diagnostics` (the per-user root, `%LOCALAPPDATA%\Fortnite Video Software\Diagnostics`).
+`ProgramDataRoot\Diagnostics` (the per-user root, `%LOCALAPPDATA%\FreeVideoStudio\Diagnostics`).
 
 * **Nothing uploads.** There is deliberately no network code. Auto-upload is a consent problem, a
   privacy problem and a hosting problem, and none of those need solving before the diagnosis problem
@@ -367,9 +439,62 @@ of the log, the recovery state — and `DiagnosticBundle` (App) writes it under
 The update path is bound by `09` §3 (DIST-SPLIT): a release may publish an app-only package beside
 the full installer, and `UpdateService` takes it only when the installed runtime fingerprint matches
 what the release advertises. Every uncertainty resolves to the full installer.
-⚠ In practice the patch path is not live yet: `09` §3 lists the OPEN KNOWN DEFECTS (tracked as R9).
+The compact installer uses the same transactional installation worker as the full installer;
+missing runtime files are copied only when their SHA-256 matches the embedded signed manifest.
 
 ⚠️ `UpdateService.cs` is CO-GOVERNED by this spec and `09`. Reading one is not compliance.
+
+## Transactional brand migration {#SYS-UPGRADE}
+
+`UpgradeCoordinator`, `UpgradeInstallWorker`, `UpgradeRegistration`, `InstallDiscovery`,
+`UpgradeChannel`, `DirectoryUpgrade`, `UserDataUpgrade`, `InstallPayload` and `UpgradeFiles`
+implement UPGRADE_02 through UPGRADE_10. `Program` dispatches deployment helpers before any
+settings initialization. The install entry point always uses this flow; uninstall remains separate.
+
+* The original, unelevated user owns the broker, settings migration and first launch. A helper
+  elevated through Windows UAC exclusively owns machine files and registration. Running the broker
+  with administrator credentials is refused with instructions to start the installer normally.
+* Downloads do not interrupt work. The update helper waits for the originating process to exit
+  normally. Other app processes, including other users' sessions, postpone installation. No
+  pre-existing editing process is killed. A newly launched, disabled verification window can be
+  terminated if verification fails, before restoring the old files.
+* Full installers and compact installers embed the complete installation file manifest. Each file
+  is checked by SHA-256. Compact installers carry the app and manifests; missing payload entries
+  must match the installed runtime before reuse. The raw installed executable is also signed,
+  preserving the publisher trust anchor for the next update.
+* Machine and per-user operations hold separate named gates. Every directory switch writes a
+  durable journal before renaming. The machine's protected `Committed` record is the decision
+  used to recover participating user-data journals after an interrupted broker. A `userReady`
+  marker distinguishes fully prepared user data from an interrupted preparation.
+* The updating app's settings win. Current-brand updaters send `--source-current`; older updaters
+  use verified legacy installation discovery. Each conflicting file is preserved separately under
+  `MigrationConflicts`, rather than merging arbitrary fields. Unreadable or newer settings stop
+  migration without resetting preferences. Local and Roaming data move; personal media stays put.
+* All roots must be non-overlapping, verified, plain directories on the transaction store's volume.
+  Linked roots and cross-volume installations stop safely for manual recovery; no recursive drive
+  scan or best-guess deletion is permitted. Existing unrelated destination folders are refused.
+* First launch verifies payload hashes, native library loading, ffprobe startup, settings loading
+  and a Loaded main window. Editing stays disabled until commit. A PID by itself is insufficient.
+  `--no-launch` still performs the health handshake, then closes the verified window.
+* User shell changes resolve the current user's Known Folders; machine changes use Public Desktop
+  and common Start Menu. Owned shortcuts are identified by target. An unrelated name collision
+  is preserved. A new shortcut is created before old shortcuts are removed. Offline user Desktops
+  leave pending work for the next login/start; a completed operation does not keep recreating a
+  subsequently deleted icon. Other accounts complete their own migration at login/start.
+* Registry cleanup only removes captured legacy installation keys that have not subsequently
+  changed. Default application selections are preserved. Rollback restores owned Open With values
+  without replacing other applications' entries. Cleanup failures after commit cannot remove the
+  working replacement.
+* Original directory backups are retained for 30 days after confirmation. Uncommitted and failed
+  transactions are never automatically pruned. Conflicts in the active tree survive backup expiry.
+  Machine maintenance is serialized with installation; user maintenance runs under that user.
+
+Local regression coverage: `UpgradeTransactionTests` injects failure at each directory rename,
+checks source precedence, retention, conflicting files, journal traversal and compact runtime
+corruption. `CompactUpdateTests` rejects unexpected archive entries and checks settings preservation.
+Before production rollout, exercise real Windows UAC (same/different admin), OneDrive and network
+Desktop offline/online, two logged-in accounts, antivirus locks, power loss, and representative old
+signed releases in disposable Windows installations. Unit tests do not establish those OS outcomes.
 
 ---
 
@@ -382,7 +507,15 @@ what the release advertises. Every uncertainty resolves to the full installer.
 * **WRITEORDER_02 (`NamedPipeStateServer`):** `_flushGate` is held from snapshot to rename, `_stateVersion` makes writes monotonic, and a failed write re-arms `_isDirty`.
 
 ## SYS-USERSCOPE — Mutable State Is Per Windows User  {#SYS-USERSCOPE}
-* **USERSCOPE_01:** the default root is `%LOCALAPPDATA%\Fortnite Video Software` (`ApplicationPaths.DefaultUserRoot`). The old `%ProgramData%` root was shared by every account, while the single-instance guard is per user.
+* **USERSCOPE_01:** the default root is `%LOCALAPPDATA%\FreeVideoStudio` (`ApplicationPaths.DefaultUserRoot`). The old `%ProgramData%` root was shared by every account, while the single-instance guard is per user.
   * First launch per user copies the legacy machine root once (`MigrateLegacyMachineRoot`, marker `.migrated_from_programdata`). It never copies locks, `recovery_v2.json`, `logs`, `Diagnostics` or `voiceovers`, and never modifies the legacy folder.
   * The installer no longer creates the ProgramData folder or grants `Users:F`. `EnsureWritableDirectories` no longer runs `icacls`.
   * Named mutexes guarding per-user files use `NamedSystemMutex.UserScopedName` (`Global\<name>_<SID>`). A mutex that cannot be opened raises `LockException`, never a raw `UnauthorizedAccessException`.
+
+### REBRAND_01 — Free Video Studio storage migration  {#SYS-REBRAND}
+
+Canonical per-user roots are `%APPDATA%\FreeVideoStudio` and `%LOCALAPPDATA%\FreeVideoStudio`. `AppDataPaths` reads the two historical names from its embedded `LegacyAppDataNames.txt` resource. Before creating either root, it copies existing files (including nested presets and recovery backups) into a sibling staging directory and atomically renames the complete directory into place. Existing destinations are untouched. Source directories are retained. Failed copies leave no partial destination, continue using the legacy root, and retry on the next launch. The spaced local legacy root takes precedence over the older compact root. `ApplicationPaths.CreateDefault` invokes this before the existing machine-to-user migration; the development/test override remains isolated. Settings locking uses the `Global\FvsFreeVideoStudioMutex_` prefix with the existing per-user scope.
+
+The legacy resource contains `FortniteVideoSoftware` and `Fortnite Video Software`. Roaming migration checks the compact name first; local migration checks the spaced name first. If both sources contain the same relative filename, the first source wins and the originals remain untouched. New destinations are never merged into or overwritten. If copying fails with an I/O or permission error, the resolver uses the first existing legacy source for that process and retries migration on the next launch; staging cleanup is best-effort.
+
+This per-user rebrand migration copies recovery backups and is distinct from `MigrateLegacyMachineRoot`, which deliberately excludes another account's session/recovery files. `LocalCacheDir` is also the default mutable-state root exposed through the historically named `ApplicationPaths.ProgramDataRoot`; it is not limited to disposable caches. `LegacyRoamingUiStateDirectory` resolves to `AppDataDir/Settings` for the existing UI-state migration. `FVS_PROGRAMDATA_ROOT` bypasses default-root migration in development and tests. `REBRAND_01` is registered in `build/sentinels.txt`; `AppDataPathsTests` covers recursive copies, unchanged existing destinations, failed-copy retries and precedence between legacy roots.

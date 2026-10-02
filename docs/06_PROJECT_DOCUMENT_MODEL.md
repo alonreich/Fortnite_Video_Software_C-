@@ -3,19 +3,19 @@
 ## Code Mini-Map: Bound Source Files & Symbols
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs` | `ProjectDocument`, `SourceClip`, `ProjectAudio`, `ProjectExport`, `SourceIntegrity` | `SchemaVersion`, `MinimumReadableSchemaVersion`, `BuildTimeline`, `CheckSource`, `EffectiveDurationMs`, `UnknownFields` | The saveable document |
-| `src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs` | `ProjectSerializer` | `Write`, `Read`, `KnownKeys`, `ProjectSerializer` | AOT-safe JSON mapping |
-| `src/FortniteVideoSoftware.Core/Project/ProjectStore.cs` | `ProjectStore`, `ProjectIoResult` | `Save`, `Load`, `NormalizeExtension`, `BackupSuffix` | Disk persistence |
-| `src/FortniteVideoSoftware.Core/Project/RecentProjects.cs` | `RecentProjects`, `RecentProject` | `Read`, `Touch`, `Prune`, `MaxEntries` | Recent list |
-| ⚠ `src/FortniteVideoSoftware.Core/Media/OutputTimeline.cs` | `OutputTimeline` | `Create`, `Chunk`, `Cut`, `Insertion` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
-| ⚠ `src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `ReadObject`, `WriteObject` | CO-GOVERNED by `05_SYSTEM_LIFECYCLE_STORAGE.md` |
-| ⚠ `src/FortniteVideoSoftware.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlAnchor` | `ToJson`, `FromJson`, `MergeEdlJsonContext` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
-| ⚠ `src/FortniteVideoSoftware.App/VideoMergerWindow.History.cs` | `VideoMergerWindow` (Partial) | `_history`, `RecordHistory`, `StepHistoryAsync`, `ApplyEdlStateAsync`, `ResetHistory` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
-| ⚠ `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `SaveAsync`, `SaveAsAsync`, `OpenAsync`, `AutosaveTick`, `ConfirmDiscardAsync`, `IsDirty`, `PushEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
-| ⚠ `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
-| `src/FortniteVideoSoftware.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `NormalizeExtension` | Store seam; forwards to `ProjectStore` |
-| `src/FortniteVideoSoftware.Core/Infrastructure/AotJson.cs` | `AotJson` | `AddNode` | Reflection-free `JsonArray` append (AOTSAFETY_02) |
-| `src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj` | build configuration | `AOTSAFETY_01`, `SuppressTrimAnalysisWarnings`, `SuppressAotAnalysisWarnings` | Publish-time safety analysis |
+| `src/FreeVideoStudio.Core/Project/ProjectDocument.cs` | `ProjectDocument`, `SourceClip`, `ProjectAudio`, `ProjectExport`, `SourceIntegrity` | `SchemaVersion`, `MinimumReadableSchemaVersion`, `BuildTimeline`, `CheckSource`, `EffectiveDurationMs`, `UnknownFields` | The saveable document |
+| `src/FreeVideoStudio.Core/Project/ProjectSerializer.cs` | `ProjectSerializer` | `Write`, `Read`, `KnownKeys`, `ProjectSerializer` | AOT-safe JSON mapping |
+| `src/FreeVideoStudio.Core/Project/ProjectStore.cs` | `ProjectStore`, `ProjectIoResult` | `Save`, `Load`, `NormalizeExtension`, `BackupSuffix` | Disk persistence |
+| `src/FreeVideoStudio.Core/Project/RecentProjects.cs` | `RecentProjects`, `RecentProject` | `Read`, `Touch`, `Prune`, `MaxEntries` | Recent list |
+| ⚠ `src/FreeVideoStudio.Core/Media/OutputTimeline.cs` | `OutputTimeline` | `Create`, `Chunk`, `Cut`, `Insertion` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
+| ⚠ `src/FreeVideoStudio.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `ReadObject`, `WriteObject` | CO-GOVERNED by `05_SYSTEM_LIFECYCLE_STORAGE.md` |
+| ⚠ `src/FreeVideoStudio.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlAnchor` | `ToJson`, `FromJson`, `MergeEdlJsonContext` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
+| ⚠ `src/FreeVideoStudio.App/VideoMergerWindow.History.cs` | `VideoMergerWindow` (Partial) | `_history`, `RecordHistory`, `StepHistoryAsync`, `ApplyEdlStateAsync`, `ResetHistory` | CO-GOVERNED by `01_TIMELINE_COORDINATE_MATH.md` |
+| ⚠ `src/FreeVideoStudio.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `SaveAsync`, `SaveAsAsync`, `OpenAsync`, `AutosaveTick`, `ConfirmDiscardAsync`, `IsDirty`, `PushEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
+| ⚠ `src/FreeVideoStudio.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
+| `src/FreeVideoStudio.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `NormalizeExtension` | Store seam; forwards to `ProjectStore` |
+| `src/FreeVideoStudio.Core/Infrastructure/AotJson.cs` | `AotJson` | `AddNode` | Reflection-free `JsonArray` append (AOTSAFETY_02) |
+| `src/FreeVideoStudio.App/FreeVideoStudio.App.csproj` | build configuration | `AOTSAFETY_01`, `SuppressTrimAnalysisWarnings`, `SuppressAotAnalysisWarnings` | Publish-time safety analysis |
 
 ---
 
@@ -79,7 +79,7 @@ decide how those chunks render. Nothing derived is ever written to the file.
   `JsonNode` / `JsonObject`. Source-generated `JsonSerializerContext` (as `Ipc/IpcProtocol.cs` uses)
   is the only acceptable alternative. `JsonSerializer.Serialize(document)` is forbidden here.
 * **AOTSAFETY_01 — The analysers stay on.** `SuppressTrimAnalysisWarnings` and
-  `SuppressAotAnalysisWarnings` are `false` in `FortniteVideoSoftware.App.csproj`, and `IL2104` is
+  `SuppressAotAnalysisWarnings` are `false` in `FreeVideoStudio.App.csproj`, and `IL2104` is
   no longer in `NoWarn`. Setting them back to `true` does not make the app AOT-safe; it makes the app
   silent about not being AOT-safe. These are warnings, not errors — the build still succeeds. Each
   one is fixed or annotated at the call site with a reason. `IlcTrimMetadata` is a separate
@@ -98,7 +98,7 @@ fixed by muting it again — the rule is fix, or annotate one statement with a r
   merely asserts it and goes on hiding the next call — possibly one that really does pass a POCO.
 * **`Marshal.SizeOf(Type)`** in `HardwareTelemetrySampler.GetMemUsage` — a separate fix, not the
   `AOTSAFETY_03` tag: that tag's sentinel (`build/sentinels.txt`) is the release analyser policy in
-  `FortniteVideoSoftware.App.csproj` (§10), even though this call site's code comment reuses the
+  `FreeVideoStudio.App.csproj` (§10), even though this call site's code comment reuses the
   label. Asks the runtime to build marshalling code for a reflectively-known type, which does not exist after AOT
   compilation. `Marshal.SizeOf<T>()` is computed at compile time and yields the identical size.
 * **AOTSAFETY_04 — `SettingsManager.Save` was on the reflection path.** It already had a
@@ -174,7 +174,7 @@ fixed by muting it again — the rule is fix, or annotate one statement with a r
 
 ## 8. Open Work Bound To This Spec  {#PROJ-TODO}
 The model and its persistence exist and are unit-tested
-(`tests/FortniteVideoSoftware.Core.Tests/ProjectDocumentTests.cs`).
+(`tests/FreeVideoStudio.Core.Tests/ProjectDocumentTests.cs`).
 
 **Closed since this list was written:**
 
@@ -228,10 +228,19 @@ The model and its persistence exist and are unit-tested
 
 **Still not done:**
 
-1. `RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.
+1. ~~`RecoveryManager` demoted to autosave OF THIS DOCUMENT rather than a parallel state format.~~
+   **Done (RECOVERYDOC_01..12).** The crash-recovery file now holds exactly ONE `ProjectDocument`
+   — captured by `ProjectSession.Capture(forExplicitSave: false)`, serialised by the canonical
+   `ProjectSerializer` inside `Core/Project/RecoveryEnvelope.cs` (`fvsrecovery` envelope: one
+   `project` + crash-only `transient` metadata) — and is applied back through
+   `ProjectSession.OpenDocument`, the same document-application path Open Project uses. The old
+   hand-rolled 60-field recovery payload (`SerializeState`) and the field-by-field restore in
+   `MainWindow.Restore.cs` are gone; legacy `schemaVersion:1` payloads are migrated one-way by
+   `App/Services/LegacyRecoveryMigrator.cs` (limitation: the legacy schema never carried the mask
+   or the merger queue). Atomic writes, the WRITEORDER_01 ordering, the granular-session
+   preservation merge and the 750 ms write-behind debounce are unchanged.
 2. `.fvsproj` shell association and icon (`ShellFileAssociation.cs`), plus open-with launch.
-3. Producing the `FortniteVideoSoftware.App.update.zip` release asset (`09` §3 DIST-SPLIT) — the
-   consumer side is wired and tested; the publisher side is not.
+3. Publishing and applying the app-only update (`09` §3 DIST-SPLIT). `Staging.CreatePayloadZip` now produces `obj/ReleaseAssets/FreeVideoStudio.App.update.zip` and embeds the runtime manifest in the full payload. Uploading the sidecars, applying the app-only archive and excluding the app from the runtime fingerprint remain unfinished.
 
 ---
 
@@ -268,7 +277,7 @@ The model and its persistence exist and are unit-tested
 
 ## 10. Release Analyser Policy (AOTCLEAN_01, supersedes AOTSAFETY_03)  {#PROJ-AOTPOLICY}
 `AOTSAFETY_03` here is the tag registered in `build/sentinels.txt` (it resolves to
-`FortniteVideoSoftware.App.csproj`); the `Marshal.SizeOf<T>()` fix in §4 is a different change.
+`FreeVideoStudio.App.csproj`); the `Marshal.SizeOf<T>()` fix in §4 is a different change.
 * **Zero trim/AOT warnings. Nothing muted, nothing collapsed, nothing made non-fatal.** `Staging.Publish` runs with `-p:TreatWarningsAsErrors=true`; every IL2xxx/IL3xxx from ANY assembly fails the release.
 * The interim AOTSAFETY_03 rule (third-party `TrimmerSingleWarn`, `WarningsNotAsErrors=IL2104;IL3053`, IL2026 muted at the ILC stage) is REMOVED. Each finding was fixed at its source:
   | Finding | Source | Fix |

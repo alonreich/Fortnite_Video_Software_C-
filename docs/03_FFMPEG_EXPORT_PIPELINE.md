@@ -5,39 +5,41 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs` | `QualityLadder`, `Tier` | `Tiers`, `TargetMbFor`, `DefaultIndex`, `OriginalIndex`, `ColorFor` | The quality dial's tiers and the tier -> target-megabytes model. |
-| `src/FortniteVideoSoftware.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `EstimatedFileSizeText`, `EstimatedFileSizeDescription`, `ResolveHardwareMode` | Quality selection and bound output-size readout. |
-| `src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs` | `MainWindow` | `CaptureSizeRequest`, `RequestSizeEstimate`, `MainWindow` | Immutable estimate inputs and UI publication. |
-| `src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs` | `OutputSizeEstimator` | `EstimateMainAsync`, `EstimateMergerAsync`, `CalculateMain`, `CalculateMerger`, `ReadMediaAsync` | Shared estimates and bounded media metadata cache. |
-| `src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps`, `FromBitrate` | MB/GB/TB formatting and shared merger encoder settings. |
-| `src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `VoiceOverTake` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
-| `src/FortniteVideoSoftware.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | PREVIEW GPU check only (D3D11 device, feature level, real adapter; logs RDP) — hardware vs CPU software preview. Does not test encoders. |
-| `src/FortniteVideoSoftware.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Boot encoder scan: one-frame test encode per encoder (NVIDIA → AMD → INTEL); result shared suite-wide. |
-| `src/FortniteVideoSoftware.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `HighChunkCountWarnThreshold`, `SpliceFadeSec` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
-| `src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `LayerSpec`, `MobileFilterBuilder` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
-| `src/FortniteVideoSoftware.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `Result` | `Compute`, `ZoomPreviewSimulator`, `struct` | CPU/GPU live zoom simulation matching export filtergraph parity. |
-| `src/FortniteVideoSoftware.App/Infrastructure/MemePreviewDirector.cs` | `MemePreviewDirector` | `IsActive`, `SetMemes`, `NotifySeek`, `Tick` | Live preview cutaway playback coordination and libmpv loadfile director. |
-| `src/FortniteVideoSoftware.Core/Media/MergerWorker.cs` | `MergerWorker` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
-| `src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
-| `src/FortniteVideoSoftware.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
-| `src/FortniteVideoSoftware.Core/Media/EncoderManager.cs` | `EncoderManager` | `EncoderPreference`, `AvailableEncoders`, `PrimaryEncoder`, `GetInitialEncoder`, `GetFallbackList`, `GetCodecFlags`, `GetDecodeFlags`, `MaxBitrateKbps` | Export-time encoder list (`ffmpeg -encoders`), NVENC → AMF → QSV → libx264 fallback order, per-encoder rate-control flags. |
-| `src/FortniteVideoSoftware.Core/Media/ExportEncoderStrategy.cs` | `ExportEncoderStrategy` | `Resolve` | Centralized suite-wide hardware encoder decision engine (Settings override → boot scan cache → export-time probe). |
-| `src/FortniteVideoSoftware.Core/Media/TwoPassEncoding.cs` | `TwoPassEncoding` | `MasterCodecArgs`, `PassArgs`, `Cleanup` | libx264 two-pass size targeting (scratch master, pass 1/2 args), shared by both workers. |
-| `src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs` | `FfmpegJobLifetime` | `SetCurrentProcess`, `TakeCurrentProcess`, `PeekCurrentProcess`, `Cancel`, `DisposeJob`, `EmitFinished`, `FinishEmitted` | PIPELIFE_01 — one shared FFmpeg job lifetime (process gate, cancel, dispose, finish) for both workers. **⚠ CO-GOVERNED BY: 08**|
-| `src/FortniteVideoSoftware.Core/Media/ExportColorPolicy.cs` | `ExportColorPolicy`, `VideoColorInfo` | `BuildConversionChain`, `OutputTagArgs`, `HdrToneMapChain`, `IsHdr`, `IsFullRange` | COLOR_01 — SDR BT.709 TV-range conversion and output colour tags. |
-| `src/FortniteVideoSoftware.Core/Media/IntroTag.cs` | `IntroTag` | `Key`, `StandardIntroSec`, `OutputArgs`, `Read`, `Validate` | SCRAPER_01 — `fvs_intro_sec` tag and the muxer args that write both tags. |
-| `src/FortniteVideoSoftware.Core/Media/ExportTimingTag.cs` | `ExportTimingTag`, `ExportTiming` | `Key`, `Format`, `TryParse`, `Read`, `SecToFrames` | TIMINGTAG_02 — frame-exact `fvs_timing` tag (intro, fade-in, fade-out). |
-| `src/FortniteVideoSoftware.Core/Media/MergeClipAnalyzer.cs` | `MergeClipAnalyzer`, `MergeClipInfo` | `AnalyzeAsync`, `TryGetCompleted` | SCRAPER_03 — background per-file probe (duration, tags, audio, size), cached. |
-| `src/FortniteVideoSoftware.Core/Media/FramePtsProbe.cs` | `FramePtsProbe` | `ProbeAsync`, `Parse`, `IntroCutUs` | FRAMESNAP_01 — real frame pts for the intro cut. |
-| `src/FortniteVideoSoftware.Core/Media/MergedTimeline.cs` | `MergedTimeline`, `MergedClip`, `MergeClipSource` | `Build`, `Remap`, `ToMerged`, `TotalSec`, `Composite` | SCRAPER_02 — the Merger's merged clock. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.Core/Media/CompositeTimeline.cs` | `CompositeTimeline`, `CompositeClip` | `Build`, `TotalOutputSec`, `ClipsOutputSec`, `MergedSecToBodyOutputSec`, `MemeAtRelSec`, `MergeFps` | COMPOSITE_01 — the Merger's one time mapper (output length, frame counts, music by output time). **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlEffects`, `EdlMeme`, `EdlMusic` | `Clips`, `BaseSpeed`, `ToJson`, `FromJson` | The Merger's edit list read by `MergerWorker.Edl`. **⚠ CO-GOVERNED BY: 01, 06**|
-| `src/FortniteVideoSoftware.Core/Media/MergeClipGraph.cs` | `MergeClipGraph`, `MergeMemeInput`, `MergeClipGraphResult` | `Build` | MERGEGRAPH_01 — one Merger clip with granular effects and memes. **⚠ CO-GOVERNED BY: 01**|
-| `src/FortniteVideoSoftware.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `GainDbAsync`, `GainFor`, `Chain` | MEMELEVEL_01 — Merger meme loudness gain + limiter. **⚠ CO-GOVERNED BY: 02**|
-| `src/FortniteVideoSoftware.Core/Media/MusicPadAlignment.cs` | `MusicPadAlignment` | `Align` | MUSICPAD_01 — shifts Main App music by the fade-in pad. **⚠ CO-GOVERNED BY: 01, 02**|
-| `src/FortniteVideoSoftware.Core/Media/HardwareCapability.cs` | `HardwareCapability`, `HardwareCapabilityCache` | `Detect`, `LoadCached`, `Persist`, `SchemaVersion` (1) | Cached hardware acceleration capabilities profile and encoder feature levels. |
-| `src/FortniteVideoSoftware.App/MemeCatalog.cs` | `MemeCatalog`, `MemeItem` | `Discover`, `AllMemes`, `GetById` | Shipped and user meme asset catalog indexing and lookup. |
-| `src/FortniteVideoSoftware.App/Infrastructure/MemeAssets.cs` | `MemeAssets` | `ResolvePath`, `EnsureExtracted` | Embedded meme video asset unpacking and filesystem caching. |
+| `src/FreeVideoStudio.App/ViewModels/QualityLadder.cs` | `QualityLadder`, `Tier` | `Tiers`, `TargetMbFor`, `DefaultIndex`, `OriginalIndex`, `ColorFor` | The quality dial's tiers and the tier -> target-megabytes model. |
+| `src/FreeVideoStudio.App/ViewModels/ExportViewModel.cs` | `ExportViewModel` | `QualitySliderValue`, `EstimatedFileSizeText`, `EstimatedFileSizeDescription`, `ResolveHardwareMode` | Quality selection and bound output-size readout. |
+| `src/FreeVideoStudio.App/MainWindow.SizeEstimate.cs` | `MainWindow` | `CaptureSizeRequest`, `RequestSizeEstimate`, `MainWindow` | Immutable estimate inputs and UI publication. |
+| `src/FreeVideoStudio.App/Services/OutputSizeEstimator.cs` | `OutputSizeEstimator` | `EstimateMainAsync`, `EstimateMergerAsync`, `CalculateMain`, `CalculateMerger`, `ReadMediaAsync` | Shared estimates and bounded media metadata cache. |
+| `src/FreeVideoStudio.Core/Media/OutputFileSize.cs` | `OutputFileSize` | `FormatMegabytes`, `MergerConstantQuality`, `MergerTargetKbps`, `FromBitrate` | MB/GB/TB formatting and shared merger encoder settings. |
+| `src/FreeVideoStudio.Core/Media/ProcessWorker.cs` | `ProcessWorker`, `VoiceOverTake` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Core FFmpeg rendering orchestrator, command builder, and progress monitor. |
+| `src/FreeVideoStudio.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | PREVIEW GPU check only (D3D11 device, feature level, real adapter; logs RDP) — hardware vs CPU software preview. Does not test encoders. |
+| `src/FreeVideoStudio.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Boot encoder scan: one-frame test encode per encoder (NVIDIA → AMD → INTEL); result shared suite-wide. |
+| `src/FreeVideoStudio.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `HighChunkCountWarnThreshold`, `SpliceFadeSec` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
+| `src/FreeVideoStudio.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `LayerSpec`, `MobileFilterBuilder` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
+| `src/FreeVideoStudio.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `Result` | `Compute`, `ZoomPreviewSimulator`, `struct` | CPU/GPU live zoom simulation matching export filtergraph parity. |
+| `src/FreeVideoStudio.Core/Media/AiTrajectorySmoother.cs` | `AiTrajectorySmoother`, `AiTrackingKeyframe`, `SmoothedTrajectory` | `SmoothTrajectory`, `ToJson`, `FromJson` | Universal AI tracking trajectory interpolation and dynamic zoom keyframe generation. **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.App/Services/GeminiTrackingService.cs` | `GeminiTrackingService` | `TrackSubjectAsync`, `PostWithRetryAsync` | Gemini Vision model dispatch and inline MP4 tracking payload generation. **⚠ CO-GOVERNED BY: 01, 04, 05**|
+| `src/FreeVideoStudio.App/Infrastructure/MemePreviewDirector.cs` | `MemePreviewDirector` | `IsActive`, `SetMemes`, `NotifySeek`, `Tick` | Live preview cutaway playback coordination and libmpv loadfile director. |
+| `src/FreeVideoStudio.Core/Media/MergerWorker.cs` | `MergerWorker` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
+| `src/FreeVideoStudio.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
+| `src/FreeVideoStudio.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
+| `src/FreeVideoStudio.Core/Media/EncoderManager.cs` | `EncoderManager` | `EncoderPreference`, `AvailableEncoders`, `PrimaryEncoder`, `GetInitialEncoder`, `GetFallbackList`, `GetCodecFlags`, `GetDecodeFlags`, `MaxBitrateKbps` | Export-time encoder list (`ffmpeg -encoders`), NVENC → AMF → QSV → libx264 fallback order, per-encoder rate-control flags. |
+| `src/FreeVideoStudio.Core/Media/ExportEncoderStrategy.cs` | `ExportEncoderStrategy` | `Resolve` | Centralized suite-wide hardware encoder decision engine (Settings override → boot scan cache → export-time probe). |
+| `src/FreeVideoStudio.Core/Media/TwoPassEncoding.cs` | `TwoPassEncoding` | `MasterCodecArgs`, `PassArgs`, `Cleanup` | libx264 two-pass size targeting (scratch master, pass 1/2 args), shared by both workers. |
+| `src/FreeVideoStudio.Core/Media/FfmpegJobLifetime.cs` | `FfmpegJobLifetime` | `SetCurrentProcess`, `TakeCurrentProcess`, `PeekCurrentProcess`, `Cancel`, `DisposeJob`, `EmitFinished`, `FinishEmitted` | PIPELIFE_01 — one shared FFmpeg job lifetime (process gate, cancel, dispose, finish) for both workers. **⚠ CO-GOVERNED BY: 08**|
+| `src/FreeVideoStudio.Core/Media/ExportColorPolicy.cs` | `ExportColorPolicy`, `VideoColorInfo` | `BuildConversionChain`, `OutputTagArgs`, `HdrToneMapChain`, `IsHdr`, `IsFullRange` | COLOR_01 — SDR BT.709 TV-range conversion and output colour tags. |
+| `src/FreeVideoStudio.Core/Media/IntroTag.cs` | `IntroTag` | `Key`, `StandardIntroSec`, `OutputArgs`, `Read`, `Validate` | SCRAPER_01 — `fvs_intro_sec` tag and the muxer args that write both tags. |
+| `src/FreeVideoStudio.Core/Media/ExportTimingTag.cs` | `ExportTimingTag`, `ExportTiming` | `Key`, `Format`, `TryParse`, `Read`, `SecToFrames` | TIMINGTAG_02 — frame-exact `fvs_timing` tag (intro, fade-in, fade-out). |
+| `src/FreeVideoStudio.Core/Media/MergeClipAnalyzer.cs` | `MergeClipAnalyzer`, `MergeClipInfo` | `AnalyzeAsync`, `TryGetCompleted` | SCRAPER_03 — background per-file probe (duration, tags, audio, size), cached. |
+| `src/FreeVideoStudio.Core/Media/FramePtsProbe.cs` | `FramePtsProbe` | `ProbeAsync`, `Parse`, `IntroCutUs` | FRAMESNAP_01 — real frame pts for the intro cut. |
+| `src/FreeVideoStudio.Core/Media/MergedTimeline.cs` | `MergedTimeline`, `MergedClip`, `MergeClipSource` | `Build`, `Remap`, `ToMerged`, `TotalSec`, `Composite` | SCRAPER_02 — the Merger's merged clock. **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.Core/Media/CompositeTimeline.cs` | `CompositeTimeline`, `CompositeClip` | `Build`, `TotalOutputSec`, `ClipsOutputSec`, `MergedSecToBodyOutputSec`, `MemeAtRelSec`, `MergeFps` | COMPOSITE_01 — the Merger's one time mapper (output length, frame counts, music by output time). **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlEffects`, `EdlMeme`, `EdlMusic` | `Clips`, `BaseSpeed`, `ToJson`, `FromJson` | The Merger's edit list read by `MergerWorker.Edl`. **⚠ CO-GOVERNED BY: 01, 06**|
+| `src/FreeVideoStudio.Core/Media/MergeClipGraph.cs` | `MergeClipGraph`, `MergeMemeInput`, `MergeClipGraphResult` | `Build` | MERGEGRAPH_01 — one Merger clip with granular effects and memes. **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `GainDbAsync`, `GainFor`, `Chain` | MEMELEVEL_01 — Merger meme loudness gain + limiter. **⚠ CO-GOVERNED BY: 02**|
+| `src/FreeVideoStudio.Core/Media/MusicPadAlignment.cs` | `MusicPadAlignment` | `Align` | MUSICPAD_01 — shifts Main App music by the fade-in pad. **⚠ CO-GOVERNED BY: 01, 02**|
+| `src/FreeVideoStudio.Core/Media/HardwareCapability.cs` | `HardwareCapability`, `HardwareCapabilityCache` | `Detect`, `LoadCached`, `Persist`, `SchemaVersion` (1) | Cached hardware acceleration capabilities profile and encoder feature levels. |
+| `src/FreeVideoStudio.App/MemeCatalog.cs` | `MemeCatalog`, `MemeItem` | `Discover`, `AllMemes`, `GetById` | Shipped and user meme asset catalog indexing and lookup. |
+| `src/FreeVideoStudio.App/Infrastructure/MemeAssets.cs` | `MemeAssets` | `ResolvePath`, `EnsureExtracted` | Embedded meme video asset unpacking and filesystem caching. |
 
 ---
 
@@ -68,6 +70,7 @@
     scale={resW}:{resH}
     ```
   * **Slow ramp** (the ≤0.5 s glide in/out of a slow zoom): pad to a `2·resW × 2·resH` canvas, optional downscale when the working frame would exceed 100 Mpx (`MaxZoomWorkingPixels`), then `scale=w='iw*(z)':h='ih*(z)':eval=frame` → `crop` → `cas=0.5` → `scale={resW}:{resH}`, with z and the crop centre as time expressions.
+  * **AI Smart Tracking Trajectory** (`SpeedSegment.AiTrackingTrajectory`): dynamic multi-keyframe trajectory compiled by `AiTrajectorySmoother`. Keyframes specify optical coordinates $(C_x, C_y)$ and dimensions $(C_w, C_h)$ at $0.5\,\text{s}$ sampled intervals. `GranularSpeedBuilder` compiles continuous piece-wise linear time expressions for scale and crop. Live preview parity is maintained bit-for-bit via `ZoomPreviewSimulator.Compute`. Banned `zoompan` filter remains strictly avoided.
 * **Zoom Limit & Sharpening:**
   * Full zoom is measured against the zoom's own resolution:
     $$z_{\text{target}} = \min\left(\frac{\text{resW}}{\text{ZoomW}}, \frac{\text{resH}}{\text{ZoomH}}\right)$$
@@ -134,16 +137,16 @@
 ---
 
 ## 7. Monotonic Progress Tracking  {#FFM-PROGRESS}
-Render progress tracking is cost-weighted across three sequential phases and must be mathematically monotonic (P_n+1 >= P_n):
+Render progress tracking is cost-weighted across sequential phases and must be mathematically monotonic (P_n+1 >= P_n):
 
 ```
-[Phase 1: Loudnorm] ---> [Phase 2: Video Encoding] ---> [Phase 3: Mux & Thumb]
-      (0% - 8%)                 (8% - 96%)                   (96% - 100%)
+[Phase 2: Video & Audio Encoding] ---> [Phase 3: Mux & Thumb]
+           (0% - 96%)                       (96% - 100%)
 ```
 
 * **Phase Allocation:**
-  * **Phase 1 (Audio Loudness Analysis):** 0% - 8%
-  * **Phase 2 (Video & Filtergraph Encoding):** 8% - 96% (cost-weighted for dynamic zoom, CAS sharpening, and mobile crops)
+  * **Phase 1 (Audio Loudness Analysis):** Omitted (`willAnalyzeAudio = false`); encoding starts directly at 0%.
+  * **Phase 2 (Video & Filtergraph Encoding):** 0% - 96% (cost-weighted for dynamic zoom, CAS sharpening, speed segments, and mobile crops)
   * **Phase 3 (Muxing & Thumbnail Generation):** 96% - 100%
 * **Monotonic Invariant:**
   $$P_{n+1} = \max(P_n, P_{\text{calculated}})$$
@@ -285,9 +288,9 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 ## 10. Centralized Meme Library, Probe & Cloud Delta Sync  {#FFM-MEMELIB}
 * **Default Asset Directory:**
   ```text
-  %USERPROFILE%\Videos\Fortnite Video Software\Memes
+  %USERPROFILE%\Videos\Free Video Studio\Memes
   ```
-  Resolved via `Environment.SpecialFolder.MyVideos + @"\Fortnite Video Software\Memes"`, overridable in global settings.
+  Resolved via `Environment.SpecialFolder.MyVideos + @"\Free Video Studio\Memes"`, overridable in global settings.
 * **Boot Scan Contract:** Scans `.mp4`, `.mkv`, `.avi`, `.png`, `.jpg`, `.jpeg` (`MemeCatalog`) and **SKIPS 0-byte files**. Each survivor is probed for native dimensions and its aspect ratio (Width / Height) is computed and cached for the portrait validation rule in `04_UI_UX_AVALONIA_SPEC.md` §10 (UI-MEMESELECT).
 * **Directory Management:** Settings exposes the path plus `Open Folder` / `Change Folder`. A change updates global config and triggers a re-scan; an `UnauthorizedAccessException` reverts the path in a try-catch rather than leaving the app pointed at an unreadable folder.
 * **Dynamic Cloud Retrieval (Delta Sync):** `"Download more memes..."` in the meme selector opens a confirmation dialog, then enumerates the public Git provider's directory contents over its API. **Only files MISSING locally are downloaded** — a full re-pull is forbidden. The selector refreshes on completion.

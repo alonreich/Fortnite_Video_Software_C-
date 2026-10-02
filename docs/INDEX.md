@@ -15,13 +15,20 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠️ **This list is NOT exhaustive** and never has been — many files under `src/` are absent from it. The authoritative routing for any file is the `[SPEC CONTRACT]` sentinel block at its own line 1, which every one of them carries and which `ArchitectureRuleTests.EveryProductionSourceFileCarriesTheSpecContract` enforces. Use this table as a fast lookup, not as proof that an unlisted file is ungoverned.
 
 ```
+  AiSetupWizardWindow.axaml.cs               04
+  AiSubjectPickerWindow.axaml.cs             04
+⚠ AiTrajectorySmoother.cs                    01 03
   AmbientBubblesBackground.cs                04
+  AppDataPaths.cs                            05 SYS-REBRAND
+  AppDataPathsTests.cs                       05 SYS-REBRAND
+  LegacyAppDataNames.txt                     05 SYS-REBRAND
 ⚠ ApplicationPaths.cs                        05 GOV
 ⚠ AtomicJsonFile.cs                          05 06
   AudioFilterChain.cs                        02
   AudioLoudnessProbe.cs                      02
   AvaloniaApp.axaml                          04
-  Build.cmd                                  05
+⚠ Build.cmd                                  05 09 GOV
+  dev_build.cmd                              05 09 GOV
   CanvasMath.cs                              01
   CoachOverlay.cs                            04
 ⚠ CompositeTimeline.cs                       01 03
@@ -34,9 +41,11 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   FloatingNotice.cs                          04
 ⚠ FluidVolumeSlider.cs                       02 04
   FramePtsProbe.cs                           03
+  GeminiTrackingService.cs                   01 03 04
   GpuCapabilityProbe.cs                      03
   GranularSpeedBuilder.cs                    03
 ⚠ GranularSpeedEditorWindow.axaml.cs         01 04 05 07
+⚠ GranularSpeedEditorWindow.AiZoom.cs        01 04
 ⚠ GranularSpeedEditorWindow.Merge.cs         01 04
   HardwareScanner.cs                         03
   KineticScrubController.cs                  01
@@ -78,6 +87,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ RecoveryManager.cs                         05 GOV
   RuntimeLog.cs                              05
   SettingsWindow.axaml.cs                    04
+  SettingsWindow.AiTracking.cs               04
   SpinningWheelSlider.cs                     04
   TextOverlayGenerator.cs                    03
   TimelineKnob.cs                            01
@@ -120,10 +130,10 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   UserFacingFaultSink.cs                     08
   ArchitectureRuleTests.cs                   08
 ⚠ CodeSigning.cs                             05 08
-  SettingsManager.cs                         05
+  SettingsManager.cs                         05 (SETTX_01: all settings mutation via Update)
   HardwareTelemetrySampler.cs                04
   AuthenticodeVerifier.cs                    05
-  FortniteVideoSoftware.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
+  FreeVideoStudio.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
   RuntimePayloadManifest.cs                  09
   DiagnosticReport.cs                        05
   DiagnosticBundle.cs                        05
@@ -228,6 +238,11 @@ _mainEndParkIssued                           01 §8 TL-ENDSTOP
 _previewParkedAtEnd                          01 §8 TL-ENDSTOP
 _recalculatingTrackColumns                   04 §2 UI-DPI
 _timeline                                    01 (mini-map only)
+AiSetupWizardWindow                          04 §13 UI-AIZOOM
+AiSmartZoomBtnCtl                            04 §13 UI-AIZOOM
+AiSubjectPickerWindow                        04 §13 UI-AIZOOM
+AiTrackingPreviewBarCtl                      04 §13 UI-AIZOOM
+AiTrajectorySmoother                         01 §11 TL-AITRACKING | 03 §2 FFM-ZOOMGRAPH
 AmbientBubblesBackground                     04 (mini-map only)
 AppContext.BaseDirectory                     03 §9 FFM-BINPATH
 AppDangerBrush                               04 §1 UI-THEME
@@ -294,6 +309,7 @@ FVS_DEV_LOG_DIR                              05 §4a SYS-DEVBUILD
 FVS_SIGN_PASS                                05 §5 SYS-SIGNING
 FVS_SIGN_PFX                                 05 §5 SYS-SIGNING
 GeneratePng                                  03 (mini-map only)
+GeminiTrackingService                        01 §11 TL-AITRACKING | 03 §2 FFM-ZOOMGRAPH | 04 §13 UI-AIZOOM | 05 §6 SYS-AISETTINGS
 GetQualitySettings                           03 §8a FFM-QUALITY
 GlobalMasterVolume                           02 §1 AUD-MASTERVOL
 GpuCapabilityProbe                           03 §1 FFM-HWENC
@@ -302,9 +318,11 @@ GranularSpeedEditorWindow                    01 (mini-map only) | 04 (mini-map o
 GRIP_01                                      04 §7a UI-RESIZEGRIP
 HardwareScanner                              03 §1 FFM-HWENC
 HasUnsavedWork                               05 (mini-map only)
+HudAutoDetector                              01 §12 TL-HUDSTREAMING
 InsertionAt                                  01 (mini-map only)
 IsActive                                     02 §4 AUD-VOICEOVER | 03 §5 FFM-MEMEPREVIEW
 IsEof                                        02 §2a AUD-IPCSTATE
+IsMainPlayerCharacter                        01 §11 TL-AITRACKING | 04 §13 UI-AIZOOM
 IsMainPreviewAtEnd                           01 §8 TL-ENDSTOP
 IsSafeModeActive                             05 (mini-map only)
 KineticScrubController                       01 (mini-map only)
@@ -331,6 +349,7 @@ MinWidth                                     04 §2 UI-DPI | 05 §3 SYS-WINSTATE
 MixFader                                     04 §1 UI-THEME
 MobileFilterBuilder                          01 §1 TL-PORTRAIT | 03 (mini-map only)
 MPVEOF_01                                    02 §2a AUD-IPCSTATE
+MPVSHUTDOWN_01                               05 §3 SYS-WINSTATE
 MpvIpcClient                                 02 §1 AUD-MASTERVOL | 03 §9 FFM-BINPATH
 MusicVolSlider                               02 §6 AUD-DIALOGS
 MusicWizardWindow                            01 (mini-map only) | 02 (mini-map only)
@@ -347,10 +366,12 @@ OnPointerWheelChanged                        04 (mini-map only)
 OnTick                                       01 (mini-map only)
 OnTrackSelected                              02 §6 AUD-DIALOGS
 OnVolumeChanged                              02   [code-only: VoiceOverWindow.axaml.cs]
+OnlineFrameAccumulator                       01 §12 TL-HUDSTREAMING
 OutputTimeline                               01 §2 TL-OUTPUTTIMELINE | 02 §6 AUD-DIALOGS
 OverlayCanvas                                04 §5 UI-COACH
 P3ASYNC_01                                   02 §6 AUD-DIALOGS
 PhoneFrameMockup                             01 §1 TL-PORTRAIT | 04 (mini-map only)
+PostWithRetryAsync                           05 §6 SYS-AISETTINGS
 ProcessWorker                                03 §9 FFM-BINPATH
 ProgramDataRoot                              05 (mini-map only)
 ProjectRecoveryService                       05 (mini-map only)
@@ -387,9 +408,10 @@ SampleRate                                   04 (mini-map only)  [= 4000, Wavefo
 SaveBoundsSync                               04 (mini-map only) | 05 (mini-map only)
 SaveRecoveryState                            02 (mini-map only) | 05 SYS-EDITHOT | 07 §6 UNDO-EQUALITY
 SaveState                                    05 (mini-map only)
-CurrentSchemaVersion                         05 (mini-map only)  [= 9, SettingsManager]
+CurrentSchemaVersion                         05 (mini-map only)  [= 10, SettingsManager]
 SEAM_01                                      01 §3 TL-MARKERS | 04 §6 UI-GRANULAR
 SEEKSTORM_01                                 04 §6 UI-GRANULAR
+SETTX_01                                     05 §4c (settings transaction API — Update/SetAutoUpdateChecks; mutation guard)
 SegDragMode                                  01 (mini-map only)
 SelectSegment                                01 (mini-map only)
 SerializeState                               05 (mini-map only)
@@ -554,6 +576,7 @@ SYS-CI                                       08 COMP-CI | 09 §5 DIST-CIWATCH
 SYS-DIAGREPORT                               05 SYS-DIAGREPORT
 SYS-PAYLOADSPLIT                             09 §3 DIST-SPLIT | 05 SYS-PAYLOADSPLIT
 SYS-REPOWEIGHT                               09 §4 DIST-REPOWEIGHT
+DIST-AGENTS                                  09 §0 DIST-AGENTS | GOV §0a
 CITEST_01                                    08 COMP-CI
 FAULTTIER_02                                 08 COMP-FAULTCHANNEL
 MVVM_03                                      08 §3 COMP-ARCHTEST | 01 (mini-map only)
@@ -752,3 +775,11 @@ CROSSHAIR_01                                 04   [code-only: CropToolWindow.axa
 TOOLRETURN_01                                05 §3 SYS-WINSTATE
 ```
 
+
+## Rebrand identity and verification routes
+
+| File, symbol or tag | Specification |
+| :--- | :--- |
+| `FreeVideoStudio.sln`, application/core assembly identities, `FreeVideoStudio.App.update.zip` | `09` DIST-IDENTITY |
+| `REBRAND_01`, `AppDataDir`, `LocalCacheDir`, `MigrateDirectory`, `FvsFreeVideoStudioMutex` | `05` SYS-REBRAND |
+| `ProductionNamespacesUseTheProductRoot` | `08` COMP-ARCHTEST |

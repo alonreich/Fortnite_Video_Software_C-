@@ -1,19 +1,19 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 
 namespace FvsBuild;
 
 /// <summary>
 /// Step 1-2 of the pipeline: clean, stage the NativeAOT payload (app publish output +
 /// backend/frontend native binaries + starter media) and zip it into
-/// src\FortniteVideoSoftware.App\payload.zip with System.IO.Compression, replacing the
+/// src\FreeVideoStudio.App\payload.zip with System.IO.Compression, replacing the
 /// old external tar.exe call. Every filename here is a contract: DeploymentLifecycle
 /// extracts this zip on launch and MemeAssets.StarterFiles lists the starter names.
 /// </summary>
 internal static class Staging
 {
-    private const string ProjectFile = @"src\FortniteVideoSoftware.App\FortniteVideoSoftware.App.csproj";
-    private const string ProjectExe = "FortniteVideoSoftware.App.exe";
-    private const string OutputExe = "FortniteVideoSoftware.exe";
+    private const string ProjectFile = @"src\FreeVideoStudio.App\FreeVideoStudio.App.csproj";
+    private const string ProjectExe = "FreeVideoStudio.exe";
+    private const string OutputExe = "FreeVideoStudio.exe";
     private const string OutputDir = @".\compiled";
     /// <summary>
     /// RELEASEASSETS_01 — release sidecars (runtime.manifest.json) live HERE, not in .\compiled.
@@ -23,7 +23,7 @@ internal static class Staging
     private const string ReleaseAssetsDir = @".\obj\ReleaseAssets";
     private const string StagingDir = @".\obj\StandaloneTemp\Staging";
     private const string FinalDir = @".\obj\StandaloneTemp\NativeAot_final";
-    private const string PayloadZip = @"src\FortniteVideoSoftware.App\payload.zip";
+    private const string PayloadZip = @"src\FreeVideoStudio.App\payload.zip";
 
     private static readonly string[] BackendExact =
     [
@@ -31,8 +31,6 @@ internal static class Staging
         "ffprobe.exe",
     ];
 
-    // Wildcard families: each must yield at least one DLL or the build fails loudly
-    // (a silent zero-file copy once shipped an installer with no codecs).
     private static readonly string[] BackendWildcards = ["av*.dll", "sw*.dll", "postproc*.dll"];
 
     private static readonly string[] FrontendExact = ["libmpv-2.dll", "mpv.exe"];
@@ -60,8 +58,7 @@ internal static class Staging
     /// <summary>Kills any running copies of the product and stops dotnet build servers, so locked files cannot survive a clean.</summary>
     public static void TerminateProcesses(BuildLog log)
     {
-        _ = Cli.RunQuiet("taskkill.exe", ["/F", "/IM", "FortniteVideoSoftware.exe", "/T"]);
-        _ = Cli.RunQuiet("taskkill.exe", ["/F", "/IM", "FortniteVideoSoftware.App.exe", "/T"]);
+        _ = Cli.RunQuiet("taskkill.exe", ["/F", "/IM", "FreeVideoStudio.exe", "/T"]);
         _ = Cli.RunQuiet("dotnet", ["build-server", "shutdown"]);
     }
 
@@ -70,10 +67,10 @@ internal static class Staging
     {
         foreach (string directory in new[]
                  {
-                     @"src\FortniteVideoSoftware.App\bin",
-                     @"src\FortniteVideoSoftware.App\obj",
-                     @"src\FortniteVideoSoftware.Core\bin",
-                     @"src\FortniteVideoSoftware.Core\obj",
+                     @"src\FreeVideoStudio.App\bin",
+                     @"src\FreeVideoStudio.App\obj",
+                     @"src\FreeVideoStudio.Core\bin",
+                     @"src\FreeVideoStudio.Core\obj",
                  })
         {
             TryDeleteDirectory(directory);
@@ -126,12 +123,9 @@ internal static class Staging
         }
         if (!ilcCrashed)
         {
-            return false;   // a real build error: report it as it is
+            return false;
         }
 
-        // ILCCRASH_01 — the compiler crashed, not the code. Re-run the SAME publish once with
-        // ILC's scanner single-threaded (--parallelism:1), which removes the race window. Slower,
-        // identical output. A second failure is reported as a failure.
         log.Warn("[NativeAOT] ILC (the NativeAOT compiler) crashed internally - known .NET 9 race, dotnet/runtime#108743.");
         log.Warn("[NativeAOT] Retrying this publish once with a single-threaded ILC scanner (slower, same output)...");
         return RunPublish(outputDir, buildVersion, log, singleThreadedIlc: true, out _);
@@ -244,7 +238,6 @@ internal static class Staging
 
         if (missing.Count > 0)
         {
-            // Fail loudly rather than shipping an installer that silently seeds nothing.
             foreach (string file in missing)
             {
                 log.Error($"ERROR: staging input missing: {file}");
@@ -266,11 +259,20 @@ internal static class Staging
         log.Info("[NativeAOT] 3. Zipping payload...");
         try
         {
+            string symbols = Path.Combine(ReleaseAssetsDir, "Symbols");
+            foreach (string pdb in Directory.EnumerateFiles(StagingDir, "*.pdb"))
+            {
+                Directory.CreateDirectory(symbols);
+                File.Move(pdb, Path.Combine(symbols, Path.GetFileName(pdb)), overwrite: true);
+            }
             if (File.Exists(PayloadZip))
             {
                 File.Delete(PayloadZip);
             }
             Directory.CreateDirectory(Path.GetDirectoryName(PayloadZip)!);
+            var manifest = FreeVideoStudio.Core.Infrastructure.RuntimePayloadManifest.FromFolder(StagingDir);
+            manifest.Write(StagingDir);
+            FreeVideoStudio.Core.Infrastructure.InstallPayload.WriteManifest(StagingDir);
             int entryCount = 0;
             using (ZipArchive archive = ZipFile.Open(PayloadZip, ZipArchiveMode.Create))
             {
@@ -281,30 +283,15 @@ internal static class Staging
                     entryCount++;
                 }
             }
-            // Entries cannot be read while the archive is open in Create mode; count them ourselves.
             log.Info($"[NativeAOT] Payload zipped: {entryCount} entries, {new FileInfo(PayloadZip).Length / (1024 * 1024)} MB.");
 
-            // ══════════════════════════════════════════════════════════════════════════════════
-            // SYS-PAYLOADSPLIT — FINGERPRINT THE RUNTIME AND SHIP THE ANSWER.
-            //
-            // Written twice, on purpose:
-            //   • INTO the staging folder, so it lands beside the installed binaries and the
-            //     updater on that machine can read what is actually installed.
-            //   • BESIDE compiled\ (obj\ReleaseAssets, RELEASEASSETS_01), so the release can publish it as a tiny sidecar asset and the
-            //     updater can read what the release EXPECTS without downloading 322 MB to find out.
-            // A fingerprint that exists in only one of those two places answers nothing.
-            //
-            // ⚠️ Computed BEFORE the zip is written into the staging tree, so the manifest
-            // describes the runtime binaries and not itself.
-            // ══════════════════════════════════════════════════════════════════════════════════
-            var manifest = FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FromFolder(StagingDir);
-            manifest.Write(StagingDir);
 
             Directory.CreateDirectory(ReleaseAssetsDir);
             manifest.Write(ReleaseAssetsDir);
 
+
             log.Info($"[NativeAOT] Runtime fingerprint {manifest.Fingerprint} over {manifest.FileCount} binaries "
-                   + $"({FortniteVideoSoftware.Core.Infrastructure.RuntimePayloadManifest.FormatBytes(manifest.TotalBytes)}). "
+                   + $"({FreeVideoStudio.Core.Infrastructure.RuntimePayloadManifest.FormatBytes(manifest.TotalBytes)}). "
                    + "Publish " + ReleaseAssetsDir.TrimStart('.', '\\') + "\\runtime.manifest.json as a release asset so patch updates can skip the payload.");
             return true;
         }
@@ -312,6 +299,41 @@ internal static class Staging
         {
             log.Error($"ERROR: Failed to zip payload: {ex.Message}");
             return false;
+        }
+    }
+
+    public static bool CreateCompactInstaller(string buildVersion, BuildLog log)
+    {
+        string completePayload = Path.Combine(ReleaseAssetsDir, "full-payload.zip");
+        try
+        {
+            File.Copy(PayloadZip, completePayload, overwrite: true);
+            File.Delete(PayloadZip);
+            using (var patch = ZipFile.Open(PayloadZip, ZipArchiveMode.Create))
+            {
+                foreach (string name in new[] { OutputExe, FreeVideoStudio.Core.Infrastructure.InstallPayload.ManifestName,
+                             FreeVideoStudio.Core.Infrastructure.RuntimePayloadManifest.FileName })
+                    patch.CreateEntryFromFile(Path.Combine(StagingDir, name), name, CompressionLevel.Optimal);
+            }
+            if (!Publish(FinalDir, buildVersion, log, "Publishing compact update installer...")) return false;
+            string executable = Path.Combine(FinalDir, ProjectExe);
+            if (!CodeSigning.SignIfNeeded(executable, log)) return false;
+            string updateArchive = Path.Combine(ReleaseAssetsDir, "FreeVideoStudio.App.update.zip");
+            if (File.Exists(updateArchive)) File.Delete(updateArchive);
+            using (var update = ZipFile.Open(updateArchive, ZipArchiveMode.Create))
+                update.CreateEntryFromFile(executable, OutputExe, CompressionLevel.Optimal);
+            File.Copy(CompiledExePath, Path.Combine(ReleaseAssetsDir,
+                FreeVideoStudio.Core.Infrastructure.LegacyProductIdentity.DownloadName), overwrite: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.Error("Compact update packaging failed: " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            if (File.Exists(completePayload)) File.Move(completePayload, PayloadZip, overwrite: true);
         }
     }
 
@@ -331,7 +353,7 @@ internal static class Staging
     }
 
     /// <summary>
-    /// Verifies .\compiled contains EXACTLY FortniteVideoSoftware.exe (MANDATE #2).
+    /// Verifies .\compiled contains EXACTLY FreeVideoStudio.exe (MANDATE #2).
     /// Strays are removed, then reported as a failure - same as the old
     /// :PURGE_COMPILED_EXTRAS + :VALIDATE_COMPILED_OUTPUT pair.
     /// </summary>
@@ -387,7 +409,6 @@ internal static class Staging
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A locked file here fails the publish or validation stage with a clearer message.
         }
     }
 

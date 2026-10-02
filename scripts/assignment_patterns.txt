@@ -1,0 +1,8 @@
+SettingsManager\.Instance\.[A-Za-z_][A-Za-z_0-9]*[ ]*=[^=]
+[A-Za-z_][A-Za-z_0-9]*[ ][ ]*=[^=].*Instance\.
+Instance\.[A-Za-z_][A-Za-z_0-9]*\.[A-Za-z_][A-Za-z_0-9]*[ ]*=[^=]
+SettingsManager\.Save(
+kb\.[A-Za-z_0-9]+[ ]*=[^=]
+defaults\.[A-Za-z_0-9]+[ ]*=[^=]
+d\.[A-Za-z_0-9]+[ ]*=[^=]
+settings\.[A-Za-z_0-9]+[ ]*=[^=]

@@ -20,9 +20,9 @@ Generated media, logs and temporary state stay under `artifacts/<timestamp>`. Ex
 To verify the native build separately, refresh cached build references first so the runtime and native compiler versions match. These commands use local packages only:
 
 ```powershell
-dotnet restore src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj --source binaries -r win-x64 -p:NuGetAudit=false
-dotnet publish src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj --no-restore -c Release -r win-x64 -p:NuGetAudit=false -o tests/MediaPipelineChecks/artifacts/native-publish
-& tests/MediaPipelineChecks/NativeSmoke.ps1 -Executable tests/MediaPipelineChecks/artifacts/native-publish/FortniteVideoSoftware.App.exe
+dotnet restore src/FreeVideoStudio.App/FreeVideoStudio.App.csproj --source binaries -r win-x64 -p:NuGetAudit=false
+dotnet publish src/FreeVideoStudio.App/FreeVideoStudio.App.csproj --no-restore -c Release -r win-x64 -p:NuGetAudit=false -o tests/MediaPipelineChecks/artifacts/native-publish
+& tests/MediaPipelineChecks/NativeSmoke.ps1 -Executable tests/MediaPipelineChecks/artifacts/native-publish/FreeVideoStudio.exe
 ```
 
 Run the smoke test only after a successful publish. It checks JSON state saving and crop-backup recovery through the native executable, with separate temporary state inside the workspace. It does not launch the installer or desktop windows. Publishing requires the local NativeAOT toolchain and cached packages.

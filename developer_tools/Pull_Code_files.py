@@ -30,13 +30,21 @@ def is_binary(file_path: Path) -> bool:
         pass
     return False
 
+def is_secret_or_sensitive(file_path: Path) -> bool:
+    name = file_path.name.lower()
+    if name.endswith('.password.txt') or name.endswith('.pfx') or name.endswith('.key.pem') or name.endswith('.key'):
+        return True
+    if name.startswith('.env') and not name.endswith('.example'):
+        return True
+    return False
+
 def get_group_name(file_path: Path, project_root: Path) -> str:
     ext = file_path.suffix.lower()
     rel_path = str(file_path.relative_to(project_root)).lower()
     name = file_path.name.lower()
 
     # 00: Architecture, Specifications, and System Governance (Must be read first by AI)
-    if rel_path.startswith("docs\\") or rel_path.startswith("docs/") or name in [
+    if rel_path.startswith("docs\\") or rel_path.startswith("docs/") or ext == '.md' or name in [
         'project_structure.txt', 'readme.md', 'spec_governance.md', 'index.md'
     ]:
         return "00_Specifications_and_Architecture"
@@ -56,17 +64,18 @@ def get_group_name(file_path: Path, project_root: Path) -> str:
         return "03_UI_Markup"
 
     # 04: Project & Build Configuration
-    if ext in [
+    if ".github" in rel_path or ext in [
         '.json', '.json5', '.xml', '.csproj', '.sln', '.config', '.props',
-        '.targets', '.ini', '.toml', '.ruleset', '.editorconfig', '.manifest'
+        '.targets', '.ini', '.toml', '.ruleset', '.editorconfig', '.manifest',
+        '.yaml', '.yml'
     ] or name in [
         '.gitignore', '.gitattributes', '.agignore', '.clineignore',
-        '.codexignore', '.geminiignore', '.editorconfig'
+        '.codexignore', '.geminiignore', '.editorconfig', 'version.txt'
     ]:
         return "04_Configuration"
 
     # 05: Developer Tools, Automation & Build Harnesses
-    if "developer_tools" in rel_path or "build" in rel_path or name in ['build.cmd', 'dev.cmd', 'dev_build.cmd']:
+    if "developer_tools" in rel_path or "build" in rel_path or "ssl-certificate" in rel_path or name in ['build.cmd', 'dev.cmd', 'dev_build.cmd']:
         return "05_Developer_Tools_and_Build"
 
     # 06: Test Suites & Verification Checks
@@ -124,22 +133,30 @@ def generate_project_manifest(project_root: Path, groups: dict, total_files: int
         "Architecture Style:  Avalonia UI Desktop + Hardware-Accelerated Media Pipeline",
         "Publish Profile:     Native AOT Compatible (Single Binary Mandate, Zero Loose Assets)",
         "",
+        "CRITICAL AGENT MANDATE: STRICT BAN ON Build.cmd (CLOUD PUBLISH):",
+        "  - Autonomous AI agents are STRICTLY FORBIDDEN from ever executing Build.cmd.",
+        "  - Build.cmd triggers production release and officially publishes to GitHub Cloud.",
+        "  - Agents MUST ONLY USE dev_build.cmd (local-only compilation tests passing --dev).",
+        "",
         "PRIMARY ARCHITECTURAL INVARIANTS (From docs\\README.md):",
         "  1. Single Binary Executable Mandate: Zero loose companion assets next to output exe.",
-        "  2. Absolute Authority for Time: OutputTimeline.cs is sole mathematical model for time.",
-        "  3. Strict A/V Process Isolation: Preview PID session decoupled from export filtergraphs.",
+        "  2. Absolute Authority for Time: OutputTimeline.cs is sole model for single-clip; CompositeTimeline.cs & MergeEdl.cs for virtual timelines.",
+        "  3. Strict A/V Process Isolation: Preview PID session decoupled from export filtergraphs; volume slider adjustments never alter export loudness.",
         "  4. Leak-Free Render Pipelines: zoompan banned; dynamic CAS sharpening (cas=0.5).",
         "  5. Zero Raw Hex Styling: Styles must resolve exclusively via DynamicResource tokens.",
-        "  6. Thread-Bound Safety Contracts: WASAPI and Skia decodes strictly off UI dispatcher.",
+        "  6. Thread-Bound Safety Contracts & GPU Preview Lock: WASAPI and Skia off UI thread; libmpv WGL_NV_DX_interop bridge locked.",
         "  7. Monotonic Progress Guarantee: P(n+1) >= P(n) across multi-pass operations.",
+        "  8. Every Rule That Can Be A Test Is A Test: ArchitectureRuleTests and CI enforce ratchets and fix sentinels.",
+        "  9. No Failure Is Silent: Every caught exception is classified through IFaultSink (Recoverable, Degraded, Fatal).",
         "",
         "SUBSYSTEM MAP & DIRECTORY HIERARCHY:",
         "  - docs\\:                           Architectural specifications, coordinate math, and governance contracts.",
-        "  - src\\FortniteVideoSoftware.Core:  Domain models, OutputTimeline math, FFmpeg renderers, WASAPI audio.",
-        "  - src\\FortniteVideoSoftware.App:   Avalonia UI controls, timeline lanes, preview player, window controllers.",
+        "  - src\\FreeVideoStudio.Core:  Domain models, OutputTimeline math, FFmpeg renderers, WASAPI audio.",
+        "  - src\\FreeVideoStudio.App:   Avalonia UI controls, timeline lanes, preview player, window controllers.",
         "  - tests\\:                          Core unit test suite and native media pipeline smoke checks.",
         "  - developer_tools\\:                Build orchestration, code quality analyzers, bytecode sentinels.",
         "  - binaries\\:                       Bundled FFmpeg, FFprobe, and libmpv runtime binaries.",
+        "  - ssl-certificate\\:               Local dev Authenticode signing root CA and certificate generators.",
         "  - assets\\, mp3\\, mp4\\, jpeg\\:    Static design icons and test media cutaways (indexed in bundle 07).",
         "",
         "EXPORT GROUP METRICS (Ordered by AI ingestion priority):",
@@ -172,8 +189,10 @@ def run_aggregator():
     ignored_dirs = {
         '.git', 'bin', 'obj', '.vs', '.idea', 'node_modules',
         'compile', 'compiled', 'old_code', 'artifacts', 'packages', 'testresults',
-        'venv', '.venv', 'env', '.pytest_cache', '__pycache__'
+        'venv', '.venv', 'env', '.pytest_cache', '__pycache__',
+        'claude outputs', '.devlogs', '.fvs_xfer', '.gemini', 'backup'
     }
+    ignored_files = {'build.log'}
 
     divider = "=" * 80
 
@@ -193,6 +212,8 @@ def run_aggregator():
                 subindent = ' ' * 4 * (level + 1)
                 for f in sorted(files, key=str.lower):
                     fp = Path(root) / f
+                    if fp.name.lower() in ignored_files or is_secret_or_sensitive(fp):
+                        continue
                     try:
                         sz = fp.stat().st_size
                         sz_str = f"{sz / (1024 * 1024):.1f} MB" if sz >= 1024 * 1024 else f"{sz / 1024:.1f} KB"
@@ -227,6 +248,8 @@ def run_aggregator():
 
         for filename in sorted(files, key=str.lower):
             file_path = current_path / filename
+            if file_path.name.lower() in ignored_files or is_secret_or_sensitive(file_path):
+                continue
             relative_path = file_path.relative_to(project_root)
             ext = file_path.suffix.lower()
 

@@ -53,4 +53,4 @@ __pycache__/
 
 # dev.cmd trace mode (SYS-DEVBUILD): in-repo diagnostic logs, never committed.
 .devlogs/
-.Old_Fortnite_Video_Software/
+.Old_FreeVideoStudio/

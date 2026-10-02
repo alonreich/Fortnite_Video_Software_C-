@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FreeVideoStudio.App.Controls.AiSubjectPickerWindow"
+        Title="Target Character Selection - AI Smart Tracking"
+        Width="1080" Height="720" MinWidth="900" MinHeight="600"
+        Background="{DynamicResource AppSurfaceBrush}"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30">
+
+    <Grid>
+        <Border Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
+            <Grid RowDefinitions="30, Auto, *, Auto, Auto">
+                <!-- Row 0: Window Title Bar -->
+                <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Text="🎯 TARGET CHARACTER DISCOVERY — AI SMART TRACKING" Classes="WindowTitleText" Foreground="{DynamicResource TitleBarForeground}" />
+                </Border>
+
+                <!-- Row 1: Header Instructions -->
+                <StackPanel Grid.Row="1" Margin="28,16,28,8" Spacing="4">
+                    <TextBlock Text="Select the Character to Track" FontSize="{DynamicResource AppFontSize20}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                    <TextBlock Text="Gemini scanned 3 different angles across this video segment. Click your target character below to lock the camera onto them."
+                               Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize13}" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <!-- Row 2: 3 Multi-Angle Segment Frames -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,12,*,12,*" Margin="28,8,28,12">
+                    <!-- Frame 1 -->
+                    <Border Grid.Column="0" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto, *">
+                            <Border Background="{DynamicResource AppScrimBrush}" Padding="8,4">
+                                <TextBlock Name="Frame1TimeLabel" Text="Frame 1 (Start)" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center"/>
+                            </Border>
+                            <Grid Grid.Row="1">
+                                <Image Name="Frame1Image" Stretch="Uniform" Margin="4"/>
+                                <Canvas Name="Frame1Canvas" IsHitTestVisible="False"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- Frame 2 -->
+                    <Border Grid.Column="2" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto, *">
+                            <Border Background="{DynamicResource AppScrimBrush}" Padding="8,4">
+                                <TextBlock Name="Frame2TimeLabel" Text="Frame 2 (Midpoint)" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center"/>
+                            </Border>
+                            <Grid Grid.Row="1">
+                                <Image Name="Frame2Image" Stretch="Uniform" Margin="4"/>
+                                <Canvas Name="Frame2Canvas" IsHitTestVisible="False"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- Frame 3 -->
+                    <Border Grid.Column="4" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto, *">
+                            <Border Background="{DynamicResource AppScrimBrush}" Padding="8,4">
+                                <TextBlock Name="Frame3TimeLabel" Text="Frame 3 (End)" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppAccentBrush}" HorizontalAlignment="Center"/>
+                            </Border>
+                            <Grid Grid.Row="1">
+                                <Image Name="Frame3Image" Stretch="Uniform" Margin="4"/>
+                                <Canvas Name="Frame3Canvas" IsHitTestVisible="False"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Row 3: Detected Characters List -->
+                <Border Grid.Row="3" Background="{DynamicResource AppSurfaceSubtleBrush}" BorderBrush="{DynamicResource AppBorderBrush}" BorderThickness="1" CornerRadius="8" Margin="28,0,28,12" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="DETECTED SUBJECTS (CLICK TO SELECT):" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AppTextMutedBrush}" LetterSpacing="1"/>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Name="SubjectsContainer" Orientation="Horizontal" Spacing="12"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <!-- Row 4: Action Footer -->
+                <Grid Grid.Row="4" ColumnDefinitions="Auto, *, Auto" Margin="28,0,28,18">
+                    <Button Name="CancelPickerBtn" Grid.Column="0" Classes="Secondary" Content="CANCEL" MinWidth="110" MinHeight="42" Cursor="Hand" IsCancel="True"/>
+                    <TextBlock Name="SelectionStatusText" Grid.Column="1" Text="Click a character card above to select your target."
+                               FontSize="{DynamicResource AppFontSize13}" Foreground="{DynamicResource AppTextMutedBrush}"
+                               VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    <Button Name="ConfirmPickerBtn" Grid.Column="2" Classes="Success" Content="LOCK &amp; TRACK TARGET" MinWidth="220" MinHeight="42" Cursor="Hand" IsEnabled="False" IsDefault="True"/>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

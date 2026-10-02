@@ -1,4 +1,4 @@
-namespace FvsBuild;
+﻿namespace FvsBuild;
 
 /// <summary>
 /// SIGNMANDATE_01 - Authenticode signing. Set FVS_SIGN_PFX and FVS_SIGN_PASS to activate; the
@@ -61,8 +61,6 @@ internal static class CodeSigning
         bool localDev = false;
         if (string.IsNullOrEmpty(pfx) && File.Exists(LocalPfx) && File.Exists(LocalPasswordFile))
         {
-            // SIGNLOCAL_01 — no release certificate configured, but the repository carries the
-            // developer's own. Sign with it; the publish step refuses to ship the result.
             pfx = Path.GetFullPath(LocalPfx);
             password = File.ReadAllText(LocalPasswordFile).Trim();
             localDev = true;
@@ -72,7 +70,6 @@ internal static class CodeSigning
 
         if (string.IsNullOrEmpty(pfx))
         {
-            // SIGNMANDATE_01 - the deliberate, acknowledged escape hatch.
             bool acknowledged = string.Equals(
                 Environment.GetEnvironmentVariable("FVS_ALLOW_UNSIGNED"), "1", StringComparison.Ordinal);
 
@@ -103,8 +100,6 @@ internal static class CodeSigning
         }
         password ??= string.Empty;
 
-        // signtool.exe is NOT on PATH in a plain shell - it lives in the Windows SDK.
-        // Probe PATH first, then fall back to the newest x64 SDK copy.
         string? signtool = Cli.FindOnPath("signtool.exe") ?? FindWindowsKitsSigntool();
         if (signtool is null)
         {
@@ -148,7 +143,6 @@ internal static class CodeSigning
         {
             return null;
         }
-        // Version directories sort naturally (10.0.26100.0 > 10.0.22621.0), newest first.
         foreach (string versionDir in Directory.EnumerateDirectories(root).OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase))
         {
             string candidate = Path.Combine(versionDir, "x64", "signtool.exe");

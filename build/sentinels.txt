@@ -37,12 +37,12 @@
 # ══════════════════════════════════════════════════════════════════════════════════════════════
 
 
-LAYOUTLOOP_01=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.axaml.cs
-ZOOMSIZE_02=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.axaml.cs
-LAYOUTLOOP_02=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
-SEEKSTORM_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
-EDGEGUARD_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
-DRAGCOST_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
+LAYOUTLOOP_01=src/FreeVideoStudio.App/Controls/TimelineLanesControl.axaml.cs
+ZOOMSIZE_02=src/FreeVideoStudio.App/Controls/TimelineLanesControl.axaml.cs
+LAYOUTLOOP_02=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
+SEEKSTORM_01=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
+EDGEGUARD_01=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
+DRAGCOST_01=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
 # RETIRED STRIPCOST_01 — superseded, not reverted.
 #   It guarded "scale with a RenderTransform, never with Width" on the per-slot filmstrip Image.
 #   Commit ad0b7bd deleted that code path entirely and replaced it with Controls/TimelineFilmstrip,
@@ -50,186 +50,186 @@ DRAGCOST_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
 #   layout box to oversize, no 32768px bitmap for Skia to rasterise. The defect is structurally
 #   unreachable, so there is no fix left to protect. Found the moment VERIFYHALT_01 made this
 #   check able to speak at all.
-TRACEFLOOD_01=src/FortniteVideoSoftware.App/Program.cs
-THUMB_02=src/FortniteVideoSoftware.App/MainWindow.Canvas.cs
-MAINEND_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-FREEZE_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-TRANSPORT_TRACE_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-MPVEOF_01=src/FortniteVideoSoftware.Core/Media/MpvIpcClient.cs
-VOEND_01=src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs
-VOMON_02=src/FortniteVideoSoftware.App/VoiceOverWindow.axaml.cs
-LIST_05=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-LIST_06=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
-P3ASYNC_01=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
-LAYOUT_03=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-SLIDER_06=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-SLIDER_07=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
-SLIDER_08=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-SLIDER_09=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-GRIP_01=src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs
-FIRSTFIT_01=src/FortniteVideoSoftware.App/WindowBoundsHelper.cs
-RESUME_01=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml.cs
-QUALITY_01=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
-QUALITY_02=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
-QUALITY_03=src/FortniteVideoSoftware.App/ViewModels/QualityLadder.cs
-QUALITY_04=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
-QUALITY_05=src/FortniteVideoSoftware.App/ViewModels/TimelineViewModel.cs
-SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.SizeEstimate.cs
-SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.axaml
-SIZEESTIMATE_01=src/FortniteVideoSoftware.App/MainWindow.Export.cs
-SIZEESTIMATE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-SIZEESTIMATE_01=src/FortniteVideoSoftware.App/Services/LatestEstimateWorker.cs
-SIZEESTIMATE_01=src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs
-DOUBLEFIRE_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
-LIST_07=src/FortniteVideoSoftware.App/MusicWizardWindow.axaml
-LAYOUT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-GATE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-GATE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-ZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-ZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+TRACEFLOOD_01=src/FreeVideoStudio.App/Program.cs
+THUMB_02=src/FreeVideoStudio.App/MainWindow.Canvas.cs
+MAINEND_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+FREEZE_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+TRANSPORT_TRACE_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+MPVEOF_01=src/FreeVideoStudio.Core/Media/MpvIpcClient.cs
+VOEND_01=src/FreeVideoStudio.App/VoiceOverWindow.axaml.cs
+VOMON_02=src/FreeVideoStudio.App/VoiceOverWindow.axaml.cs
+LIST_05=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+LIST_06=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+P3ASYNC_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+LAYOUT_03=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+SLIDER_06=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+SLIDER_07=src/FreeVideoStudio.App/AvaloniaApp.axaml
+SLIDER_08=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+SLIDER_09=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+GRIP_01=src/FreeVideoStudio.App/Controls/WindowResizeGrip.cs
+FIRSTFIT_01=src/FreeVideoStudio.App/WindowBoundsHelper.cs
+RESUME_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+QUALITY_01=src/FreeVideoStudio.App/ViewModels/QualityLadder.cs
+QUALITY_02=src/FreeVideoStudio.App/ViewModels/QualityLadder.cs
+QUALITY_03=src/FreeVideoStudio.App/ViewModels/QualityLadder.cs
+QUALITY_04=src/FreeVideoStudio.App/MainWindow.Wireup.cs
+QUALITY_05=src/FreeVideoStudio.App/ViewModels/TimelineViewModel.cs
+SIZEESTIMATE_01=src/FreeVideoStudio.App/MainWindow.SizeEstimate.cs
+SIZEESTIMATE_01=src/FreeVideoStudio.App/MainWindow.axaml
+SIZEESTIMATE_01=src/FreeVideoStudio.App/MainWindow.Export.cs
+SIZEESTIMATE_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+SIZEESTIMATE_01=src/FreeVideoStudio.App/Services/LatestEstimateWorker.cs
+SIZEESTIMATE_01=src/FreeVideoStudio.Core/Media/OutputFileSize.cs
+DOUBLEFIRE_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
+LIST_07=src/FreeVideoStudio.App/MusicWizardWindow.axaml
+LAYOUT_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+GATE_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+GATE_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+ZOOM_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+ZOOM_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
 # RETIRED WIZPROGRESS_01 — superseded, not reverted.
 #   It guarded a ProgressBar added to fix a dead FindControl reference. WIZCOMPACT_01 then deleted
 #   the bar, the field AND the writer. A guard for a deleted fix is a permanent false alarm —
 #   exactly the QUALITY_04 failure this list already learned from once.
-CROPZOOMRESET_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CROPSAVEPROMPT_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CROPUNSAVED_01=src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs
-CROPUNSAVED_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CROPFIRSTBOOT_01=src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs
-FORTNITEDEFAULT_02=src/FortniteVideoSoftware.Core/Ipc/CropConfigDefaults.cs
-CROPFALLBACK_02=src/FortniteVideoSoftware.Core/Ipc/CropConfigStore.cs
-SPECTATINGDEFAULT_01=src/FortniteVideoSoftware.App/ViewModels/MainViewModel.cs
-NO_BOSS_HP_01=src/FortniteVideoSoftware.Core/Media/MobileFilterBuilder.cs
-SAVECONFIRM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-MAGICWAND_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-DELETEBTN_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-DELETESET_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CROPCANVAS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-AUTOZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-WHEELZOOM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-PAN_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-BEZEL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-SPLIT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+CROPZOOMRESET_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CROPSAVEPROMPT_02=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CROPUNSAVED_01=src/FreeVideoStudio.App/Controls/ConfirmDialogWindow.axaml.cs
+CROPUNSAVED_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CROPFIRSTBOOT_01=src/FreeVideoStudio.App/Infrastructure/MaskOverlayManager.cs
+FORTNITEDEFAULT_02=src/FreeVideoStudio.Core/Ipc/CropConfigDefaults.cs
+CROPFALLBACK_02=src/FreeVideoStudio.Core/Ipc/CropConfigStore.cs
+SPECTATINGDEFAULT_01=src/FreeVideoStudio.App/ViewModels/MainViewModel.cs
+NO_BOSS_HP_01=src/FreeVideoStudio.Core/Media/MobileFilterBuilder.cs
+SAVECONFIRM_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+MAGICWAND_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+DELETEBTN_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+DELETESET_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CROPCANVAS_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+AUTOZOOM_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+WHEELZOOM_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+PAN_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+BEZEL_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+SPLIT_01=src/FreeVideoStudio.App/CropToolWindow.axaml
 # Crop Tools rework, phase 3: the right pane is gone and naming happens at the box. ---
-LAYERSPANE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-ROLEPOPUP_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-ROLEPOPUP_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-ANTS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-PLAYICON_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-TICKRULER_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-AUTOPLAY_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-ITEMMENU_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
+LAYERSPANE_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+ROLEPOPUP_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+ROLEPOPUP_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+ANTS_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+PLAYICON_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+TICKRULER_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+AUTOPLAY_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+ITEMMENU_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
 # Crop Tools rework, phase 4: hit-testing, ghosts, and vertical space. ---
-ITEMHIT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-GHOSTKILL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CANCELSEL_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-BACKTOVIDEO_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-WIZCOLLAPSE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-PLAYOVERLAY_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-ZOOMBAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-WIZCOMPACT_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-TIMELINESLIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-RESETMOVE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-ORDERICONS_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+ITEMHIT_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+GHOSTKILL_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CANCELSEL_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+BACKTOVIDEO_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+WIZCOLLAPSE_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+PLAYOVERLAY_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+ZOOMBAR_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+WIZCOMPACT_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+TIMELINESLIM_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+RESETMOVE_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+ORDERICONS_01=src/FreeVideoStudio.App/CropToolWindow.axaml
 # Crop Tools rework, phase 5. ---
-RELAUNCHARG_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-HANDLECURSOR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-NODUPES_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-COMPOSERDIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-COMPOSERDIM_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-HEADERMERGE_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-TIMELINESLIM_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-PLAYROW_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
-POPUPCLEAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-AUTOZOOM_02=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-CROSSHAIR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-POPUPCLEAR_01=src/FortniteVideoSoftware.App/CropToolWindow.axaml
+RELAUNCHARG_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+HANDLECURSOR_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+NODUPES_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+COMPOSERDIM_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+COMPOSERDIM_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+HEADERMERGE_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+TIMELINESLIM_02=src/FreeVideoStudio.App/CropToolWindow.axaml
+PLAYROW_01=src/FreeVideoStudio.App/CropToolWindow.axaml
+POPUPCLEAR_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+AUTOZOOM_02=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+CROSSHAIR_01=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+POPUPCLEAR_01=src/FreeVideoStudio.App/CropToolWindow.axaml
 # Concurrency / lifetime audit, 2026-09-18. Each tag guards a fix that cost a full
 # diagnosis cycle to find and would revert silently. See docs/05 and docs/03.
 # Finding 1 - GPU image slots were mutated by three threads with no synchronisation.
-GPUSLOT_01=src/FortniteVideoSoftware.App/MpvVideoView.cs
-GPUPRESENT_01=src/FortniteVideoSoftware.App/MpvVideoView.cs
+GPUSLOT_01=src/FreeVideoStudio.App/MpvVideoView.cs
+GPUPRESENT_01=src/FreeVideoStudio.App/MpvVideoView.cs
 # Finding 2 - settings.json was written non-atomically to a fixed temp name, cross-process.
-SETTINGSATOMIC_01=src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs
-ATOMICTEXT_01=src/FortniteVideoSoftware.Core/Infrastructure/AtomicJsonFile.cs
+SETTINGSATOMIC_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+ATOMICTEXT_01=src/FreeVideoStudio.Core/Infrastructure/AtomicJsonFile.cs
 # Finding 3 - cancel re-armed PROCESS before the pipeline stopped; the next export disposed
 # the CancellationTokenSource the previous worker was still registered on.
-EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Export.cs
-EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
-EXPORTSESSION_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-CANCELREG_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-OUTPATH_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.Export.cs
+EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
+EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+CANCELREG_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+OUTPATH_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 # Finding 4 - ProcessWorker is IDisposable and was never disposed, so ISSUE_11's
 # kill-the-tree backstop was unreachable code.
-WORKERLIFETIME_01=src/FortniteVideoSoftware.App/Services/MainMediaController.cs
-WORKERLIFETIME_02=src/FortniteVideoSoftware.App/Services/MainMediaController.cs
+WORKERLIFETIME_01=src/FreeVideoStudio.App/Services/MainMediaController.cs
+WORKERLIFETIME_02=src/FreeVideoStudio.App/Services/MainMediaController.cs
 # Finding 5 - the session-state flush debounce had no maximum-wait ceiling, and teardown
 # disposed the CancellationTokenSource under a live listener.
-FLUSHCEILING_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
-IPCTEARDOWN_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
-IPCLEASE_01=src/FortniteVideoSoftware.Core/Ipc/IpcProtocol.cs
-IPCLEASE_01=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
+FLUSHCEILING_01=src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs
+IPCTEARDOWN_01=src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs
+IPCLEASE_01=src/FreeVideoStudio.Core/Ipc/IpcProtocol.cs
+IPCLEASE_01=src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs
 # Finding 6 - the two-pass tail disposed the Process while its pipe readers were still live.
-PIPEDRAIN_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+PIPEDRAIN_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 # Finding 7 - Cancel re-read a non-volatile Process field between the null test and Kill.
-PROCGATE_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-PROCGATE_02=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
+PROCGATE_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+PROCGATE_02=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 # Finding 9 - the Granular editor constructor blocked the UI thread on ffprobe.
-GRANPROBE_01=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
-GRANPROBE_01=src/FortniteVideoSoftware.App/MainWindow.Wireup.cs
+GRANPROBE_01=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
+GRANPROBE_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
 # Architecture remediation, phase 0 - foundation. docs/08_APPLICATION_COMPOSITION.md
 # Composition root, fault tiers, signing mandate and the executable spec rules.
-COMPOSITION_01=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
-COMPOSITION_01=src/FortniteVideoSoftware.App/Program.cs
-COMPOSITION_02=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
-FAULTTIER_01=src/FortniteVideoSoftware.Core/Abstractions/Fault.cs
-FAULTTIER_01=src/FortniteVideoSoftware.Core/Abstractions/IFaultSink.cs
-FAULTTIER_01=src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs
-FAULTSTORM_01=src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs
-INJSEAM_01=src/FortniteVideoSoftware.Core/Abstractions/IProjectStore.cs
-INJSEAM_02=src/FortniteVideoSoftware.Core/Abstractions/IClock.cs
-INJSEAM_03=src/FortniteVideoSoftware.App/Abstractions/IUserNotifier.cs
-INJSEAM_04=src/FortniteVideoSoftware.App/Abstractions/IFilePickerService.cs
-PICKERMEMORY_01=src/FortniteVideoSoftware.App/Services/StorageProviderFilePicker.cs
+COMPOSITION_01=src/FreeVideoStudio.App/Infrastructure/AppServices.cs
+COMPOSITION_01=src/FreeVideoStudio.App/Program.cs
+COMPOSITION_02=src/FreeVideoStudio.App/Infrastructure/AppServices.cs
+FAULTTIER_01=src/FreeVideoStudio.Core/Abstractions/Fault.cs
+FAULTTIER_01=src/FreeVideoStudio.Core/Abstractions/IFaultSink.cs
+FAULTTIER_01=src/FreeVideoStudio.App/Services/UserFacingFaultSink.cs
+FAULTSTORM_01=src/FreeVideoStudio.App/Services/UserFacingFaultSink.cs
+INJSEAM_01=src/FreeVideoStudio.Core/Abstractions/IProjectStore.cs
+INJSEAM_02=src/FreeVideoStudio.Core/Abstractions/IClock.cs
+INJSEAM_03=src/FreeVideoStudio.App/Abstractions/IUserNotifier.cs
+INJSEAM_04=src/FreeVideoStudio.App/Abstractions/IFilePickerService.cs
+PICKERMEMORY_01=src/FreeVideoStudio.App/Services/StorageProviderFilePicker.cs
 SIGNMANDATE_01=build/FvsBuild/CodeSigning.cs
-UPDATETRUST_02=src/FortniteVideoSoftware.App/Services/UpdateService.cs
-UPDATETRUST_02=src/FortniteVideoSoftware.App/Services/AuthenticodeVerifier.cs
-SCRIM_01=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
-ZOOMCARD_01=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
-ARCHTEST_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
-ASYNCUI_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
-ASYNCUI_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+UPDATETRUST_02=src/FreeVideoStudio.App/Services/UpdateService.cs
+UPDATETRUST_02=src/FreeVideoStudio.App/Services/AuthenticodeVerifier.cs
+SCRIM_01=src/FreeVideoStudio.App/AvaloniaApp.axaml
+ZOOMCARD_01=src/FreeVideoStudio.App/AvaloniaApp.axaml
+ARCHTEST_01=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
+ASYNCUI_01=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
+ASYNCUI_02=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
 # Architecture remediation, phase 1. Document model wired to the UI + one undo.
-PROJSESSION_01=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-PROJSESSION_01=src/FortniteVideoSoftware.App/MainWindow.Project.cs
-PROJSESSION_02=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-PROJSESSION_03=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-PROJSESSION_04=src/FortniteVideoSoftware.App/MainWindow.Shortcuts.cs
-PROJSESSION_05=src/FortniteVideoSoftware.App/MainWindow.Project.cs
-PROJSESSION_06=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-PROJSESSION_07=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-UNDO_20=src/FortniteVideoSoftware.App/MainWindow.Recovery.cs
-UNDO_21=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-UNDO_22=src/FortniteVideoSoftware.App/MainWindow.Project.cs
+PROJSESSION_01=src/FreeVideoStudio.App/Services/ProjectSession.cs
+PROJSESSION_01=src/FreeVideoStudio.App/MainWindow.Project.cs
+PROJSESSION_02=src/FreeVideoStudio.App/Services/ProjectSession.cs
+PROJSESSION_03=src/FreeVideoStudio.App/Services/ProjectSession.cs
+PROJSESSION_04=src/FreeVideoStudio.App/MainWindow.Shortcuts.cs
+PROJSESSION_05=src/FreeVideoStudio.App/MainWindow.Project.cs
+PROJSESSION_06=src/FreeVideoStudio.App/MainWindow.axaml.cs
+PROJSESSION_07=src/FreeVideoStudio.App/MainWindow.axaml.cs
+UNDO_20=src/FreeVideoStudio.App/MainWindow.Recovery.cs
+UNDO_21=src/FreeVideoStudio.App/Services/ProjectSession.cs
+UNDO_22=src/FreeVideoStudio.App/MainWindow.Project.cs
 # Architecture remediation, phase 2. Companion tools open in-process.
-TOOLNAV_01=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-TOOLNAV_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-TOOLNAV_02=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-TOOLNAV_03=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-TOOLNAV_04=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-TOOLNAV_04=src/FortniteVideoSoftware.App/CropToolWindow.axaml.cs
-TOOLNAV_04=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
+TOOLNAV_01=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+TOOLNAV_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+TOOLNAV_02=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+TOOLNAV_03=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+TOOLNAV_04=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+TOOLNAV_04=src/FreeVideoStudio.App/CropToolWindow.axaml.cs
+TOOLNAV_04=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
 # Architecture remediation, phase 3. One FFmpeg job lifetime for both pipelines.
-PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs
-PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-PIPELIFE_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-PIPELIFE_02=src/FortniteVideoSoftware.Core/Media/FfmpegJobLifetime.cs
-PIPELIFE_02=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
+PIPELIFE_01=src/FreeVideoStudio.Core/Media/FfmpegJobLifetime.cs
+PIPELIFE_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+PIPELIFE_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+PIPELIFE_02=src/FreeVideoStudio.Core/Media/FfmpegJobLifetime.cs
+PIPELIFE_02=src/FreeVideoStudio.Core/Media/MergerWorker.cs
 # Architecture remediation, phase 4. View-model extraction ratchets.
-MVVM_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
-MVVM_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+MVVM_01=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
+MVVM_02=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
 # dev.cmd parse guards. Retained: they now assert that dev.cmd DELEGATES rather than parses.
-BATCHPARENS_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+BATCHPARENS_01=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
 # RETIRED BATCHPARENS_02 — the file format it guarded no longer exists.
 #   It guarded DevCmdBracketsBalance, which counted round brackets across dev.cmd because one
 #   stray bracket inside the FOR-list annotations closed the list early and ran the next word
@@ -238,11 +238,11 @@ BATCHPARENS_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
 #   truncate a sentinel list, because there is no sentinel list in dev.cmd.
 #   What replaced it: ArchitectureRuleTests.DevCmdDelegatesTheSentinelCheckRatherThanParsingIt,
 #   which fails if anyone ever moves the list back.
-LISTCOMMENT_01=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+LISTCOMMENT_01=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
 # Close-path save guard. PROJSESSION_08 dirty model, PROJSESSION_09 no-dialog exit save.
-PROJSESSION_08=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-PROJSESSION_08=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-PROJSESSION_09=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+PROJSESSION_08=src/FreeVideoStudio.App/Services/ProjectSession.cs
+PROJSESSION_08=src/FreeVideoStudio.App/MainWindow.axaml.cs
+PROJSESSION_09=src/FreeVideoStudio.App/Services/ProjectSession.cs
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────
 # Remediation pass, 2026-09-21. Findings 1-6, 8 and 9 of the architecture review.
@@ -256,13 +256,13 @@ SYS-VERIFYTOOL=dev.cmd
 # Finding 1 — two live, platform-independent test failures nobody was looking at.
 # UNDO_23: the re-entrancy guard reset before Changed was raised, so every Ctrl+Z recorded the
 # control echo as a fresh edit and undo could never reach the beginning.
-UNDO_23=src/FortniteVideoSoftware.Core/Undo/UndoStack.cs
+UNDO_23=src/FreeVideoStudio.Core/Undo/UndoStack.cs
 # PROJ_10: JsonValue.TryGetValue is an exact-type accessor. The long-backed source fingerprint
 # read back as 0 on every load, so the integrity warning fired for every project ever reopened.
-PROJ_10=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
+PROJ_10=src/FreeVideoStudio.Core/Project/ProjectSerializer.cs
 # CITEST_01: five Windows-only tests FAILED rather than skipped off Windows, which is how a
 # permanently-red suite hid the two real failures above.
-CITEST_01=tests/FortniteVideoSoftware.Core.Tests/WindowsOnlyFactAttribute.cs
+CITEST_01=tests/FreeVideoStudio.Core.Tests/WindowsOnlyFactAttribute.cs
 # Finding 1 — the ratchets, the sentinels and ~190 behavioural tests now run on a machine rather
 # than on a developer remembering. A deleted CI file is a silently disarmed architecture.
 SYS-CI=.github/workflows/ci.yml
@@ -270,181 +270,183 @@ SYS-CI=.github/workflows/ci.yml
 # Finding 5 — the fault tiers existed and 3 of ~900 catch blocks used them. FAULTTIER_02 makes the
 # sink reachable from static helpers and window code-behind, and routes the two Swallowed helpers
 # through it, converting 576 sites in one edit instead of 576.
-FAULTTIER_02=src/FortniteVideoSoftware.Core/Abstractions/Faults.cs
-FAULTTIER_02=src/FortniteVideoSoftware.Core/Infrastructure/CoreLogger.cs
-FAULTTIER_02=src/FortniteVideoSoftware.App/RuntimeLog.cs
-FAULTTIER_02=src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs
-FAULTTIER_02=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
+FAULTTIER_02=src/FreeVideoStudio.Core/Abstractions/Faults.cs
+FAULTTIER_02=src/FreeVideoStudio.Core/Infrastructure/CoreLogger.cs
+FAULTTIER_02=src/FreeVideoStudio.App/RuntimeLog.cs
+FAULTTIER_02=src/FreeVideoStudio.App/Infrastructure/AppServices.cs
+FAULTTIER_02=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
 
 # Finding 9 — an encoder failure on a GPU that is not the developer's was invisible. A plain-text
 # bundle the user can read and send is the honest version of telemetry.
-SYS-DIAGREPORT=src/FortniteVideoSoftware.Core/Diagnostics/DiagnosticReport.cs
-SYS-DIAGREPORT=src/FortniteVideoSoftware.App/Services/DiagnosticBundle.cs
+SYS-DIAGREPORT=src/FreeVideoStudio.Core/Diagnostics/DiagnosticReport.cs
+SYS-DIAGREPORT=src/FreeVideoStudio.App/Services/DiagnosticBundle.cs
 
 # Finding 3 — history that survives the window, and history that survives the app.
-UNDO_24=src/FortniteVideoSoftware.Core/Undo/UndoSidecarStore.cs
-UNDO_24=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
+UNDO_24=src/FreeVideoStudio.Core/Undo/UndoSidecarStore.cs
+UNDO_24=src/FreeVideoStudio.App/Services/ProjectSession.cs
 
 # Finding 2 — the HUD mask and the merge queue are properties of the project, not of the machine.
-PROJ_11=src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs
-PROJ_11=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
-PROJ_11=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-PROJ_11=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-PROJ_11=src/FortniteVideoSoftware.App/Infrastructure/MaskOverlayManager.cs
-PROJ_11=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-PROJ_11=src/FortniteVideoSoftware.App/MainWindow.Project.cs
-PROJ_12=src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs
-PROJ_12=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
-AOTSAFETY_06=src/FortniteVideoSoftware.Core/Project/ProjectSerializer.cs
+PROJ_11=src/FreeVideoStudio.Core/Project/ProjectDocument.cs
+PROJ_11=src/FreeVideoStudio.Core/Project/ProjectSerializer.cs
+PROJ_11=src/FreeVideoStudio.App/Services/ProjectSession.cs
+PROJ_11=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+PROJ_11=src/FreeVideoStudio.App/Infrastructure/MaskOverlayManager.cs
+PROJ_11=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+PROJ_11=src/FreeVideoStudio.App/MainWindow.Project.cs
+PROJ_12=src/FreeVideoStudio.Core/Project/ProjectDocument.cs
+PROJ_12=src/FreeVideoStudio.Core/Project/ProjectSerializer.cs
+AOTSAFETY_06=src/FreeVideoStudio.Core/Project/ProjectSerializer.cs
 
 # Finding 4 — 973 imperative control lookups, 342 of them repeat resolutions of the SAME control.
 # MVVM_03 collapses those onto one cached accessor per control, in its own partial file so the
 # MVVM_02 ceiling is respected rather than raised.
-MVVM_03=tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs
-MVVM_03=src/FortniteVideoSoftware.App/MainWindow.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/MusicWizardWindow.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/CropToolWindow.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/VideoMergerWindow.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/Controls/PhaseOverlayControl.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/Controls/TimelineLanesControl.Controls.cs
-MVVM_03=src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.Controls.cs
-UNDO_25=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.History.cs
+MVVM_03=tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs
+MVVM_03=src/FreeVideoStudio.App/MainWindow.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/GranularSpeedEditorWindow.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/MusicWizardWindow.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/CropToolWindow.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/VideoMergerWindow.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/Controls/PhaseOverlayControl.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/Controls/TimelineLanesControl.Controls.cs
+MVVM_03=src/FreeVideoStudio.App/Controls/ConfirmDialogWindow.Controls.cs
+UNDO_25=src/FreeVideoStudio.App/GranularSpeedEditorWindow.History.cs
 
 # Finding 6 — a one-line fix cost every user a 322MB re-download of codec binaries that did not
 # change. SYS-PAYLOADSPLIT lets a patch ship the app alone when the installed runtime already
 # matches; SYS-REPOWEIGHT stops the 2.7GB repository getting worse.
-SYS-PAYLOADSPLIT=src/FortniteVideoSoftware.Core/Infrastructure/RuntimePayloadManifest.cs
-SYS-PAYLOADSPLIT=src/FortniteVideoSoftware.App/Services/UpdateService.cs
+SYS-PAYLOADSPLIT=src/FreeVideoStudio.Core/Infrastructure/RuntimePayloadManifest.cs
+SYS-PAYLOADSPLIT=src/FreeVideoStudio.App/Services/UpdateService.cs
 SYS-PAYLOADSPLIT=build/FvsBuild/Staging.cs
 SYS-REPOWEIGHT=.github/workflows/lfs-guard.yml
 
 # ── 2026-09-25 critical audit remediation ─────────────────────────────────────────────────
-AOTSAFETY_03=src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj
-GPUPRESENT_02=src/FortniteVideoSoftware.App/MpvVideoView.cs
-EDITHOT_01=src/FortniteVideoSoftware.App/Infrastructure/LiveMaskCache.cs
-EDITHOT_01=src/FortniteVideoSoftware.App/Services/ProjectSession.cs
-EDITHOT_02=src/FortniteVideoSoftware.App/MainWindow.Recovery.cs
-UNDOEQ_01=src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs
-UNDOEQ_02=src/FortniteVideoSoftware.App/MainWindow.Recovery.cs
-MUSICSYNC_01=src/FortniteVideoSoftware.Core/Media/MusicBedPlan.cs
-MUSICSYNC_01=src/FortniteVideoSoftware.App/MainWindow.PreviewAudio.cs
-MUSICSYNC_02=src/FortniteVideoSoftware.App/Infrastructure/PreviewAudioSync.cs
-COLOR_01=src/FortniteVideoSoftware.Core/Media/ExportColorPolicy.cs
-COLOR_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-COLOR_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-LOGVIS_01=src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs
-WRITEORDER_01=src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs
-WRITEORDER_02=src/FortniteVideoSoftware.Core/Ipc/NamedPipeStateServer.cs
-USERSCOPE_01=src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs
-USERSCOPE_01=src/FortniteVideoSoftware.Core/Infrastructure/NamedSystemMutex.cs
+AOTSAFETY_03=src/FreeVideoStudio.App/FreeVideoStudio.App.csproj
+GPUPRESENT_02=src/FreeVideoStudio.App/MpvVideoView.cs
+EDITHOT_01=src/FreeVideoStudio.App/Infrastructure/LiveMaskCache.cs
+EDITHOT_01=src/FreeVideoStudio.App/Services/ProjectSession.cs
+EDITHOT_02=src/FreeVideoStudio.App/MainWindow.Recovery.cs
+UNDOEQ_01=src/FreeVideoStudio.Core/Project/ProjectDocument.cs
+UNDOEQ_02=src/FreeVideoStudio.App/MainWindow.Recovery.cs
+MUSICSYNC_01=src/FreeVideoStudio.Core/Media/MusicBedPlan.cs
+MUSICSYNC_01=src/FreeVideoStudio.App/MainWindow.PreviewAudio.cs
+MUSICSYNC_02=src/FreeVideoStudio.App/Infrastructure/PreviewAudioSync.cs
+COLOR_01=src/FreeVideoStudio.Core/Media/ExportColorPolicy.cs
+COLOR_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+COLOR_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+LOGVIS_01=src/FreeVideoStudio.App/Services/UserFacingFaultSink.cs
+WRITEORDER_01=src/FreeVideoStudio.Core/Infrastructure/RecoveryManager.cs
+WRITEORDER_02=src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs
+USERSCOPE_01=src/FreeVideoStudio.Core/Infrastructure/ApplicationPaths.cs
+USERSCOPE_01=src/FreeVideoStudio.Core/Infrastructure/NamedSystemMutex.cs
 
 # ── 2026-09-25 Thumbnail Scraper ──────────────────────────────────────────────────────────
-SCRAPER_01=src/FortniteVideoSoftware.Core/Media/IntroTag.cs
-SCRAPER_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-SCRAPER_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-SCRAPER_02=src/FortniteVideoSoftware.Core/Media/MergedTimeline.cs
-SCRAPER_02=src/FortniteVideoSoftware.App/VideoMergerWindow.Timeline.cs
-SCRAPER_02=src/FortniteVideoSoftware.App/MusicWizardWindow.Merger.cs
-SCRAPER_03=src/FortniteVideoSoftware.Core/Media/MergeClipAnalyzer.cs
-SCRAPER_04=src/FortniteVideoSoftware.App/VideoMergerWindow.Scraper.cs
-SCRAPER_05=src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs
+SCRAPER_01=src/FreeVideoStudio.Core/Media/IntroTag.cs
+SCRAPER_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+SCRAPER_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+SCRAPER_02=src/FreeVideoStudio.Core/Media/MergedTimeline.cs
+SCRAPER_02=src/FreeVideoStudio.App/VideoMergerWindow.Timeline.cs
+SCRAPER_02=src/FreeVideoStudio.App/MusicWizardWindow.Merger.cs
+SCRAPER_03=src/FreeVideoStudio.Core/Media/MergeClipAnalyzer.cs
+SCRAPER_04=src/FreeVideoStudio.App/VideoMergerWindow.Scraper.cs
+SCRAPER_05=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
 
 # ── 2026-09-25 zero-warning AOT build ─────────────────────────────────────────────────────
-AOTCLEAN_01=src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj
-AOTCLEAN_02=src/FortniteVideoSoftware.Core/Media/WavAudioReader.cs
-AOTCLEAN_02=src/FortniteVideoSoftware.App/UiSoundEffect.cs
-AOTCLEAN_03=src/FortniteVideoSoftware.App/Interop/D3D11Interop.cs
-AOTCLEAN_03=src/FortniteVideoSoftware.App/MpvVideoView.cs
-AOTCLEAN_04=src/FortniteVideoSoftware.Core/Media/TextOverlayGenerator.cs
+AOTCLEAN_01=src/FreeVideoStudio.App/FreeVideoStudio.App.csproj
+AOTCLEAN_02=src/FreeVideoStudio.Core/Media/WavAudioReader.cs
+AOTCLEAN_02=src/FreeVideoStudio.App/UiSoundEffect.cs
+AOTCLEAN_03=src/FreeVideoStudio.App/Interop/D3D11Interop.cs
+AOTCLEAN_03=src/FreeVideoStudio.App/MpvVideoView.cs
+AOTCLEAN_04=src/FreeVideoStudio.Core/Media/TextOverlayGenerator.cs
 SIGNLOCAL_01=build/FvsBuild/CodeSigning.cs
 SIGNLOCAL_01=build/FvsBuild/Program.cs
 ILCCRASH_01=build/FvsBuild/Staging.cs
 RELEASEASSETS_01=build/FvsBuild/Staging.cs
-TIMINGTAG_02=src/FortniteVideoSoftware.Core/Media/ExportTimingTag.cs
-TIMINGTAG_02=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-FRAMESNAP_01=src/FortniteVideoSoftware.Core/Media/FramePtsProbe.cs
-FRAMESNAP_01=src/FortniteVideoSoftware.Core/Media/MergeClipAnalyzer.cs
-FRAMESNAP_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MERGEEDL_01=src/FortniteVideoSoftware.Core/Media/MergeEdl.cs
-EDLNULL_01=src/FortniteVideoSoftware.Core/Media/MergeEdl.cs
-EDLNULL_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-EDLNULL_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Effects.cs
-RESTOREMISS_01=src/FortniteVideoSoftware.Core/Media/MergerSession.cs
-RESTOREMISS_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-COMPOSITE_01=src/FortniteVideoSoftware.Core/Media/CompositeTimeline.cs
-COMPOSITE_01=src/FortniteVideoSoftware.Core/Media/MergedTimeline.cs
-MERGEEDIT_01=src/FortniteVideoSoftware.Core/Media/MergeEditorBridge.cs
-MERGEEDIT_02=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.Merge.cs
-MERGEEDIT_02=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs
-MERGEEDIT_02=src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.History.cs
-MERGEEDIT_02=src/FortniteVideoSoftware.App/VideoMergerWindow.Effects.cs
-MERGEEDIT_02=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
-CLIPACTIONS_01=src/FortniteVideoSoftware.App/VideoMergerWindow.ClipActions.cs
-MERGEGRAPH_01=src/FortniteVideoSoftware.Core/Media/MergeClipGraph.cs
-MERGEGRAPH_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MERGEGRAPH_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Scraper.cs
-MUSICMAP_01=src/FortniteVideoSoftware.Core/Media/CompositeTimeline.cs
-MUSICMAP_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Effects.cs
-OUTTAG_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MERGESESSION_01=src/FortniteVideoSoftware.Core/Media/MergerSession.cs
-MERGESESSION_01=src/FortniteVideoSoftware.Core/Infrastructure/MergerAutosaveStore.cs
-MERGESESSION_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-MERGESESSION_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-PROJ_12=src/FortniteVideoSoftware.App/Services/ToolNavigator.cs
-MERGEUNDO_01=src/FortniteVideoSoftware.App/VideoMergerWindow.History.cs
-MERGEUNDO_01=src/FortniteVideoSoftware.Core/Media/MergerSession.cs
-MERGEUNDO_01=src/FortniteVideoSoftware.Core/Undo/UndoStack.cs
-LANES_01=src/FortniteVideoSoftware.Core/Media/ProgressiveLanes.cs
-LANES_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Lanes.cs
-LANES_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
-ANTS_01=src/FortniteVideoSoftware.Core/Media/TimelineReorder.cs
-ANTS_01=src/FortniteVideoSoftware.App/VideoMergerWindow.TimelineSelect.cs
-ANTS_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Timeline.cs
-ANTS_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
+TIMINGTAG_02=src/FreeVideoStudio.Core/Media/ExportTimingTag.cs
+TIMINGTAG_02=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+FRAMESNAP_01=src/FreeVideoStudio.Core/Media/FramePtsProbe.cs
+FRAMESNAP_01=src/FreeVideoStudio.Core/Media/MergeClipAnalyzer.cs
+FRAMESNAP_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MERGEEDL_01=src/FreeVideoStudio.Core/Media/MergeEdl.cs
+EDLNULL_01=src/FreeVideoStudio.Core/Media/MergeEdl.cs
+EDLNULL_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+EDLNULL_01=src/FreeVideoStudio.App/VideoMergerWindow.Effects.cs
+RESTOREMISS_01=src/FreeVideoStudio.Core/Media/MergerSession.cs
+RESTOREMISS_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+COMPOSITE_01=src/FreeVideoStudio.Core/Media/CompositeTimeline.cs
+COMPOSITE_01=src/FreeVideoStudio.Core/Media/MergedTimeline.cs
+MERGEEDIT_01=src/FreeVideoStudio.Core/Media/MergeEditorBridge.cs
+MERGEEDIT_02=src/FreeVideoStudio.App/GranularSpeedEditorWindow.Merge.cs
+MERGEEDIT_02=src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs
+MERGEEDIT_02=src/FreeVideoStudio.App/GranularSpeedEditorWindow.History.cs
+MERGEEDIT_02=src/FreeVideoStudio.App/VideoMergerWindow.Effects.cs
+MERGEEDIT_02=src/FreeVideoStudio.App/VideoMergerWindow.axaml
+CLIPACTIONS_01=src/FreeVideoStudio.App/VideoMergerWindow.ClipActions.cs
+MERGEGRAPH_01=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+MERGEGRAPH_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MERGEGRAPH_01=src/FreeVideoStudio.App/VideoMergerWindow.Scraper.cs
+MUSICMAP_01=src/FreeVideoStudio.Core/Media/CompositeTimeline.cs
+MUSICMAP_01=src/FreeVideoStudio.App/VideoMergerWindow.Effects.cs
+OUTTAG_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MERGESESSION_01=src/FreeVideoStudio.Core/Media/MergerSession.cs
+MERGESESSION_01=src/FreeVideoStudio.Core/Infrastructure/MergerAutosaveStore.cs
+MERGESESSION_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+MERGESESSION_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+PROJ_12=src/FreeVideoStudio.App/Services/ToolNavigator.cs
+MERGEUNDO_01=src/FreeVideoStudio.App/VideoMergerWindow.History.cs
+MERGEUNDO_01=src/FreeVideoStudio.Core/Media/MergerSession.cs
+MERGEUNDO_01=src/FreeVideoStudio.Core/Undo/UndoStack.cs
+LANES_01=src/FreeVideoStudio.Core/Media/ProgressiveLanes.cs
+LANES_01=src/FreeVideoStudio.App/VideoMergerWindow.Lanes.cs
+LANES_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
+ANTS_01=src/FreeVideoStudio.Core/Media/TimelineReorder.cs
+ANTS_01=src/FreeVideoStudio.App/VideoMergerWindow.TimelineSelect.cs
+ANTS_01=src/FreeVideoStudio.App/VideoMergerWindow.Timeline.cs
+ANTS_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
 SIGNLOCAL_02=build/FvsBuild/Program.cs
-TOOLRETURN_01=src/FortniteVideoSoftware.App/MainWindow.ToolReturn.cs
-TOOLRETURN_01=src/FortniteVideoSoftware.App/MainWindow.axaml.cs
-MERGEPREVIEW_EDL_01=src/FortniteVideoSoftware.App/VideoMergerWindow.EdlPreview.cs
-MERGEPREVIEW_EDL_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Timeline.cs
-MERGEPREVIEW_01=src/FortniteVideoSoftware.Core/Media/MergerPreviewPlan.cs
-MERGEPREVIEW_01=src/FortniteVideoSoftware.App/VideoMergerWindow.EdlPreview.cs
-MERGEPREVIEW_01=src/FortniteVideoSoftware.App/VideoMergerWindow.MusicPreview.cs
-MERGEPREVIEW_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-MERGEPREVIEW_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
-MERGEPREVIEW_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Timeline.cs
-MERGESIZE_01=src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs
-MERGESIZE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Effects.cs
-MERGESIZE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-MERGESIZE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-MERGESIZE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Scraper.cs
-MEMELEVEL_01=src/FortniteVideoSoftware.Core/Media/MemeLoudness.cs
-MEMELEVEL_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MEMELEVEL_01=src/FortniteVideoSoftware.Core/Media/MergeClipGraph.cs
-CLIPFRAMES_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MUSICPAD_01=src/FortniteVideoSoftware.Core/Media/MusicPadAlignment.cs
-MUSICPAD_01=src/FortniteVideoSoftware.Core/Media/ProcessWorker.cs
-MERGERUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.TimelineSelect.cs
-MERGERUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Timeline.cs
-MERGERUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-MERGERUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
-GRABCURSOR_01=src/FortniteVideoSoftware.App/Infrastructure/GrabCursors.cs
-LANECACHE_02=src/FortniteVideoSoftware.Core/Media/ProgressiveLanes.cs
-LANECACHE_02=src/FortniteVideoSoftware.Core/Media/WaveformPeaks.cs
-LANECACHE_02=src/FortniteVideoSoftware.App/VideoMergerWindow.Lanes.cs
-LANECACHE_02=src/FortniteVideoSoftware.App/Infrastructure/LaneDiskCache.cs
-LANECACHE_02=src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs
-MERGEQUALITY_01=src/FortniteVideoSoftware.Core/Media/OutputFileSize.cs
-MERGEQUALITY_01=src/FortniteVideoSoftware.Core/Media/MergerWorker.cs
-MERGEQUALITY_01=src/FortniteVideoSoftware.App/Services/OutputSizeEstimator.cs
-REMOVEUX_01=src/FortniteVideoSoftware.App/Infrastructure/SettingsManager.cs
-REMOVEUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-REMOVEUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.ClipActions.cs
-REMOVEUX_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-EMPTYQUEUE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.EdlPreview.cs
-EMPTYQUEUE_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs
-MERGERPLAYHEAD_01=src/FortniteVideoSoftware.App/VideoMergerWindow.Playhead.cs
-MERGERPLAYHEAD_01=src/FortniteVideoSoftware.App/VideoMergerWindow.TimelineSelect.cs
-MERGERPLAYHEAD_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml.cs
-MERGERPLAYHEAD_01=src/FortniteVideoSoftware.App/VideoMergerWindow.axaml
-MERGERPLAYHEAD_01=src/FortniteVideoSoftware.App/AvaloniaApp.axaml
+TOOLRETURN_01=src/FreeVideoStudio.App/MainWindow.ToolReturn.cs
+TOOLRETURN_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+MERGEPREVIEW_EDL_01=src/FreeVideoStudio.App/VideoMergerWindow.EdlPreview.cs
+MERGEPREVIEW_EDL_01=src/FreeVideoStudio.App/VideoMergerWindow.Timeline.cs
+MERGEPREVIEW_01=src/FreeVideoStudio.Core/Media/MergerPreviewPlan.cs
+MERGEPREVIEW_01=src/FreeVideoStudio.App/VideoMergerWindow.EdlPreview.cs
+MERGEPREVIEW_01=src/FreeVideoStudio.App/VideoMergerWindow.MusicPreview.cs
+MERGEPREVIEW_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+MERGEPREVIEW_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
+MERGEPREVIEW_01=src/FreeVideoStudio.App/VideoMergerWindow.Timeline.cs
+MERGESIZE_01=src/FreeVideoStudio.App/Services/OutputSizeEstimator.cs
+MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Effects.cs
+MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Scraper.cs
+MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MemeLoudness.cs
+MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+CLIPFRAMES_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MUSICPAD_01=src/FreeVideoStudio.Core/Media/MusicPadAlignment.cs
+MUSICPAD_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+MERGERUX_01=src/FreeVideoStudio.App/VideoMergerWindow.TimelineSelect.cs
+MERGERUX_01=src/FreeVideoStudio.App/VideoMergerWindow.Timeline.cs
+MERGERUX_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+MERGERUX_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
+GRABCURSOR_01=src/FreeVideoStudio.App/Infrastructure/GrabCursors.cs
+LANECACHE_02=src/FreeVideoStudio.Core/Media/ProgressiveLanes.cs
+LANECACHE_02=src/FreeVideoStudio.Core/Media/WaveformPeaks.cs
+LANECACHE_02=src/FreeVideoStudio.App/VideoMergerWindow.Lanes.cs
+LANECACHE_02=src/FreeVideoStudio.App/Infrastructure/LaneDiskCache.cs
+LANECACHE_02=src/FreeVideoStudio.Core/Infrastructure/ApplicationPaths.cs
+MERGEQUALITY_01=src/FreeVideoStudio.Core/Media/OutputFileSize.cs
+MERGEQUALITY_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MERGEQUALITY_01=src/FreeVideoStudio.App/Services/OutputSizeEstimator.cs
+REMOVEUX_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+REMOVEUX_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+REMOVEUX_01=src/FreeVideoStudio.App/VideoMergerWindow.ClipActions.cs
+REMOVEUX_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+EMPTYQUEUE_01=src/FreeVideoStudio.App/VideoMergerWindow.EdlPreview.cs
+EMPTYQUEUE_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
+MERGERPLAYHEAD_01=src/FreeVideoStudio.App/VideoMergerWindow.Playhead.cs
+MERGERPLAYHEAD_01=src/FreeVideoStudio.App/VideoMergerWindow.TimelineSelect.cs
+MERGERPLAYHEAD_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+MERGERPLAYHEAD_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
+MERGERPLAYHEAD_01=src/FreeVideoStudio.App/AvaloniaApp.axaml
+
+REBRAND_01=src/FreeVideoStudio.Core/Infrastructure/AppDataPaths.cs

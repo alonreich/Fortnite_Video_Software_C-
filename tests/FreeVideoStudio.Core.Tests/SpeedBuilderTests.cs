@@ -1,0 +1,189 @@
+﻿using System;
+using System.Collections.Generic;
+using FreeVideoStudio.Core.Media;
+using Xunit;
+
+namespace FreeVideoStudio.Core.Tests;
+
+public class SpeedBuilderTests
+{
+    [Fact]
+    public void BuildAtempoChain_NormalSpeed_EmitsNoFilter()
+    {
+        var chain = GranularSpeedBuilder.BuildAtempoChain(1.0);
+        Assert.Empty(chain);
+    }
+
+    [Theory]
+    [InlineData(0.5, "atempo=0.5000")]
+    [InlineData(0.75, "atempo=0.7500")]
+    [InlineData(1.5, "atempo=1.5000")]
+    [InlineData(2.0, "atempo=2.0000")]
+    public void BuildAtempoChain_WithinFfmpegNativeBounds_EmitsSingleFilter(double speed, string expected)
+    {
+        var chain = GranularSpeedBuilder.BuildAtempoChain(speed);
+        Assert.Single(chain);
+        Assert.Equal(expected, chain[0]);
+    }
+
+    [Fact]
+    public void BuildAtempoChain_SlowdownBeyondHalf_ChainsHalves()
+    {
+        var chain025 = GranularSpeedBuilder.BuildAtempoChain(0.25);
+        Assert.Equal(new[] { "atempo=0.5", "atempo=0.5000" }, chain025);
+
+        var chain0125 = GranularSpeedBuilder.BuildAtempoChain(0.125);
+        Assert.Equal(new[] { "atempo=0.5", "atempo=0.5", "atempo=0.5000" }, chain0125);
+    }
+
+    [Fact]
+    public void BuildAtempoChain_SpeedupBeyondDouble_ChainsDoubles()
+    {
+        var chain4 = GranularSpeedBuilder.BuildAtempoChain(4.0);
+        Assert.Equal(new[] { "atempo=2.0", "atempo=2.0000" }, chain4);
+
+        var chain8 = GranularSpeedBuilder.BuildAtempoChain(8.0);
+        Assert.Equal(new[] { "atempo=2.0", "atempo=2.0", "atempo=2.0000" }, chain8);
+
+        var chain3 = GranularSpeedBuilder.BuildAtempoChain(3.0);
+        Assert.Equal(new[] { "atempo=2.0", "atempo=1.5000" }, chain3);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(-50.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void BuildAtempoChain_ZeroNegativeOrNonFinite_FallsBackToNormalSpeedWithoutHanging(double invalidSpeed)
+    {
+        var chain = GranularSpeedBuilder.BuildAtempoChain(invalidSpeed);
+        Assert.Empty(chain);
+    }
+
+    [Fact]
+    public void BuildAtempoChain_ExtremeSpeeds_ClampsSafely()
+    {
+        var chainTiny = GranularSpeedBuilder.BuildAtempoChain(0.00001);
+        Assert.NotEmpty(chainTiny);
+        Assert.Equal("atempo=0.6400", chainTiny[^1]);
+
+        var chainHuge = GranularSpeedBuilder.BuildAtempoChain(999999.0);
+        Assert.NotEmpty(chainHuge);
+        Assert.Equal("atempo=1.5625", chainHuge[^1]);
+    }
+
+    [Fact]
+    public void Build_FreezeNearEndOfVideo_GeneratesValidGraphWithSamplingBackoff()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(10000, 12000, 0.0)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.NotEmpty(videoLabel);
+        Assert.Equal(12.0, finalDuration, 1);
+        Assert.True(filterGraph.Contains("tpad=stop_mode=clone") || filterGraph.Contains("loop="));
+    }
+
+    [Fact]
+    public void Build_CombinedSlowMotionAndFreeze_CalculatesAccurateDurationsAndChains()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 0.1),
+            new SpeedSegment(6000, 7500, 0.0)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Equal(29.5, finalDuration, 1);
+        Assert.Contains("setpts='PTS/0.1000'", filterGraph);
+    }
+
+    [Fact]
+    public void Build_FullTimelineRubberbandSpread_CalculatesAccurateDurationWithoutHanging()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(0, 10000, 0.25)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(10000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Equal(40.0, finalDuration, 1);
+    }
+
+    [Fact]
+    public void Build_WithZoomSegment_OutputsValidZoomFilter()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: false)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Contains("crop=", filterGraph);
+    }
+
+    [Fact]
+    public void Build_WithSlowZoomSegment_OutputsDynamicScaleAndCrop()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: true)
+        };
+
+        var (filterGraph, videoLabel, _, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, inputVideoLabel: "[0:v]", inputAudioLabel: "[1:a]", needHudBranch: false);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.Contains("eval=frame", filterGraph);
+
+        string ffmpegPath = Path.GetFullPath(@"..\..\..\..\..\binaries\ffmpeg.exe");
+        if (File.Exists(ffmpegPath))
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = $"-v error -f lavfi -i testsrc=s=1920x1080:r=60:d=6 -f lavfi -i anullsrc=r=48000:cl=stereo:d=6 -filter_complex \"{filterGraph}\" -map \"{videoLabel}\" -map \"{audioLabel}\" -t 1 -f null NUL",
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi)!;
+            string err = proc.StandardError.ReadToEnd();
+            proc.WaitForExit();
+            Assert.True(proc.ExitCode == 0, $"FFmpeg failed with exit code {proc.ExitCode}: {err}");
+        }
+    }
+
+    [Fact]
+    public void Build_WithSlowZoomSegment_MobileFormat_OutputsHudAndMainBranches()
+    {
+        var segments = new List<SpeedSegment>
+        {
+            new SpeedSegment(2000, 4000, 1.0, ZoomX: 400, ZoomY: 200, ZoomW: 960, ZoomH: 540, ZoomOrigRes: "1920x1080", ZoomSlow: true)
+        };
+
+        var (filterGraph, videoLabel, hudLabel, audioLabel, finalDuration, _) =
+            GranularSpeedBuilder.Build(6000.0, segments, baseSpeed: 1.0, needHudBranch: true);
+
+        Assert.NotEmpty(filterGraph);
+        Assert.NotEmpty(hudLabel);
+    }
+}
+

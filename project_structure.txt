@@ -1,10 +1,27 @@
 ===============================================================================
-AI AGENT ROUTER & ENTRY POINT SENTINEL
+FREE VIDEO STUDIO — AI AGENT ROUTER & PROJECT ENTRY POINT
 ===============================================================================
-All architectural specifications, technical math, and invariants have migrated.
-This file is intentionally empty to preserve token context.
+Architectural specifications and invariants live in docs/.
+Read the specifications before inspecting or editing governed source code.
 
-DO NOT INSPECT OR EDIT CODE WITHOUT READING SPECIFICATIONS FIRST.
-Mandatory entry point and spec router: .\docs\README.md (or .\docs\specs\README.md)
-Zero-leakage governance contract:      .\docs\SPEC_GOVERNANCE.md (or .\docs\specs\SPEC_GOVERNANCE.md)
+Mandatory entry point and spec router: .\docs\README.md
+Zero-leakage governance contract:      .\docs\SPEC_GOVERNANCE.md
+File, symbol and sentinel lookup:      .\docs\INDEX.md
+
+Solution:             .\FreeVideoStudio.sln
+Application project:  .\src\FreeVideoStudio.App\FreeVideoStudio.App.csproj
+Core project:         .\src\FreeVideoStudio.Core\FreeVideoStudio.Core.csproj
+Application tests:    .\tests\FreeVideoStudio.App.Tests\FreeVideoStudio.App.Tests.csproj
+Core tests:           .\tests\FreeVideoStudio.Core.Tests\FreeVideoStudio.Core.Tests.csproj
+Local packaging:      .\dev_build.cmd
+Verification tool:    .\build\FvsVerify\FvsVerify.csproj
+Sentinel registry:     .\build\sentinels.txt
+Standalone output:    .\compiled\FreeVideoStudio.exe
+
+Product display name: Free Video Studio
+Application assembly: FreeVideoStudio (root namespace: FreeVideoStudio.App)
+Core assembly:        FreeVideoStudio.Core (root namespace: FreeVideoStudio.Core)
+Internal tooling retains FvsBuild, FvsVerify and the FVS environment variables.
+Storage migration:    docs/05_SYSTEM_LIFECYCLE_STORAGE.md, SYS-REBRAND
+Packaging identity:   docs/09_DISTRIBUTION_AND_RELEASE.md, DIST-IDENTITY
 ===============================================================================

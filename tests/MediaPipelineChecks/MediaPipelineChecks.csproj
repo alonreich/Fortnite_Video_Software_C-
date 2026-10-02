@@ -7,6 +7,6 @@
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/FortniteVideoSoftware.Core/FortniteVideoSoftware.Core.csproj" />
+    <ProjectReference Include="../../src/FreeVideoStudio.Core/FreeVideoStudio.Core.csproj" />
   </ItemGroup>
 </Project>

@@ -3,13 +3,13 @@
 ## Code Mini-Map: Bound Source Files & Symbols
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.Core/Undo/UndoStack.cs` | `UndoStack<T>`, `UndoEntry<T>` | `Apply`, `Undo`, `Redo`, `Reset`, `Restore`, `ReplaceCurrent`, `EndGesture`, `NextUndoLabel`, `NextRedoLabel`, `DefaultMaxDepth`, `GestureIdleMs` | Application-wide history |
-| ⚠ `src/FortniteVideoSoftware.Core/Project/ProjectDocument.cs` | `ProjectDocument` | immutable state carried by the stack | CO-GOVERNED by `06_PROJECT_DOCUMENT_MODEL.md` |
-| ⚠ `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs` | `PushUndo`, `CaptureSnapshot`, `_undoStack` | the ORIGIN of U1–U4; to be migrated onto `UndoStack<T>` | CO-GOVERNED by `01`, `04`, `05` |
-| ⚠ `src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.History.cs` | `GranularSpeedEditorWindow` (Partial) | `ParkHistoryForReopen`, `AdoptParkedHistory`, `_parkedHistory`, `HistoryKey` | CO-GOVERNED by `04` |
-| `src/FortniteVideoSoftware.Core/Undo/UndoSidecarStore.cs` | `UndoSidecarStore`, `UndoSidecar` | `Save`, `Load`, `Delete`, `PathFor`, `MaxEntries`, `SchemaVersion` | Per-machine history sidecar (UNDO_24) |
-| ⚠ `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `BeginHistory`, `PushEdit`, `EndGesture`, `Undo`, `Redo`, `NextUndoLabel`, `NextRedoLabel` | CO-GOVERNED by `06`, `08` |
-| ⚠ `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `PushProjectEdit`, `EndProjectGesture`, `BeginProjectHistory`, `OnProjectDocumentApplied` | CO-GOVERNED by `06`, `08` |
+| `src/FreeVideoStudio.Core/Undo/UndoStack.cs` | `UndoStack<T>`, `UndoEntry<T>` | `Apply`, `Undo`, `Redo`, `Reset`, `Restore`, `ReplaceCurrent`, `EndGesture`, `NextUndoLabel`, `NextRedoLabel`, `DefaultMaxDepth`, `GestureIdleMs` | Application-wide history |
+| ⚠ `src/FreeVideoStudio.Core/Project/ProjectDocument.cs` | `ProjectDocument` | immutable state carried by the stack | CO-GOVERNED by `06_PROJECT_DOCUMENT_MODEL.md` |
+| ⚠ `src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs` | `PushUndo`, `CaptureSnapshot`, `_undoStack` | the ORIGIN of U1–U4; to be migrated onto `UndoStack<T>` | CO-GOVERNED by `01`, `04`, `05` |
+| ⚠ `src/FreeVideoStudio.App/GranularSpeedEditorWindow.History.cs` | `GranularSpeedEditorWindow` (Partial) | `ParkHistoryForReopen`, `AdoptParkedHistory`, `_parkedHistory`, `HistoryKey` | CO-GOVERNED by `04` |
+| `src/FreeVideoStudio.Core/Undo/UndoSidecarStore.cs` | `UndoSidecarStore`, `UndoSidecar` | `Save`, `Load`, `Delete`, `PathFor`, `MaxEntries`, `SchemaVersion` | Per-machine history sidecar (UNDO_24) |
+| ⚠ `src/FreeVideoStudio.App/Services/ProjectSession.cs` | `ProjectSession` | `BeginHistory`, `PushEdit`, `EndGesture`, `Undo`, `Redo`, `NextUndoLabel`, `NextRedoLabel` | CO-GOVERNED by `06`, `08` |
+| ⚠ `src/FreeVideoStudio.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `PushProjectEdit`, `EndProjectGesture`, `BeginProjectHistory`, `OnProjectDocumentApplied` | CO-GOVERNED by `06`, `08` |
 
 ---
 
@@ -85,7 +85,7 @@ them forty snapshots of how it was made. It belongs in a sidecar keyed to the pr
 ---
 
 ## 5. Open Work Bound To This Spec  {#UNDO-TODO}
-`UndoStack<T>` exists and is unit-tested (`tests/FortniteVideoSoftware.Core.Tests/UndoStackTests.cs`,
+`UndoStack<T>` exists and is unit-tested (`tests/FreeVideoStudio.Core.Tests/UndoStackTests.cs`,
 covering U1–U4, re-entrancy, reset and restore).
 
 **Closed since this list was written:**

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace FvsBuild;
 
@@ -22,7 +22,6 @@ internal sealed class BuildLog : IDisposable
     public BuildLog(string path)
     {
         _path = path;
-        // Legacy artifact of the pre-C# pipeline; harmless if absent.
         try { if (File.Exists("build.result.txt")) File.Delete("build.result.txt"); } catch (IOException) { }
         _writer = new StreamWriter(path, append: false, new UTF8Encoding(false)) { AutoFlush = true };
     }
@@ -58,7 +57,6 @@ internal sealed class BuildLog : IDisposable
             }
             catch (IOException)
             {
-                // Console handle redirected or gone (CI); the log file still gets the line.
                 Console.WriteLine(line);
             }
             _writer.WriteLine(line);
@@ -77,7 +75,7 @@ internal sealed class BuildLog : IDisposable
             "WARN" => $"- {WarningCount} warning line(s)",
             _ => "- clean success",
         };
-        string first = $"{label} {detail} - Fortnite Video Software build {DateTime.Now:yyyy-MM-dd HH:mm:ss} " +
+        string first = $"{label} {detail} - Free Video Studio build {DateTime.Now:yyyy-MM-dd HH:mm:ss} " +
                        $"({(int)duration.TotalMinutes}m{duration.Seconds:D2}s)";
         lock (_gate)
         {

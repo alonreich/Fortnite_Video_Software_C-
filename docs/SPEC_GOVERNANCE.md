@@ -6,9 +6,9 @@
 | `docs/SPEC_GOVERNANCE.md` | Governance Protocol | `Zero-Leakage`, `Proof-of-Read`, `In-Code Sentinel` | Master Governance Contract |
 | `docs/README.md` | Master Architectural Router | `9 North Star Invariants`, `Domain Routing` | Architectural Entry Point |
 | `docs/INDEX.md` | Flat Symbol & File Lookup | `Symbol -> Spec Section`, `Stable {#ANCHOR} ids`, `CO-GOVERNED marks` | Zero-Cost Routing Lookup |
-| `src/FortniteVideoSoftware.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `AppDirectoryName` | System Path Governance |
-| `src/FortniteVideoSoftware.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Session State & Fault Governance |
-| `src/FortniteVideoSoftware.App/MainWindow.axaml.cs` | `MainWindow` (partial class) | `AttachPreviewMonitor`, `OnSuccessAction` (this file); the recovery hooks live in partials governed by their own headers — `SaveRecoveryState` in `MainWindow.Recovery.cs`, the startup `RecoveryManager.CheckFault()` call in `MainWindow.Wireup.cs` | Main Process Governance Root |
+| `src/FreeVideoStudio.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `RecoveryStateFile`, `SessionStateFile`, `AppDirectoryName` | System Path Governance |
+| `src/FreeVideoStudio.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Session State & Fault Governance |
+| `src/FreeVideoStudio.App/MainWindow.axaml.cs` | `MainWindow` (partial class) | `AttachPreviewMonitor`, `OnSuccessAction` (this file); the recovery hooks live in partials governed by their own headers — `SaveRecoveryState` in `MainWindow.Recovery.cs`, the startup `RecoveryManager.CheckFault()` call in `MainWindow.Wireup.cs` | Main Process Governance Root |
 
 ---
 
@@ -17,6 +17,20 @@ Do NOT read every spec. Route once, read one.
 * Know the FILE -> `docs/README.md` §3.
 * Know only a SYMBOL, CONSTANT or ENGINEERING TAG -> grep `docs/INDEX.md`.
 * Landed on a row marked `⚠` -> that file is CO-GOVERNED; read every spec the row names.
+
+## 0a. CRITICAL AGENT MANDATE: STRICT BAN ON `Build.cmd` (CLOUD PUBLISH)
+**ALL AUTONOMOUS AI AGENTS ARE STRICTLY FORBIDDEN FROM EVER RUNNING `.\Build.cmd` OR `Build.cmd`.**
+
+* **`.\Build.cmd` Officially Publishes to Git Cloud:**
+  Running `.\Build.cmd` executes `FvsBuild` in production release mode, which creates release tags and **OFFICIALLY PUBLISHES A NEW PUBLIC VERSION ON GITHUB CLOUD**, making it instantly live and downloadable to everyone worldwide.
+* **MANDATORY LOCAL BUILD SCRIPT: `.\dev_build.cmd`:**
+  If an AI agent needs to perform a full build test, NativeAOT compilation verification, or packaging test, it **MUST ONLY USE `.\dev_build.cmd`** (or `dotnet build` / `dotnet test`).
+  `.\dev_build.cmd` passes `--dev` to `FvsBuild`:
+  - Builds strictly locally.
+  - Zero git tags created.
+  - Zero GitHub releases created or updated.
+  - Zero cloud network publishing.
+* **Prohibition Severity:** Any automated or agent execution of `.\Build.cmd` is classified as a severe operational violation.
 
 ## 1. Absolute Stop-and-Read Mandate
 Developers and autonomous AI agents are strictly forbidden from inspecting, generating, refactoring, or modifying code in any source file (`.cs`, `.axaml`, `.cmd`, `.ps1`) without first loading, reading, and citing its mapped specification file from `docs/`. Speculative code modifications without active specification verification are classified as critical system defects.

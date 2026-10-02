@@ -252,7 +252,7 @@ def purge_bytecode_cache():
 
 def main():
     purge_bytecode_cache()
-    os.system('title Fortnite Video Software C# Advanced Code Cleaner')
+    os.system('title Free Video Studio C# Advanced Code Cleaner')
     print(f"{CYAN}--- FORTNITE VIDEO SOFTWARE C# ADVANCED CODE CLEANER ---{RESET}")
     print("Target Directory: .")
     

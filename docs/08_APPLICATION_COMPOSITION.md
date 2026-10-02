@@ -6,25 +6,25 @@
 
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| `src/FortniteVideoSoftware.App/Infrastructure/AppServices.cs` | `AppServices`, `AvaloniaWindowProvider` | `Initialize`, `Current`, `COMPOSITION_01`, `COMPOSITION_02` | The one place the object graph is built. |
-| `src/FortniteVideoSoftware.Core/Abstractions/Fault.cs` | `FaultTier`, `Fault` | `Recoverable`, `Degraded`, `Fatal`, `FAULTTIER_01` | Failure classification vocabulary. |
-| `src/FortniteVideoSoftware.Core/Abstractions/IFaultSink.cs` | `IFaultSink`, `FaultSinkExtensions`, `NullFaultSink` | `Report`, `Guard`, `GuardAsync`, `GuardValue` | The one destination for a caught exception. |
-| `src/FortniteVideoSoftware.App/Services/UserFacingFaultSink.cs` | `UserFacingFaultSink`, `AvaloniaUserNotifier` | `Report`, `ShouldSurface`, `FAULTSTORM_01`, `Notify` | Fault → log / pill / dialog routing table. |
-| `src/FortniteVideoSoftware.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `INJSEAM_01`, `NormalizeExtension` | `.fvsproj` I/O seam. **⚠ CO-GOVERNED BY: 06** |
-| `src/FortniteVideoSoftware.Core/Abstractions/IClock.cs` | `IClock`, `SystemClock` | `UtcNow`, `INJSEAM_02`, `IClock`, `SystemClock` | Wall-clock seam. |
-| `src/FortniteVideoSoftware.App/Abstractions/IUserNotifier.cs` | `IUserNotifier`, `IActiveWindowProvider` | `Notify`, `Alert`, `ConfirmAsync`, `INJSEAM_03` | User-messaging seam. **⚠ CO-GOVERNED BY: 04** |
-| `src/FortniteVideoSoftware.App/Abstractions/IFilePickerService.cs` | `IFilePickerService`, `FilePickerRequest` | `SaveFileAsync`, `OpenFileAsync`, `INJSEAM_04`, `FilePickerRequest` | OS file-dialog seam. |
-| `src/FortniteVideoSoftware.App/Services/StorageProviderFilePicker.cs` | `StorageProviderFilePicker` | `PICKERMEMORY_01`, `SaveFileAsync`, `OpenFileAsync`, `StorageProviderFilePicker` | Picker implementation + directory memory. **⚠ CO-GOVERNED BY: 05** |
-| `tests/FortniteVideoSoftware.App.Tests/ArchitectureRuleTests.cs` | `ArchitectureRuleTests` | `ARCHTEST_01`, `ASYNCUI_01`, `ASYNCUI_02`, `NoControlCarriesBothCommandAndClick` | The specs' rules, made executable. |
+| `src/FreeVideoStudio.App/Infrastructure/AppServices.cs` | `AppServices`, `AvaloniaWindowProvider` | `Initialize`, `Current`, `COMPOSITION_01`, `COMPOSITION_02` | The one place the object graph is built. |
+| `src/FreeVideoStudio.Core/Abstractions/Fault.cs` | `FaultTier`, `Fault` | `Recoverable`, `Degraded`, `Fatal`, `FAULTTIER_01` | Failure classification vocabulary. |
+| `src/FreeVideoStudio.Core/Abstractions/IFaultSink.cs` | `IFaultSink`, `FaultSinkExtensions`, `NullFaultSink` | `Report`, `Guard`, `GuardAsync`, `GuardValue` | The one destination for a caught exception. |
+| `src/FreeVideoStudio.App/Services/UserFacingFaultSink.cs` | `UserFacingFaultSink`, `AvaloniaUserNotifier` | `Report`, `ShouldSurface`, `FAULTSTORM_01`, `Notify` | Fault → log / pill / dialog routing table. |
+| `src/FreeVideoStudio.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `INJSEAM_01`, `NormalizeExtension` | `.fvsproj` I/O seam. **⚠ CO-GOVERNED BY: 06** |
+| `src/FreeVideoStudio.Core/Abstractions/IClock.cs` | `IClock`, `SystemClock` | `UtcNow`, `INJSEAM_02`, `IClock`, `SystemClock` | Wall-clock seam. |
+| `src/FreeVideoStudio.App/Abstractions/IUserNotifier.cs` | `IUserNotifier`, `IActiveWindowProvider` | `Notify`, `Alert`, `ConfirmAsync`, `INJSEAM_03` | User-messaging seam. **⚠ CO-GOVERNED BY: 04** |
+| `src/FreeVideoStudio.App/Abstractions/IFilePickerService.cs` | `IFilePickerService`, `FilePickerRequest` | `SaveFileAsync`, `OpenFileAsync`, `INJSEAM_04`, `FilePickerRequest` | OS file-dialog seam. |
+| `src/FreeVideoStudio.App/Services/StorageProviderFilePicker.cs` | `StorageProviderFilePicker` | `PICKERMEMORY_01`, `SaveFileAsync`, `OpenFileAsync`, `StorageProviderFilePicker` | Picker implementation + directory memory. **⚠ CO-GOVERNED BY: 05** |
+| `tests/FreeVideoStudio.App.Tests/ArchitectureRuleTests.cs` | `ArchitectureRuleTests` | `ARCHTEST_01`, `ASYNCUI_01`, `ASYNCUI_02`, `NoControlCarriesBothCommandAndClick` | The specs' rules, made executable. |
 | `build/FvsBuild/CodeSigning.cs` | `CodeSigning` | `SignIfNeeded`, `SIGNMANDATE_01` | Signing mandate. **⚠ CO-GOVERNED BY: 05** |
 | `dev.cmd` | Developer Harness | `VERIFY_PATCHES`, `VERIFYHALT_01` | Fix-sentinel enforcement. **⚠ CO-GOVERNED BY: 05** |
-| `src/FortniteVideoSoftware.Core/Abstractions/Faults.cs` | `Faults` | `Install`, `Recoverable`, `Degraded`, `Fatal`, `FAULTTIER_02` | Ambient fault channel installed once from the composition root. |
-| `src/FortniteVideoSoftware.App/Services/FaultCounters.cs` | `FaultCounters` | `Record`, `Describe`, `LOGVIS_01` | Per-session fault totals by tier and area, printed in the diagnostic bundle. |
-| `tests/FortniteVideoSoftware.Core.Tests/WindowsOnlyFactAttribute.cs` | `WindowsOnlyFactAttribute` | `Skip`, `CITEST_01` | Windows-only tests skip, not fail, off Windows. |
-| `src/FortniteVideoSoftware.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `PushEdit`, `SaveAsync`, `OpenAsync`, `PROJSESSION_01` | The document being edited and its history. **⚠ CO-GOVERNED BY: 06, 07** |
-| `src/FortniteVideoSoftware.App/MainWindow.Project.cs` | `MainWindow` | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | The main window's half of the document session. **⚠ CO-GOVERNED BY: 06, 07** |
-| `src/FortniteVideoSoftware.App/Services/ToolNavigator.cs` | `ToolNavigator` | `OpenAsync`, `PublishMergeEdl`, `ReadMergeQueue`, `TOOLNAV_01` | Opens companion tools in-process and returns from them. **⚠ CO-GOVERNED BY: 05** |
-| `src/FortniteVideoSoftware.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `TOOLRETURN_01` | Main App preview revival after a tool closes. **⚠ CO-GOVERNED BY: 05** |
+| `src/FreeVideoStudio.Core/Abstractions/Faults.cs` | `Faults` | `Install`, `Recoverable`, `Degraded`, `Fatal`, `FAULTTIER_02` | Ambient fault channel installed once from the composition root. |
+| `src/FreeVideoStudio.App/Services/FaultCounters.cs` | `FaultCounters` | `Record`, `Describe`, `LOGVIS_01` | Per-session fault totals by tier and area, printed in the diagnostic bundle. |
+| `tests/FreeVideoStudio.Core.Tests/WindowsOnlyFactAttribute.cs` | `WindowsOnlyFactAttribute` | `Skip`, `CITEST_01` | Windows-only tests skip, not fail, off Windows. |
+| `src/FreeVideoStudio.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `PushEdit`, `SaveAsync`, `OpenAsync`, `PROJSESSION_01` | The document being edited and its history. **⚠ CO-GOVERNED BY: 06, 07** |
+| `src/FreeVideoStudio.App/MainWindow.Project.cs` | `MainWindow` | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | The main window's half of the document session. **⚠ CO-GOVERNED BY: 06, 07** |
+| `src/FreeVideoStudio.App/Services/ToolNavigator.cs` | `ToolNavigator` | `OpenAsync`, `PublishMergeEdl`, `ReadMergeQueue`, `TOOLNAV_01` | Opens companion tools in-process and returns from them. **⚠ CO-GOVERNED BY: 05** |
+| `src/FreeVideoStudio.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `TOOLRETURN_01` | Main App preview revival after a tool closes. **⚠ CO-GOVERNED BY: 05** |
 | `.github/workflows/ci.yml` | CI | `sentinels`, `build-and-test`, `aot-publish`, `CITEST_01` | Runs the sentinels, the tests and the ratchets. **⚠ CO-GOVERNED BY: 09** |
 
 ---
@@ -143,10 +143,11 @@ plumbing change does not happen. The vocabulary was right and the route was miss
 
 * **The rules run on source TEXT, deliberately** — every defect they catch is something the compiler is happy with. They strip comments and string literals first (`BlankCommentsAndStrings`), because this codebase documents its rules by quoting the offending pattern; without that, the docs trip the tests that enforce them.
 
-* **Current rules and their standing** (13 rules; every one green at the time of writing):
+* **Current rules and their standing** (selected rules; current results come from the test runner):
 
   | Rule | Enforces | Standing |
   | :--- | :--- | :--- |
+  | `ProductionNamespacesUseTheProductRoot` | production namespace declarations use `FreeVideoStudio.*` | **clean — 0** |
   | `NoControlCarriesBothCommandAndClick` | `DOUBLEFIRE_01` (04 §4) | **clean — 0** |
   | `NoRawHexColoursInSharedStyling` | Invariant #5 (04 §1) | **clean — 0** (10 fixed; see §4) |
   | `ZoompanFilterIsNeverEmitted` | Invariant #4 | **clean — 0** |

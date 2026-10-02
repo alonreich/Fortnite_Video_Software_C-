@@ -173,7 +173,7 @@ function Write-LogHeader {
     $divider = ('=' * 78)
     @(
         $divider,
-        'Fortnite Video Software Build Log',
+        'Free Video Studio Build Log',
         "Started : $stamp",
         "Machine : $env:COMPUTERNAME",
         "User    : $env:USERNAME",

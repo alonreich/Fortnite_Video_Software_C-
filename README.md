@@ -13,7 +13,7 @@
 <h3 align="center">⚡ High-Performance, Ultra-Specialized NLE Engineered for Automated Gaming Content Creation.</h3>
 
 <h2 align="center">
-  <a href="https://github.com/alonreich/Fortnite_Video_Software_C-/releases/latest/download/FortniteVideoSoftware.exe">⬇️ DOWNLOAD LATEST INSTALLER (.EXE) ⬇️</a>
+  <a href="https://github.com/alonreich/Fortnite_Video_Software_C-/releases/latest/download/FreeVideoStudio.exe">⬇️ DOWNLOAD LATEST INSTALLER (.EXE) ⬇️</a>
 </h2>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ## 🌪️ The Vision
 
-**Fortnite Video Software (FVS)** is not just another wrapper around FFmpeg. It is a **production-grade video processing powerhouse** built from the ground up in **C# 13 and .NET 9**. 
+**Free Video Studio (FVS)** is not just another wrapper around FFmpeg. It is a **production-grade video processing powerhouse** built from the ground up in **C# 13 and .NET 9**. 
 
 By orchestrating complex FFmpeg filter graphs, custom D3D11 hardware-accelerated playback (`libmpv`), and an ultra-responsive Avalonia UI frontend, FVS abstracts hours of manual video editing into a **lightning-fast, highly optimized workflow**. 
 
@@ -108,7 +108,7 @@ cd Fortnite_Video_Software_C-
 .\build.cmd
 ```
 
-> **💡 Pro Tip:** Development watch mode (Hot Reload) is available via `.\dev.cmd` for rapid UI iteration without rebuilding the entire AOT binary. The final executable will be located in `.\compiled\FortniteVideoSoftware.exe`.
+> **💡 Pro Tip:** Development watch mode (Hot Reload) is available via `.\dev.cmd` for rapid UI iteration without rebuilding the entire AOT binary. The final executable will be located in `.\compiled\FreeVideoStudio.exe`.
 
 ---
 

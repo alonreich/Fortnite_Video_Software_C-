@@ -1,0 +1,33 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
+        xmlns:local="clr-namespace:FreeVideoStudio.App"
+        xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
+        x:Class="FreeVideoStudio.App.PreviewMonitorWindow"
+        Title="Preview Monitor"
+        MinWidth="480" MinHeight="300"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="30"
+        ShowInTaskbar="True"
+        WindowStartupLocation="Manual"
+        Background="{DynamicResource AppSurfaceBrush}">
+    
+    <Grid>
+        <Border Name="MainBorder" Background="{DynamicResource AppSurfaceBrush}" CornerRadius="0" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="5">
+            <Grid RowDefinitions="30, *">
+                <!-- Custom Title Bar -->
+                <Border Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
+                    <TextBlock Name="TitleBarText" Classes="WindowTitleText" Text="{Binding $parent[Window].Title}" Foreground="{DynamicResource TitleBarForeground}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </Border>
+
+                <Grid Grid.Row="1" ClipToBounds="True">
+                    <!-- The Container where the SINGLE MpvVideoView instance will be transplanted -->
+                    <Border Name="VideoContainer"><TextBlock Text="Waiting for preview..." Foreground="{DynamicResource AppTextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource AppFontSize16}"/></Border>
+
+                    <UserControl Name="PortraitSimulatorOverlay" IsVisible="False" IsHitTestVisible="False">
+                        <controls:PhoneFrameMockup Name="PhoneFrame" />
+                    </UserControl>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -5,35 +5,41 @@
 > **⚠ CO-GOVERNED rows are bound by EVERY spec listed on them.** Reading only this one is not compliance (`SPEC_GOVERNANCE.md` §2).
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
-| src/FortniteVideoSoftware.App/AvaloniaApp.axaml | AppStyles | AppPrimaryButtonGradient, AppZoomBrush, AppDangerBrush, `Slider /template/ Thumb` style | Global styling dictionary, design tokens, and control templates. |
-| src/FortniteVideoSoftware.App/Controls/CoachOverlay.cs | CoachOverlay, CoachStep, CoachGesture | Register, Replay, PlayOnce, ResolveHostPanel, Tick, TickMs = 33 | In-memory 30Hz vector walkthrough overlay and first-run user guidance. |
-| src/FortniteVideoSoftware.App/Controls/FloatingNotice.cs | FloatingNotice, NoticeKind | Show, ShowAt, Success, Info, Warn, Error, OverlayCanvas, MaxConcurrent = 3 | Semantic floating pill notices with double layout pass rendering. |
-| src/FortniteVideoSoftware.App/Controls/AmbientBubblesBackground.cs | AmbientBubblesBackground | BubbleCount = 35, PhysicsHz = 60, RenderHz = 30, StepPhysics, ResetBubble | Ambient floating bubble wallpaper: 60 Hz fixed-step physics, painting throttled to 30 fps. |
-| src/FortniteVideoSoftware.App/Controls/FluidVolumeSlider.cs | FluidVolumeSlider | OnPointerMoved, StepPhysics, IsInteracting, RefreshGlassTheme, AppTubeGlassBaseColor, AppTubeGlassEdgeColor, AppTubeInnerShadowColor | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 02**|
-| src/FortniteVideoSoftware.App/Controls/ConfirmDialogWindow.axaml.cs | ConfirmDialogWindow | AskAsync, AskEditOrRemoveAsync, AskSaveChangesAsync, SetButtonText, UseDestructiveStyling | Destructive action confirmation dialog with loss itemization. |
-| src/FortniteVideoSoftware.App/Controls/SpinningWheelSlider.cs | SpinningWheelSlider | OnPointerWheelChanged, SetRange, SetLabels, BeginSettle, NearestDetent | Precision wheel slider for speed, quality, and fine numeric tuning. |
-| src/FortniteVideoSoftware.App/MainWindow.axaml.cs | MainWindow | AttachTitleBarDrag, BeginMoveDrag | Main window UI coordination, fluid container resizing, and borderless dragging. **⚠ CO-GOVERNED BY: 01, 02, GOV**|
-| src/FortniteVideoSoftware.App/GranularSpeedEditorWindow.axaml.cs | GranularSpeedEditorWindow | PushUndo, PerformUndo, PerformRedo, MaxUndoDepth = 40 | Granular Speed Editor 3-column layout and 40-deep immutable undo/redo engine. **⚠ CO-GOVERNED BY: 01, 05**|
-| src/FortniteVideoSoftware.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | PortraitImageControl, AppPortraitMaskBrush flanks, 600 · 720 · 600 columns | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
-| src/FortniteVideoSoftware.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, ApplyBounds, SaveBoundsAsync, SaveBoundsSync, SaveSnapshot (700 ms debounce) | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
-| src/FortniteVideoSoftware.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window that has a grip (Crop Tools, Granular, Merger, Voice Over, Music Wizard, Finished dialog). |
-| src/FortniteVideoSoftware.App/Controls/SettingsWindow.axaml.cs | SettingsWindow | SelectTab, ShowAboutAsync, BuildAboutUi | Suite-wide preferences, About identity, hardware acceleration readout, and manual update checks. |
-| src/FortniteVideoSoftware.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | Update suggestion modal: three buttons plus close, scrollable release notes, non-nagging choices. |
-| src/FortniteVideoSoftware.App/VideoMergerWindow.TimelineSelect.cs | VideoMergerWindow | AttachClipChip, IsOnSeekRows, SelectQueueRow, TimelineBlocks, ChipDragThresholdPx = 6 | Merger timeline selection ants, thumbnail-block select/drag reorder (ANTS_01, MERGERUX_01). **⚠ CO-GOVERNED BY: 01**|
-| src/FortniteVideoSoftware.App/VideoMergerWindow.Session.cs | VideoMergerWindow | InitializeMergerGranular, InitializeLanes, InitializeTimelineSelection | Merger window session wiring. **⚠ CO-GOVERNED BY: 01, 05**|
-| src/FortniteVideoSoftware.App/VideoMergerWindow.EdlPreview.cs | VideoMergerWindow | ClearPreviewSurface, EdlLoadGraceTicks = 8, MergerPreviewPlan | One-EDL merge preview and effects preview (MERGEPREVIEW_EDL_01, MERGEPREVIEW_01, EMPTYQUEUE_01). **⚠ CO-GOVERNED BY: 01, 03**|
-| src/FortniteVideoSoftware.App/VideoMergerWindow.Lanes.cs | VideoMergerWindow | InitializeLanes, LaneCacheSize = 128, LaneParallelism = 2, BuildFilmTileAsync, BuildWaveTileAsync | Merger filmstrip and waveform lanes (LANES_01, LANECACHE_02). **⚠ CO-GOVERNED BY: 01**|
-| src/FortniteVideoSoftware.App/VideoMergerWindow.Playhead.cs | VideoMergerWindow | AttachMergerPlayhead, PositionPlayhead, AntsThickness = 1.25, PlayheadWidth = 2 | Merger red playhead line over every timeline row (MERGERPLAYHEAD_01). |
-| src/FortniteVideoSoftware.App/Infrastructure/GrabCursors.cs | GrabCursors | Open, Closed | Vector-drawn 24×24 open/closed-hand cursors (GRABCURSOR_01). |
-| src/FortniteVideoSoftware.App/Infrastructure/LaneDiskCache.cs | LaneDiskCache | MaxFiles = 800 | On-disk lane cache under `ApplicationPaths.LaneCacheDirectory` (LANECACHE_02). **⚠ CO-GOVERNED BY: 05**|
-| src/FortniteVideoSoftware.Core/Media/ProgressiveLanes.cs | LanePlanner, ThumbGrid, ProgressiveLaneRunner, LaneCache<T> | Plan, Slots, Pick, Generation, Cancel, MaxFrames = 90 | Lane tile planning, fixed thumbnail grid, progressive runner, LRU cache. |
-| src/FortniteVideoSoftware.Core/Media/WaveformPeaks.cs | WaveformPeaks | SampleRate = 4000, PeaksPerSecond = 40, MaxPeaks = 6000 | Vector waveform peaks for the Merger waveform lane (LANECACHE_02). |
-| src/FortniteVideoSoftware.App/PreviewDetachController.cs | PreviewDetachController | Attach, Detach, IsDetached | Multi-monitor video preview decoupling and full-screen window lifecycle. |
-| src/FortniteVideoSoftware.App/PreviewMonitorWindow.axaml.cs | PreviewMonitorWindow | AttachHost, ReleaseHost | Dedicated secondary monitor video preview window. |
-| src/FortniteVideoSoftware.App/Controls/MemePickerWindow.axaml.cs | MemePickerWindow | SelectMemeAsync, RefreshCatalog | Modal catalog picker for meme video/image insertions. |
-| src/FortniteVideoSoftware.App/Controls/MemeWallControl.axaml.cs | MemeWallControl | PopulateMemes, SelectedMeme | Interactive meme selection tile grid and search filter. |
-| src/FortniteVideoSoftware.App/ViewModels/MainViewModel.cs | MainViewModel | IsPortraitMode, IsVideoLoaded, PlaybackTimeText | Core application view model driving top-level UI states and tool bindings. |
-| src/FortniteVideoSoftware.App/ViewModels/ViewModelBase.cs | ViewModelBase | RaiseAndSetIfChanged, PropertyChanged | Base MVVM reactive observable notification implementation. |
+| src/FreeVideoStudio.App/AvaloniaApp.axaml | AppStyles | AppPrimaryButtonGradient, AppZoomBrush, AppDangerBrush, `Slider /template/ Thumb` style | Global styling dictionary, design tokens, and control templates. |
+| src/FreeVideoStudio.App/Controls/CoachOverlay.cs | CoachOverlay, CoachStep, CoachGesture | Register, Replay, PlayOnce, ResolveHostPanel, Tick, TickMs = 33 | In-memory 30Hz vector walkthrough overlay and first-run user guidance. |
+| src/FreeVideoStudio.App/Controls/FloatingNotice.cs | FloatingNotice, NoticeKind | Show, ShowAt, Success, Info, Warn, Error, OverlayCanvas, MaxConcurrent = 3 | Semantic floating pill notices with double layout pass rendering. |
+| src/FreeVideoStudio.App/Controls/AmbientBubblesBackground.cs | AmbientBubblesBackground | BubbleCount = 35, PhysicsHz = 60, RenderHz = 30, StepPhysics, ResetBubble | Ambient floating bubble wallpaper: 60 Hz fixed-step physics, painting throttled to 30 fps. |
+| src/FreeVideoStudio.App/Controls/FluidVolumeSlider.cs | FluidVolumeSlider | OnPointerMoved, StepPhysics, IsInteracting, RefreshGlassTheme, AppTubeGlassBaseColor, AppTubeGlassEdgeColor, AppTubeInnerShadowColor | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 02**|
+| src/FreeVideoStudio.App/Controls/ConfirmDialogWindow.axaml.cs | ConfirmDialogWindow | AskAsync, AskEditOrRemoveAsync, AskSaveChangesAsync, SetButtonText, UseDestructiveStyling | Destructive action confirmation dialog with loss itemization. |
+| src/FreeVideoStudio.App/Controls/SpinningWheelSlider.cs | SpinningWheelSlider | OnPointerWheelChanged, SetRange, SetLabels, BeginSettle, NearestDetent | Precision wheel slider for speed, quality, and fine numeric tuning. |
+| src/FreeVideoStudio.App/MainWindow.axaml.cs | MainWindow | AttachTitleBarDrag, BeginMoveDrag | Main window UI coordination, fluid container resizing, and borderless dragging. **⚠ CO-GOVERNED BY: 01, 02, GOV**|
+| src/FreeVideoStudio.App/CropToolWindow.Volume.cs | CropToolWindow (Partial) | WireUpVolumeSlider, ApplyCurrentVolumeToMpvAsync, OnGlobalMasterVolumeChangedInCrop | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 02**|
+| src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs | VideoMergerWindow (Partial) | OnGlobalMasterVolumeChanged | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 02**|
+| src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs | GranularSpeedEditorWindow | PushUndo, PerformUndo, PerformRedo, MaxUndoDepth = 40 | Granular Speed Editor 3-column layout and 40-deep immutable undo/redo engine. **⚠ CO-GOVERNED BY: 01, 05**|
+| src/FreeVideoStudio.App/GranularSpeedEditorWindow.AiZoom.cs | GranularSpeedEditorWindow (Partial) | OnAiSmartZoomClickedAsync, ExecuteAiTrackingAsync, CancelAiTracking, AiTrackingStatusLabelCtl, AiTrackingPreviewBarCtl | AI tracking dispatch, interactive subject wizard, thinking overlay, and instant loop preview bar. **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/Controls/AiSubjectPickerWindow.axaml.cs | AiSubjectPickerWindow | SelectSubject, HoverSubject, ClearHover, OnFrameTabSelected | Multi-angle character picker wizard, 3-angle thumbnail selector tabs, and target selection grid. |
+| src/FreeVideoStudio.App/Controls/AiSetupWizardWindow.axaml.cs | AiSetupWizardWindow | OpenGoogleAiStudio, TestAndSaveKeyAsync | First-time setup wizard for Gemini API key configuration, instant ping test, and settings save. |
+| src/FreeVideoStudio.App/Controls/SettingsWindow.AiTracking.cs | SettingsWindow (Partial) | InitializeAiTrackingTab, SaveAiTrackingSettings, TestAiTrackingKeyAsync | Dedicated AI tracking tab in Preferences, API key input, model picker, and connection testing. |
+| src/FreeVideoStudio.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | PortraitImageControl, AppPortraitMaskBrush flanks, 600 · 720 · 600 columns | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, ApplyBounds, SaveBoundsAsync, SaveBoundsSync, SaveSnapshot (700 ms debounce) | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
+| src/FreeVideoStudio.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window that has a grip (Crop Tools, Granular, Merger, Voice Over, Music Wizard, Finished dialog). |
+| src/FreeVideoStudio.App/Controls/SettingsWindow.axaml.cs | SettingsWindow | SelectTab, ShowAboutAsync, BuildAboutUi | Suite-wide preferences, About identity, hardware acceleration readout, and manual update checks. |
+| src/FreeVideoStudio.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | Update suggestion modal: three buttons plus close, scrollable release notes, non-nagging choices. |
+| src/FreeVideoStudio.App/VideoMergerWindow.TimelineSelect.cs | VideoMergerWindow | AttachClipChip, IsOnSeekRows, SelectQueueRow, TimelineBlocks, ChipDragThresholdPx = 6 | Merger timeline selection ants, thumbnail-block select/drag reorder (ANTS_01, MERGERUX_01). **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/VideoMergerWindow.Session.cs | VideoMergerWindow | InitializeMergerGranular, InitializeLanes, InitializeTimelineSelection | Merger window session wiring. **⚠ CO-GOVERNED BY: 01, 05**|
+| src/FreeVideoStudio.App/VideoMergerWindow.EdlPreview.cs | VideoMergerWindow | ClearPreviewSurface, EdlLoadGraceTicks = 8, MergerPreviewPlan | One-EDL merge preview and effects preview (MERGEPREVIEW_EDL_01, MERGEPREVIEW_01, EMPTYQUEUE_01). **⚠ CO-GOVERNED BY: 01, 03**|
+| src/FreeVideoStudio.App/VideoMergerWindow.Lanes.cs | VideoMergerWindow | InitializeLanes, LaneCacheSize = 128, LaneParallelism = 2, BuildFilmTileAsync, BuildWaveTileAsync | Merger filmstrip and waveform lanes (LANES_01, LANECACHE_02). **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/VideoMergerWindow.Playhead.cs | VideoMergerWindow | AttachMergerPlayhead, PositionPlayhead, AntsThickness = 1.25, PlayheadWidth = 2 | Merger red playhead line over every timeline row (MERGERPLAYHEAD_01). |
+| src/FreeVideoStudio.App/Infrastructure/GrabCursors.cs | GrabCursors | Open, Closed | Vector-drawn 24×24 open/closed-hand cursors (GRABCURSOR_01). |
+| src/FreeVideoStudio.App/Infrastructure/LaneDiskCache.cs | LaneDiskCache | MaxFiles = 800 | On-disk lane cache under `ApplicationPaths.LaneCacheDirectory` (LANECACHE_02). **⚠ CO-GOVERNED BY: 05**|
+| src/FreeVideoStudio.Core/Media/ProgressiveLanes.cs | LanePlanner, ThumbGrid, ProgressiveLaneRunner, LaneCache<T> | Plan, Slots, Pick, Generation, Cancel, MaxFrames = 90 | Lane tile planning, fixed thumbnail grid, progressive runner, LRU cache. |
+| src/FreeVideoStudio.Core/Media/WaveformPeaks.cs | WaveformPeaks | SampleRate = 4000, PeaksPerSecond = 40, MaxPeaks = 6000 | Vector waveform peaks for the Merger waveform lane (LANECACHE_02). |
+| src/FreeVideoStudio.App/PreviewDetachController.cs | PreviewDetachController | Attach, Detach, IsDetached | Multi-monitor video preview decoupling and full-screen window lifecycle. |
+| src/FreeVideoStudio.App/PreviewMonitorWindow.axaml.cs | PreviewMonitorWindow | AttachHost, ReleaseHost | Dedicated secondary monitor video preview window. |
+| src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml.cs | MemePickerWindow | SelectMemeAsync, RefreshCatalog | Modal catalog picker for meme video/image insertions. |
+| src/FreeVideoStudio.App/Controls/MemeWallControl.axaml.cs | MemeWallControl | PopulateMemes, SelectedMeme | Interactive meme selection tile grid and search filter. |
+| src/FreeVideoStudio.App/ViewModels/MainViewModel.cs | MainViewModel | IsPortraitMode, IsVideoLoaded, PlaybackTimeText | Core application view model driving top-level UI states and tool bindings. |
+| src/FreeVideoStudio.App/ViewModels/ViewModelBase.cs | ViewModelBase | RaiseAndSetIfChanged, PropertyChanged | Base MVVM reactive observable notification implementation. |
 
 ---
 
@@ -102,6 +108,15 @@
   * Unhide immediately when a video is loaded.
   * Persist visible until application restart.
 * **Text Wrapping Simulation:** Live preview clones backend FFmpeg wrap and scale algorithms. Text renders in the top-center of the video canvas to guarantee scale and wrap fidelity despite top void omission.
+* **Unified Master Fluid Volume Slider Rail:**
+  * The vertical "test tube" fluid volume slider (`FluidVolumeSlider`) is embedded in all three core windows: `MainWindow.axaml` (right video rail), `VideoMergerWindow.axaml` (merger preview rail), and `CropToolWindow.axaml` (right video panel rail).
+  * All three instances are wired to `MpvIpcClient.GlobalMasterVolume` and synchronized via `MpvIpcClient.GlobalMasterVolumeChanged`.
+  * Re-entrancy guard (`_isSyncingMasterVolume`) prevents event feedback storms when syncing slider positions, tooltips, percentage text badges, and mute speaker icons.
+  * Crop Tool video preview applies global master volume upon loading rather than force-muting.
+* **Audio Ingestion Prompts & Settings:**
+  * The legacy "Video volume is too quiet or too loud" prompt is removed from both upload ingestion and Preferences/Settings.
+  * Harsh peak burst detection (`ForHarshPeaks`) is preserved, offering the user peak softening if severe spikes occur.
+  * Ingestion of clips lacking an audio stream displays a non-blocking `FloatingNotice` (`NoticeKind.Info`) without disrupting the upload workflow.
 
 ---
 
@@ -309,13 +324,14 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 
 ## 11. Settings Window, About Tab & Universal Version Title Bar  {#UI-SETTINGS-ABOUT}
 * **Dedicated About Tab:** Application identity, versioning, system runtime metadata, and update controls reside inside a dedicated `About` tab in `SettingsWindow.axaml`. The updates checkbox is removed from Confirmation Dialogs to ensure cohesive information architecture.
-* **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and the per-user storage root (`ApplicationPaths.ProgramDataRoot` = `%LOCALAPPDATA%\Fortnite Video Software`, USERSCOPE_01; `FVS_PROGRAMDATA_ROOT` overrides it).
+* **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and the per-user storage root (`ApplicationPaths.ProgramDataRoot` = `%LOCALAPPDATA%\FreeVideoStudio`, USERSCOPE_01; `FVS_PROGRAMDATA_ROOT` overrides it).
 * **Manual Update Trigger:** The `Check For Updates Now` button executes on-demand checking (`UpdateService.CheckManualAsync`), providing inline status feedback and bypassing the 24-hour startup probe throttle.
 * **Skipped Release Filter Management:** Displays skipped release tags with a `Clear Skip` action button allowing users to re-enable skipped update prompts without modifying raw files.
 * **Direct Navigation Routes:**
   * Clicking `File -> About` or `Help -> About` in `MainWindow.axaml` and `VideoMergerWindow.axaml` invokes `SettingsWindow.ShowAboutAsync(owner)`, opening Settings directly to the About tab.
   * Clicking `Help -> Check for Updates...` directly executes `UpdateService.CheckManualAsync(owner)`.
-* **Universal Title Bar Versioning:** Custom title bars in `MainWindow` and `VideoMergerWindow` dynamically format window titles as `Fortnite Video Software v{version}` and `Fortnite Video Software - Merger v{version}` via `DeploymentLifecycle.GetCurrentVersion()`.
+* **Tool Window Identity:** The Granular Speed Editor uses `Free Video Studio - Speed Editor`; Crop Tools uses `Free Video Studio - Crop Tool`. The merger uses `Free Video Studio - Video Merger` before its versioned title is applied. XAML classes and XML namespaces use `FreeVideoStudio.App`.
+* **Universal Title Bar Versioning:** Custom title bars in `MainWindow` and `VideoMergerWindow` dynamically format window titles as `Free Video Studio v{version}` and `Free Video Studio - Video Merger v{version}` via `DeploymentLifecycle.GetCurrentVersion()`.
 * **Update Suggestion Dialog (UpdateAvailableWindow):**
   * Houses scrollable release notes ("What's New in this Release") parsed from GitHub release `body`.
   * Three buttons plus the title-bar close: `Update now` (`UpdateChoice.UpdateNow`), `Skip this version` (`SkipThisVersion`: this release is never offered again, newer ones are) and `Never tell me about updates again` (`NeverTellMeAgain`: turns `AutoUpdateChecks` off). Closing without choosing is `Dismissed`: nothing is stored, and a later start may offer the same release again.
@@ -332,3 +348,37 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
   * Attempting to replace WGL with non-existent libmpv D3D11 APIs results in a pitch-black screen with audio only.
   * Reintroducing any blocking wait on `AcquireSync` (e.g. `KeyedMutexWaitMs > 0`) or taking locks across timeouts causes 1 FPS degradation and `0x80070057` COM exceptions.
   * The non-blocking 0 ms 16-slot ring probing architecture is frozen and locked against future modifications.
+
+---
+
+## 13. Universal AI Smart Tracking Zoom Workflow & Interactive Subject Picker  {#UI-AIZOOM}
+Governs the user interface, dialogs, visual overlays, and review flow for Universal AI Smart Tracking Zoom in `GranularSpeedEditorWindow`.
+* **5-Phase User Experience Pipeline:**
+  1. **Trigger & Configuration Gate:** User selects a speed segment and clicks `AI SMART ZOOM` on the toolbar. If no Gemini API key is configured, the editor opens `AiSetupWizardWindow` (step-by-step guidance with direct hyperlink to Google AI Studio, key test validation ping, and automatic persistence).
+  2. **Phase 1 (Slicing):** Displays the centered status overlay with real-time feedback while an ultrafast 640p MP4 preview slice of the segment is extracted.
+  3. **Phase 2 (Multi-Angle Discovery with Adaptive Forward Lookahead):**
+     * 3 candidate still frames (start $15\%$, middle $50\%$, end $85\%$) are dispatched to Gemini Vision API to discover visible subjects.
+     * If 0 opponents are resolved in the initial window (e.g. gliding towards an encounter), the system automatically executes up to 2 forward lookahead probes into the combat action ($+\max(2.0, 0.75 D)$, $+\max(4.0, 1.5 D)$) to detect visible opponents before failing.
+  4. **Phase 3 (Interactive Subject Picker Wizard - `AiSubjectPickerWindow`):**
+     * Displays a clean, high-DPI modal dialog with the 3 frames organized as switchable thumbnail selector tabs (`Frame 1`, `Frame 2`, `Frame 3`).
+     * Candidate targets are listed in a selectable grid with descriptive visual labels (e.g. "Opponent with Shotgun", "Enemy on Roof", "Opponent in Bubble Shield").
+     * Moving the pointer over a subject card or clicking it draws an interactive neon glowing highlight box on the active preview image.
+     * User clicks `CONFIRM & TRACK TARGET` to proceed or `CANCEL` to abort cleanly.
+  5. **Phase 4 (Dense Tracking with Visual Anchor & Local Player Exclusion):**
+     * The confirmed target's bounding box is cropped from the clearest candidate angle frame into a JPEG thumbnail (`CropSubjectJpeg`) and attached to Gemini's multimodal payload.
+     * The dense tracking prompt commands Gemini to focus exclusively on the visual reference subject and enforces the mandatory Fortnite 3rd-person exclusion rule against tracking the player's own avatar in the foreground.
+     * The defensive sanitizer (`SanitizeWaypointsAgainstLocalPlayer`) suppresses any waypoint that momentarily latches onto the local player's avatar, enabling `AiTrajectorySmoother`'s inertial hold to maintain smooth tracking on the external opponent without camera whipping.
+     * Overlay reappears displaying real-time progress: `"Dense tracking target '{label}'..."` with cancel capability via `CancellationTokenSource`.
+  6. **Phase 5 (Instant Loop Preview Verification):**
+     * Rather than destructively committing changes, the editor immediately enters a loop preview mode playing the tracked segment with dynamic camera cropping applied.
+     * The `AiTrackingPreviewBarCtl` appears above the timeline with two explicit actions: `ACCEPT & APPLY` (commits the trajectory to the project) or `DISCARD` (reverts to original segment state).
+* **Third-Person Avatar Exclusion UX & Scenery Purge:**
+  * In third-person games like Fortnite, the camera is locked behind the local player's avatar. Offering the player's own back as a tracking target is prohibited.
+  * Inanimate scenery (buildings, towers, statues, trees, landscape) is automatically purged from target options.
+  * If a segment contains no external opponents or targets (even after forward combat lookahead), the system displays an informative modal dialog explaining why the local player is excluded and prompts the user to select a clip with a visible opponent or set zoom manually.
+* **Persistent Modal Error Dialog Mandate:**
+  * AI tracking failures, quota limits, or server errors must NEVER use auto-fading toasts (`FloatingNotice.Show` / `NotifyError`).
+  * Failures route strictly to `ErrorReporter.ShowAsync(this, ...)` / `ErrorDialogWindow`, presenting a persistent modal dialog with clear plain-English root causes (e.g. rate limit explanations, invalid key guidance) and a `SHOW LOGS` action button that stays open until dismissed.
+* **Visual Hierarchy & Scaling:**
+  * The AI tracking thinking overlay (`AiTrackingOverlayCtl`) is centered and sized proportionally to the editor window, preventing cramped or unreadable text across 1080p, 1440p, and 4K displays.
+

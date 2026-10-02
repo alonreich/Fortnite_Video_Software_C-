@@ -109,23 +109,23 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
-        run: dotnet restore FortniteVideoSoftware.sln
+        run: dotnet restore FreeVideoStudio.sln
 
       - name: Build
         # TreatWarningsAsErrors is NOT forced on here. The AOT and trim analysers are configured
         # per-project (PROJ-AOT / AOTSAFETY_01) and overriding that from the command line would
         # change what the build means rather than check it.
-        run: dotnet build FortniteVideoSoftware.sln -c Release --no-restore
+        run: dotnet build FreeVideoStudio.sln -c Release --no-restore
 
       - name: Test — Core (timeline maths, document model, undo, IPC)
-        run: dotnet test tests/FortniteVideoSoftware.Core.Tests/FortniteVideoSoftware.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=core.trx"
+        run: dotnet test tests/FreeVideoStudio.Core.Tests/FreeVideoStudio.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=core.trx"
 
       - name: Test — App (the architecture ratchets)
         # ⚠️ THIS STEP IS THE POINT OF THE WHOLE FILE. ArchitectureRuleTests is where "no raw hex",
         # "no zoompan", "empty catches may not increase", "async void may not increase" and
         # "every file carries its spec contract" are actually enforced. Before CI existed they
         # were enforced by remembering to run them.
-        run: dotnet test tests/FortniteVideoSoftware.App.Tests/FortniteVideoSoftware.App.Tests.csproj -c Release --no-build --logger "trx;LogFileName=app.trx"
+        run: dotnet test tests/FreeVideoStudio.App.Tests/FreeVideoStudio.App.Tests.csproj -c Release --no-build --logger "trx;LogFileName=app.trx"
 
       - name: Upload test results
         if: always()
@@ -160,7 +160,7 @@ jobs:
 
       - name: Publish (AOT link must succeed with no analyser warnings)
         run: >
-          dotnet publish src/FortniteVideoSoftware.App/FortniteVideoSoftware.App.csproj
+          dotnet publish src/FreeVideoStudio.App/FreeVideoStudio.App.csproj
           -c Release -r win-x64
           -p:PublishAot=true
           -o ${{ runner.temp }}/aot

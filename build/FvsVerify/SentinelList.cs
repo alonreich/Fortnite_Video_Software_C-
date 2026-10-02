@@ -1,7 +1,4 @@
-// [SPEC CONTRACT] STRICT GOVERNANCE:
-// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
-// Invariants, constants, and threading models must match spec bit-for-bit.
-
+﻿
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -101,16 +98,12 @@ public static class SentinelList
             string tag = line[..eq].Trim();
             string path = line[(eq + 1)..].Trim();
 
-            // A padded tag matches nothing and would report every file as reverted — the exact
-            // trap the old list warned about in prose and could not enforce.
             if (tag.Length == 0 || path.Length == 0 || tag.Any(char.IsWhiteSpace))
             {
                 bad.Add($"line {lineNumber}: {line}");
                 continue;
             }
 
-            // Backslashes would work on Windows and fail in CI on Linux. Catch it here rather than
-            // as a mystery [no-file] on one platform only.
             if (path.Contains('\\'))
             {
                 bad.Add($"line {lineNumber}: use forward slashes in paths — {line}");
@@ -118,7 +111,7 @@ public static class SentinelList
             }
 
             string key = tag + "\u0000" + path;
-            if (!seen.Add(key)) continue;   // the same pair twice is harmless; check it once.
+            if (!seen.Add(key)) continue;
 
             parsed.Add(new Sentinel(tag, path, lineNumber));
         }
@@ -146,8 +139,6 @@ public static class SentinelList
 
         List<SentinelResult> failures = new();
 
-        // One read per FILE, not one per sentinel. 164 sentinels hit ~60 distinct files, and
-        // CropToolWindow.axaml.cs alone is named 26 times.
         Dictionary<string, string?> cache = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (Sentinel s in sentinels)

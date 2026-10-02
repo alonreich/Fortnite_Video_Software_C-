@@ -19,13 +19,14 @@
 
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FreeVideoStudio.Core.Tests" />
     <!--
       SYS-PAYLOADSPLIT. The build needs RuntimePayloadManifest, and it must be the SAME type the
       app reads at update time — a second copy of the fingerprint algorithm here would drift, and a
       drifted fingerprint silently sends everyone the 322 MB installer forever, which reads as "the
       feature does not work" rather than as a bug.
     -->
-    <ProjectReference Include="..\..\src\FortniteVideoSoftware.Core\FortniteVideoSoftware.Core.csproj" />
+    <ProjectReference Include="..\..\src\FreeVideoStudio.Core\FreeVideoStudio.Core.csproj" />
   </ItemGroup>
 
 </Project>
