@@ -157,6 +157,9 @@ ATOMICTEXT_01=src/FreeVideoStudio.Core/Infrastructure/AtomicJsonFile.cs
 EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.Export.cs
 EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
 EXPORTSESSION_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+# Mission 7B - export lifecycle ownership extracted from MainWindow.
+EXPORTSESSION_02=src/FreeVideoStudio.App/Services/ExportCoordinator.cs
+EXPORTSESSION_02=src/FreeVideoStudio.App/MainWindow.Export.cs
 CANCELREG_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 OUTPATH_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 # Finding 4 - ProcessWorker is IDisposable and was never disposed, so ISSUE_11's

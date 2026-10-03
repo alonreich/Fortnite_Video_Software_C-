@@ -72,24 +72,19 @@ public partial class MainWindow
             // btn.IsEnabled = true — telling the user the export was over while FFmpeg was still
             // being killed, the reader pipes were still draining and a multi-gigabyte temp directory
             // was still being deleted. That re-armed button is what let a SECOND pipeline start on
-            // top of the first. See the EXPORTSESSION_01 block on _exportRunning in
-            // MainWindow.axaml.cs for the full three-part failure chain.
+            // top of the first. See the EXPORTSESSION_01 block on ProcessVideoAsync in
+            // MainWindow.Export.cs and ExportCoordinator for the full three-part failure chain.
             //
             // Cancel now only: (a) signals the token, (b) shows "CANCELLING..." so the click is
             // acknowledged within a frame. The overlay is dismissed and the button re-armed in the
-            // ONE place that knows the pipeline has genuinely stopped — the finally in
-            // ProcessVideoAsync.
+            // ONE place that knows the pipeline has genuinely stopped — ProcessVideoAsync, after
+            // ExportCoordinator reports the session Idle.
             // ══════════════════════════════════════════════════════════════════════════════════
             overlay.CancelRequested += (s, e) =>
             {
-                if (_processCts != null && !_processCts.IsCancellationRequested)
+                // EXPORTSESSION_02 — true only for the click that performed Running -> Cancelling.
+                if (_exportCoordinator.Cancel())
                 {
-                    try { _processCts.Cancel(); }
-                    catch (ObjectDisposedException swallowed)
-                    {
-                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
-                    }
-
                     var btn = ProcessButtonCtl;
                     if (btn != null)
                     {

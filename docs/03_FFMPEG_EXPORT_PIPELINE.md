@@ -28,6 +28,7 @@
 | `src/FreeVideoStudio.Core/Media/EncoderManager.cs` | `EncoderManager` | `EncoderPreference`, `AvailableEncoders`, `PrimaryEncoder`, `GetInitialEncoder`, `GetFallbackList`, `GetCodecFlags`, `GetDecodeFlags`, `MaxBitrateKbps` | Export-time encoder list (`ffmpeg -encoders`), NVENC → AMF → QSV → libx264 fallback order, per-encoder rate-control flags. |
 | `src/FreeVideoStudio.Core/Media/ExportEncoderStrategy.cs` | `ExportEncoderStrategy` | `Resolve` | Centralized suite-wide hardware encoder decision engine (Settings override → boot scan cache → export-time probe). |
 | `src/FreeVideoStudio.Core/Media/TwoPassEncoding.cs` | `TwoPassEncoding` | `MasterCodecArgs`, `PassArgs`, `Cleanup` | libx264 two-pass size targeting (scratch master, pass 1/2 args), shared by both workers. |
+| `src/FreeVideoStudio.App/Services/ExportCoordinator.cs` | `ExportCoordinator`, `IExportCoordinator`, `ExportState`, `ExportOutcome`, `ExportRequest`, `ExportCompletion`, `IExportRunner` | `StartAsync`, `Cancel`, `ShutdownAsync`, `Completed`, `EXPORTSESSION_02` | Export lifecycle owner: single-flight gate, token source, Running/Cancelling/Idle. **⚠ CO-GOVERNED BY: 08**|
 | `src/FreeVideoStudio.Core/Media/FfmpegJobLifetime.cs` | `FfmpegJobLifetime` | `SetCurrentProcess`, `TakeCurrentProcess`, `PeekCurrentProcess`, `Cancel`, `DisposeJob`, `EmitFinished`, `FinishEmitted` | PIPELIFE_01 — one shared FFmpeg job lifetime (process gate, cancel, dispose, finish) for both workers. **⚠ CO-GOVERNED BY: 08**|
 | `src/FreeVideoStudio.Core/Media/ExportColorPolicy.cs` | `ExportColorPolicy`, `VideoColorInfo` | `BuildConversionChain`, `OutputTagArgs`, `HdrToneMapChain`, `IsHdr`, `IsFullRange` | COLOR_01 — SDR BT.709 TV-range conversion and output colour tags. |
 | `src/FreeVideoStudio.Core/Media/IntroTag.cs` | `IntroTag` | `Key`, `StandardIntroSec`, `OutputArgs`, `Read`, `Validate` | SCRAPER_01 — `fvs_intro_sec` tag and the muxer args that write both tags. |
@@ -276,11 +277,30 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
   first worker still held registrations on; and both pipelines resolved the same output filename.
   * Cancel is now a **state transition**, not a UI reset: it signals the token and shows
     `CANCELLING...`. The overlay is dismissed and the button re-armed in exactly one place — the
-    `finally` of `MainWindow.ProcessVideoAsync`, after the pipeline `Task` has completed.
-  * `ProcessVideoAsync` is a thin single-flight wrapper guarded by `_exportRunning`; all pipeline
-    content lives in `ProcessVideoCoreAsync`. **The wrapper creates the `CancellationTokenSource` and
-    is the only code permitted to dispose it**, and only after the work `Task` has completed.
-  * `MainWindow.OnClosing` waits (bounded, 3 s) on `_exportInFlight` before teardown.
+    `MainWindow.ProcessVideoAsync`, after `ExportCoordinator.StartAsync` returns (session Idle).
+  * Superseded in ownership (not in behaviour) by `EXPORTSESSION_02` below.
+* **`EXPORTSESSION_02` — the lifecycle is owned by `ExportCoordinator`, not by `MainWindow` (Mission 7B).**
+  `App/Services/ExportCoordinator.cs` (`IExportCoordinator`) owns the `Idle / Running / Cancelling`
+  state, the `CancellationTokenSource`, the in-flight `Task`, the single-flight gate, `Cancel()`, the
+  final `ExportCompletion` and the exactly-once completion transition. `MainWindow` no longer has
+  `_processCts`, `_exportRunning` or `_exportInFlight`.
+  * `StartAsync(ExportRequest)` accepts only from `Idle`; while `Running` **or** `Cancelling` it returns
+    `ExportOutcome.Rejected` without touching the live session and without a completion notification.
+  * `Cancel()` performs `Running -> Cancelling` and signals the token **under the gate**; it never
+    transitions to `Idle`. `Idle` is reached in exactly one place, after the runner's `Task` completes:
+    `Idle` -> dispose the source -> `StateChanged(Idle)` -> `Completed` (once). The source is cleared
+    under the same gate before disposal, so a cancel can never land on a disposed source.
+  * `ShutdownAsync(timeout)` cancels and waits bounded (`MainWindow.OnClosing`: 3 s); a pipeline that
+    outlives the bound stays `Cancelling` — the coordinator never claims `Idle` for it.
+  * A runner exception is never swallowed: it becomes `ExportOutcome.Failed` with
+    `ExportCompletion.Error` (MainWindow shows the unchanged "Export failed" dialog) and a `Recoverable`
+    breadcrumb in `IFaultSink`. Listener and dispose failures are reported through `IFaultSink`.
+    `OperationCanceledException` is `Cancelled`, never a fault.
+  * The coordinator does NOT own the FFmpeg graph, encoder policy, `ProcessWorker`, controls or
+    dialogs — `ProcessVideoCoreAsync` (now `Task<ExportOutcome>` over a `CancellationToken`) is unchanged
+    in content and order. The immutable `ExportPayload` is still composed inside the run, after the
+    folder / segment-count / size-estimate pre-flight, so the gate covers pre-flight exactly as before.
+  * Proven without a window by `ExportCoordinatorTests` (fake runner).
 * **`CANCELREG_01` — `RunAsync`'s cancellation registration lives INSIDE its `try`.** Taken outside it,
   an `ObjectDisposedException` from a already-disposed source escaped `RunAsync` without ever reaching
   `EmitFinished`, so the controller's `TaskCompletionSource` never completed and the awaiting UI hung

@@ -63,14 +63,15 @@ TimelineLanesControl.axaml.cs  TimelineViewModel.cs  ⚠VideoMergerWindow.EdlPre
 AudioFilterChain.cs  AudioLoudnessProbe.cs  ⚠FluidVolumeSlider.cs  ⚠MainWindow.axaml.cs
 ⚠MainWindow.Controls.cs  ⚠MemeLoudness.cs  MicLevelMonitor.cs  MpvIpcClient.cs
 ⚠MusicPadAlignment.cs  ⚠MusicWizardWindow.axaml.cs  VoiceOverPreviewPlayer.cs
-⚠VoiceOverWindow.axaml.cs  VoiceRecorder.cs  WavAudioReader.cs  WaveformGenerator.cs
+⚠VoiceOverWindow.axaml.cs  VoiceRecorder.cs  VoiceCaptureSession.cs  WavAudioReader.cs
+WaveformGenerator.cs
 ```
 
 **[`03_FFMPEG_EXPORT_PIPELINE.md`](03_FFMPEG_EXPORT_PIPELINE.md)** — FFmpeg export pipeline — encoder discovery, zoom filtergraph, concat/bitrate, meme concat & cutaway preview, fades, progress, binary paths, meme library.
 
 ```
 AudioTempoFilterBuilder.cs  CornerMemeOverlayGraph.cs  ⚠CompositeTimeline.cs  EncoderManager.cs  ExportColorPolicy.cs  ExportTimingTag.cs
-ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  FramePtsProbe.cs
+⚠ExportCoordinator.cs  ⚠IExportCoordinator.cs  ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  FramePtsProbe.cs
 GpuCapabilityProbe.cs  GranularSpeedBuilder.cs  HardwareCapability.cs  HardwareScanner.cs  IntroTag.cs
 MainWindow.SizeEstimate.cs  MemeAssets.cs  MemeCatalog.cs  ⚠MemeLoudness.cs  MemePreviewDirector.cs
 MergeClipAnalyzer.cs  ⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs  OutputFileNaming.cs
@@ -128,7 +129,7 @@ AotJson.cs  ⚠AtomicJsonFile.cs  FreeVideoStudio.App.csproj  ⚠IProjectStore.c
 
 ```
 AppServices.cs  ArchitectureRuleTests.cs  ⚠CodeSigning.cs  ⚠dev.cmd  Fault.cs  FaultCounters.cs
-Faults.cs  ⚠FfmpegJobLifetime.cs  ⚠.github/workflows/ci.yml  IClock.cs  IFaultSink.cs
+⚠ExportCoordinator.cs  Faults.cs  ⚠FfmpegJobLifetime.cs  ⚠.github/workflows/ci.yml  IClock.cs  IFaultSink.cs
 IFilePickerService.cs  ⚠IProjectStore.cs  ⚠IUserNotifier.cs  ⚠MainWindow.Project.cs
 ⚠MainWindow.ToolReturn.cs  ⚠ProjectSession.cs  ⚠StorageProviderFilePicker.cs  ⚠ToolNavigator.cs
 UserFacingFaultSink.cs  WindowsOnlyFactAttribute.cs

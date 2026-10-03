@@ -23,6 +23,7 @@
 | `tests/FreeVideoStudio.Core.Tests/WindowsOnlyFactAttribute.cs` | `WindowsOnlyFactAttribute` | `Skip`, `CITEST_01` | Windows-only tests skip, not fail, off Windows. |
 | `src/FreeVideoStudio.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `PushEdit`, `SaveAsync`, `OpenAsync`, `PROJSESSION_01` | The document being edited and its history. **⚠ CO-GOVERNED BY: 06, 07** |
 | `src/FreeVideoStudio.App/MainWindow.Project.cs` | `MainWindow` | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | The main window's half of the document session. **⚠ CO-GOVERNED BY: 06, 07** |
+| `src/FreeVideoStudio.App/Services/ExportCoordinator.cs` | `ExportCoordinator`, `IExportCoordinator` | `StartAsync`, `Cancel`, `ShutdownAsync`, `EXPORTSESSION_02` | Export lifecycle owner, testable outside MainWindow; faults via `IFaultSink`. **⚠ CO-GOVERNED BY: 03** |
 | `src/FreeVideoStudio.App/Services/ToolNavigator.cs` | `ToolNavigator` | `OpenAsync`, `PublishMergeEdl`, `ReadMergeQueue`, `TOOLNAV_01` | Opens companion tools in-process and returns from them. **⚠ CO-GOVERNED BY: 05** |
 | `src/FreeVideoStudio.App/MainWindow.ToolReturn.cs` | `MainWindow` | `RestoreVideoPipelineAfterTool`, `StartVideoHostAsync`, `TOOLRETURN_01` | Main App preview revival after a tool closes. **⚠ CO-GOVERNED BY: 05** |
 | `.github/workflows/ci.yml` | CI | `sentinels`, `build-and-test`, `aot-publish`, `CITEST_01` | Runs the sentinels, the tests and the ratchets. **⚠ CO-GOVERNED BY: 09** |
@@ -152,7 +153,7 @@ plumbing change does not happen. The vocabulary was right and the route was miss
   | `NoRawHexColoursInSharedStyling` | Invariant #5 (04 §1) | **clean — 0** (10 fixed; see §4) |
   | `ZoompanFilterIsNeverEmitted` | Invariant #4 | **clean — 0** |
   | `UnexplainedEmptyCatchBlocksDoNotIncrease` | `FAULTTIER_01` | ratchet, baseline **25** |
-  | `EveryCatchBlockReportsSomewhere` | `FAULTTIER_02` | ratchet, baseline **8** (seven reporting-path files exempt by name) |
+  | `EveryCatchBlockReportsSomewhere` | `FAULTTIER_02` | ratchet, baseline **7** (seven reporting-path files exempt by name; injected `IFaultSink` `.Recoverable/.Degraded/.Fatal(` calls count as reporting) |
   | `EveryProductionSourceFileCarriesTheSpecContract` | `SPEC_GOVERNANCE.md` §4 | **clean — 0** (121 fixed; see §4) |
   | `BlockingWaitsOnAsyncCodeDoNotIncrease` | `ASYNCUI_01` | ratchet, baseline **5** |
   | `AsyncVoidMethodsDoNotIncrease` | `ASYNCUI_02` | ratchet, baseline **31** |

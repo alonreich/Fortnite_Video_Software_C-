@@ -265,7 +265,8 @@ public sealed class ArchitectureRuleTests
         //     catch (IOException) when (attempt < 3) { await Task.Delay(60); }
         // where the retry IS the recovery and the final attempt's catch does the reporting.
         // It is deliberately tight. If it needs raising, the change is probably wrong.
-        const int Baseline = 8;
+        // 8 -> 7 (EXPORTSESSION_02): measured 7 after injected-IFaultSink calls became recognised.
+        const int Baseline = 7;
 
         var offenders = new List<string>();
 
@@ -300,6 +301,10 @@ public sealed class ArchitectureRuleTests
                     body.Contains(".Swallowed(", StringComparison.Ordinal)
                  || body.Contains("Faults.", StringComparison.Ordinal)
                  || body.Contains(".Report(", StringComparison.Ordinal)
+                    // Injected IFaultSink tier calls (FaultSinkExtensions): `_faults.Degraded(...)`.
+                    // Only the three FaultTier names, and only as a member call on a receiver —
+                    // not a whitelist of arbitrary method calls.
+                 || Regex.IsMatch(body, @"\b[A-Za-z_]\w*\s*\.\s*(Recoverable|Degraded|Fatal)\s*\(")
                  || Regex.IsMatch(body, @"\b(RuntimeLog|CoreLogger)\s*\.")
                  || Regex.IsMatch(body, @"\bthrow\b")
                  || Regex.IsMatch(body, @"FloatingNotice|Notify|NotifyError|Alert");
@@ -630,8 +635,8 @@ public sealed class ArchitectureRuleTests
             ["GranularSpeedEditorWindow.axaml.cs"] = 8075,
             ["CropToolWindow.axaml.cs"]            = 6490,
             ["MusicWizardWindow.axaml.cs"]         = 5545,
-            ["VoiceOverWindow.axaml.cs"]           = 3645,
-            ["MainWindow.axaml.cs"]                = 3260,
+            ["VoiceOverWindow.axaml.cs"]           = 3427,   // VOCAPTURE_01: capture lifecycle moved to Services/VoiceCaptureSession.cs (was 3645)
+            ["MainWindow.axaml.cs"]                = 3144,   // EXPORTSESSION_02: export lifecycle moved to Services/ExportCoordinator.cs (was 3260)
             ["VideoMergerWindow.axaml.cs"]         = 2240,
             ["PhaseOverlayControl.axaml.cs"]       = 2425,
             ["SettingsWindow.axaml.cs"]            = 940,

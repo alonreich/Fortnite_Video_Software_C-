@@ -233,42 +233,13 @@ public partial class MainWindow : Window
 
     private bool _isTimelineDrawn = false;
     private string _loadedVideoPath = string.Empty;
-    private System.Threading.CancellationTokenSource? _processCts;
-
     /// <summary>
-    /// EXPORTSESSION_01 — TRUE FOR AS LONG AS AN EXPORT PIPELINE IS ALIVE, not merely for as long
-    /// as the PROCESS button looks busy.
-    ///
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// THE DEFECT THIS EXISTS TO CLOSE.
-    ///
-    /// Export had exactly ONE mutual-exclusion mechanism: processButton.IsEnabled. The overlay's
-    /// CancelRequested handler defeated it — it fired _processCts.Cancel() and then IMMEDIATELY
-    /// re-enabled the button and dismissed the overlay, while the pipeline was still unwinding.
-    /// FFmpeg's kill is asynchronous; ReadExitCodeSafely alone grants it 5 seconds of grace plus a
-    /// further 2, and ProcessWorker's finally then recursively deletes a job temp directory that can
-    /// hold a multi-gigabyte two-pass master. The user could therefore start a SECOND export during
-    /// that window, and three things went wrong at once:
-    ///
-    ///   1. Two FFmpeg pipelines ran concurrently, saturating every core on the machine.
-    ///   2. The second export executed `previousCts?.Dispose()` — disposing the CancellationTokenSource
-    ///      the FIRST worker still held live registrations on. CancellationToken.Register on a
-    ///      disposed source throws ObjectDisposedException, and in ProcessWorker that throw escaped
-    ///      RunAsync without ever reaching EmitFinished, so the controller's TaskCompletionSource
-    ///      never completed and the awaiting UI hung forever with no error shown.
-    ///   3. Both pipelines resolved an output filename by scanning for the first free index, so both
-    ///      picked the same one and the later File.Move silently destroyed the earlier render.
-    ///
-    /// Cancel is now a STATE TRANSITION (Running -> Cancelling -> Idle), not a UI reset. The button
-    /// is re-armed in exactly one place: the finally in ProcessVideoAsync, after the pipeline Task
-    /// has actually completed. (ProcessWorker's CANCELREG_01 and OUTPATH_01 fix 2 and 3 at their own
-    /// layer, as defence in depth.)
-    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// EXPORTSESSION_01 / EXPORTSESSION_02 — the export lifecycle (single-flight gate, Running ->
+    /// Cancelling -> Idle, the CancellationTokenSource and the in-flight Task) is owned by
+    /// <see cref="ExportCoordinator"/>, not by this window. See 03 §8b FFM-EXPORTLIFETIME.
     /// </summary>
-    private bool _exportRunning;
-
-    /// <summary>EXPORTSESSION_01 — the in-flight pipeline, so shutdown can wait for it.</summary>
-    private Task? _exportInFlight;
+    private readonly IExportCoordinator _exportCoordinator =
+        new ExportCoordinator(FreeVideoStudio.Core.Abstractions.Faults.Sink);
 
 private readonly RecoveryManager _recovery = new RecoveryManager();
 
@@ -2288,22 +2259,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         try
         {
-            if (_processCts != null && !_processCts.IsCancellationRequested)
-            {
-                try { _processCts.Cancel(); }
-                catch (ObjectDisposedException swallowed4)
-                {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
-                }
-            }
-
-            // EXPORTSESSION_01 — give the pipeline a bounded moment to actually stop before the
-            // window tears down the objects it is using. Without this, closing mid-export raced
-            // ProcessWorker's teardown against MpvVideoView's disposal.
-            if (_exportInFlight != null)
-            {
-                await Task.WhenAny(_exportInFlight, Task.Delay(3000));
-            }
+            // EXPORTSESSION_01 — cancel, then give the pipeline a bounded moment (3 s) to actually
+            // stop before the window tears down the objects it is using. Without this, closing
+            // mid-export raced ProcessWorker's teardown against MpvVideoView's disposal.
+            await _exportCoordinator.ShutdownAsync(TimeSpan.FromSeconds(3));
 
             if (_mainSizeWorker != null)
                 await Task.WhenAny(_mainSizeWorker.Completion, Task.Delay(1000));

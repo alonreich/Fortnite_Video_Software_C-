@@ -17,89 +17,74 @@ using FreeVideoStudio.App.Infrastructure;
 using FreeVideoStudio.App.Models;
 using FreeVideoStudio.Core.Infrastructure;
 using FreeVideoStudio.Core.Media;
+using ExportCompletion = FreeVideoStudio.App.Services.ExportCompletion;
+using ExportOutcome = FreeVideoStudio.App.Services.ExportOutcome;
+using ExportRequest = FreeVideoStudio.App.Services.ExportRequest;
+using DelegateExportRunner = FreeVideoStudio.App.Services.DelegateExportRunner;
 
 namespace FreeVideoStudio.App;
 
 public partial class MainWindow
 {
     /// <summary>
-    /// EXPORTSESSION_01 — THE SINGLE-FLIGHT GATE AND THE CANCELLATION-TOKEN-SOURCE OWNER.
+    /// EXPORTSESSION_01 — THE SINGLE-FLIGHT GATE AND THE CANCELLATION-TOKEN-SOURCE OWNER is now
+    /// <see cref="FreeVideoStudio.App.Services.ExportCoordinator"/> (EXPORTSESSION_02).
     ///
     /// ══════════════════════════════════════════════════════════════════════════════════════════
-    /// Everything about an export's LIFETIME lives here; everything about its CONTENT lives in
-    /// <see cref="ProcessVideoCoreAsync"/>. That split is the whole point, because the three defects
-    /// this replaces were all lifetime defects, not pipeline defects:
+    /// Everything about an export's LIFETIME lives in the coordinator; everything about its CONTENT
+    /// lives in <see cref="ProcessVideoCoreAsync"/>. The three defects this split closed were all
+    /// lifetime defects: a second pipeline started while the first was still being cancelled; the
+    /// second export disposed the CancellationTokenSource the first worker was still registered on
+    /// (the CANCELREG_01 hang); nothing waited for the pipeline before window teardown.
     ///
-    ///   • Export had no mutual exclusion beyond processButton.IsEnabled, and the overlay's Cancel
-    ///     handler re-enabled that button while the previous pipeline was still unwinding. Two
-    ///     FFmpeg pipelines could run at once.
-    ///   • The old code did `previousCts?.Dispose()` at the top of every export, disposing the
-    ///     CancellationTokenSource the PREVIOUS worker still held live registrations on. That is an
-    ///     ObjectDisposedException inside ProcessWorker, and it used to escape RunAsync without ever
-    ///     reaching EmitFinished — leaving the awaiting UI hung forever with the overlay already
-    ///     dismissed.
-    ///   • Nothing waited for the pipeline before tearing down the window.
-    ///
-    /// THE RULE, and it is not negotiable: the CancellationTokenSource created here is disposed HERE,
-    /// in the finally, and only AFTER the pipeline Task it was handed to has completed. No other code
-    /// path may dispose it. The UI is likewise restored in exactly one place — this finally — so
-    /// "the overlay is gone" can never again mean anything except "the pipeline has stopped".
+    /// THE RULE, unchanged: the token source is disposed only after the pipeline Task has completed,
+    /// by the coordinator and by nothing else. This method restores the UI in exactly one place —
+    /// after StartAsync returns, i.e. after the coordinator reports Idle — so "the overlay is gone"
+    /// can never again mean anything except "the pipeline has stopped".
     /// ══════════════════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private async Task ProcessVideoAsync(Button processButton)
     {
-        if (_exportRunning)
+        var request = new ExportRequest("PROCESS button", new DelegateExportRunner(token =>
+        {
+            processButton.IsEnabled = false;
+            processButton.Content = "PROCESSING...";
+            return ProcessVideoCoreAsync(processButton, token);
+        }));
+
+        ExportCompletion completion = await _exportCoordinator.StartAsync(request);
+
+        if (completion.Outcome == ExportOutcome.Rejected)
         {
             RuntimeLog.Info("UI", "PROCESS ignored: an export is already running or still stopping.");
             ShowTacticalFeedback("An export is already running");
             return;
         }
 
-        _exportRunning = true;
-
-        var cts = new System.Threading.CancellationTokenSource();
-        _processCts = cts;
-
-        processButton.IsEnabled = false;
-        processButton.Content = "PROCESSING...";
-
-        Task work = ProcessVideoCoreAsync(processButton, cts);
-        _exportInFlight = work;
-
         try
         {
-            await work;
-        }
-        catch (OperationCanceledException)
-        {
-            RuntimeLog.Info("EXPORT", "Export cancelled.");
-            ShowTacticalFeedback("Processing Cancelled");
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog.Fail("EXPORT", ex);
-            await ErrorReporter.ShowAsync(this, "Export failed",
-                "Something went wrong while preparing or running the export.", ex.Message);
+            if (completion.Error is OperationCanceledException)
+            {
+                RuntimeLog.Info("EXPORT", "Export cancelled.");
+                ShowTacticalFeedback("Processing Cancelled");
+            }
+            else if (completion.Error != null)
+            {
+                RuntimeLog.Fail("EXPORT", completion.Error);
+                await ErrorReporter.ShowAsync(this, "Export failed",
+                    "Something went wrong while preparing or running the export.", completion.Error.Message);
+            }
         }
         finally
         {
-            _exportInFlight = null;
-            _processCts = null;
-
-            // Disposed only now: every registration ProcessWorker took on this token is released by
-            // the time its Task has completed.
-            try { cts.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-
             OverlayLayerCtl?.StopOverlay();
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
-
-            _exportRunning = false;
         }
     }
 
-    private async Task ProcessVideoCoreAsync(Button processButton, System.Threading.CancellationTokenSource processCts)
+    private async Task<ExportOutcome> ProcessVideoCoreAsync(Button processButton, System.Threading.CancellationToken processToken)
     {
         if (ActiveVideoHost?.IpcClient != null)
         {
@@ -115,7 +100,7 @@ public partial class MainWindow
             await ErrorReporter.ShowAsync(this, "Nothing to export",
                 "There is no video loaded, or the file that was loaded has been moved or deleted. Load a video and try again.",
                 "");
-            return;
+            return ExportOutcome.Declined;
         }
 
         string? outputDirectory = await Infrastructure.OutputFolderResolver.ResolveAsync(
@@ -125,18 +110,18 @@ public partial class MainWindow
             ShowTacticalFeedback("Export cancelled — no output folder");
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
-            return;
+            return ExportOutcome.Declined;
         }
 
         if (!await ConfirmHighSegmentCountAsync())
         {
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
-            return;
+            return ExportOutcome.Declined;
         }
 
-        // EXPORTSESSION_01 — the CancellationTokenSource is created and disposed by the wrapper
-        // above, which is the only code that knows when this pipeline has actually stopped. The old
+        // EXPORTSESSION_01 — the CancellationTokenSource is created and disposed by ExportCoordinator
+        // (EXPORTSESSION_02), the only code that knows when this pipeline has actually stopped. The old
         // `previousCts?.Dispose()` that stood here disposed a source the PREVIOUS export's worker was
         // still registered on; see the block on ProcessVideoAsync. Do not reintroduce it.
         await Task.Yield();
@@ -179,7 +164,7 @@ public partial class MainWindow
         Services.OutputSizeEstimate sizeEstimate;
         try
         {
-            var estimateToken = processCts.Token;
+            var estimateToken = processToken;
             sizeEstimate = await Task.Run(() => SizeEstimator.EstimateMainAsync(sizeRequest, estimateToken), estimateToken);
         }
         catch (OperationCanceledException swallowed)
@@ -189,7 +174,7 @@ public partial class MainWindow
             processButton.Content = "PROCESS";
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
-            return;
+            return ExportOutcome.Cancelled;
         }
         catch (Exception ex)
         {
@@ -204,7 +189,7 @@ public partial class MainWindow
             processButton.Content = "PROCESS";
             if (ActiveVideoHost != null) ActiveVideoHost.IsVisible = true;
             await ErrorReporter.ShowAsync(this, "Could not read the video", "Please reload the video and try again.", "");
-            return;
+            return ExportOutcome.Failed;
         }
 
         RuntimeLog.Info("EXPORT",
@@ -218,7 +203,7 @@ public partial class MainWindow
         
         var result = await controller.ExecuteExportAsync(
             payload, 
-            processCts.Token,
+            processToken,
             (percent) => { Avalonia.Threading.Dispatcher.UIThread.Post(() => processButton.Content = $"PROCESSING... {percent}%"); },
             (phase, title, progress) => { 
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => 
@@ -233,8 +218,10 @@ public partial class MainWindow
         {
             processButton.IsEnabled = true;
             processButton.Content = "PROCESS";
-            return;
+            return ExportOutcome.Cancelled;
         }
+
+        ExportOutcome outcome = result.Success ? ExportOutcome.Succeeded : ExportOutcome.Failed;
 
         if (result.Success)
         {
@@ -283,6 +270,7 @@ public partial class MainWindow
         
         processButton.IsEnabled = true;
         processButton.Content = "PROCESS";
+        return outcome;
     }
 
     /// <summary>

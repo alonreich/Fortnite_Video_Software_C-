@@ -43,7 +43,6 @@ public partial class VoiceOverWindow : Window
     }
 
     private MpvVideoView? _videoHost;
-    private VoiceRecorder? _recorder;
 
     /// <summary>
     /// AUDIO_01: live while the microphone is open. Disposing it re-enables UI sounds.
@@ -65,59 +64,12 @@ public partial class VoiceOverWindow : Window
     private double _smoothedVolume = 0;
     private double _peakVolume = 0;
 
-    /// <summary>
-    /// VOMON_01 — idle input monitoring, so the meter and the READY lamp tell the truth BEFORE
-    /// the user commits to a take. Stopped whenever <see cref="VoiceRecorder"/> needs the device.
-    /// </summary>
-    private FreeVideoStudio.Core.Media.MicLevelMonitor? _micMonitor;
-
-    // ══════════════════════════════════════════════════════════════════════════════
-    // VOASYNC_02 — THE AUDIO DEVICE CHAIN.
-    //
-    // Four operations touch the capture device, and EVERY one of them blocks:
-    //   opening the recorder      waveInOpen + creating the WAV file
-    //   draining the recorder     waits on RecordingStopped, up to 2 s
-    //   stopping the monitor      waveInReset + waveInClose, joins the capture thread
-    //   starting the monitor      waveInOpen
-    // Run inline they froze the window on every press of record. Run on separate tasks they would
-    // race: the recorder could try to open the device before the monitor had let go of it, which
-    // on many drivers simply fails and loses the take.
-    //
-    // So they are queued onto ONE chain. Order is preserved exactly as the interface thread issued
-    // it, nothing runs on the interface thread, and the device is never held by two objects at
-    // once. The field is only ever read and written on the interface thread, so it needs no lock.
-    // ══════════════════════════════════════════════════════════════════════════════
-    private Task _audioDeviceChain = Task.CompletedTask;
-
-    /// <summary>VOASYNC_02 — queues blocking capture-device work, in order, off the interface thread.</summary>
-    private void QueueAudioDeviceWork(Action work)
-    {
-        _audioDeviceChain = _audioDeviceChain.ContinueWith(
-            _ =>
-            {
-                try { work(); }
-                catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-            },
-            System.Threading.CancellationToken.None,
-            TaskContinuationOptions.None,
-            TaskScheduler.Default);
-    }
-
-    /// <summary>
-    /// VOASYNC_02 — takes whose drain is still in flight. Apply and the close prompt both have to
-    /// wait for these, otherwise a take the user just recorded would be invisible to them for the
-    /// ~100 ms the device takes to drain — and silently lost if they pressed Apply inside it.
-    /// Only touched on the interface thread.
-    /// </summary>
-    private readonly List<TaskCompletionSource> _pendingFinalizes = new();
-
-    private Task WhenTakesSettled()
-    {
-        if (_pendingFinalizes.Count == 0) return Task.CompletedTask;
-        var tasks = new List<Task>(_pendingFinalizes.Count);
-        foreach (var tcs in _pendingFinalizes) tasks.Add(tcs.Task);
-        return Task.WhenAll(tasks);
-    }
+    // VOCAPTURE_01 — the recorder, the idle monitor (VOMON_01), the VOASYNC_02 device chain and the
+    // in-flight take drains are owned by VoiceCaptureSession. This window keeps only the pixels.
+    private readonly FreeVideoStudio.App.Services.IVoiceCaptureSession _capture =
+        new FreeVideoStudio.App.Services.VoiceCaptureSession(
+            FreeVideoStudio.App.Services.NAudioVoiceCaptureDevices.Instance,
+            work => Dispatcher.UIThread.Post(work));
 
     /// <summary>
     /// VOTAKE_01 — decoded peak envelopes, one array per take WAV, keyed by path.
@@ -425,6 +377,8 @@ public partial class VoiceOverWindow : Window
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         MpvIpcClient.GlobalMasterVolumeChanged += OnMasterVolumeChanged;
         Closing += OnWindowClosing;
+        _capture.MonitorLevel += OnMonitorLevel;
+        _capture.RecordingLevel += OnVolumeChanged;
         AttachTitleBarDrag();
         AttachResizeGrip();
         PopulateMicrophoneDevices();
@@ -1024,26 +978,17 @@ public partial class VoiceOverWindow : Window
             return;
         }
 
-        if (_micMonitor == null)
-        {
-            _micMonitor = new FreeVideoStudio.Core.Media.MicLevelMonitor();
-            _micMonitor.LevelChanged += OnMonitorLevel;
-        }
-
-        // VOASYNC_02 — waveInOpen blocks; it goes on the chain, after any pending drain.
-        var monitor = _micMonitor;
-        int deviceIndex = GetSelectedMicrophoneDeviceIndex();
-        QueueAudioDeviceWork(() => monitor.Start(deviceIndex));
+        // VOASYNC_02 — waveInOpen blocks; the session queues it on its chain, after any pending drain.
+        _ = _capture.StartMonitorAsync(GetSelectedMicrophoneDeviceIndex());
         UpdateReadyLamp();
     }
 
     /// <summary>VOMON_01 — releases the device so VoiceRecorder can claim it.</summary>
     private void StopMicMonitor()
     {
-        // VOASYNC_02 — waveInClose joins the capture thread, so this blocks too. Queued, which
-        // also guarantees the device is free before the recorder's open is reached on the chain.
-        var monitor = _micMonitor;
-        if (monitor != null) QueueAudioDeviceWork(monitor.Stop);
+        // VOASYNC_02 — waveInClose joins the capture thread, so this blocks too. Queued by the
+        // session, which also guarantees the device is free before the recorder's open is reached.
+        _ = _capture.StopMonitorAsync();
         UpdateReadyLamp();
     }
 
@@ -1069,7 +1014,7 @@ public partial class VoiceOverWindow : Window
         if (_readyLamp == null) return;
 
         bool hasDevice = FreeVideoStudio.Core.Media.VoiceRecorder.HasInputDevice;
-        bool monitorOpen = _micMonitor?.IsRunning == true;
+        bool monitorOpen = _capture.IsMonitorOpen;
 
         // ══════════════════════════════════════════════════════════════════════════════════
         // VOMON_02 — THE LAMP NOW MEANS "THIS STUDIO CAN RECORD", NOT "WINDOWS LISTED A MIC".
@@ -1129,7 +1074,7 @@ public partial class VoiceOverWindow : Window
             _micMonitorOpenUtc = DateTime.MaxValue;
             // Only complain once the open has actually had its turn on the audio chain; before
             // that "not running" just means "not yet".
-            if (!_micOpenFailureReported && _audioDeviceChain.IsCompleted)
+            if (!_micOpenFailureReported && _capture.IsDeviceChainIdle)
             {
                 _micOpenFailureReported = true;
                 RuntimeLog.Fail("VoiceOver",
@@ -1606,7 +1551,7 @@ public partial class VoiceOverWindow : Window
         if (_pauseResumeButton != null)
         {
             _pauseResumeButton.IsVisible = _isRecording;
-            _pauseResumeButton.IsEnabled = _isRecording && !_recordArming && !_recordOpening;
+            _pauseResumeButton.IsEnabled = _isRecording && !_recordArming && !_capture.IsOpeningRecorder;
             var rpi = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordPauseIcon");
             var rri = this.FindControl<Avalonia.Controls.Shapes.Path>("RecordResumeIcon");
             if (rpi != null) rpi.IsVisible = !_recordPaused;
@@ -1641,7 +1586,7 @@ public partial class VoiceOverWindow : Window
     {
         // VOASYNC_02 — a take whose drain has not landed yet is still a take. Without this the
         // Apply button and the discard prompt would both go blind for the ~100 ms after stop.
-        return _isRecording || _pendingFinalizes.Count > 0 || HasSavedVoiceOverSession();
+        return _isRecording || _capture.HasPendingFinalizations || HasSavedVoiceOverSession();
     }
 
     private void UpdateApplyState(string? message = null)
@@ -2674,14 +2619,6 @@ public partial class VoiceOverWindow : Window
     /// <summary>True between "user pressed record" and "the video clock actually moved".</summary>
     private bool _recordArming;
 
-    /// <summary>
-    /// VOASYNC_02 — true between "the clock moved, open the device" and "capture is live".
-    /// Distinct from <see cref="_recordArming"/>: arming waits on the VIDEO, this waits on the
-    /// AUDIO DRIVER. The pause button stays disabled across it because there is nothing to pause
-    /// yet, and PumpRecordArming must not queue a second open while one is in flight.
-    /// </summary>
-    private bool _recordOpening;
-
     /// <summary>Video position observed on the previous arming tick, to detect real movement.</summary>
     private double _armPrevTime;
 
@@ -2764,7 +2701,7 @@ public partial class VoiceOverWindow : Window
     /// </summary>
     private void PumpRecordArming()
     {
-        if (_recordOpening) return;   // VOASYNC_02 — a device open is already queued
+        if (_capture.IsOpeningRecorder) return;   // VOASYNC_02 — a device open is already queued
         if (!_recordArming) return;
 
         var ipc = _videoHost?.IpcClient;
@@ -2827,68 +2764,47 @@ public partial class VoiceOverWindow : Window
         // instant capture actually goes live, which is strictly more accurate.
         // ══════════════════════════════════════════════════════════════════════════
         _recordArming = false;
-        _recordOpening = true;
 
         string takePath = _outputWavPath;
         int micIndex = GetSelectedMicrophoneDeviceIndex();
         RuntimeLog.Info("VoiceOver", $"Opening microphone index {micIndex} (video clock at {now:0.###}s).");
 
-        QueueAudioDeviceWork(() =>
+        // VOCAPTURE_01 — the session stops the monitor and opens the recorder in ONE chain job, and
+        // refuses a second open while one is in flight. The verdict is posted back to this thread.
+        _ = _capture.StartRecordingAsync(takePath, micIndex, result =>
         {
-            var recorder = new VoiceRecorder(takePath, micIndex);
-            Exception? failure = null;
-            try { recorder.StartRecording(); }
-            catch (Exception ex)
+            if (result.Outcome == FreeVideoStudio.App.Services.RecordingOpenOutcome.Cancelled)
             {
-                failure = ex;
-                try { recorder.Dispose(); } catch (Exception dex) { RuntimeLog.Swallowed(dex); }
+                // The user pressed stop, or closed the window, while the driver was opening. The
+                // session closed the device and deleted the WAV it had just created.
+                if (result.Failure == null)
+                    RuntimeLog.Info("VoiceOver", "Recording was stopped while the microphone was still opening; the empty take was discarded.");
+                return;
             }
 
-            Dispatcher.UIThread.Post(() =>
+            if (_isClosing || !_isRecording || _currentSession == null)
             {
-                _recordOpening = false;
+                if (result.Outcome == FreeVideoStudio.App.Services.RecordingOpenOutcome.Opened) _ = _capture.ReleaseRecorderAsync();
+                return;
+            }
 
-                // The user may have pressed stop, or closed the window, while the driver was
-                // opening. The recorder is then an orphan and must not be mounted.
-                if (_isClosing || !_isRecording || _currentSession == null)
-                {
-                    if (failure == null)
-                    {
-                        // The stop arrived while the driver was still opening. Close the device
-                        // and delete the WAV it just created — the delete is queued BEHIND the
-                        // dispose on the same chain, because the file is still open until then.
-                        QueueAudioDeviceWork(() =>
-                        {
-                            try { recorder.StopRecording(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-                            try { recorder.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-                            TryDeleteFile(takePath);
-                        });
-                        RuntimeLog.Info("VoiceOver", "Recording was stopped while the microphone was still opening; the empty take was discarded.");
-                    }
-                    return;
-                }
+            if (result.Outcome == FreeVideoStudio.App.Services.RecordingOpenOutcome.Failed)
+            {
+                RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {result.Failure?.Message}");
+                AbortActiveTake();
+                ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
+                return;
+            }
 
-                if (failure != null)
-                {
-                    RuntimeLog.Fail("VoiceOver", $"Microphone recording could not start. {failure.Message}");
-                    AbortActiveTake();
-                    ShowMicrophoneUnavailable("Microphone recording could not start on this PC.");
-                    return;
-                }
+            double liveAt = _videoHost?.IpcClient?.CurrentTime ?? now;
+            _currentSession.StartSec = liveAt;
 
-                recorder.VolumeChanged += OnVolumeChanged;
-                _recorder = recorder;
+            RuntimeLog.Info("VoiceOver",
+                $"Microphone open on index {micIndex}; take anchored at {liveAt:0.###}s (source time).");
 
-                double liveAt = _videoHost?.IpcClient?.CurrentTime ?? now;
-                _currentSession.StartSec = liveAt;
-
-                RuntimeLog.Info("VoiceOver",
-                    $"Microphone open on index {micIndex}; take anchored at {liveAt:0.###}s (source time).");
-
-                UpdateRecordingUi("RECORDING", "AppDangerBrush");
-                UpdateTransportState();
-                UpdateApplyState("Recording in progress. Apply will save the current take and close.");
-            });
+            UpdateRecordingUi("RECORDING", "AppDangerBrush");
+            UpdateTransportState();
+            UpdateApplyState("Recording in progress. Apply will save the current take and close.");
         });
     }
 
@@ -2942,7 +2858,7 @@ public partial class VoiceOverWindow : Window
     /// click handler. A typical drain is one buffer period, so every press of stop froze the whole
     /// window for roughly 50-150 ms, which is exactly the stutter that was reported.
     ///
-    /// The drain now happens on the shared audio-device chain (see QueueAudioDeviceWork), which
+    /// The drain now happens on the shared audio-device chain (VoiceCaptureSession), which
     /// also guarantees it finishes before the idle monitor reclaims the device. The interface
     /// thread returns immediately; the take is added when the worker reports back. Because the
     /// byte count is read AFTER the drain, the take's length is now MORE accurate than it was
@@ -2950,52 +2866,25 @@ public partial class VoiceOverWindow : Window
     /// </summary>
     private void FinalizeCurrentTake()
     {
-        // Ownership of both objects transfers out of the fields here, on the interface thread, so
-        // a second stop (or the window closing) cannot race the worker for the same recorder.
-        var recorder = _recorder;
+        // Ownership transfers out here, on the interface thread, so a second stop (or the window
+        // closing) cannot race the worker for the same recorder. The session detaches the recorder
+        // under its own lock and drains it on its chain (VOCAPTURE_01).
         var session = _currentSession;
-        _recorder = null;
         _currentSession = null;
 
         if (session == null)
         {
             RuntimeLog.Info("VoiceOver", "Finalise was called with no open take — nothing to keep or discard.");
-            if (recorder != null) RetireRecorderAsync(recorder);
+            _ = _capture.ReleaseRecorderAsync();
             return;
         }
 
-        if (recorder == null)
+        if (_capture.FinalizeRecordingAsync(take => CompleteTake(session, true, take.Bytes, take.Buffers, take.Peak)) == null)
         {
             // The microphone never opened (the take was still arming), so there is nothing to
             // drain and nothing was captured. Settle it inline — this path does no blocking work.
             CompleteTake(session, micWasOpen: false, capturedBytes: -1, capturedBuffers: -1, capturedPeak: -1f);
-            return;
         }
-
-        var settled = new TaskCompletionSource();
-        _pendingFinalizes.Add(settled);
-
-        recorder.VolumeChanged -= OnVolumeChanged;
-
-        QueueAudioDeviceWork(() =>
-        {
-            try { recorder.StopRecording(); }
-            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-
-            long bytes = recorder.BytesCaptured;
-            int buffers = recorder.BuffersSeen;
-            float peak = recorder.PeakSeen;
-
-            try { recorder.Dispose(); }
-            catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                _pendingFinalizes.Remove(settled);
-                try { CompleteTake(session, true, bytes, buffers, peak); }
-                finally { settled.TrySetResult(); }
-            });
-        });
     }
 
     /// <summary>
@@ -3076,32 +2965,12 @@ public partial class VoiceOverWindow : Window
         }
         _isRecording = false;
         _recordPaused = false;
-        _recordOpening = false;
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;
     }
 
-    /// <summary>
-    /// VOASYNC_02 — detaches the recorder and retires it on the audio chain. Never blocks.
-    /// </summary>
-    private void ReleaseRecorder()
-    {
-        var recorder = _recorder;
-        _recorder = null;
-        if (recorder == null) return;
-        recorder.VolumeChanged -= OnVolumeChanged;
-        RetireRecorderAsync(recorder);
-    }
-
-    /// <summary>VOASYNC_02 — drains and disposes a recorder off the interface thread, in order.</summary>
-    private void RetireRecorderAsync(FreeVideoStudio.Core.Media.VoiceRecorder recorder)
-    {
-        QueueAudioDeviceWork(() =>
-        {
-            try { recorder.StopRecording(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-            try { recorder.Dispose(); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-        });
-    }
+    /// <summary>VOASYNC_02 — the session detaches the recorder and retires it on its chain. Never blocks.</summary>
+    private void ReleaseRecorder() => _ = _capture.ReleaseRecorderAsync();
 
     /// <summary>Set by FinalizeCurrentTake when a take was discarded, so the UI can explain why.</summary>
     private bool _lastTakeWasRejected;
@@ -3171,7 +3040,6 @@ public partial class VoiceOverWindow : Window
         _recordArming = false;
         _recordPaused = false;
         _isCurrentlyFrozen = false;
-        _recordOpening = false;
 
         FinalizeCurrentTake();
 
@@ -3296,10 +3164,10 @@ public partial class VoiceOverWindow : Window
         // the take the user recorded a moment ago would not be in `_sessions` yet, and Apply would
         // report "nothing to apply" and throw it away. This is the one place that genuinely has to
         // wait — and it awaits, so the interface stays responsive while it does.
-        if (_pendingFinalizes.Count > 0)
+        if (_capture.HasPendingFinalizations)
         {
             if (_applyButton != null) { _applyButton.IsEnabled = false; _applyButton.Content = "SAVING..."; }
-            await WhenTakesSettled();
+            await _capture.WhenFinalizationsSettled();
             if (_applyButton != null) _applyButton.Content = "APPLY & CLOSE";
             if (_isClosing) return;
         }
@@ -3506,18 +3374,12 @@ public partial class VoiceOverWindow : Window
         _generationCts?.Cancel();
         _timer.Stop();
         _timer.Tick -= Timer_Tick;
-        // VOASYNC_02 — closing the window must not block on the capture drain either. Both go on
-        // the chain, in order, and the chain outlives the window just long enough to finish.
-        ReleaseRecorder();
-
-        // VOMON_01 — the idle monitor holds a live capture handle; it must not outlive the window.
-        var monitorToRetire = _micMonitor;
-        _micMonitor = null;
-        if (monitorToRetire != null)
-        {
-            monitorToRetire.LevelChanged -= OnMonitorLevel;
-            QueueAudioDeviceWork(monitorToRetire.Dispose);
-        }
+        // VOASYNC_02 / VOMON_01 — closing the window must not block on the capture drain either.
+        // The session drains the recorder once and disposes the monitor, in order, on its chain,
+        // which outlives the window just long enough to finish.
+        _capture.MonitorLevel -= OnMonitorLevel;
+        _capture.RecordingLevel -= OnVolumeChanged;
+        _capture.Dispose();
 
         _uiSoundMute?.Dispose();
         _uiSoundMute = null;

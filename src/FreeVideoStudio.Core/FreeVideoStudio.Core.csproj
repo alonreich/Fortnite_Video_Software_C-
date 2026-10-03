@@ -28,10 +28,10 @@
        satellite assembly is exactly the kind of detail a security reviewer flags. Keep in step
        with FreeVideoStudio.App.csproj on every release. -->
   <PropertyGroup>
-    <Version>2026.10.01.2123</Version>
-    <AssemblyVersion>2026.10.01.2123</AssemblyVersion>
-    <FileVersion>2026.10.01.2123</FileVersion>
-    <InformationalVersion>2026.10.01.2123</InformationalVersion>
+    <Version>2026.10.03.1237</Version>
+    <AssemblyVersion>2026.10.03.1237</AssemblyVersion>
+    <FileVersion>2026.10.03.1237</FileVersion>
+    <InformationalVersion>2026.10.03.1237</InformationalVersion>
     <Company>Alon Reich</Company>
     <Authors>Alon Reich</Authors>
     <Product>Free Video Studio</Product>

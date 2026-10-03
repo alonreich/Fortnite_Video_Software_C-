@@ -41,6 +41,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   CoordinateMath.cs                          01
   DeploymentLifecycle.cs                     05
 ⚠ dev.cmd                                    05 08
+⚠ ExportCoordinator.cs                       03 08
   ExportTimingTag.cs                         03
   FfmpegDiagnosticCollector.cs               03
   FloatingNotice.cs                          04
@@ -54,6 +55,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ GranularSpeedEditorWindow.Merge.cs         01 04
   HardwareScanner.cs                         03
   KineticScrubController.cs                  01
+⚠ IExportCoordinator.cs                     03 08
   LatestEstimateWorker.cs                    05
   MainMediaController.cs                     03
   MainWindow.Canvas.cs                       01
@@ -126,6 +128,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   VoiceOverPreviewPlayer.cs                  02
 ⚠ VoiceOverWindow.axaml.cs                   01 02
   VoiceRecorder.cs                           02
+  VoiceCaptureSession.cs                     02
 ⚠ WindowBoundsHelper.cs                      04 05
   ZoomPreviewSimulator.cs                    03
   FvsBuild Program.cs                        05
@@ -234,6 +237,7 @@ CLIPFRAMES_01                                03 §12 FFM-SCRAPER | 02 §5 AUD-CO
 MemeLoudness                                 02 §2 AUD-MASTERING | 03 §12 FFM-SCRAPER
 CANCELREG_01                                 03 §8b FFM-EXPORTLIFETIME
 EXPORTSESSION_01                             03 §8b FFM-EXPORTLIFETIME
+EXPORTSESSION_02                             03 §8b FFM-EXPORTLIFETIME
 FLUSHCEILING_01                              05 §4d SYS-IPCLIFETIME
 FlushMaxWaitMs                               05 §4d SYS-IPCLIFETIME
 GPUPRESENT_01                                04 §7b UI-GPUSLOT
@@ -254,7 +258,7 @@ SETTINGSATOMIC_01                            05 §4c SYS-ATOMICWRITE
 TryRetireSlot                                04 §7b UI-GPUSLOT
 WORKERLIFETIME_01                            03 §8b FFM-EXPORTLIFETIME
 WORKERLIFETIME_02                            03 §8b FFM-EXPORTLIFETIME
-_exportRunning                               03 §8b FFM-EXPORTLIFETIME
+ExportCoordinator                            03 §8b FFM-EXPORTLIFETIME
 _presentGates                                04 §7b UI-GPUSLOT
 _procGate                                    03 §8b FFM-EXPORTLIFETIME
 _lastFreezeTriggerMs                         01 §4 TL-FREEZE
@@ -507,7 +511,12 @@ VOEND_01                                     01 §8 TL-ENDSTOP
 VoiceOverPreviewPlayer                       02 §4 AUD-VOICEOVER
 VoiceOverWindow                              01 (mini-map only) | 02 (mini-map only)
 VoiceRecorder                                02 §4 AUD-VOICEOVER
-VolumeChanged                                02   [code-only: VoiceRecorder.cs, VoiceOverWindow.axaml.cs]
+VoiceCaptureSession                          02 §4 AUD-VOICEOVER
+IVoiceCaptureSession                         02 §4 AUD-VOICEOVER
+VOCAPTURE_01                                 02 §4 AUD-VOICEOVER
+VOCAPTURE_02                                 02 §4 AUD-VOICEOVER
+VOASYNC_02                                   02 §4 AUD-VOICEOVER
+VolumeChanged                                02   [code-only: VoiceRecorder.cs, VoiceCaptureSession.cs]
 VolumeSlider                                 02 (mini-map only)
 VOMON_02                                     02 §4 AUD-VOICEOVER
 WindowBoundsHelper                           04 §8 UI-DETACH | 05 §3 SYS-WINSTATE
